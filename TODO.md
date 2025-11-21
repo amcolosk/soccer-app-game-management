@@ -21,3 +21,14 @@ npm audit fix
   - Find alternative packages
   - Evaluate if the vulnerability affects the application's usage
 - Run `npm audit` to see detailed vulnerability report
+
+## Feature Enhancements
+
+### Position Management
+- [ ] Add position suggestions based on US Soccer standard positions
+  - Goalkeeper (GK)
+  - Defenders: Center Back (CB), Left Back (LB), Right Back (RB), Sweeper (SW)
+  - Midfielders: Defensive Mid (CDM), Central Mid (CM), Attacking Mid (CAM), Left Mid (LM), Right Mid (RM)
+  - Forwards: Left Wing (LW), Right Wing (RW), Striker (ST), Center Forward (CF)
+  - Allow coaches to quickly add standard positions or create custom ones
+  - Consider adding formation templates (4-4-2, 4-3-3, 3-5-2, etc.)

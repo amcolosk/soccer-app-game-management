@@ -80,26 +80,38 @@ export function TeamSelector({ seasonId, onTeamSelect, selectedTeam }: TeamSelec
 
       {isCreating && (
         <div className="create-form">
-          <input
-            type="text"
-            placeholder="Team Name"
-            value={teamName}
-            onChange={(e) => setTeamName(e.target.value)}
-          />
-          <input
-            type="number"
-            placeholder="Max Players on Field"
-            value={maxPlayers}
-            onChange={(e) => setMaxPlayers(e.target.value)}
-            min="1"
-          />
-          <input
-            type="number"
-            placeholder="Half Length (minutes)"
-            value={halfLength}
-            onChange={(e) => setHalfLength(e.target.value)}
-            min="1"
-          />
+          <div className="form-group">
+            <label htmlFor="teamName">Team Name</label>
+            <input
+              id="teamName"
+              type="text"
+              placeholder="Enter team name"
+              value={teamName}
+              onChange={(e) => setTeamName(e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="maxPlayers">Max Players on Field</label>
+            <input
+              id="maxPlayers"
+              type="number"
+              placeholder="e.g., 11 for full field"
+              value={maxPlayers}
+              onChange={(e) => setMaxPlayers(e.target.value)}
+              min="1"
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="halfLength">Half Length (minutes)</label>
+            <input
+              id="halfLength"
+              type="number"
+              placeholder="e.g., 30 minutes"
+              value={halfLength}
+              onChange={(e) => setHalfLength(e.target.value)}
+              min="1"
+            />
+          </div>
           <div className="form-actions">
             <button onClick={handleCreateTeam} className="btn-primary">
               Create

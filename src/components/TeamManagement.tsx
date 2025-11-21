@@ -17,10 +17,11 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
 
   // Player form state
   const [isAddingPlayer, setIsAddingPlayer] = useState(false);
+  const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [playerNumber, setPlayerNumber] = useState("");
-  const [preferredPosition, setPreferredPosition] = useState("");
+  const [preferredPositions, setPreferredPositions] = useState<string[]>([]);
 
   // Position form state
   const [isAddingPosition, setIsAddingPosition] = useState(false);
@@ -65,17 +66,67 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
         firstName,
         lastName,
         playerNumber: num,
-        preferredPosition: preferredPosition || undefined,
+        preferredPosition: preferredPositions.length > 0 ? preferredPositions.join(", ") : undefined,
       });
       setFirstName("");
       setLastName("");
       setPlayerNumber("");
-      setPreferredPosition("");
+      setPreferredPositions([]);
       setIsAddingPlayer(false);
     } catch (error) {
       console.error("Error adding player:", error);
       alert("Failed to add player");
     }
+  };
+
+  const handleEditPlayer = (player: Player) => {
+    setEditingPlayer(player);
+    setFirstName(player.firstName);
+    setLastName(player.lastName);
+    setPlayerNumber(player.playerNumber.toString());
+    setPreferredPositions(player.preferredPosition ? player.preferredPosition.split(', ') : []);
+    setIsAddingPlayer(false);
+  };
+
+  const handleUpdatePlayer = async () => {
+    if (!editingPlayer) return;
+    
+    if (!firstName.trim() || !lastName.trim() || !playerNumber.trim()) {
+      alert("Please fill in all required fields");
+      return;
+    }
+
+    const num = parseInt(playerNumber);
+    if (isNaN(num) || num < 0) {
+      alert("Please enter a valid player number");
+      return;
+    }
+
+    try {
+      await client.models.Player.update({
+        id: editingPlayer.id,
+        firstName,
+        lastName,
+        playerNumber: num,
+        preferredPosition: preferredPositions.length > 0 ? preferredPositions.join(", ") : undefined,
+      });
+      setFirstName("");
+      setLastName("");
+      setPlayerNumber("");
+      setPreferredPositions([]);
+      setEditingPlayer(null);
+    } catch (error) {
+      console.error("Error updating player:", error);
+      alert("Failed to update player");
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingPlayer(null);
+    setFirstName("");
+    setLastName("");
+    setPlayerNumber("");
+    setPreferredPositions([]);
   };
 
   const handleDeletePlayer = async (id: string) => {
@@ -198,10 +249,70 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
 
       {activeTab === "players" && (
         <div className="players-section">
-          {!isAddingPlayer && (
+          {!isAddingPlayer && !editingPlayer && (
             <button onClick={() => setIsAddingPlayer(true)} className="btn-primary">
               + Add Player
             </button>
+          )}
+
+          {editingPlayer && (
+            <div className="create-form">
+              <h3 style={{ margin: '0 0 1rem 0' }}>Edit Player</h3>
+              <input
+                type="text"
+                placeholder="First Name *"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+              />
+              <input
+                type="text"
+                placeholder="Last Name *"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+              />
+              <input
+                type="number"
+                placeholder="Player Number *"
+                value={playerNumber}
+                onChange={(e) => setPlayerNumber(e.target.value)}
+                min="0"
+              />
+              <div className="form-group">
+                <label>Preferred Positions (optional)</label>
+                {positions.length === 0 ? (
+                  <p className="empty-state" style={{ margin: '0.5rem 0', fontSize: '0.9em' }}>
+                    Add positions in the Positions tab first
+                  </p>
+                ) : (
+                  <div className="checkbox-group">
+                    {positions.map((position) => (
+                      <label key={position.id} className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={preferredPositions.includes(position.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setPreferredPositions([...preferredPositions, position.id]);
+                            } else {
+                              setPreferredPositions(preferredPositions.filter(id => id !== position.id));
+                            }
+                          }}
+                        />
+                        <span>{position.abbreviation} - {position.positionName}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="form-actions">
+                <button onClick={handleUpdatePlayer} className="btn-primary">
+                  Update
+                </button>
+                <button onClick={handleCancelEdit} className="btn-secondary">
+                  Cancel
+                </button>
+              </div>
+            </div>
           )}
 
           {isAddingPlayer && (
@@ -225,12 +336,33 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
                 onChange={(e) => setPlayerNumber(e.target.value)}
                 min="0"
               />
-              <input
-                type="text"
-                placeholder="Preferred Position"
-                value={preferredPosition}
-                onChange={(e) => setPreferredPosition(e.target.value)}
-              />
+              <div className="form-group">
+                <label>Preferred Positions (optional)</label>
+                {positions.length === 0 ? (
+                  <p className="empty-state" style={{ margin: '0.5rem 0', fontSize: '0.9em' }}>
+                    Add positions in the Positions tab first
+                  </p>
+                ) : (
+                  <div className="checkbox-group">
+                    {positions.map((position) => (
+                      <label key={position.id} className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={preferredPositions.includes(position.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setPreferredPositions([...preferredPositions, position.id]);
+                            } else {
+                              setPreferredPositions(preferredPositions.filter(id => id !== position.id));
+                            }
+                          }}
+                        />
+                        <span>{position.abbreviation} - {position.positionName}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="form-actions">
                 <button onClick={handleAddPlayer} className="btn-primary">
                   Add
@@ -247,24 +379,42 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
               <p className="empty-state">No players yet. Add your first player!</p>
             )}
             
-            {players.map((player) => (
-              <div key={player.id} className="player-card">
-                <div className="player-number">#{player.playerNumber}</div>
-                <div className="player-info">
-                  <h3>{player.firstName} {player.lastName}</h3>
-                  {player.preferredPosition && (
-                    <p className="player-position">{player.preferredPosition}</p>
-                  )}
+            {players.map((player) => {
+              const preferredPositionNames = player.preferredPosition
+                ? player.preferredPosition.split(', ').map(posId => {
+                    const pos = positions.find(p => p.id === posId);
+                    return pos ? pos.abbreviation : null;
+                  }).filter(Boolean).join(', ')
+                : '';
+              
+              return (
+                <div key={player.id} className="player-card">
+                  <div className="player-number">#{player.playerNumber}</div>
+                  <div className="player-info">
+                    <h3>{player.firstName} {player.lastName}</h3>
+                    {preferredPositionNames && (
+                      <p className="player-position">{preferredPositionNames}</p>
+                    )}
+                  </div>
+                  <div className="card-actions">
+                    <button
+                      onClick={() => handleEditPlayer(player)}
+                      className="btn-edit"
+                      aria-label="Edit player"
+                    >
+                      ✎
+                    </button>
+                    <button
+                      onClick={() => handleDeletePlayer(player.id)}
+                      className="btn-delete"
+                      aria-label="Delete player"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => handleDeletePlayer(player.id)}
-                  className="btn-delete"
-                  aria-label="Delete player"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
