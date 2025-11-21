@@ -78,7 +78,7 @@ export function GameList({ teamId, onGameSelect }: GameListProps) {
     }
   };
 
-  const getStatusBadge = (status?: string) => {
+  const getStatusBadge = (status?: string | null) => {
     const statusClass = status?.toLowerCase() || 'scheduled';
     const statusLabels: { [key: string]: string } = {
       'scheduled': 'Scheduled',
@@ -88,12 +88,12 @@ export function GameList({ teamId, onGameSelect }: GameListProps) {
     };
     return (
       <span className={`status-badge status-${statusClass}`}>
-        {statusLabels[statusClass] || status}
+        {statusLabels[statusClass] || status || 'Scheduled'}
       </span>
     );
   };
 
-  const formatDate = (dateString?: string) => {
+  const formatDate = (dateString?: string | null) => {
     if (!dateString) return "No date set";
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { 

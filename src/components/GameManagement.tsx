@@ -10,7 +10,6 @@ type Player = Schema["Player"]["type"];
 type FieldPosition = Schema["FieldPosition"]["type"];
 type LineupAssignment = Schema["LineupAssignment"]["type"];
 type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
-type Substitution = Schema["Substitution"]["type"];
 
 interface GameManagementProps {
   game: Game;
@@ -23,7 +22,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [positions, setPositions] = useState<FieldPosition[]>([]);
   const [lineup, setLineup] = useState<LineupAssignment[]>([]);
   const [playTimeRecords, setPlayTimeRecords] = useState<PlayTimeRecord[]>([]);
-  const [substitutions, setSubstitutions] = useState<Substitution[]>([]);
   const [gameState, setGameState] = useState(game);
   const [currentTime, setCurrentTime] = useState(game.elapsedSeconds || 0);
   const [isRunning, setIsRunning] = useState(false);
@@ -64,19 +62,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       next: (data) => setPlayTimeRecords([...data.items]),
     });
 
-    // Load substitutions
-    const substitutionSub = client.models.Substitution.observeQuery({
-      filter: { gameId: { eq: game.id } },
-    }).subscribe({
-      next: (data) => setSubstitutions([...data.items]),
-    });
-
     return () => {
       playerSub.unsubscribe();
       positionSub.unsubscribe();
       lineupSub.unsubscribe();
       playTimeSub.unsubscribe();
-      substitutionSub.unsubscribe();
     };
   }, [team.id, game.id]);
 
@@ -357,7 +347,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }
   };
 
-  const getPlayerPlayTime = (playerId: string) => {
+  const getPlayerPlayTimeSeconds = (playerId: string): number => {
     const records = playTimeRecords.filter(r => r.playerId === playerId);
     let totalSeconds = 0;
 
@@ -372,6 +362,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       }
     });
 
+    return totalSeconds;
+  };
+
+  const getPlayerPlayTime = (playerId: string): string => {
+    const totalSeconds = getPlayerPlayTimeSeconds(playerId);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
@@ -611,13 +606,13 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h2>Make Substitution</h2>
             <p className="modal-subtitle">
-              Position: {substitutionPosition.name}
+              Position: {positions.find(p => p.id === substitutionPosition.id)?.positionName || 'Unknown'}
             </p>
-            {currentLineup.find(a => a.positionId === substitutionPosition.id)?.playerId && (
+            {lineup.find((a: LineupAssignment) => a.positionId === substitutionPosition.id)?.playerId && (
               <p className="modal-subtitle">
                 Coming Off: {(() => {
-                  const currentPlayerId = currentLineup.find(a => a.positionId === substitutionPosition.id)?.playerId;
-                  const currentPlayer = players.find(p => p.id === currentPlayerId);
+                  const currentPlayerId = lineup.find((a: LineupAssignment) => a.positionId === substitutionPosition.id)?.playerId;
+                  const currentPlayer = players.find((p: Player) => p.id === currentPlayerId);
                   return currentPlayer ? `#${currentPlayer.playerNumber} ${currentPlayer.firstName}` : 'Unknown';
                 })()}
               </p>
@@ -627,7 +622,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                 .filter(p => !isCurrentlyPlaying(p.id))
                 .sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0))
                 .map(player => {
-                  const playTime = getPlayerPlayTime(player.id);
+                  const playTimeSeconds = getPlayerPlayTimeSeconds(player.id);
                   return (
                     <button
                       key={player.id}
@@ -636,7 +631,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                     >
                       <span>#{player.playerNumber} {player.firstName} {player.lastName}</span>
                       <span className="player-play-time">
-                        {Math.floor(playTime / 60)}:{String(playTime % 60).padStart(2, '0')}
+                        {Math.floor(playTimeSeconds / 60)}:{String(playTimeSeconds % 60).padStart(2, '0')}
                       </span>
                     </button>
                   );
