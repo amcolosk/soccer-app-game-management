@@ -175,8 +175,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             return newTime;
           }
           
-          // Auto-complete at end of game
-          if (gameState.currentHalf === 2 && newTime >= halfLengthSeconds * 2) {
+          // Auto-end game after 2 hours maximum (7200 seconds)
+          if (newTime >= 7200) {
             handleEndGame();
             return newTime;
           }
@@ -366,6 +366,22 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }
   };
 
+  const handleClearAllPositions = async () => {
+    if (!confirm(`Remove all ${startersCount} players from the lineup?`)) {
+      return;
+    }
+
+    try {
+      const deletePromises = lineup.map(assignment =>
+        client.models.LineupAssignment.delete({ id: assignment.id })
+      );
+      await Promise.all(deletePromises);
+    } catch (error) {
+      console.error("Error clearing lineup:", error);
+      alert("Failed to clear lineup");
+    }
+  };
+
   const handleAssignPosition = async (positionId: string) => {
     if (!selectedPlayer) return;
 
@@ -473,7 +489,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
       await Promise.all(updatePromises);
       // END TESTING TIME ONLY
-      
+
     } catch (error) {
       console.error("Error updating time:", error);
     }
@@ -1018,9 +1034,16 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
       {/* Position-based Lineup */}
       <div className="lineup-section">
-        <h2>
-          {gameState.status === 'halftime' ? 'Second Half Lineup' : 'Starting Lineup'} ({startersCount}/{team.maxPlayersOnField})
-        </h2>
+        <div className="lineup-header">
+          <h2>
+            {gameState.status === 'halftime' ? 'Second Half Lineup' : 'Starting Lineup'} ({startersCount}/{team.maxPlayersOnField})
+          </h2>
+          {gameState.status === 'halftime' && startersCount > 0 && (
+            <button onClick={handleClearAllPositions} className="btn-clear-lineup">
+              Clear All Positions
+            </button>
+          )}
+        </div>
         {gameState.status === 'halftime' && (
           <p className="halftime-lineup-hint">
             Make substitutions now for the start of the second half. Players will start with fresh play time tracking.

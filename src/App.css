@@ -593,6 +593,37 @@
   margin: 2rem 0;
 }
 
+.lineup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.lineup-header h2 {
+  margin: 0;
+}
+
+.btn-clear-lineup {
+  padding: 0.75rem 1.5rem;
+  background: white;
+  color: #d32f2f;
+  border: 2px solid #d32f2f;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-clear-lineup:hover {
+  background: #d32f2f;
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(211, 47, 47, 0.3);
+}
+
 .lineup-hint {
   color: var(--text-secondary);
   font-size: 0.9em;
