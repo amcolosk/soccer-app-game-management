@@ -10,7 +10,7 @@ export function TeamSelector({ seasonId, onTeamSelect, selectedTeam }: TeamSelec
   const [isCreating, setIsCreating] = useState(false);
   const [teamName, setTeamName] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("11");
-  const [formation, setFormation] = useState("");
+  const [halfLength, setHalfLength] = useState("30");
 
   useEffect(() => {
     const subscription = client.models.Team.observeQuery({
@@ -34,16 +34,22 @@ export function TeamSelector({ seasonId, onTeamSelect, selectedTeam }: TeamSelec
       return;
     }
 
+    const halfLengthNum = parseInt(halfLength);
+    if (isNaN(halfLengthNum) || halfLengthNum < 1) {
+      alert("Please enter a valid half length");
+      return;
+    }
+
     try {
       await client.models.Team.create({
         name: teamName,
         seasonId: seasonId,
         maxPlayersOnField: maxPlayersNum,
-        formation: formation || undefined,
+        halfLengthMinutes: halfLengthNum,
       });
       setTeamName("");
       setMaxPlayers("11");
-      setFormation("");
+      setHalfLength("30");
       setIsCreating(false);
     } catch (error) {
       console.error("Error creating team:", error);
@@ -88,10 +94,11 @@ export function TeamSelector({ seasonId, onTeamSelect, selectedTeam }: TeamSelec
             min="1"
           />
           <input
-            type="text"
-            placeholder="Formation (e.g., 4-3-3)"
-            value={formation}
-            onChange={(e) => setFormation(e.target.value)}
+            type="number"
+            placeholder="Half Length (minutes)"
+            value={halfLength}
+            onChange={(e) => setHalfLength(e.target.value)}
+            min="1"
           />
           <div className="form-actions">
             <button onClick={handleCreateTeam} className="btn-primary">
@@ -118,8 +125,7 @@ export function TeamSelector({ seasonId, onTeamSelect, selectedTeam }: TeamSelec
             <div className="team-info">
               <h3>{team.name}</h3>
               <div className="team-details">
-                <span>Players: {team.maxPlayersOnField}</span>
-                {team.formation && <span>Formation: {team.formation}</span>}
+                <span>Max Players: {team.maxPlayersOnField}</span>
               </div>
             </div>
             <button

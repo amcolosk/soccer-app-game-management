@@ -2,13 +2,18 @@ import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import type { Player, FieldPosition, TeamManagementProps } from "../types";
+import { GameList } from "./GameList";
+import { GameManagement } from "./GameManagement";
 
 const client = generateClient<Schema>();
+
+type Game = Schema["Game"]["type"];
 
 export function TeamManagement({ team, onBack }: TeamManagementProps) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [positions, setPositions] = useState<FieldPosition[]>([]);
-  const [activeTab, setActiveTab] = useState<"players" | "positions">("players");
+  const [activeTab, setActiveTab] = useState<"players" | "positions" | "games">("players");
+  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
 
   // Player form state
   const [isAddingPlayer, setIsAddingPlayer] = useState(false);
@@ -166,12 +171,17 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
           <h1>{team.name}</h1>
           <div className="team-meta">
             <span>Max Players: {team.maxPlayersOnField}</span>
-            {team.formation && <span>Formation: {team.formation}</span>}
           </div>
         </div>
       </div>
 
       <div className="tabs">
+        <button
+          className={`tab ${activeTab === "games" ? "active" : ""}`}
+          onClick={() => setActiveTab("games")}
+        >
+          Games
+        </button>
         <button
           className={`tab ${activeTab === "players" ? "active" : ""}`}
           onClick={() => setActiveTab("players")}
@@ -326,6 +336,21 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
             ))}
           </div>
         </div>
+      )}
+
+      {activeTab === "games" && !selectedGame && (
+        <GameList 
+          teamId={team.id} 
+          onGameSelect={(game) => setSelectedGame(game)} 
+        />
+      )}
+
+      {selectedGame && (
+        <GameManagement
+          game={selectedGame}
+          team={team}
+          onBack={() => setSelectedGame(null)}
+        />
       )}
     </div>
   );

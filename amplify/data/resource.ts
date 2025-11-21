@@ -25,8 +25,10 @@ const schema = a.schema({
       season: a.belongsTo('Season', 'seasonId'),
       maxPlayersOnField: a.integer().required(),
       formation: a.string(), // e.g., "4-3-3", "4-4-2"
+      halfLengthMinutes: a.integer().default(30),
       players: a.hasMany('Player', 'teamId'),
       positions: a.hasMany('FieldPosition', 'teamId'),
+      games: a.hasMany('Game', 'teamId'),
     })
     .authorization((allow) => [allow.publicApiKey()]),
 
@@ -39,6 +41,10 @@ const schema = a.schema({
       playerNumber: a.integer().required(),
       preferredPosition: a.string(),
       isActive: a.boolean().default(true),
+      lineupAssignments: a.hasMany('LineupAssignment', 'playerId'),
+      substitutionsOut: a.hasMany('Substitution', 'playerOutId'),
+      substitutionsIn: a.hasMany('Substitution', 'playerInId'),
+      playTimeRecords: a.hasMany('PlayTimeRecord', 'playerId'),
     })
     .authorization((allow) => [allow.publicApiKey()]),
 
@@ -49,6 +55,68 @@ const schema = a.schema({
       positionName: a.string().required(), // e.g., "Forward", "Midfielder", "Defender", "Goalkeeper"
       abbreviation: a.string(), // e.g., "FW", "MF", "DF", "GK"
       sortOrder: a.integer(),
+      lineupAssignments: a.hasMany('LineupAssignment', 'positionId'),
+      substitutions: a.hasMany('Substitution', 'positionId'),
+      playTimeRecords: a.hasMany('PlayTimeRecord', 'positionId'),
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  Game: a
+    .model({
+      teamId: a.id().required(),
+      team: a.belongsTo('Team', 'teamId'),
+      opponent: a.string().required(),
+      isHome: a.boolean().required(),
+      gameDate: a.datetime(),
+      status: a.string().default('scheduled'), // scheduled, in-progress, halftime, completed
+      currentHalf: a.integer().default(1), // 1 or 2
+      elapsedSeconds: a.integer().default(0),
+      lastStartTime: a.string(), // ISO timestamp when timer last started
+      lineupAssignments: a.hasMany('LineupAssignment', 'gameId'),
+      substitutions: a.hasMany('Substitution', 'gameId'),
+      playTimeRecords: a.hasMany('PlayTimeRecord', 'gameId'),
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  LineupAssignment: a
+    .model({
+      gameId: a.id().required(),
+      game: a.belongsTo('Game', 'gameId'),
+      playerId: a.id().required(),
+      player: a.belongsTo('Player', 'playerId'),
+      positionId: a.id(),
+      position: a.belongsTo('FieldPosition', 'positionId'),
+      isStarter: a.boolean().required(),
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  Substitution: a
+    .model({
+      gameId: a.id().required(),
+      game: a.belongsTo('Game', 'gameId'),
+      playerOutId: a.id().required(),
+      playerOut: a.belongsTo('Player', 'playerOutId'),
+      playerInId: a.id().required(),
+      playerIn: a.belongsTo('Player', 'playerInId'),
+      positionId: a.id(),
+      position: a.belongsTo('FieldPosition', 'positionId'),
+      gameMinute: a.integer(),
+      half: a.integer(),
+      timestamp: a.datetime(),
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  PlayTimeRecord: a
+    .model({
+      gameId: a.id().required(),
+      game: a.belongsTo('Game', 'gameId'),
+      playerId: a.id().required(),
+      player: a.belongsTo('Player', 'playerId'),
+      positionId: a.id(),
+      position: a.belongsTo('FieldPosition', 'positionId'),
+      startTime: a.datetime().required(), // When player entered field
+      endTime: a.datetime(), // When player left field (null if still playing)
+      durationSeconds: a.integer(), // Calculated duration
     })
     .authorization((allow) => [allow.publicApiKey()]),
 });
