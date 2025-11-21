@@ -29,6 +29,31 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
   const [abbreviation, setAbbreviation] = useState("");
   const [draggedPosition, setDraggedPosition] = useState<FieldPosition | null>(null);
 
+  // Restore active game on mount
+  useEffect(() => {
+    const restoreActiveGame = async () => {
+      try {
+        const activeGameData = localStorage.getItem('activeGame');
+        if (activeGameData) {
+          const { gameId, teamId } = JSON.parse(activeGameData);
+          
+          // Only restore if it's for this team
+          if (teamId === team.id) {
+            const gameResponse = await client.models.Game.get({ id: gameId });
+            if (gameResponse.data) {
+              setSelectedGame(gameResponse.data);
+              setActiveTab('games');
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error restoring active game:', error);
+      }
+    };
+
+    restoreActiveGame();
+  }, [team.id]);
+
   useEffect(() => {
     const playerSub = client.models.Player.observeQuery({
       filter: { teamId: { eq: team.id } },

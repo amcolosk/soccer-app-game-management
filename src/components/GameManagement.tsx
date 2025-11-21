@@ -43,7 +43,62 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [notePlayerId, setNotePlayerId] = useState("");
   const [noteText, setNoteText] = useState("");
 
+  // Substitution queue: array of {playerId, positionId}
+  interface SubQueue {
+    playerId: string;
+    positionId: string;
+  }
+  const [substitutionQueue, setSubstitutionQueue] = useState<SubQueue[]>([]);
+
   const halfLengthSeconds = (team.halfLengthMinutes || 30) * 60;
+
+  // Store active game info for persistence across refreshes
+  useEffect(() => {
+    localStorage.setItem('activeGame', JSON.stringify({
+      gameId: game.id,
+      teamId: team.id,
+      seasonId: team.seasonId,
+    }));
+
+    return () => {
+      // Clear on unmount if game is completed
+      if (gameState.status === 'completed') {
+        localStorage.removeItem('activeGame');
+      }
+    };
+  }, [game.id, team.id, team.seasonId, gameState.status]);
+
+  // Observe game changes and restore state
+  useEffect(() => {
+    const gameSub = client.models.Game.observeQuery({
+      filter: { id: { eq: game.id } },
+    }).subscribe({
+      next: (data) => {
+        if (data.items.length > 0) {
+          const updatedGame = data.items[0];
+          setGameState(updatedGame);
+          
+          // Restore elapsed time from database
+          if (updatedGame.elapsedSeconds !== null && updatedGame.elapsedSeconds !== undefined) {
+            setCurrentTime(updatedGame.elapsedSeconds);
+          }
+          
+          // Auto-resume timer if game was in progress
+          if (updatedGame.status === 'in-progress' && updatedGame.lastStartTime) {
+            const lastStart = new Date(updatedGame.lastStartTime).getTime();
+            const now = Date.now();
+            const additionalSeconds = Math.floor((now - lastStart) / 1000);
+            setCurrentTime((updatedGame.elapsedSeconds || 0) + additionalSeconds);
+            setIsRunning(true);
+          }
+        }
+      },
+    });
+
+    return () => {
+      gameSub.unsubscribe();
+    };
+  }, [game.id]);
 
   useEffect(() => {
     // Load players
@@ -107,6 +162,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   // Timer effect
   useEffect(() => {
     let interval: NodeJS.Timeout;
+    let saveInterval: NodeJS.Timeout;
     
     if (isRunning && gameState.status === 'in-progress') {
       interval = setInterval(() => {
@@ -128,12 +184,22 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           return newTime;
         });
       }, 1000);
+
+      // Save elapsed time to database every 5 seconds
+      saveInterval = setInterval(() => {
+        client.models.Game.update({
+          id: game.id,
+          elapsedSeconds: currentTime,
+          lastStartTime: new Date().toISOString(),
+        }).catch(err => console.error('Error saving elapsed time:', err));
+      }, 5000);
     }
 
     return () => {
       if (interval) clearInterval(interval);
+      if (saveInterval) clearInterval(saveInterval);
     };
-  }, [isRunning, gameState.status, gameState.currentHalf, halfLengthSeconds]);
+  }, [isRunning, gameState.status, gameState.currentHalf, halfLengthSeconds, currentTime, game.id]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -199,6 +265,23 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const handleHalftime = async () => {
     setIsRunning(false);
     try {
+      const endTime = new Date().toISOString();
+      
+      // End all active play time records
+      const activeRecords = playTimeRecords.filter(r => !r.endTime);
+      const endPromises = activeRecords.map(async (record) => {
+        const startTime = new Date(record.startTime!);
+        const durationSeconds = Math.floor((new Date(endTime).getTime() - startTime.getTime()) / 1000);
+        
+        return client.models.PlayTimeRecord.update({
+          id: record.id,
+          endTime: endTime,
+          durationSeconds: durationSeconds,
+        });
+      });
+
+      await Promise.all(endPromises);
+
       await client.models.Game.update({
         id: game.id,
         status: 'halftime',
@@ -212,12 +295,29 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
   const handleStartSecondHalf = async () => {
     try {
+      const startTime = new Date().toISOString();
+      
       await client.models.Game.update({
         id: game.id,
         status: 'in-progress',
         currentHalf: 2,
-        lastStartTime: new Date().toISOString(),
+        lastStartTime: startTime,
       });
+
+      // Create play time records for all players currently in lineup for second half
+      const starterPromises = lineup
+        .filter(l => l.isStarter)
+        .map(l =>
+          client.models.PlayTimeRecord.create({
+            gameId: game.id,
+            playerId: l.playerId,
+            positionId: l.positionId,
+            startTime: startTime,
+          })
+        );
+
+      await Promise.all(starterPromises);
+
       setGameState({ ...gameState, status: 'in-progress', currentHalf: 2 });
       setIsRunning(true);
     } catch (error) {
@@ -314,6 +414,213 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const handleSubstitute = (position: FieldPosition) => {
     setSubstitutionPosition(position);
     setShowSubstitution(true);
+  };
+
+  const handleQueueSubstitution = (playerId: string, positionId: string) => {
+    // Check if already queued for this position
+    const alreadyQueued = substitutionQueue.some(
+      q => q.playerId === playerId && q.positionId === positionId
+    );
+    if (alreadyQueued) {
+      alert("This player is already queued for this position");
+      return;
+    }
+
+    // Check if player is already queued for a different position
+    const queuedElsewhere = substitutionQueue.find(q => q.playerId === playerId);
+    if (queuedElsewhere) {
+      alert("This player is already queued for another position");
+      return;
+    }
+
+    setSubstitutionQueue([...substitutionQueue, { playerId, positionId }]);
+    setShowSubstitution(false);
+    setSubstitutionPosition(null);
+  };
+
+  const handleRemoveFromQueue = (playerId: string, positionId: string) => {
+    setSubstitutionQueue(substitutionQueue.filter(
+      q => !(q.playerId === playerId && q.positionId === positionId)
+    ));
+  };
+
+  const handleAddTestTime = async (minutes: number) => {
+    const secondsToAdd = minutes * 60;
+    const millisecondsToAdd = secondsToAdd * 1000;
+    const newTime = currentTime + secondsToAdd;
+    setCurrentTime(newTime);
+    
+    try {
+      // Update game elapsed time
+      await client.models.Game.update({
+        id: game.id,
+        elapsedSeconds: newTime,
+      });
+
+      // TESTING TIME ONLY
+      // Adjust start times for all active play time records
+      // by moving them back in time to simulate the time passing
+      const activeRecords = playTimeRecords.filter(r => !r.endTime);
+      const updatePromises = activeRecords.map(async (record) => {
+        const currentStartTime = new Date(record.startTime!);
+        const adjustedStartTime = new Date(currentStartTime.getTime() - millisecondsToAdd);
+        
+        return client.models.PlayTimeRecord.update({
+          id: record.id,
+          startTime: adjustedStartTime.toISOString(),
+        });
+      });
+
+      await Promise.all(updatePromises);
+      // END TESTING TIME ONLY
+      
+    } catch (error) {
+      console.error("Error updating time:", error);
+    }
+  };
+
+  const handleExecuteAllSubstitutions = async () => {
+    if (substitutionQueue.length === 0) return;
+
+    const confirmMessage = `Execute all ${substitutionQueue.length} queued substitutions?`;
+    if (!confirm(confirmMessage)) return;
+
+    const timestamp = new Date().toISOString();
+    const gameMinute = Math.floor(currentTime / 60);
+    const half = gameState.currentHalf || 1;
+
+    try {
+      // Process all substitutions
+      for (const queueItem of substitutionQueue) {
+        const { playerId: newPlayerId, positionId } = queueItem;
+
+        const currentAssignment = lineup.find(
+          l => l.positionId === positionId && l.isStarter
+        );
+        if (!currentAssignment) continue;
+
+        const oldPlayerId = currentAssignment.playerId;
+
+        // End play time for outgoing player
+        const activePlayTime = playTimeRecords.find(
+          r => r.playerId === oldPlayerId && !r.endTime
+        );
+        if (activePlayTime) {
+          const startTime = new Date(activePlayTime.startTime!);
+          const durationSeconds = Math.floor((new Date(timestamp).getTime() - startTime.getTime()) / 1000);
+          
+          await client.models.PlayTimeRecord.update({
+            id: activePlayTime.id,
+            endTime: timestamp,
+            durationSeconds: durationSeconds,
+          });
+        }
+
+        // Remove old assignment
+        await client.models.LineupAssignment.delete({ id: currentAssignment.id });
+
+        // Create new assignment
+        await client.models.LineupAssignment.create({
+          gameId: game.id,
+          playerId: newPlayerId,
+          positionId: positionId,
+          isStarter: true,
+        });
+
+        // Start play time for incoming player
+        await client.models.PlayTimeRecord.create({
+          gameId: game.id,
+          playerId: newPlayerId,
+          positionId: positionId,
+          startTime: timestamp,
+        });
+
+        // Record substitution
+        await client.models.Substitution.create({
+          gameId: game.id,
+          playerOutId: oldPlayerId,
+          playerInId: newPlayerId,
+          positionId: positionId,
+          gameMinute: gameMinute,
+          half: half,
+          timestamp: timestamp,
+        });
+      }
+
+      // Clear the entire queue
+      setSubstitutionQueue([]);
+    } catch (error) {
+      console.error("Error executing all substitutions:", error);
+      alert("Failed to execute all substitutions. Some may have been completed.");
+    }
+  };
+
+  const handleExecuteSubstitution = async (queueItem: SubQueue) => {
+    const { playerId: newPlayerId, positionId } = queueItem;
+
+    const currentAssignment = lineup.find(
+      l => l.positionId === positionId && l.isStarter
+    );
+    if (!currentAssignment) {
+      alert("No player currently in this position");
+      return;
+    }
+
+    const oldPlayerId = currentAssignment.playerId;
+
+    try {
+      // End play time for outgoing player
+      const activePlayTime = playTimeRecords.find(
+        r => r.playerId === oldPlayerId && !r.endTime
+      );
+      if (activePlayTime) {
+        const endTime = new Date().toISOString();
+        const startTime = new Date(activePlayTime.startTime!);
+        const durationSeconds = Math.floor((new Date(endTime).getTime() - startTime.getTime()) / 1000);
+        
+        await client.models.PlayTimeRecord.update({
+          id: activePlayTime.id,
+          endTime: endTime,
+          durationSeconds: durationSeconds,
+        });
+      }
+
+      // Remove old assignment
+      await client.models.LineupAssignment.delete({ id: currentAssignment.id });
+
+      // Create new assignment
+      await client.models.LineupAssignment.create({
+        gameId: game.id,
+        playerId: newPlayerId,
+        positionId: positionId,
+        isStarter: true,
+      });
+
+      // Start play time for incoming player
+      await client.models.PlayTimeRecord.create({
+        gameId: game.id,
+        playerId: newPlayerId,
+        positionId: positionId,
+        startTime: new Date().toISOString(),
+      });
+
+      // Record substitution
+      await client.models.Substitution.create({
+        gameId: game.id,
+        playerOutId: oldPlayerId,
+        playerInId: newPlayerId,
+        positionId: positionId,
+        gameMinute: Math.floor(currentTime / 60),
+        half: gameState.currentHalf || 1,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Remove from queue
+      handleRemoveFromQueue(newPlayerId, positionId);
+    } catch (error) {
+      console.error("Error making substitution:", error);
+      alert("Failed to make substitution");
+    }
   };
 
   const handleMakeSubstitution = async (newPlayerId: string) => {
@@ -561,6 +868,68 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         </div>
       )}
 
+      {/* Substitution Queue */}
+      {substitutionQueue.length > 0 && gameState.status === 'in-progress' && (
+        <div className="sub-queue-section">
+          <div className="sub-queue-header">
+            <h3>Substitution Queue ({substitutionQueue.length})</h3>
+            <button 
+              onClick={handleExecuteAllSubstitutions}
+              className="btn-sub-all"
+              title="Execute all queued substitutions at once"
+            >
+              ⚽ Sub All Now
+            </button>
+          </div>
+          <p className="sub-queue-hint">Players ready to substitute in when referee allows</p>
+          <div className="sub-queue-list">
+            {substitutionQueue.map((queueItem) => {
+              const player = players.find(p => p.id === queueItem.playerId);
+              const position = positions.find(p => p.id === queueItem.positionId);
+              const currentAssignment = lineup.find(l => l.positionId === queueItem.positionId && l.isStarter);
+              const currentPlayer = currentAssignment ? players.find(p => p.id === currentAssignment.playerId) : null;
+              
+              if (!player || !position) return null;
+
+              return (
+                <div key={`${queueItem.playerId}-${queueItem.positionId}`} className="sub-queue-item">
+                  <div className="sub-queue-info">
+                    <div className="sub-queue-position">
+                      {position.abbreviation} - {position.positionName}
+                    </div>
+                    <div className="sub-queue-players">
+                      <span className="player-out">
+                        {currentPlayer ? `#${currentPlayer.playerNumber} ${currentPlayer.firstName}` : 'N/A'}
+                      </span>
+                      <span className="sub-arrow">→</span>
+                      <span className="player-in">
+                        #{player.playerNumber} {player.firstName} {player.lastName}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="sub-queue-actions">
+                    <button
+                      onClick={() => handleExecuteSubstitution(queueItem)}
+                      className="btn-execute-sub"
+                      title="Execute substitution now"
+                    >
+                      ✓ Sub Now
+                    </button>
+                    <button
+                      onClick={() => handleRemoveFromQueue(queueItem.playerId, queueItem.positionId)}
+                      className="btn-remove-queue"
+                      title="Remove from queue"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Game Timer */}
       <div className="game-timer-card">
         <div className="timer-display">
@@ -574,6 +943,27 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             / {formatTime(halfLengthSeconds)}
           </div>
         </div>
+
+        {/* Testing Controls */}
+        {gameState.status === 'in-progress' && (
+          <div className="testing-controls">
+            <span className="testing-label">Testing:</span>
+            <button 
+              onClick={() => handleAddTestTime(1)} 
+              className="btn-test-time"
+              title="Add 1 minute for testing"
+            >
+              +1 min
+            </button>
+            <button 
+              onClick={() => handleAddTestTime(5)} 
+              className="btn-test-time"
+              title="Add 5 minutes for testing"
+            >
+              +5 min
+            </button>
+          </div>
+        )}
 
         <div className="timer-controls">
           {gameState.status === 'scheduled' && (
@@ -607,9 +997,15 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           )}
 
           {gameState.status === 'halftime' && (
-            <button onClick={handleStartSecondHalf} className="btn-primary btn-large">
-              Start Second Half
-            </button>
+            <div className="halftime-controls">
+              <div className="halftime-message">
+                <h3>⏸️ Halftime</h3>
+                <p>Adjust your lineup below if needed, then start the second half</p>
+              </div>
+              <button onClick={handleStartSecondHalf} className="btn-primary btn-large">
+                Start Second Half
+              </button>
+            </div>
           )}
 
           {gameState.status === 'completed' && (
@@ -623,8 +1019,13 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       {/* Position-based Lineup */}
       <div className="lineup-section">
         <h2>
-          Starting Lineup ({startersCount}/{team.maxPlayersOnField})
+          {gameState.status === 'halftime' ? 'Second Half Lineup' : 'Starting Lineup'} ({startersCount}/{team.maxPlayersOnField})
         </h2>
+        {gameState.status === 'halftime' && (
+          <p className="halftime-lineup-hint">
+            Make substitutions now for the start of the second half. Players will start with fresh play time tracking.
+          </p>
+        )}
 
         {positions.length === 0 ? (
           <p className="empty-state">
@@ -768,7 +1169,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       {showSubstitution && substitutionPosition && (
         <div className="modal-overlay" onClick={() => setShowSubstitution(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>Make Substitution</h2>
+            <h2>Substitution</h2>
             <p className="modal-subtitle">
               Position: {positions.find(p => p.id === substitutionPosition.id)?.positionName || 'Unknown'}
             </p>
@@ -781,23 +1182,41 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                 })()}
               </p>
             )}
+            <p style={{ fontSize: '0.9em', color: '#666', marginBottom: '1rem' }}>
+              Queue players when ready, execute when referee allows
+            </p>
             <div className="position-picker-list">
               {players
                 .filter(p => !isCurrentlyPlaying(p.id))
+                .filter(p => !substitutionQueue.some(q => q.playerId === p.id))
                 .sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0))
                 .map(player => {
                   const playTimeSeconds = getPlayerPlayTimeSeconds(player.id);
                   return (
-                    <button
-                      key={player.id}
-                      onClick={() => handleMakeSubstitution(player.id)}
-                      className="position-picker-item"
-                    >
-                      <span>#{player.playerNumber} {player.firstName} {player.lastName}</span>
-                      <span className="player-play-time">
-                        {Math.floor(playTimeSeconds / 60)}:{String(playTimeSeconds % 60).padStart(2, '0')}
-                      </span>
-                    </button>
+                    <div key={player.id} className="sub-player-item">
+                      <div className="sub-player-info">
+                        <span>#{player.playerNumber} {player.firstName} {player.lastName}</span>
+                        <span className="player-play-time">
+                          {Math.floor(playTimeSeconds / 60)}:{String(playTimeSeconds % 60).padStart(2, '0')}
+                        </span>
+                      </div>
+                      <div className="sub-player-actions">
+                        <button
+                          onClick={() => handleQueueSubstitution(player.id, substitutionPosition.id)}
+                          className="btn-queue"
+                          title="Add to substitution queue"
+                        >
+                          Queue
+                        </button>
+                        <button
+                          onClick={() => handleMakeSubstitution(player.id)}
+                          className="btn-sub-now"
+                          title="Substitute immediately"
+                        >
+                          Sub Now
+                        </button>
+                      </div>
+                    </div>
                   );
                 })}
             </div>
@@ -806,7 +1225,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               className="btn-secondary"
               style={{ marginTop: '1rem', width: '100%' }}
             >
-              Cancel
+              Close
             </button>
           </div>
         </div>
