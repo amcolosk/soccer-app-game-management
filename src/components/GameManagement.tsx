@@ -10,6 +10,7 @@ type Player = Schema["Player"]["type"];
 type FieldPosition = Schema["FieldPosition"]["type"];
 type LineupAssignment = Schema["LineupAssignment"]["type"];
 type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
+type Goal = Schema["Goal"]["type"];
 
 interface GameManagementProps {
   game: Game;
@@ -22,6 +23,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [positions, setPositions] = useState<FieldPosition[]>([]);
   const [lineup, setLineup] = useState<LineupAssignment[]>([]);
   const [playTimeRecords, setPlayTimeRecords] = useState<PlayTimeRecord[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [gameState, setGameState] = useState(game);
   const [currentTime, setCurrentTime] = useState(game.elapsedSeconds || 0);
   const [isRunning, setIsRunning] = useState(false);
@@ -29,7 +31,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [showPositionPicker, setShowPositionPicker] = useState(false);
   const [showSubstitution, setShowSubstitution] = useState(false);
   const [substitutionPosition, setSubstitutionPosition] = useState<FieldPosition | null>(null);
-  const [showPlayTime, setShowPlayTime] = useState(false);
+  const [showGoalModal, setShowGoalModal] = useState(false);
+  const [goalScoredByUs, setGoalScoredByUs] = useState(true);
+  const [goalScorerId, setGoalScorerId] = useState("");
+  const [goalAssistId, setGoalAssistId] = useState("");
+  const [goalNotes, setGoalNotes] = useState("");
 
   const halfLengthSeconds = (team.halfLengthMinutes || 30) * 60;
 
@@ -62,11 +68,22 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       next: (data) => setPlayTimeRecords([...data.items]),
     });
 
+    // Load goals
+    const goalSub = client.models.Goal.observeQuery({
+      filter: { gameId: { eq: game.id } },
+    }).subscribe({
+      next: (data) => setGoals([...data.items].sort((a, b) => {
+        if (a.half !== b.half) return a.half - b.half;
+        return a.gameMinute - b.gameMinute;
+      })),
+    });
+
     return () => {
       playerSub.unsubscribe();
       positionSub.unsubscribe();
       lineupSub.unsubscribe();
       playTimeSub.unsubscribe();
+      goalSub.unsubscribe();
     };
   }, [team.id, game.id]);
 
@@ -376,6 +393,52 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     return playTimeRecords.some(r => r.playerId === playerId && !r.endTime);
   };
 
+  const handleOpenGoalModal = (scoredByUs: boolean) => {
+    setGoalScoredByUs(scoredByUs);
+    setGoalScorerId("");
+    setGoalAssistId("");
+    setGoalNotes("");
+    setShowGoalModal(true);
+  };
+
+  const handleRecordGoal = async () => {
+    if (goalScoredByUs && !goalScorerId) {
+      alert("Please select who scored the goal");
+      return;
+    }
+
+    try {
+      const gameMinute = Math.floor(getCurrentHalfTime() / 60);
+      
+      await client.models.Goal.create({
+        gameId: game.id,
+        scoredByUs: goalScoredByUs,
+        gameMinute,
+        half: gameState.currentHalf || 1,
+        scorerId: goalScoredByUs && goalScorerId ? goalScorerId : undefined,
+        assistId: goalScoredByUs && goalAssistId ? goalAssistId : undefined,
+        notes: goalNotes || undefined,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Update game score
+      const newOurScore = goalScoredByUs ? (gameState.ourScore || 0) + 1 : (gameState.ourScore || 0);
+      const newOpponentScore = !goalScoredByUs ? (gameState.opponentScore || 0) + 1 : (gameState.opponentScore || 0);
+
+      await client.models.Game.update({
+        id: game.id,
+        ourScore: newOurScore,
+        opponentScore: newOpponentScore,
+      });
+
+      setGameState({ ...gameState, ourScore: newOurScore, opponentScore: newOpponentScore });
+      setShowGoalModal(false);
+    } catch (error) {
+      console.error("Error recording goal:", error);
+      alert("Failed to record goal");
+    }
+  };
+
   const startersCount = lineup.filter(l => l.isStarter).length;
 
   return (
@@ -391,6 +454,31 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           </span>
         </div>
       </div>
+
+      {/* Score Display */}
+      <div className="score-display">
+        <div className="score-team">
+          <div className="team-name">Us</div>
+          <div className="score">{gameState.ourScore || 0}</div>
+        </div>
+        <div className="score-divider">-</div>
+        <div className="score-team">
+          <div className="team-name">{gameState.opponent}</div>
+          <div className="score">{gameState.opponentScore || 0}</div>
+        </div>
+      </div>
+
+      {/* Goal Buttons */}
+      {gameState.status !== 'scheduled' && gameState.status !== 'completed' && (
+        <div className="goal-buttons">
+          <button onClick={() => handleOpenGoalModal(true)} className="btn-goal btn-goal-us">
+            ⚽ Goal - Us
+          </button>
+          <button onClick={() => handleOpenGoalModal(false)} className="btn-goal btn-goal-opponent">
+            ⚽ Goal - {gameState.opponent}
+          </button>
+        </div>
+      )}
 
       {/* Game Timer */}
       <div className="game-timer-card">
@@ -515,12 +603,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               })}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2rem' }}>
-              <h3>Available Players</h3>
-              <button onClick={() => setShowPlayTime(!showPlayTime)} className="btn-secondary">
-                {showPlayTime ? 'Hide' : 'Show'} Play Time Stats
-              </button>
-            </div>
+            <h3 style={{ marginTop: '2rem' }}>Available Players</h3>
             <p className="lineup-hint">Click a player to assign them to a position</p>
 
             <div className="player-list">
@@ -543,7 +626,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                           Playing: {assignedPosition.positionName}
                         </p>
                       )}
-                      {showPlayTime && playTime !== '0:00' && (
+                      {playTime !== '0:00' && (
                         <p className="player-play-time">
                           ⏱️ Time played: {playTime}
                         </p>
@@ -644,6 +727,137 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Goal Recording Modal */}
+      {showGoalModal && (
+        <div className="modal-overlay" onClick={() => setShowGoalModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2>Record Goal</h2>
+            <p className="modal-subtitle">
+              {goalScoredByUs ? 'Our Goal' : `${gameState.opponent} Goal`} - {Math.floor(getCurrentHalfTime() / 60)}' ({gameState.currentHalf === 1 ? '1st' : '2nd'} Half)
+            </p>
+            
+            {goalScoredByUs && (
+              <>
+                <div className="form-group">
+                  <label htmlFor="goalScorer">Who Scored? *</label>
+                  <select
+                    id="goalScorer"
+                    value={goalScorerId}
+                    onChange={(e) => setGoalScorerId(e.target.value)}
+                    style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                  >
+                    <option value="">Select player...</option>
+                    {players
+                      .sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0))
+                      .map(player => (
+                        <option key={player.id} value={player.id}>
+                          #{player.playerNumber} {player.firstName} {player.lastName}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="goalAssist">Assisted By (optional)</label>
+                  <select
+                    id="goalAssist"
+                    value={goalAssistId}
+                    onChange={(e) => setGoalAssistId(e.target.value)}
+                    style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                  >
+                    <option value="">No assist / Select player...</option>
+                    {players
+                      .filter(p => p.id !== goalScorerId)
+                      .sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0))
+                      .map(player => (
+                        <option key={player.id} value={player.id}>
+                          #{player.playerNumber} {player.firstName} {player.lastName}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="goalNotes">Notes (optional)</label>
+                  <textarea
+                    id="goalNotes"
+                    value={goalNotes}
+                    onChange={(e) => setGoalNotes(e.target.value)}
+                    placeholder="e.g., header, penalty, great shot..."
+                    rows={3}
+                    style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', resize: 'vertical' }}
+                  />
+                </div>
+              </>
+            )}
+
+            {!goalScoredByUs && (
+              <div className="form-group">
+                <label htmlFor="goalNotes">Notes (optional)</label>
+                <textarea
+                  id="goalNotes"
+                  value={goalNotes}
+                  onChange={(e) => setGoalNotes(e.target.value)}
+                  placeholder="Any notes about the goal..."
+                  rows={3}
+                  style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', resize: 'vertical' }}
+                />
+              </div>
+            )}
+
+            <div className="form-actions">
+              <button onClick={handleRecordGoal} className="btn-primary">
+                Record Goal
+              </button>
+              <button onClick={() => setShowGoalModal(false)} className="btn-secondary">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Goals List */}
+      {goals.length > 0 && (
+        <div className="goals-section">
+          <h3>Goals</h3>
+          <div className="goals-list">
+            {goals.map((goal) => {
+              const scorer = goal.scorerId ? players.find(p => p.id === goal.scorerId) : null;
+              const assist = goal.assistId ? players.find(p => p.id === goal.assistId) : null;
+              return (
+                <div key={goal.id} className={`goal-card ${goal.scoredByUs ? 'goal-us' : 'goal-opponent'}`}>
+                  <div className="goal-icon">⚽</div>
+                  <div className="goal-info">
+                    <div className="goal-header">
+                      <span className="goal-minute">{goal.gameMinute}'</span>
+                      <span className="goal-half">({goal.half === 1 ? '1st' : '2nd'} Half)</span>
+                    </div>
+                    {goal.scoredByUs ? (
+                      <>
+                        {scorer && (
+                          <div className="goal-scorer">
+                            #{scorer.playerNumber} {scorer.firstName} {scorer.lastName}
+                          </div>
+                        )}
+                        {assist && (
+                          <div className="goal-assist">
+                            Assist: #{assist.playerNumber} {assist.firstName}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="goal-opponent-label">{gameState.opponent}</div>
+                    )}
+                    {goal.notes && <div className="goal-notes">{goal.notes}</div>}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

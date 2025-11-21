@@ -810,3 +810,178 @@
   background: var(--card-background);
   border-radius: 6px;
 }
+
+/* Score Display */
+.score-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+  padding: 2rem;
+  background: var(--card-background);
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  margin-bottom: 1.5rem;
+}
+
+.score-team {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.score-team .team-name {
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.score-team .score {
+  font-size: 3em;
+  font-weight: bold;
+  color: var(--primary-green);
+}
+
+.score-divider {
+  font-size: 2em;
+  color: var(--text-secondary);
+  font-weight: 300;
+}
+
+/* Goal Buttons */
+.goal-buttons {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.btn-goal {
+  flex: 1;
+  padding: 1rem;
+  border: none;
+  border-radius: 10px;
+  font-size: 1.1em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.btn-goal-us {
+  background: var(--primary-green);
+  color: white;
+}
+
+.btn-goal-us:hover {
+  background: #155f2e;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(26, 71, 42, 0.3);
+}
+
+.btn-goal-opponent {
+  background: #d32f2f;
+  color: white;
+}
+
+.btn-goal-opponent:hover {
+  background: #b71c1c;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);
+}
+
+/* Goals Section */
+.goals-section {
+  margin: 2rem 0;
+  padding: 1.5rem;
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+}
+
+.goals-section h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+
+.goals-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.goal-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 8px;
+  border-left: 4px solid;
+}
+
+.goal-card.goal-us {
+  background: rgba(26, 71, 42, 0.05);
+  border-left-color: var(--primary-green);
+}
+
+.goal-card.goal-opponent {
+  background: rgba(211, 47, 47, 0.05);
+  border-left-color: #d32f2f;
+}
+
+.goal-icon {
+  font-size: 1.5em;
+  flex-shrink: 0;
+}
+
+.goal-info {
+  flex: 1;
+}
+
+.goal-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.goal-minute {
+  font-weight: bold;
+  font-size: 1.1em;
+  color: var(--primary-green);
+}
+
+.goal-half {
+  font-size: 0.85em;
+  color: var(--text-secondary);
+}
+
+.goal-scorer {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.goal-assist {
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.goal-opponent-label {
+  font-weight: 600;
+  color: #d32f2f;
+}
+
+.goal-notes {
+  margin-top: 0.5rem;
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+}

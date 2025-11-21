@@ -45,6 +45,8 @@ const schema = a.schema({
       substitutionsOut: a.hasMany('Substitution', 'playerOutId'),
       substitutionsIn: a.hasMany('Substitution', 'playerInId'),
       playTimeRecords: a.hasMany('PlayTimeRecord', 'playerId'),
+      goalsScored: a.hasMany('Goal', 'scorerId'),
+      assists: a.hasMany('Goal', 'assistId'),
     })
     .authorization((allow) => [allow.publicApiKey()]),
 
@@ -72,9 +74,12 @@ const schema = a.schema({
       currentHalf: a.integer().default(1), // 1 or 2
       elapsedSeconds: a.integer().default(0),
       lastStartTime: a.string(), // ISO timestamp when timer last started
+      ourScore: a.integer().default(0),
+      opponentScore: a.integer().default(0),
       lineupAssignments: a.hasMany('LineupAssignment', 'gameId'),
       substitutions: a.hasMany('Substitution', 'gameId'),
       playTimeRecords: a.hasMany('PlayTimeRecord', 'gameId'),
+      goals: a.hasMany('Goal', 'gameId'),
     })
     .authorization((allow) => [allow.publicApiKey()]),
 
@@ -117,6 +122,22 @@ const schema = a.schema({
       startTime: a.datetime().required(), // When player entered field
       endTime: a.datetime(), // When player left field (null if still playing)
       durationSeconds: a.integer(), // Calculated duration
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  Goal: a
+    .model({
+      gameId: a.id().required(),
+      game: a.belongsTo('Game', 'gameId'),
+      scoredByUs: a.boolean().required(), // true if our team scored, false if opponent
+      gameMinute: a.integer().required(), // Game time when goal was scored
+      half: a.integer().required(), // 1 or 2
+      scorerId: a.id(), // Player who scored (only if scoredByUs is true)
+      scorer: a.belongsTo('Player', 'scorerId'),
+      assistId: a.id(), // Player who assisted (optional)
+      assist: a.belongsTo('Player', 'assistId'),
+      notes: a.string(), // Any additional notes about the goal
+      timestamp: a.datetime().required(), // Real-world timestamp when goal was recorded
     })
     .authorization((allow) => [allow.publicApiKey()]),
 });
