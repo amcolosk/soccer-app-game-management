@@ -47,6 +47,7 @@ const schema = a.schema({
       playTimeRecords: a.hasMany('PlayTimeRecord', 'playerId'),
       goalsScored: a.hasMany('Goal', 'scorerId'),
       assists: a.hasMany('Goal', 'assistId'),
+      gameNotes: a.hasMany('GameNote', 'playerId'),
     })
     .authorization((allow) => [allow.publicApiKey()]),
 
@@ -80,6 +81,7 @@ const schema = a.schema({
       substitutions: a.hasMany('Substitution', 'gameId'),
       playTimeRecords: a.hasMany('PlayTimeRecord', 'gameId'),
       goals: a.hasMany('Goal', 'gameId'),
+      gameNotes: a.hasMany('GameNote', 'gameId'),
     })
     .authorization((allow) => [allow.publicApiKey()]),
 
@@ -138,6 +140,20 @@ const schema = a.schema({
       assist: a.belongsTo('Player', 'assistId'),
       notes: a.string(), // Any additional notes about the goal
       timestamp: a.datetime().required(), // Real-world timestamp when goal was recorded
+    })
+    .authorization((allow) => [allow.publicApiKey()]),
+
+  GameNote: a
+    .model({
+      gameId: a.id().required(),
+      game: a.belongsTo('Game', 'gameId'),
+      noteType: a.string().required(), // 'gold-star', 'yellow-card', 'red-card', 'other'
+      playerId: a.id(), // Optional - can be associated with a player
+      player: a.belongsTo('Player', 'playerId'),
+      gameMinute: a.integer().required(), // Game time when note was created
+      half: a.integer().required(), // 1 or 2
+      notes: a.string(), // The actual note text
+      timestamp: a.datetime().required(), // Real-world timestamp when note was created
     })
     .authorization((allow) => [allow.publicApiKey()]),
 });

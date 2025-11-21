@@ -11,6 +11,7 @@ type FieldPosition = Schema["FieldPosition"]["type"];
 type LineupAssignment = Schema["LineupAssignment"]["type"];
 type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
 type Goal = Schema["Goal"]["type"];
+type GameNote = Schema["GameNote"]["type"];
 
 interface GameManagementProps {
   game: Game;
@@ -24,6 +25,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [lineup, setLineup] = useState<LineupAssignment[]>([]);
   const [playTimeRecords, setPlayTimeRecords] = useState<PlayTimeRecord[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [gameNotes, setGameNotes] = useState<GameNote[]>([]);
   const [gameState, setGameState] = useState(game);
   const [currentTime, setCurrentTime] = useState(game.elapsedSeconds || 0);
   const [isRunning, setIsRunning] = useState(false);
@@ -36,6 +38,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [goalScorerId, setGoalScorerId] = useState("");
   const [goalAssistId, setGoalAssistId] = useState("");
   const [goalNotes, setGoalNotes] = useState("");
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [noteType, setNoteType] = useState<'gold-star' | 'yellow-card' | 'red-card' | 'other'>('other');
+  const [notePlayerId, setNotePlayerId] = useState("");
+  const [noteText, setNoteText] = useState("");
 
   const halfLengthSeconds = (team.halfLengthMinutes || 30) * 60;
 
@@ -78,12 +84,23 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       })),
     });
 
+    // Load game notes
+    const noteSub = client.models.GameNote.observeQuery({
+      filter: { gameId: { eq: game.id } },
+    }).subscribe({
+      next: (data) => setGameNotes([...data.items].sort((a, b) => {
+        if (a.half !== b.half) return a.half - b.half;
+        return a.gameMinute - b.gameMinute;
+      })),
+    });
+
     return () => {
       playerSub.unsubscribe();
       positionSub.unsubscribe();
       lineupSub.unsubscribe();
       playTimeSub.unsubscribe();
       goalSub.unsubscribe();
+      noteSub.unsubscribe();
     };
   }, [team.id, game.id]);
 
@@ -439,6 +456,52 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }
   };
 
+  const handleOpenNoteModal = (type: 'gold-star' | 'yellow-card' | 'red-card' | 'other') => {
+    setNoteType(type);
+    setNotePlayerId("");
+    setNoteText("");
+    setShowNoteModal(true);
+  };
+
+  const handleSaveNote = async () => {
+    try {
+      const gameMinute = Math.floor(getCurrentHalfTime() / 60);
+      
+      await client.models.GameNote.create({
+        gameId: game.id,
+        noteType,
+        playerId: notePlayerId || undefined,
+        gameMinute,
+        half: gameState.currentHalf || 1,
+        notes: noteText || undefined,
+        timestamp: new Date().toISOString(),
+      });
+
+      setShowNoteModal(false);
+    } catch (error) {
+      console.error("Error saving note:", error);
+      alert("Failed to save note");
+    }
+  };
+
+  const getNoteIcon = (type: string) => {
+    switch (type) {
+      case 'gold-star': return '⭐';
+      case 'yellow-card': return '🟨';
+      case 'red-card': return '🟥';
+      default: return '📝';
+    }
+  };
+
+  const getNoteLabel = (type: string) => {
+    switch (type) {
+      case 'gold-star': return 'Gold Star';
+      case 'yellow-card': return 'Yellow Card';
+      case 'red-card': return 'Red Card';
+      default: return 'Note';
+    }
+  };
+
   const startersCount = lineup.filter(l => l.isStarter).length;
 
   return (
@@ -476,6 +539,24 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           </button>
           <button onClick={() => handleOpenGoalModal(false)} className="btn-goal btn-goal-opponent">
             ⚽ Goal - {gameState.opponent}
+          </button>
+        </div>
+      )}
+
+      {/* Note Buttons */}
+      {gameState.status !== 'scheduled' && gameState.status !== 'completed' && (
+        <div className="note-buttons">
+          <button onClick={() => handleOpenNoteModal('gold-star')} className="btn-note btn-note-gold">
+            ⭐ Gold Star
+          </button>
+          <button onClick={() => handleOpenNoteModal('yellow-card')} className="btn-note btn-note-yellow">
+            🟨 Yellow Card
+          </button>
+          <button onClick={() => handleOpenNoteModal('red-card')} className="btn-note btn-note-red">
+            🟥 Red Card
+          </button>
+          <button onClick={() => handleOpenNoteModal('other')} className="btn-note btn-note-other">
+            📝 Note
           </button>
         </div>
       )}
@@ -854,6 +935,87 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                       <div className="goal-opponent-label">{gameState.opponent}</div>
                     )}
                     {goal.notes && <div className="goal-notes">{goal.notes}</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Note Modal */}
+      {showNoteModal && (
+        <div className="modal-overlay" onClick={() => setShowNoteModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2>{getNoteIcon(noteType)} {getNoteLabel(noteType)}</h2>
+            <p className="modal-subtitle">
+              {Math.floor(getCurrentHalfTime() / 60)}' ({gameState.currentHalf === 1 ? '1st' : '2nd'} Half)
+            </p>
+            
+            <div className="form-group">
+              <label htmlFor="notePlayer">Player (optional)</label>
+              <select
+                id="notePlayer"
+                value={notePlayerId}
+                onChange={(e) => setNotePlayerId(e.target.value)}
+                style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+              >
+                <option value="">None / General note</option>
+                {players
+                  .sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0))
+                  .map(player => (
+                    <option key={player.id} value={player.id}>
+                      #{player.playerNumber} {player.firstName} {player.lastName}
+                    </option>
+                  ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="noteText">Note</label>
+              <textarea
+                id="noteText"
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="Add your note here..."
+                rows={4}
+                style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', resize: 'vertical' }}
+              />
+            </div>
+
+            <div className="form-actions">
+              <button onClick={handleSaveNote} className="btn-primary">
+                Save Note
+              </button>
+              <button onClick={() => setShowNoteModal(false)} className="btn-secondary">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Game Notes List */}
+      {gameNotes.length > 0 && (
+        <div className="notes-section">
+          <h3>Game Notes</h3>
+          <div className="notes-list">
+            {gameNotes.map((note) => {
+              const notePlayer = note.playerId ? players.find(p => p.id === note.playerId) : null;
+              return (
+                <div key={note.id} className={`note-card note-${note.noteType}`}>
+                  <div className="note-icon">{getNoteIcon(note.noteType)}</div>
+                  <div className="note-info">
+                    <div className="note-header">
+                      <span className="note-type">{getNoteLabel(note.noteType)}</span>
+                      <span className="note-time">{note.gameMinute}' ({note.half === 1 ? '1st' : '2nd'} Half)</span>
+                    </div>
+                    {notePlayer && (
+                      <div className="note-player">
+                        #{notePlayer.playerNumber} {notePlayer.firstName} {notePlayer.lastName}
+                      </div>
+                    )}
+                    {note.notes && <div className="note-text">{note.notes}</div>}
                   </div>
                 </div>
               );

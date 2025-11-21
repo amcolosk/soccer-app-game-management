@@ -8,24 +8,28 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon-192.png', 'icon-512.png'],
+      includeAssets: ['soccer_app_192.png', 'soccer_app_512.png'],
       manifest: {
-        name: 'Soccer Coach Manager',
+        name: 'Soccer Game Management',
         short_name: 'SoccerCoach',
-        description: 'A progressive web app for managing soccer teams from a coach\'s perspective',
+        description: 'Manage your soccer team, track game time, and record goals',
         theme_color: '#1a472a',
         background_color: '#ffffff',
         display: 'standalone',
+        start_url: '/',
+        scope: '/',
         icons: [
           {
-            src: 'icon-192.png',
+            src: 'soccer_app_192.png',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           },
           {
-            src: 'icon-512.png',
+            src: 'soccer_app_512.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           }
         ]
       },
