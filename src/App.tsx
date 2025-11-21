@@ -4,6 +4,7 @@ import { SeasonSelector } from "./components/SeasonSelector";
 import { TeamSelector } from "./components/TeamSelector";
 import { TeamManagement } from "./components/TeamManagement";
 import type { Season, Team } from "./types";
+import "./App.css";
 
 function App() {
   const { signOut } = useAuthenticator();

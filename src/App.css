@@ -35,7 +35,7 @@
 .season-card,
 .team-card {
   background: var(--card-background);
-  border: 2px solid var(--border-color);
+  border: 3px solid var(--border-color);
   border-radius: 12px;
   padding: 1.5rem;
   cursor: pointer;
@@ -43,19 +43,48 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  position: relative;
+}
+
+.season-card::before,
+.team-card::before {
+  content: '→';
+  position: absolute;
+  right: 3rem;
+  font-size: 1.5em;
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: all 0.2s ease;
 }
 
 .season-card:hover,
 .team-card:hover {
   border-color: var(--primary-green);
-  box-shadow: 0 4px 12px rgba(26, 71, 42, 0.15);
-  transform: translateY(-2px);
+  border-width: 3px;
+  box-shadow: 0 6px 16px rgba(26, 71, 42, 0.2);
+  transform: translateY(-3px);
+  background: rgba(26, 71, 42, 0.02);
+}
+
+.season-card:hover::before,
+.team-card:hover::before {
+  opacity: 1;
+  right: 3.5rem;
 }
 
 .season-card.selected,
 .team-card.selected {
   border-color: var(--primary-green);
-  background: rgba(26, 71, 42, 0.05);
+  border-width: 4px;
+  background: rgba(26, 71, 42, 0.08);
+  box-shadow: 0 4px 12px rgba(26, 71, 42, 0.25);
+}
+
+.season-card:active,
+.team-card:active {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(26, 71, 42, 0.15);
 }
 
 .season-info,
@@ -162,6 +191,30 @@
   display: flex;
   align-items: center;
   gap: 1rem;
+  transition: all 0.2s ease;
+}
+
+.position-card.draggable {
+  cursor: move;
+  cursor: grab;
+}
+
+.position-card.draggable:active {
+  cursor: grabbing;
+  opacity: 0.5;
+}
+
+.position-card.draggable:hover {
+  border-color: var(--primary-green);
+  box-shadow: 0 2px 8px rgba(26, 71, 42, 0.15);
+}
+
+.drag-hint {
+  color: var(--text-secondary);
+  font-size: 0.9em;
+  text-align: center;
+  margin: 0.5rem 0;
+  font-style: italic;
 }
 
 .player-number,

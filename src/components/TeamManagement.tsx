@@ -21,7 +21,7 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
   const [isAddingPosition, setIsAddingPosition] = useState(false);
   const [positionName, setPositionName] = useState("");
   const [abbreviation, setAbbreviation] = useState("");
-  const [sortOrder, setSortOrder] = useState("");
+  const [draggedPosition, setDraggedPosition] = useState<FieldPosition | null>(null);
 
   useEffect(() => {
     const playerSub = client.models.Player.observeQuery({
@@ -91,20 +91,58 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
     }
 
     try {
+      const maxOrder = positions.length > 0 ? Math.max(...positions.map(p => p.sortOrder || 0)) : 0;
       await client.models.FieldPosition.create({
         teamId: team.id,
         positionName,
         abbreviation: abbreviation || undefined,
-        sortOrder: sortOrder ? parseInt(sortOrder) : undefined,
+        sortOrder: maxOrder + 1,
       });
       setPositionName("");
       setAbbreviation("");
-      setSortOrder("");
       setIsAddingPosition(false);
     } catch (error) {
       console.error("Error adding position:", error);
       alert("Failed to add position");
     }
+  };
+
+  const handleDragStart = (position: FieldPosition) => {
+    setDraggedPosition(position);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = async (targetPosition: FieldPosition) => {
+    if (!draggedPosition || draggedPosition.id === targetPosition.id) {
+      setDraggedPosition(null);
+      return;
+    }
+
+    const draggedIndex = positions.findIndex(p => p.id === draggedPosition.id);
+    const targetIndex = positions.findIndex(p => p.id === targetPosition.id);
+    
+    const newPositions = [...positions];
+    newPositions.splice(draggedIndex, 1);
+    newPositions.splice(targetIndex, 0, draggedPosition);
+
+    try {
+      await Promise.all(
+        newPositions.map((pos, index) => 
+          client.models.FieldPosition.update({
+            id: pos.id,
+            sortOrder: index + 1,
+          })
+        )
+      );
+    } catch (error) {
+      console.error("Error reordering positions:", error);
+      alert("Failed to reorder positions");
+    }
+
+    setDraggedPosition(null);
   };
 
   const handleDeletePosition = async (id: string) => {
@@ -243,12 +281,6 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
                 value={abbreviation}
                 onChange={(e) => setAbbreviation(e.target.value)}
               />
-              <input
-                type="number"
-                placeholder="Sort Order"
-                value={sortOrder}
-                onChange={(e) => setSortOrder(e.target.value)}
-              />
               <div className="form-actions">
                 <button onClick={handleAddPosition} className="btn-primary">
                   Add
@@ -264,9 +296,19 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
             {positions.length === 0 && !isAddingPosition && (
               <p className="empty-state">No positions yet. Add your first position!</p>
             )}
+            {positions.length > 0 && (
+              <p className="drag-hint">💡 Drag and drop to reorder positions</p>
+            )}
             
             {positions.map((position) => (
-              <div key={position.id} className="position-card">
+              <div 
+                key={position.id} 
+                className="position-card draggable"
+                draggable
+                onDragStart={() => handleDragStart(position)}
+                onDragOver={handleDragOver}
+                onDrop={() => handleDrop(position)}
+              >
                 {position.abbreviation && (
                   <div className="position-abbr">{position.abbreviation}</div>
                 )}
