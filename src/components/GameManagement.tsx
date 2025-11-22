@@ -369,6 +369,23 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }
   };
 
+  const handleEmptyPositionClick = (position: FieldPosition) => {
+    // Only allow filling empty positions at halftime or when scheduled
+    if (gameState.status !== 'halftime' && gameState.status !== 'scheduled') {
+      return;
+    }
+
+    const startersCount = lineup.filter(l => l.isStarter).length;
+    if (startersCount >= team.maxPlayersOnField) {
+      alert(`Maximum ${team.maxPlayersOnField} starters allowed`);
+      return;
+    }
+
+    // Show substitution modal with available players for this position
+    setSubstitutionPosition(position);
+    setShowSubstitution(true);
+  };
+
   const handleRemoveFromLineup = async (lineupId: string) => {
     try {
       await client.models.LineupAssignment.delete({ id: lineupId });
@@ -394,13 +411,14 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }
   };
 
-  const handleAssignPosition = async (positionId: string) => {
-    if (!selectedPlayer) return;
+  const handleAssignPosition = async (positionId: string, playerId?: string) => {
+    const playerToAssign = playerId || selectedPlayer?.id;
+    if (!playerToAssign) return;
 
     try {
       await client.models.LineupAssignment.create({
         gameId: game.id,
-        playerId: selectedPlayer.id,
+        playerId: playerToAssign,
         positionId: positionId,
         isStarter: true,
       });
@@ -409,7 +427,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       if (gameState.status === 'in-progress') {
         await client.models.PlayTimeRecord.create({
           gameId: game.id,
-          playerId: selectedPlayer.id,
+          playerId: playerToAssign,
           positionId: positionId,
           startTime: new Date().toISOString(),
         });
@@ -417,6 +435,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
       setSelectedPlayer(null);
       setShowPositionPicker(false);
+      setShowSubstitution(false);
+      setSubstitutionPosition(null);
     } catch (error) {
       console.error("Error adding to lineup:", error);
       alert("Failed to add player to lineup");
@@ -1113,7 +1133,13 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                         )}
                       </div>
                     ) : (
-                      <div className="empty-slot">Empty</div>
+                      <div 
+                        className={`empty-slot ${(gameState.status === 'halftime' || gameState.status === 'scheduled') ? 'clickable' : ''}`}
+                        onClick={() => handleEmptyPositionClick(position)}
+                        title={(gameState.status === 'halftime' || gameState.status === 'scheduled') ? 'Click to assign player' : ''}
+                      >
+                        Empty
+                      </div>
                     )}
                   </div>
                 );
@@ -1204,57 +1230,83 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       {showSubstitution && substitutionPosition && (
         <div className="modal-overlay" onClick={() => setShowSubstitution(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>Substitution</h2>
-            <p className="modal-subtitle">
-              Position: {positions.find(p => p.id === substitutionPosition.id)?.positionName || 'Unknown'}
-            </p>
-            {lineup.find((a: LineupAssignment) => a.positionId === substitutionPosition.id)?.playerId && (
-              <p className="modal-subtitle">
-                Coming Off: {(() => {
-                  const currentPlayerId = lineup.find((a: LineupAssignment) => a.positionId === substitutionPosition.id)?.playerId;
-                  const currentPlayer = players.find((p: Player) => p.id === currentPlayerId);
-                  return currentPlayer ? `#${currentPlayer.playerNumber} ${currentPlayer.firstName}` : 'Unknown';
-                })()}
-              </p>
-            )}
-            <p style={{ fontSize: '0.9em', color: '#666', marginBottom: '1rem' }}>
-              Queue players when ready, execute when referee allows
-            </p>
-            <div className="position-picker-list">
-              {players
-                .filter(p => !isCurrentlyPlaying(p.id))
-                .filter(p => !substitutionQueue.some(q => q.playerId === p.id))
-                .sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0))
-                .map(player => {
-                  const playTimeSeconds = getPlayerPlayTimeSeconds(player.id);
-                  return (
-                    <div key={player.id} className="sub-player-item">
-                      <div className="sub-player-info">
-                        <span>#{player.playerNumber} {player.firstName} {player.lastName}</span>
-                        <span className="player-play-time">
-                          {Math.floor(playTimeSeconds / 60)}:{String(playTimeSeconds % 60).padStart(2, '0')}
-                        </span>
-                      </div>
-                      <div className="sub-player-actions">
-                        <button
-                          onClick={() => handleQueueSubstitution(player.id, substitutionPosition.id)}
-                          className="btn-queue"
-                          title="Add to substitution queue"
-                        >
-                          Queue
-                        </button>
-                        <button
-                          onClick={() => handleMakeSubstitution(player.id)}
-                          className="btn-sub-now"
-                          title="Substitute immediately"
-                        >
-                          Sub Now
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
+            {(() => {
+              const currentAssignment = lineup.find((a: LineupAssignment) => a.positionId === substitutionPosition.id);
+              const isEmptyPosition = !currentAssignment;
+              const currentPlayer = currentAssignment ? players.find((p: Player) => p.id === currentAssignment.playerId) : null;
+              
+              return (
+                <>
+                  <h2>{isEmptyPosition ? 'Assign Player to Position' : 'Substitution'}</h2>
+                  <p className="modal-subtitle">
+                    Position: {positions.find(p => p.id === substitutionPosition.id)?.positionName || 'Unknown'}
+                  </p>
+                  {currentPlayer && (
+                    <p className="modal-subtitle">
+                      Coming Off: #{currentPlayer.playerNumber} {currentPlayer.firstName}
+                    </p>
+                  )}
+                  {!isEmptyPosition && (
+                    <p style={{ fontSize: '0.9em', color: '#666', marginBottom: '1rem' }}>
+                      Queue players when ready, execute when referee allows
+                    </p>
+                  )}
+                  {isEmptyPosition && (
+                    <p style={{ fontSize: '0.9em', color: '#666', marginBottom: '1rem' }}>
+                      Select a player to assign to this position
+                    </p>
+                  )}
+                  <div className="position-picker-list">
+                    {players
+                      .filter(p => isEmptyPosition ? !isInLineup(p.id) : !isCurrentlyPlaying(p.id))
+                      .filter(p => !substitutionQueue.some(q => q.playerId === p.id))
+                      .sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0))
+                      .map(player => {
+                        const playTimeSeconds = getPlayerPlayTimeSeconds(player.id);
+                        return (
+                          <div key={player.id} className="sub-player-item">
+                            <div className="sub-player-info">
+                              <span>#{player.playerNumber} {player.firstName} {player.lastName}</span>
+                              <span className="player-play-time">
+                                {Math.floor(playTimeSeconds / 60)}:{String(playTimeSeconds % 60).padStart(2, '0')}
+                              </span>
+                            </div>
+                            <div className="sub-player-actions">
+                              {isEmptyPosition ? (
+                                <button
+                                  onClick={() => handleAssignPosition(substitutionPosition.id, player.id)}
+                                  className="btn-primary"
+                                  title="Assign to position"
+                                >
+                                  Assign
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => handleQueueSubstitution(player.id, substitutionPosition.id)}
+                                    className="btn-queue"
+                                    title="Add to substitution queue"
+                                  >
+                                    Queue
+                                  </button>
+                                  <button
+                                    onClick={() => handleMakeSubstitution(player.id)}
+                                    className="btn-sub-now"
+                                    title="Substitute immediately"
+                                  >
+                                    Sub Now
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </>
+              );
+            })()}
+
             <button
               onClick={() => setShowSubstitution(false)}
               className="btn-secondary"

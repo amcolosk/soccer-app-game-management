@@ -738,6 +738,21 @@
   border-radius: 6px;
 }
 
+.empty-slot.clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-color: var(--primary-green);
+  background: rgba(26, 71, 42, 0.05);
+}
+
+.empty-slot.clickable:hover {
+  background: rgba(26, 71, 42, 0.1);
+  border-color: var(--primary-green);
+  color: var(--primary-green);
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(26, 71, 42, 0.2);
+}
+
 /* Position Picker Modal */
 .modal-overlay {
   position: fixed;
