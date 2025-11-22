@@ -24,9 +24,43 @@ export function GameList({ teamId, onGameSelect }: GameListProps) {
     }).subscribe({
       next: (data) => {
         const sortedGames = [...data.items].sort((a, b) => {
-          if (!a.gameDate) return 1;
-          if (!b.gameDate) return -1;
-          return new Date(b.gameDate).getTime() - new Date(a.gameDate).getTime();
+          const statusA = a.status || 'scheduled';
+          const statusB = b.status || 'scheduled';
+          
+          // Priority order: in-progress/halftime (1), scheduled (2), completed (3)
+          const getPriority = (status: string) => {
+            if (status === 'in-progress' || status === 'halftime') return 1;
+            if (status === 'scheduled') return 2;
+            return 3;
+          };
+          
+          const priorityA = getPriority(statusA);
+          const priorityB = getPriority(statusB);
+          
+          if (priorityA !== priorityB) {
+            return priorityA - priorityB;
+          }
+          
+          // Within same priority, sort by date
+          const dateA = a.gameDate ? new Date(a.gameDate).getTime() : 0;
+          const dateB = b.gameDate ? new Date(b.gameDate).getTime() : 0;
+          
+          // For scheduled games, sort soonest first (ascending)
+          if (statusA === 'scheduled' && statusB === 'scheduled') {
+            if (!dateA) return 1; // No date goes to end
+            if (!dateB) return -1;
+            return dateA - dateB;
+          }
+          
+          // For completed games, sort most recent first (descending)
+          if (statusA === 'completed' && statusB === 'completed') {
+            if (!dateA) return 1;
+            if (!dateB) return -1;
+            return dateB - dateA;
+          }
+          
+          // For in-progress/halftime, sort by date descending
+          return dateB - dateA;
         });
         setGames(sortedGames);
       },
@@ -67,17 +101,6 @@ export function GameList({ teamId, onGameSelect }: GameListProps) {
     }
   };
 
-  const handleDeleteGame = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this game?")) {
-      try {
-        await client.models.Game.delete({ id });
-      } catch (error) {
-        console.error("Error deleting game:", error);
-        alert("Failed to delete game");
-      }
-    }
-  };
-
   const getStatusBadge = (status?: string | null) => {
     const statusClass = status?.toLowerCase() || 'scheduled';
     const statusLabels: { [key: string]: string } = {
@@ -104,6 +127,37 @@ export function GameList({ teamId, onGameSelect }: GameListProps) {
       minute: '2-digit'
     });
   };
+
+  // Render a game card component
+  const renderGameCard = (game: Game) => (
+    <div
+      key={game.id}
+      className="game-card"
+      onClick={() => onGameSelect(game)}
+    >
+      <div className="game-header">
+        <div className="game-opponent">
+          <span className="vs-label">vs</span>
+          <h3>{game.opponent}</h3>
+        </div>
+        {getStatusBadge(game.status)}
+      </div>
+      <div className="game-details">
+        <span className={`location-badge ${game.isHome ? 'home' : 'away'}`}>
+          {game.isHome ? '🏠 Home' : '✈️ Away'}
+        </span>
+        <span className="game-date">{formatDate(game.gameDate)}</span>
+      </div>
+    </div>
+  );
+
+  // Group games by status
+  const inProgressGames = games.filter(g => {
+    const status = g.status || 'scheduled';
+    return status === 'in-progress' || status === 'halftime';
+  });
+  const scheduledGames = games.filter(g => (g.status || 'scheduled') === 'scheduled');
+  const completedGames = games.filter(g => g.status === 'completed');
 
   return (
     <div className="game-list-section">
@@ -157,43 +211,39 @@ export function GameList({ teamId, onGameSelect }: GameListProps) {
         </div>
       )}
 
-      <div className="game-grid">
-        {games.length === 0 && !isCreating && (
-          <p className="empty-state">No games scheduled. Create your first game!</p>
-        )}
-        
-        {games.map((game) => (
-          <div
-            key={game.id}
-            className="game-card"
-            onClick={() => onGameSelect(game)}
-          >
-            <div className="game-header">
-              <div className="game-opponent">
-                <span className="vs-label">vs</span>
-                <h3>{game.opponent}</h3>
-              </div>
-              {getStatusBadge(game.status)}
-            </div>
-            <div className="game-details">
-              <span className={`location-badge ${game.isHome ? 'home' : 'away'}`}>
-                {game.isHome ? '🏠 Home' : '✈️ Away'}
-              </span>
-              <span className="game-date">{formatDate(game.gameDate)}</span>
-            </div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDeleteGame(game.id);
-              }}
-              className="btn-delete"
-              aria-label="Delete game"
-            >
-              ✕
-            </button>
+      {games.length === 0 && !isCreating && (
+        <p className="empty-state">No games scheduled. Create your first game!</p>
+      )}
+
+      {/* In Progress Games */}
+      {inProgressGames.length > 0 && (
+        <>
+          <h3 className="game-category-heading">In Progress</h3>
+          <div className="game-grid">
+            {inProgressGames.map(renderGameCard)}
           </div>
-        ))}
-      </div>
+        </>
+      )}
+
+      {/* Scheduled Games */}
+      {scheduledGames.length > 0 && (
+        <>
+          <h3 className="game-category-heading">Scheduled</h3>
+          <div className="game-grid">
+            {scheduledGames.map(renderGameCard)}
+          </div>
+        </>
+      )}
+
+      {/* Completed Games */}
+      {completedGames.length > 0 && (
+        <>
+          <h3 className="game-category-heading">Completed</h3>
+          <div className="game-grid">
+            {completedGames.map(renderGameCard)}
+          </div>
+        </>
+      )}
     </div>
   );
 }

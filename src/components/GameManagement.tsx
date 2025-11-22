@@ -48,6 +48,18 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     playerId: string;
     positionId: string;
   }
+  
+  const handleDeleteGame = async () => {
+    if (window.confirm("Are you sure you want to delete this game? This action cannot be undone.")) {
+      try {
+        await client.models.Game.delete({ id: game.id });
+        onBack(); // Navigate back to game list after successful deletion
+      } catch (error) {
+        console.error("Error deleting game:", error);
+        alert("Failed to delete game");
+      }
+    }
+  };
   const [substitutionQueue, setSubstitutionQueue] = useState<SubQueue[]>([]);
 
   const halfLengthSeconds = (team.halfLengthMinutes || 30) * 60;
@@ -1465,6 +1477,16 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           </div>
         </div>
       )}
+      
+      {/* Delete Game Button */}
+      <div className="delete-game-section">
+        <button 
+          onClick={handleDeleteGame}
+          className="btn-delete-game"
+        >
+          Delete Game
+        </button>
+      </div>
     </div>
   );
 }

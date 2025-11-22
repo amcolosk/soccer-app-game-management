@@ -110,7 +110,7 @@ input:focus {
 .btn-back {
   background-color: transparent;
   color: var(--primary-green);
-  padding: 0.5em 1em;
+  padding: 0.25em 1em;
 }
 
 .btn-back:hover {

@@ -245,9 +245,6 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
         </button>
         <div className="team-title">
           <h1>{team.name}</h1>
-          <div className="team-meta">
-            <span>Max Players: {team.maxPlayersOnField}</span>
-          </div>
         </div>
       </div>
 

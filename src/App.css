@@ -10,7 +10,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 1rem 0;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
   border-bottom: 2px solid var(--border-color);
 }
 
@@ -181,19 +181,11 @@
 }
 
 .team-header {
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
 }
 
 .team-title {
   margin: 1rem 0;
-}
-
-.team-meta {
-  display: flex;
-  gap: 1.5rem;
-  margin-top: 0.5rem;
-  color: var(--text-secondary);
-  font-size: 0.95em;
 }
 
 .tabs {
@@ -335,6 +327,20 @@
 /* Game Components */
 .game-list-section {
   margin: 2rem 0;
+}
+
+.game-category-heading {
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--border-color);
+  color: var(--primary-green);
+  font-size: 1.2em;
+  font-weight: 600;
+}
+
+.game-category-heading:first-of-type {
+  margin-top: 1.5rem;
 }
 
 .game-grid {
@@ -826,11 +832,6 @@
   .team-list,
   .game-grid {
     grid-template-columns: 1fr;
-  }
-
-  .team-meta {
-    flex-direction: column;
-    gap: 0.3rem;
   }
 
   .time-display {
@@ -1462,3 +1463,37 @@
   font-weight: 600;
   font-size: 0.9em;
 }
+
+/* Delete Game Section */
+.delete-game-section {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 2px solid var(--border-color);
+  display: flex;
+  justify-content: center;
+}
+
+.btn-delete-game {
+  background: var(--danger-red);
+  color: white;
+  border: none;
+  padding: 1rem 2rem;
+  border-radius: 8px;
+  font-size: 1em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.btn-delete-game:hover {
+  background: #c62828;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(211, 47, 47, 0.3);
+}
+
+.btn-delete-game:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
