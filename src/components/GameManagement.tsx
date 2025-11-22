@@ -1257,51 +1257,138 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                     </p>
                   )}
                   <div className="position-picker-list">
-                    {players
-                      .filter(p => isEmptyPosition ? !isInLineup(p.id) : !isCurrentlyPlaying(p.id))
-                      .filter(p => !substitutionQueue.some(q => q.playerId === p.id))
-                      .sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0))
-                      .map(player => {
-                        const playTimeSeconds = getPlayerPlayTimeSeconds(player.id);
-                        return (
-                          <div key={player.id} className="sub-player-item">
-                            <div className="sub-player-info">
-                              <span>#{player.playerNumber} {player.firstName} {player.lastName}</span>
-                              <span className="player-play-time">
-                                {Math.floor(playTimeSeconds / 60)}:{String(playTimeSeconds % 60).padStart(2, '0')}
-                              </span>
-                            </div>
-                            <div className="sub-player-actions">
-                              {isEmptyPosition ? (
-                                <button
-                                  onClick={() => handleAssignPosition(substitutionPosition.id, player.id)}
-                                  className="btn-primary"
-                                  title="Assign to position"
-                                >
-                                  Assign
-                                </button>
-                              ) : (
-                                <>
-                                  <button
-                                    onClick={() => handleQueueSubstitution(player.id, substitutionPosition.id)}
-                                    className="btn-queue"
-                                    title="Add to substitution queue"
-                                  >
-                                    Queue
-                                  </button>
-                                  <button
-                                    onClick={() => handleMakeSubstitution(player.id)}
-                                    className="btn-sub-now"
-                                    title="Substitute immediately"
-                                  >
-                                    Sub Now
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </div>
+                    {(() => {
+                      const currentPosition = positions.find(p => p.id === substitutionPosition.id);
+                      const positionName = currentPosition?.positionName || '';
+                      const positionAbbr = currentPosition?.abbreviation || '';
+                      
+                      // Filter available players
+                      const availablePlayers = players
+                        .filter(p => isEmptyPosition ? !isInLineup(p.id) : !isCurrentlyPlaying(p.id))
+                        .filter(p => !substitutionQueue.some(q => q.playerId === p.id));
+                      
+                      // Separate recommended players (those with this position as preferred)
+                      const recommendedPlayers = availablePlayers.filter(p => {
+                        if (!p.preferredPosition) return false;
+                        const preferredPositions = p.preferredPosition.split(', ');
+                        // Check if the position ID, name, or abbreviation is in their preferred positions
+                        return preferredPositions.some(pref => 
+                          pref === substitutionPosition.id || 
+                          pref === positionName || 
+                          pref === positionAbbr
                         );
-                      })}
+                      }).sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0));
+                      
+                      // Other players not in recommended list
+                      const otherPlayers = availablePlayers
+                        .filter(p => !recommendedPlayers.includes(p))
+                        .sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0));
+                      
+                      return (
+                        <>
+                          {recommendedPlayers.length > 0 && (
+                            <>
+                              <div className="player-section-header">
+                                <span className="section-label">⭐ Recommended Players</span>
+                                <span className="section-hint">Prefer this position</span>
+                              </div>
+                              {recommendedPlayers.map(player => {
+                                const playTimeSeconds = getPlayerPlayTimeSeconds(player.id);
+                                return (
+                                  <div key={player.id} className="sub-player-item recommended">
+                                    <div className="sub-player-info">
+                                      <span>#{player.playerNumber} {player.firstName} {player.lastName}</span>
+                                      <span className="player-play-time">
+                                        {Math.floor(playTimeSeconds / 60)}:{String(playTimeSeconds % 60).padStart(2, '0')}
+                                      </span>
+                                    </div>
+                                    <div className="sub-player-actions">
+                                      {isEmptyPosition ? (
+                                        <button
+                                          onClick={() => handleAssignPosition(substitutionPosition.id, player.id)}
+                                          className="btn-primary"
+                                          title="Assign to position"
+                                        >
+                                          Assign
+                                        </button>
+                                      ) : (
+                                        <>
+                                          <button
+                                            onClick={() => handleQueueSubstitution(player.id, substitutionPosition.id)}
+                                            className="btn-queue"
+                                            title="Add to substitution queue"
+                                          >
+                                            Queue
+                                          </button>
+                                          <button
+                                            onClick={() => handleMakeSubstitution(player.id)}
+                                            className="btn-sub-now"
+                                            title="Substitute immediately"
+                                          >
+                                            Sub Now
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </>
+                          )}
+                          
+                          {otherPlayers.length > 0 && (
+                            <>
+                              {recommendedPlayers.length > 0 && (
+                                <div className="player-section-header">
+                                  <span className="section-label">Other Players</span>
+                                </div>
+                              )}
+                              {otherPlayers.map(player => {
+                                const playTimeSeconds = getPlayerPlayTimeSeconds(player.id);
+                                return (
+                                  <div key={player.id} className="sub-player-item">
+                                    <div className="sub-player-info">
+                                      <span>#{player.playerNumber} {player.firstName} {player.lastName}</span>
+                                      <span className="player-play-time">
+                                        {Math.floor(playTimeSeconds / 60)}:{String(playTimeSeconds % 60).padStart(2, '0')}
+                                      </span>
+                                    </div>
+                                    <div className="sub-player-actions">
+                                      {isEmptyPosition ? (
+                                        <button
+                                          onClick={() => handleAssignPosition(substitutionPosition.id, player.id)}
+                                          className="btn-primary"
+                                          title="Assign to position"
+                                        >
+                                          Assign
+                                        </button>
+                                      ) : (
+                                        <>
+                                          <button
+                                            onClick={() => handleQueueSubstitution(player.id, substitutionPosition.id)}
+                                            className="btn-queue"
+                                            title="Add to substitution queue"
+                                          >
+                                            Queue
+                                          </button>
+                                          <button
+                                            onClick={() => handleMakeSubstitution(player.id)}
+                                            className="btn-sub-now"
+                                            title="Substitute immediately"
+                                          >
+                                            Sub Now
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </>
               );

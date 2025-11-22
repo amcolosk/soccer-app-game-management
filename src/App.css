@@ -1409,6 +1409,28 @@
 }
 
 /* Substitution Modal Updates */
+.player-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0.5rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 2px solid var(--border-color);
+}
+
+.section-label {
+  font-weight: 700;
+  font-size: 0.95em;
+  color: var(--text-primary);
+}
+
+.section-hint {
+  font-size: 0.85em;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 .sub-player-item {
   display: flex;
   align-items: center;
@@ -1418,6 +1440,12 @@
   background: white;
   border: 1px solid #e0e0e0;
   margin-bottom: 0.5rem;
+}
+
+.sub-player-item.recommended {
+  background: #fff9e6;
+  border: 2px solid #ffd700;
+  box-shadow: 0 2px 4px rgba(255, 215, 0, 0.2);
 }
 
 .sub-player-info {
