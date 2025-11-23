@@ -1687,3 +1687,106 @@
   font-size: 1.1em;
 }
 
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row.selected {
+  background: rgba(76, 175, 80, 0.15) !important;
+}
+
+/* Player Details Section */
+.player-details-section {
+  margin-top: 2rem;
+  padding: 2rem;
+  background: var(--card-background);
+  border: 3px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid var(--border-color);
+}
+
+.details-header h2 {
+  margin: 0;
+  color: var(--primary-green);
+}
+
+.details-content {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.details-card {
+  background: var(--background);
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.details-card h3 {
+  margin: 0 0 1rem 0;
+  color: var(--text-primary);
+  font-size: 1.2em;
+}
+
+.position-time-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.position-time-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--card-background);
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.position-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.position-time {
+  font-weight: 600;
+  color: var(--primary-green);
+  font-size: 1.1em;
+}
+
+.event-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.event-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.event-game {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.event-time {
+  color: var(--text-secondary);
+  font-size: 0.9em;
+  white-space: nowrap;
+  margin-left: 1rem;
+}
+

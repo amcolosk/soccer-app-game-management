@@ -9,6 +9,8 @@ type Player = Schema["Player"]["type"];
 type Goal = Schema["Goal"]["type"];
 type GameNote = Schema["GameNote"]["type"];
 type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
+type Game = Schema["Game"]["type"];
+type FieldPosition = Schema["FieldPosition"]["type"];
 
 interface SeasonReportProps {
   team: Team;
@@ -26,10 +28,30 @@ interface PlayerStats {
   gamesPlayed: number;
 }
 
+interface PlayerDetails {
+  player: Player;
+  goals: Array<{ game: Game; minute: number; half: number }>;
+  assists: Array<{ game: Game; minute: number; half: number }>;
+  goldStars: Array<{ game: Game; minute: number; half: number }>;
+  yellowCards: Array<{ game: Game; minute: number; half: number }>;
+  redCards: Array<{ game: Game; minute: number; half: number }>;
+  playTimeByPosition: Map<string, number>;
+}
+
 export function SeasonReport({ team, onBack }: SeasonReportProps) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [playerStats, setPlayerStats] = useState<PlayerStats[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
+  const [playerDetails, setPlayerDetails] = useState<PlayerDetails | null>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+
+  // Store full data for details view
+  const [allGoals, setAllGoals] = useState<Goal[]>([]);
+  const [allNotes, setAllNotes] = useState<GameNote[]>([]);
+  const [allPlayTimeRecords, setAllPlayTimeRecords] = useState<PlayTimeRecord[]>([]);
+  const [allGames, setAllGames] = useState<Game[]>([]);
+  const [allPositions, setAllPositions] = useState<FieldPosition[]>([]);
 
   useEffect(() => {
     loadSeasonData();
@@ -48,20 +70,31 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
       // Load all goals for this team
       const goalsResponse = await client.models.Goal.list();
       const goals = goalsResponse.data;
+      setAllGoals(goals);
 
       // Load all game notes for this team
       const notesResponse = await client.models.GameNote.list();
       const notes = notesResponse.data;
+      setAllNotes(notes);
 
       // Load all play time records for this team
       const playTimeResponse = await client.models.PlayTimeRecord.list();
       const playTimeRecords = playTimeResponse.data;
+      setAllPlayTimeRecords(playTimeRecords);
 
       // Get all games for this team to filter by
       const gamesResponse = await client.models.Game.list({
         filter: { teamId: { eq: team.id } },
       });
-      const teamGameIds = new Set(gamesResponse.data.map(g => g.id));
+      const games = gamesResponse.data;
+      setAllGames(games);
+      const teamGameIds = new Set(games.map(g => g.id));
+
+      // Load all positions for this team
+      const positionsResponse = await client.models.FieldPosition.list({
+        filter: { teamId: { eq: team.id } },
+      });
+      setAllPositions(positionsResponse.data);
 
       // Calculate stats for each player
       const stats: PlayerStats[] = playersList.map(player => {
@@ -132,6 +165,96 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
     return `${minutes}m`;
   };
 
+  const loadPlayerDetails = async (player: Player) => {
+    setLoadingDetails(true);
+    setSelectedPlayer(player);
+
+    try {
+      const teamGameIds = new Set(allGames.map(g => g.id));
+      
+      // Get goals scored by this player
+      const playerGoals = allGoals
+        .filter(g => g.scorerId === player.id && teamGameIds.has(g.gameId))
+        .map(g => ({
+          game: allGames.find(game => game.id === g.gameId)!,
+          minute: g.gameMinute || 0,
+          half: g.half || 1,
+        }))
+        .sort((a, b) => a.game.gameDate.localeCompare(b.game.gameDate));
+
+      // Get assists by this player
+      const playerAssists = allGoals
+        .filter(g => g.assistId === player.id && teamGameIds.has(g.gameId))
+        .map(g => ({
+          game: allGames.find(game => game.id === g.gameId)!,
+          minute: g.gameMinute || 0,
+          half: g.half || 1,
+        }))
+        .sort((a, b) => a.game.gameDate.localeCompare(b.game.gameDate));
+
+      // Get notes for this player
+      const playerNotes = allNotes.filter(n => 
+        n.playerId === player.id && teamGameIds.has(n.gameId)
+      );
+
+      const goldStars = playerNotes
+        .filter(n => n.noteType === 'gold-star')
+        .map(n => ({
+          game: allGames.find(game => game.id === n.gameId)!,
+          minute: n.gameMinute || 0,
+          half: n.half || 1,
+        }))
+        .sort((a, b) => a.game.gameDate.localeCompare(b.game.gameDate));
+
+      const yellowCards = playerNotes
+        .filter(n => n.noteType === 'yellow-card')
+        .map(n => ({
+          game: allGames.find(game => game.id === n.gameId)!,
+          minute: n.gameMinute || 0,
+          half: n.half || 1,
+        }))
+        .sort((a, b) => a.game.gameDate.localeCompare(b.game.gameDate));
+
+      const redCards = playerNotes
+        .filter(n => n.noteType === 'red-card')
+        .map(n => ({
+          game: allGames.find(game => game.id === n.gameId)!,
+          minute: n.gameMinute || 0,
+          half: n.half || 1,
+        }))
+        .sort((a, b) => a.game.gameDate.localeCompare(b.game.gameDate));
+
+      // Calculate play time by position
+      const playTimeByPosition = new Map<string, number>();
+      const playerPlayTime = allPlayTimeRecords.filter(r => 
+        r.playerId === player.id && teamGameIds.has(r.gameId)
+      );
+
+      for (const record of playerPlayTime) {
+        // Find the position name from the positionId
+        const position = allPositions.find(p => p.id === record.positionId);
+        const positionName = position?.positionName || 'Unknown';
+        const duration = record.durationSeconds || 0;
+        playTimeByPosition.set(positionName, (playTimeByPosition.get(positionName) || 0) + duration);
+      }
+
+      setPlayerDetails({
+        player,
+        goals: playerGoals,
+        assists: playerAssists,
+        goldStars,
+        yellowCards,
+        redCards,
+        playTimeByPosition,
+      });
+    } catch (error) {
+      console.error("Error loading player details:", error);
+      alert("Failed to load player details");
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
   return (
     <div className="season-report">
       <div className="report-header">
@@ -187,7 +310,11 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
               </thead>
               <tbody>
                 {playerStats.map((stat) => (
-                  <tr key={stat.player.id}>
+                  <tr 
+                    key={stat.player.id}
+                    onClick={() => loadPlayerDetails(stat.player)}
+                    className={`clickable-row ${selectedPlayer?.id === stat.player.id ? 'selected' : ''}`}
+                  >
                     <td className="player-number">
                       {stat.player.playerNumber !== undefined ? `#${stat.player.playerNumber}` : '-'}
                     </td>
@@ -209,6 +336,138 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
 
           {playerStats.length === 0 && (
             <p className="empty-state">No player statistics available yet.</p>
+          )}
+
+          {selectedPlayer && (
+            <div className="player-details-section">
+              <div className="details-header">
+                <h2>
+                  {selectedPlayer.firstName} {selectedPlayer.lastName} 
+                  {selectedPlayer.playerNumber !== undefined && ` #${selectedPlayer.playerNumber}`}
+                </h2>
+                <button onClick={() => setSelectedPlayer(null)} className="btn-secondary">
+                  Close Details
+                </button>
+              </div>
+
+              {loadingDetails ? (
+                <div className="loading-state">Loading player details...</div>
+              ) : playerDetails ? (
+                <div className="details-content">
+                  {/* Play Time by Position */}
+                  {playerDetails.playTimeByPosition.size > 0 && (
+                    <div className="details-card">
+                      <h3>⏱️ Play Time by Position</h3>
+                      <div className="position-time-list">
+                        {Array.from(playerDetails.playTimeByPosition.entries())
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([position, seconds]) => (
+                            <div key={position} className="position-time-item">
+                              <span className="position-name">{position}</span>
+                              <span className="position-time">{formatPlayTime(seconds)}</span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Goals */}
+                  {playerDetails.goals.length > 0 && (
+                    <div className="details-card">
+                      <h3>⚽ Goals ({playerDetails.goals.length})</h3>
+                      <div className="event-list">
+                        {playerDetails.goals.map((goal, idx) => (
+                          <div key={idx} className="event-item">
+                            <span className="event-game">
+                              vs {goal.game.opponent} ({new Date(goal.game.gameDate).toLocaleDateString()})
+                            </span>
+                            <span className="event-time">
+                              {goal.minute}' (Half {goal.half})
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Assists */}
+                  {playerDetails.assists.length > 0 && (
+                    <div className="details-card">
+                      <h3>🎯 Assists ({playerDetails.assists.length})</h3>
+                      <div className="event-list">
+                        {playerDetails.assists.map((assist, idx) => (
+                          <div key={idx} className="event-item">
+                            <span className="event-game">
+                              vs {assist.game.opponent} ({new Date(assist.game.gameDate).toLocaleDateString()})
+                            </span>
+                            <span className="event-time">
+                              {assist.minute}' (Half {assist.half})
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Gold Stars */}
+                  {playerDetails.goldStars.length > 0 && (
+                    <div className="details-card">
+                      <h3>⭐ Gold Stars ({playerDetails.goldStars.length})</h3>
+                      <div className="event-list">
+                        {playerDetails.goldStars.map((star, idx) => (
+                          <div key={idx} className="event-item">
+                            <span className="event-game">
+                              vs {star.game.opponent} ({new Date(star.game.gameDate).toLocaleDateString()})
+                            </span>
+                            <span className="event-time">
+                              {star.minute}' (Half {star.half})
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Yellow Cards */}
+                  {playerDetails.yellowCards.length > 0 && (
+                    <div className="details-card">
+                      <h3>🟨 Yellow Cards ({playerDetails.yellowCards.length})</h3>
+                      <div className="event-list">
+                        {playerDetails.yellowCards.map((card, idx) => (
+                          <div key={idx} className="event-item">
+                            <span className="event-game">
+                              vs {card.game.opponent} ({new Date(card.game.gameDate).toLocaleDateString()})
+                            </span>
+                            <span className="event-time">
+                              {card.minute}' (Half {card.half})
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Red Cards */}
+                  {playerDetails.redCards.length > 0 && (
+                    <div className="details-card">
+                      <h3>🟥 Red Cards ({playerDetails.redCards.length})</h3>
+                      <div className="event-list">
+                        {playerDetails.redCards.map((card, idx) => (
+                          <div key={idx} className="event-item">
+                            <span className="event-game">
+                              vs {card.game.opponent} ({new Date(card.game.gameDate).toLocaleDateString()})
+                            </span>
+                            <span className="event-time">
+                              {card.minute}' (Half {card.half})
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
           )}
         </div>
       )}
