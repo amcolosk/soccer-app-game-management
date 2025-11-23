@@ -1540,3 +1540,150 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
+/* Season Report */
+.season-report {
+  padding: 1rem 0;
+}
+
+.report-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.report-header h1 {
+  margin: 0;
+  color: var(--primary-green);
+  flex: 1;
+}
+
+.report-content {
+  animation: fadeIn 0.3s ease-in;
+}
+
+.report-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.summary-card {
+  background: var(--card-background);
+  border: 3px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.5rem;
+  text-align: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.summary-label {
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.summary-value {
+  font-size: 2.5em;
+  font-weight: bold;
+  color: var(--primary-green);
+}
+
+.stats-table-container {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 3px solid var(--border-color);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card-background);
+}
+
+.stats-table thead {
+  background: var(--primary-green);
+  color: white;
+  position: sticky;
+  top: 0;
+}
+
+.stats-table th {
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.95em;
+  border-bottom: 2px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.stats-table td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.95em;
+}
+
+.stats-table tbody tr {
+  transition: background 0.2s;
+}
+
+.stats-table tbody tr:hover {
+  background: rgba(76, 175, 80, 0.05);
+}
+
+.stats-table .player-number {
+  font-weight: 600;
+  color: white;
+}
+
+.player-name {
+  font-weight: 600;
+  min-width: 150px;
+}
+
+.stat-goals,
+.stat-assists,
+.stat-stars,
+.stat-yellow,
+.stat-red {
+  text-align: center;
+  font-weight: 600;
+}
+
+.stat-goals {
+  color: var(--primary-green);
+}
+
+.stat-assists {
+  color: #2196f3;
+}
+
+.stat-stars {
+  color: #ffa726;
+}
+
+.stat-yellow {
+  color: #fbc02d;
+}
+
+.stat-red {
+  color: var(--danger-red);
+}
+
+.loading-state {
+  text-align: center;
+  padding: 3rem;
+  font-size: 1.2em;
+  color: var(--text-secondary);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  color: var(--text-secondary);
+  font-size: 1.1em;
+}
+

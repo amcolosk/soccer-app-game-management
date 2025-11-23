@@ -4,6 +4,7 @@ import type { Schema } from "../../amplify/data/resource";
 import type { Player, FieldPosition, TeamManagementProps } from "../types";
 import { GameList } from "./GameList";
 import { GameManagement } from "./GameManagement";
+import { SeasonReport } from "./SeasonReport";
 
 const client = generateClient<Schema>();
 
@@ -12,7 +13,7 @@ type Game = Schema["Game"]["type"];
 export function TeamManagement({ team, onBack }: TeamManagementProps) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [positions, setPositions] = useState<FieldPosition[]>([]);
-  const [activeTab, setActiveTab] = useState<"players" | "positions" | "games">("players");
+  const [activeTab, setActiveTab] = useState<"players" | "positions" | "games" | "reports">("players");
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
 
   // Player form state
@@ -267,6 +268,12 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
         >
           Positions ({positions.length})
         </button>
+        <button
+          className={`tab ${activeTab === "reports" ? "active" : ""}`}
+          onClick={() => setActiveTab("reports")}
+        >
+          Reports
+        </button>
       </div>
 
       {activeTab === "players" && (
@@ -517,11 +524,18 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
         />
       )}
 
-      {selectedGame && (
+      {activeTab === "games" && selectedGame && (
         <GameManagement
           game={selectedGame}
           team={team}
           onBack={() => setSelectedGame(null)}
+        />
+      )}
+
+      {activeTab === "reports" && (
+        <SeasonReport 
+          team={team}
+          onBack={() => setActiveTab("games")}
         />
       )}
     </div>
