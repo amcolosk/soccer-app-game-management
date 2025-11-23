@@ -121,6 +121,11 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
         const totalPlayTimeSeconds = playerPlayTime.reduce((total, record) => {
           if (record.durationSeconds) {
             return total + record.durationSeconds;
+          } else if (record.startTime && record.endTime) {
+            // Has start and end time but no durationSeconds - calculate it
+            const startTime = new Date(record.startTime).getTime();
+            const endTime = new Date(record.endTime).getTime();
+            return total + Math.floor((endTime - startTime) / 1000);
           } else if (record.startTime && !record.endTime) {
             // Currently playing - calculate from start to now
             const startTime = new Date(record.startTime).getTime();
@@ -234,7 +239,22 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
         // Find the position name from the positionId
         const position = allPositions.find(p => p.id === record.positionId);
         const positionName = position?.positionName || 'Unknown';
-        const duration = record.durationSeconds || 0;
+        
+        // Calculate duration - use durationSeconds if available, otherwise calculate from times
+        let duration = 0;
+        if (record.durationSeconds) {
+          duration = record.durationSeconds;
+        } else if (record.startTime && record.endTime) {
+          const startTime = new Date(record.startTime).getTime();
+          const endTime = new Date(record.endTime).getTime();
+          duration = Math.floor((endTime - startTime) / 1000);
+        } else if (record.startTime && !record.endTime) {
+          // Currently playing
+          const startTime = new Date(record.startTime).getTime();
+          const now = Date.now();
+          duration = Math.floor((now - startTime) / 1000);
+        }
+        
         playTimeByPosition.set(positionName, (playTimeByPosition.get(positionName) || 0) + duration);
       }
 

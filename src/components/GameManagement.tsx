@@ -287,9 +287,13 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       
       // End all active play time records
       const activeRecords = playTimeRecords.filter(r => !r.endTime);
+      console.log(`Halftime: Closing ${activeRecords.length} active play time records`);
+      
       const endPromises = activeRecords.map(async (record) => {
         const startTime = new Date(record.startTime!);
         const durationSeconds = Math.floor((new Date(endTime).getTime() - startTime.getTime()) / 1000);
+        
+        console.log(`Closing record for player ${record.playerId}, duration: ${durationSeconds}s`);
         
         return client.models.PlayTimeRecord.update({
           id: record.id,
@@ -299,6 +303,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       });
 
       await Promise.all(endPromises);
+      console.log('All play time records closed successfully');
 
       await client.models.Game.update({
         id: game.id,
@@ -324,18 +329,21 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       });
 
       // Create play time records for all players currently in lineup for second half
-      const starterPromises = lineup
-        .filter(l => l.isStarter)
-        .map(l =>
-          client.models.PlayTimeRecord.create({
-            gameId: game.id,
-            playerId: l.playerId,
-            positionId: l.positionId,
-            startTime: startTime,
-          })
-        );
+      const starters = lineup.filter(l => l.isStarter);
+      console.log(`Starting second half: Creating ${starters.length} play time records`);
+      
+      const starterPromises = starters.map(l => {
+        console.log(`Creating record for player ${l.playerId} at position ${l.positionId}`);
+        return client.models.PlayTimeRecord.create({
+          gameId: game.id,
+          playerId: l.playerId,
+          positionId: l.positionId,
+          startTime: startTime,
+        });
+      });
 
       await Promise.all(starterPromises);
+      console.log('All second half play time records created');
 
       setCurrentTime(0); // Reset the display timer to 0:00
       setGameState({ ...gameState, status: 'in-progress', currentHalf: 2 });
@@ -348,6 +356,28 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const handleEndGame = async () => {
     setIsRunning(false);
     try {
+      const endTime = new Date().toISOString();
+      
+      // End all active play time records
+      const activeRecords = playTimeRecords.filter(r => !r.endTime);
+      console.log(`Ending game: Closing ${activeRecords.length} active play time records`);
+      
+      const endPromises = activeRecords.map(async (record) => {
+        const startTime = new Date(record.startTime!);
+        const durationSeconds = Math.floor((new Date(endTime).getTime() - startTime.getTime()) / 1000);
+        
+        console.log(`Closing record for player ${record.playerId}, duration: ${durationSeconds}s`);
+        
+        return client.models.PlayTimeRecord.update({
+          id: record.id,
+          endTime: endTime,
+          durationSeconds: durationSeconds,
+        });
+      });
+
+      await Promise.all(endPromises);
+      console.log('All play time records closed successfully');
+      
       await client.models.Game.update({
         id: game.id,
         status: 'completed',
