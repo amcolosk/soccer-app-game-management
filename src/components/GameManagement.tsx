@@ -320,6 +320,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         status: 'in-progress',
         currentHalf: 2,
         lastStartTime: startTime,
+        elapsedSeconds: 0, // Reset timer for second half
       });
 
       // Create play time records for all players currently in lineup for second half
@@ -336,6 +337,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
       await Promise.all(starterPromises);
 
+      setCurrentTime(0); // Reset the display timer to 0:00
       setGameState({ ...gameState, status: 'in-progress', currentHalf: 2 });
       setIsRunning(true);
     } catch (error) {
