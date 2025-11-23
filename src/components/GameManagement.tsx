@@ -42,6 +42,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [noteType, setNoteType] = useState<'gold-star' | 'yellow-card' | 'red-card' | 'other'>('other');
   const [notePlayerId, setNotePlayerId] = useState("");
   const [noteText, setNoteText] = useState("");
+  const [isUpdatingTime, setIsUpdatingTime] = useState(false);
 
   // Substitution queue: array of {playerId, positionId}
   interface SubQueue {
@@ -90,6 +91,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           const updatedGame = data.items[0];
           setGameState(updatedGame);
           
+          // Don't update time if we're currently updating it ourselves
+          if (isUpdatingTime) {
+            return;
+          }
+          
           // Restore elapsed time from database
           if (updatedGame.elapsedSeconds !== null && updatedGame.elapsedSeconds !== undefined) {
             setCurrentTime(updatedGame.elapsedSeconds);
@@ -110,7 +116,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     return () => {
       gameSub.unsubscribe();
     };
-  }, [game.id]);
+  }, [game.id, isUpdatingTime]);
 
   useEffect(() => {
     // Load players
@@ -496,6 +502,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     const secondsToAdd = minutes * 60;
     const millisecondsToAdd = secondsToAdd * 1000;
     const newTime = currentTime + secondsToAdd;
+    
+    setIsUpdatingTime(true);
     setCurrentTime(newTime);
     
     try {
@@ -524,6 +532,9 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
     } catch (error) {
       console.error("Error updating time:", error);
+    } finally {
+      // Reset the flag after a brief delay to allow the database update to propagate
+      setTimeout(() => setIsUpdatingTime(false), 500);
     }
   };
 
