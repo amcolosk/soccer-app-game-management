@@ -831,14 +831,16 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
   const handleSaveNote = async () => {
     try {
-      const gameMinute = Math.floor(getCurrentHalfTime() / 60);
+      // For completed games, use the total game time; otherwise use current half time
+      const timeInSeconds = gameState.status === 'completed' ? currentTime : getCurrentHalfTime();
+      const gameMinute = Math.floor(timeInSeconds / 60);
       
       await client.models.GameNote.create({
         gameId: game.id,
         noteType,
         playerId: notePlayerId || undefined,
         gameMinute,
-        half: gameState.currentHalf || 1,
+        half: gameState.currentHalf || 2, // Default to 2nd half for completed games
         notes: noteText || undefined,
         timestamp: new Date().toISOString(),
       });
@@ -910,20 +912,33 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       )}
 
       {/* Note Buttons */}
-      {gameState.status !== 'scheduled' && gameState.status !== 'completed' && (
+      {gameState.status !== 'scheduled' && (
         <div className="note-buttons">
-          <button onClick={() => handleOpenNoteModal('gold-star')} className="btn-note btn-note-gold">
-            ⭐ Gold Star
-          </button>
-          <button onClick={() => handleOpenNoteModal('yellow-card')} className="btn-note btn-note-yellow">
-            🟨 Yellow Card
-          </button>
-          <button onClick={() => handleOpenNoteModal('red-card')} className="btn-note btn-note-red">
-            🟥 Red Card
-          </button>
-          <button onClick={() => handleOpenNoteModal('other')} className="btn-note btn-note-other">
-            📝 Note
-          </button>
+          {gameState.status === 'completed' ? (
+            <>
+              <button onClick={() => handleOpenNoteModal('gold-star')} className="btn-note btn-note-gold">
+                ⭐ Gold Star
+              </button>
+              <button onClick={() => handleOpenNoteModal('other')} className="btn-note btn-note-other">
+                📝 Note
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => handleOpenNoteModal('gold-star')} className="btn-note btn-note-gold">
+                ⭐ Gold Star
+              </button>
+              <button onClick={() => handleOpenNoteModal('yellow-card')} className="btn-note btn-note-yellow">
+                🟨 Yellow Card
+              </button>
+              <button onClick={() => handleOpenNoteModal('red-card')} className="btn-note btn-note-red">
+                🟥 Red Card
+              </button>
+              <button onClick={() => handleOpenNoteModal('other')} className="btn-note btn-note-other">
+                📝 Note
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -1552,9 +1567,15 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         <div className="modal-overlay" onClick={() => setShowNoteModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h2>{getNoteIcon(noteType)} {getNoteLabel(noteType)}</h2>
-            <p className="modal-subtitle">
-              {Math.floor(getCurrentHalfTime() / 60)}' ({gameState.currentHalf === 1 ? '1st' : '2nd'} Half)
-            </p>
+            {gameState.status === 'completed' ? (
+              <p className="modal-subtitle">
+                Post-Game Note
+              </p>
+            ) : (
+              <p className="modal-subtitle">
+                {Math.floor(getCurrentHalfTime() / 60)}' ({gameState.currentHalf === 1 ? '1st' : '2nd'} Half)
+              </p>
+            )}
             
             <div className="form-group">
               <label htmlFor="notePlayer">Player (optional)</label>
