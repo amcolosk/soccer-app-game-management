@@ -101,11 +101,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             return;
           }
           
-          // Restore elapsed time from database
-          if (updatedGame.elapsedSeconds !== null && updatedGame.elapsedSeconds !== undefined) {
-            setCurrentTime(updatedGame.elapsedSeconds);
-          }
-          
           // Auto-resume timer if game was in progress
           if (updatedGame.status === 'in-progress' && updatedGame.lastStartTime) {
             const lastStart = new Date(updatedGame.lastStartTime).getTime();
@@ -113,6 +108,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             const additionalSeconds = Math.floor((now - lastStart) / 1000);
             setCurrentTime((updatedGame.elapsedSeconds || 0) + additionalSeconds);
             setIsRunning(true);
+          } else {
+            // Only restore elapsed time if game is not actively running
+            if (updatedGame.elapsedSeconds !== null && updatedGame.elapsedSeconds !== undefined) {
+              setCurrentTime(updatedGame.elapsedSeconds);
+            }
           }
         }
       },
@@ -231,10 +231,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const getCurrentHalfTime = () => {
-    if (gameState.currentHalf === 1) {
-      return Math.min(currentTime, halfLengthSeconds);
-    }
-    return Math.max(0, currentTime - halfLengthSeconds);
+    // Return total game time - timer continues from first half into second half
+    return currentTime;
   };
 
   const handleStartGame = async () => {
@@ -287,8 +285,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
   const handleHalftime = async () => {
     setIsRunning(false);
+    setIsUpdatingTime(true);
+    
     try {
       const endTime = new Date().toISOString();
+      const halftimeSeconds = currentTime; // Capture current time before any async operations
       
       // End all active play time records
       const activeRecords = playTimeRecords.filter(r => !r.endTime);
@@ -310,29 +311,30 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       await Promise.all(endPromises);
       console.log('All play time records closed successfully');
 
+      // Update game status - preserve the exact halftime seconds
       await client.models.Game.update({
         id: game.id,
         status: 'halftime',
-        elapsedSeconds: currentTime,
+        elapsedSeconds: halftimeSeconds,
       });
-      setGameState({ ...gameState, status: 'halftime' });
+      
+      // Ensure current time stays at halftime value
+      setCurrentTime(halftimeSeconds);
     } catch (error) {
       console.error("Error setting halftime:", error);
+    } finally {
+      setTimeout(() => setIsUpdatingTime(false), 500);
     }
   };
 
   const handleStartSecondHalf = async () => {
+    setIsUpdatingTime(true);
+    
     try {
       const startTime = new Date().toISOString();
+      const resumeTime = currentTime; // Capture current time to continue from
+      console.log(`Starting second half at time ${resumeTime}s`);
       
-      await client.models.Game.update({
-        id: game.id,
-        status: 'in-progress',
-        currentHalf: 2,
-        lastStartTime: startTime,
-        elapsedSeconds: 0, // Reset timer for second half
-      });
-
       // Create play time records for all players currently in lineup for second half
       const starters = lineup.filter(l => l.isStarter);
       console.log(`Starting second half: Creating ${starters.length} play time records`);
@@ -350,11 +352,23 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       await Promise.all(starterPromises);
       console.log('All second half play time records created');
 
-      setCurrentTime(0); // Reset the display timer to 0:00
-      setGameState({ ...gameState, status: 'in-progress', currentHalf: 2 });
+      // Update game status - keep resumeTime to continue from halftime
+      await client.models.Game.update({
+        id: game.id,
+        status: 'in-progress',
+        currentHalf: 2,
+        lastStartTime: startTime,
+        elapsedSeconds: resumeTime, // Continue from halftime time
+      });
+
+      // Explicitly set current time and start running
+      setCurrentTime(resumeTime);
+      console.log(`Resuming game at time ${resumeTime}s`);
       setIsRunning(true);
     } catch (error) {
       console.error("Error starting second half:", error);
+    } finally {
+      setTimeout(() => setIsUpdatingTime(false), 500);
     }
   };
 
