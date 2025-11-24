@@ -9,27 +9,26 @@
 import type { Schema } from "../../amplify/data/resource";
 
 type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
-type Game = Schema["Game"]["type"];
 
 /**
  * Calculate total play time for a player from their PlayTimeRecords
  * 
+ * Now uses game time (elapsed seconds) instead of real-world timestamps.
+ * This means player time automatically pauses when game is paused.
+ * 
  * Logic:
- * 1. If record has durationSeconds, use it (most reliable)
- * 2. If record has startTime and endTime but no duration, calculate it
- * 3. If record has startTime but no endTime (active record):
- *    - Only count if the game is currently in-progress
- *    - Calculate from startTime to now
+ * 1. If record has endGameSeconds, duration = endGameSeconds - startGameSeconds
+ * 2. If record is active (no endGameSeconds), duration = currentGameTime - startGameSeconds
  * 
  * @param playerId - The player's ID
  * @param playTimeRecords - Array of PlayTimeRecords to analyze
- * @param games - Optional map of games by ID (for checking game status on active records)
+ * @param currentGameTime - Current game time in seconds (optional, for active records)
  * @returns Total play time in seconds
  */
 export function calculatePlayerPlayTime(
   playerId: string,
   playTimeRecords: PlayTimeRecord[],
-  games?: Map<string, Game>
+  currentGameTime?: number
 ): number {
   const playerRecords = playTimeRecords.filter(r => r.playerId === playerId);
   let totalSeconds = 0;
@@ -37,33 +36,14 @@ export function calculatePlayerPlayTime(
   playerRecords.forEach(record => {
     let recordDuration = 0;
 
-    if (record.durationSeconds) {
-      // Stored duration is most reliable
-      recordDuration = record.durationSeconds;
-    } else if (record.startTime && record.endTime) {
-      // Has start and end time but no stored duration - calculate it
-      const startTime = new Date(record.startTime).getTime();
-      const endTime = new Date(record.endTime).getTime();
-      recordDuration = Math.floor((endTime - startTime) / 1000);
-    } else if (record.startTime && !record.endTime) {
-      // No end time - only calculate if game is actually in progress
-      if (games && record.gameId) {
-        const game = games.get(record.gameId);
-        if (game && game.status === 'in-progress') {
-          // Game is actively running - calculate from start to now
-          const startTime = new Date(record.startTime).getTime();
-          const now = Date.now();
-          recordDuration = Math.floor((now - startTime) / 1000);
-        }
-        // If game is not in-progress (halftime, completed, etc), skip this record
-      } else {
-        // No game context provided - assume record is active and calculate
-        // This is used by GameManagement which doesn't need game status check
-        const startTime = new Date(record.startTime).getTime();
-        const now = Date.now();
-        recordDuration = Math.floor((now - startTime) / 1000);
-      }
+    if (record.endGameSeconds !== null && record.endGameSeconds !== undefined) {
+      // Record has an end time - calculate completed duration
+      recordDuration = record.endGameSeconds - record.startGameSeconds;
+    } else if (currentGameTime !== undefined) {
+      // Record is active - calculate from start to current game time
+      recordDuration = currentGameTime - record.startGameSeconds;
     }
+    // If no endGameSeconds and no currentGameTime provided, duration is 0
 
     totalSeconds += recordDuration;
   });
@@ -77,14 +57,14 @@ export function calculatePlayerPlayTime(
  * @param playerId - The player's ID
  * @param playTimeRecords - Array of PlayTimeRecords
  * @param positions - Map of position IDs to position objects
- * @param games - Optional map of games by ID
+ * @param currentGameTime - Current game time in seconds (optional, for active records)
  * @returns Map of position name to total seconds played
  */
 export function calculatePlayTimeByPosition(
   playerId: string,
   playTimeRecords: PlayTimeRecord[],
   positions: Map<string, { positionName: string }>,
-  games?: Map<string, Game>
+  currentGameTime?: number
 ): Map<string, number> {
   const playerRecords = playTimeRecords.filter(r => r.playerId === playerId);
   const playTimeByPosition = new Map<string, number>();
@@ -94,28 +74,13 @@ export function calculatePlayTimeByPosition(
     const position = record.positionId ? positions.get(record.positionId) : null;
     const positionName = position?.positionName || 'Unknown';
 
-    // Calculate duration using same logic as calculatePlayerPlayTime
+    // Calculate duration using game time
     let recordDuration = 0;
 
-    if (record.durationSeconds) {
-      recordDuration = record.durationSeconds;
-    } else if (record.startTime && record.endTime) {
-      const startTime = new Date(record.startTime).getTime();
-      const endTime = new Date(record.endTime).getTime();
-      recordDuration = Math.floor((endTime - startTime) / 1000);
-    } else if (record.startTime && !record.endTime) {
-      if (games && record.gameId) {
-        const game = games.get(record.gameId);
-        if (game && game.status === 'in-progress') {
-          const startTime = new Date(record.startTime).getTime();
-          const now = Date.now();
-          recordDuration = Math.floor((now - startTime) / 1000);
-        }
-      } else {
-        const startTime = new Date(record.startTime).getTime();
-        const now = Date.now();
-        recordDuration = Math.floor((now - startTime) / 1000);
-      }
+    if (record.endGameSeconds !== null && record.endGameSeconds !== undefined) {
+      recordDuration = record.endGameSeconds - record.startGameSeconds;
+    } else if (currentGameTime !== undefined) {
+      recordDuration = currentGameTime - record.startGameSeconds;
     }
 
     // Add to position total
@@ -201,6 +166,6 @@ export function isPlayerCurrentlyPlaying(
   playTimeRecords: PlayTimeRecord[]
 ): boolean {
   return playTimeRecords.some(
-    r => r.playerId === playerId && r.startTime && !r.endTime
+    r => r.playerId === playerId && (r.endGameSeconds === null || r.endGameSeconds === undefined)
   );
 }

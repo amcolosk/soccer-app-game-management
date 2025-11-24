@@ -17,9 +17,8 @@ interface PlayTimeRecord {
   playerId: string;
   gameId: string;
   positionId?: string | null;
-  startTime?: string | null;
-  endTime?: string | null;
-  durationSeconds?: number | null;
+  startGameSeconds: number;
+  endGameSeconds?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -40,16 +39,15 @@ describe('playTimeCalculations', () => {
   const mockPositionId = 'position-789';
   
   describe('calculatePlayerPlayTime', () => {
-    it('should calculate play time from durationSeconds when available', () => {
+    it('should calculate play time from completed records', () => {
       const records: PlayTimeRecord[] = [
         {
           id: 'record-1',
           playerId: mockPlayerId,
           gameId: mockGameId,
           positionId: mockPositionId,
-          startTime: '2024-01-01T10:00:00Z',
-          endTime: '2024-01-01T10:20:00Z',
-          durationSeconds: 1200, // 20 minutes
+          startGameSeconds: 0,
+          endGameSeconds: 1200, // Played from 0 to 20 minutes (1200 seconds)
           createdAt: '2024-01-01T10:00:00Z',
           updatedAt: '2024-01-01T10:20:00Z',
         },
@@ -58,28 +56,26 @@ describe('playTimeCalculations', () => {
           playerId: mockPlayerId,
           gameId: mockGameId,
           positionId: mockPositionId,
-          startTime: '2024-01-01T10:30:00Z',
-          endTime: '2024-01-01T10:40:00Z',
-          durationSeconds: 600, // 10 minutes
+          startGameSeconds: 1200,
+          endGameSeconds: 1800, // Played from 20 to 30 minutes (600 seconds)
           createdAt: '2024-01-01T10:30:00Z',
           updatedAt: '2024-01-01T10:40:00Z',
         },
       ];
 
       const total = calculatePlayerPlayTime(mockPlayerId, records);
-      expect(total).toBe(1800); // 30 minutes total
+      expect(total).toBe(1800); // 30 minutes total (1200 + 600)
     });
 
-    it('should calculate play time from start/end times when durationSeconds is missing', () => {
+    it('should calculate play time from single record', () => {
       const records: PlayTimeRecord[] = [
         {
           id: 'record-1',
           playerId: mockPlayerId,
           gameId: mockGameId,
           positionId: mockPositionId,
-          startTime: '2024-01-01T10:00:00Z',
-          endTime: '2024-01-01T10:15:00Z',
-          durationSeconds: null,
+          startGameSeconds: 0,
+          endGameSeconds: 900, // Played from 0 to 15 minutes
           createdAt: '2024-01-01T10:00:00Z',
           updatedAt: '2024-01-01T10:15:00Z',
         },
@@ -89,95 +85,60 @@ describe('playTimeCalculations', () => {
       expect(total).toBe(900); // 15 minutes
     });
 
-    it('should handle active records without game context', () => {
-      const now = new Date();
-      const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
-      
+    it('should handle active records with current game time', () => {
       const records: PlayTimeRecord[] = [
         {
           id: 'record-1',
           playerId: mockPlayerId,
           gameId: mockGameId,
           positionId: mockPositionId,
-          startTime: fiveMinutesAgo.toISOString(),
-          endTime: null,
-          durationSeconds: null,
-          createdAt: fiveMinutesAgo.toISOString(),
-          updatedAt: fiveMinutesAgo.toISOString(),
-        },
-      ];
-
-      const total = calculatePlayerPlayTime(mockPlayerId, records);
-      // Should be approximately 300 seconds (5 minutes)
-      expect(total).toBeGreaterThanOrEqual(299);
-      expect(total).toBeLessThanOrEqual(301);
-    });
-
-    it('should skip active records when game is not in-progress', () => {
-      const records: PlayTimeRecord[] = [
-        {
-          id: 'record-1',
-          playerId: mockPlayerId,
-          gameId: mockGameId,
-          positionId: mockPositionId,
-          startTime: '2024-01-01T10:00:00Z',
-          endTime: null,
-          durationSeconds: null,
+          startGameSeconds: 0,
+          endGameSeconds: null, // Still playing
           createdAt: '2024-01-01T10:00:00Z',
           updatedAt: '2024-01-01T10:00:00Z',
         },
       ];
 
-      const games = new Map<string, Game>([
-        [mockGameId, {
-          id: mockGameId,
-          teamId: 'team-1',
-          opponent: 'Test Team',
-          gameDate: '2024-01-01',
-          status: 'completed',
-          createdAt: '2024-01-01T09:00:00Z',
-          updatedAt: '2024-01-01T11:00:00Z',
-        } as Game],
-      ]);
-
-      const total = calculatePlayerPlayTime(mockPlayerId, records, games);
-      expect(total).toBe(0); // Should skip active record for completed game
+      const currentGameTime = 300; // Game at 5 minutes (300 seconds)
+      const total = calculatePlayerPlayTime(mockPlayerId, records, currentGameTime);
+      expect(total).toBe(300); // Player has been on field for 5 minutes
     });
 
-    it('should count active records when game is in-progress', () => {
-      const now = new Date();
-      const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
-      
+    it('should return 0 for active records without current game time', () => {
       const records: PlayTimeRecord[] = [
         {
           id: 'record-1',
           playerId: mockPlayerId,
           gameId: mockGameId,
           positionId: mockPositionId,
-          startTime: tenMinutesAgo.toISOString(),
-          endTime: null,
-          durationSeconds: null,
-          createdAt: tenMinutesAgo.toISOString(),
-          updatedAt: tenMinutesAgo.toISOString(),
+          startGameSeconds: 0,
+          endGameSeconds: null, // Still playing
+          createdAt: '2024-01-01T10:00:00Z',
+          updatedAt: '2024-01-01T10:00:00Z',
         },
       ];
 
-      const games = new Map<string, Game>([
-        [mockGameId, {
-          id: mockGameId,
-          teamId: 'team-1',
-          opponent: 'Test Team',
-          gameDate: '2024-01-01',
-          status: 'in-progress',
-          createdAt: '2024-01-01T09:00:00Z',
-          updatedAt: now.toISOString(),
-        } as Game],
-      ]);
+      const total = calculatePlayerPlayTime(mockPlayerId, records);
+      expect(total).toBe(0); // No currentGameTime provided, so active record contributes 0
+    });
 
-      const total = calculatePlayerPlayTime(mockPlayerId, records, games);
-      // Should be approximately 600 seconds (10 minutes)
-      expect(total).toBeGreaterThanOrEqual(599);
-      expect(total).toBeLessThanOrEqual(601);
+    it('should count active records with provided current game time', () => {
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'record-1',
+          playerId: mockPlayerId,
+          gameId: mockGameId,
+          positionId: mockPositionId,
+          startGameSeconds: 0,
+          endGameSeconds: null, // Still playing
+          createdAt: '2024-01-01T10:00:00Z',
+          updatedAt: '2024-01-01T10:00:00Z',
+        },
+      ];
+
+      const currentGameTime = 600; // Game at 10 minutes
+      const total = calculatePlayerPlayTime(mockPlayerId, records, currentGameTime);
+      expect(total).toBe(600); // Player has been on field for 10 minutes
     });
 
     it('should filter by playerId correctly', () => {
@@ -187,9 +148,8 @@ describe('playTimeCalculations', () => {
           playerId: mockPlayerId,
           gameId: mockGameId,
           positionId: mockPositionId,
-          startTime: '2024-01-01T10:00:00Z',
-          endTime: '2024-01-01T10:20:00Z',
-          durationSeconds: 1200,
+          startGameSeconds: 0,
+          endGameSeconds: 1200,
           createdAt: '2024-01-01T10:00:00Z',
           updatedAt: '2024-01-01T10:20:00Z',
         },
@@ -198,9 +158,8 @@ describe('playTimeCalculations', () => {
           playerId: 'other-player',
           gameId: mockGameId,
           positionId: mockPositionId,
-          startTime: '2024-01-01T10:00:00Z',
-          endTime: '2024-01-01T10:30:00Z',
-          durationSeconds: 1800,
+          startGameSeconds: 0,
+          endGameSeconds: 1800,
           createdAt: '2024-01-01T10:00:00Z',
           updatedAt: '2024-01-01T10:30:00Z',
         },
@@ -219,9 +178,8 @@ describe('playTimeCalculations', () => {
           playerId: mockPlayerId,
           gameId: mockGameId,
           positionId: 'pos-forward',
-          startTime: '2024-01-01T10:00:00Z',
-          endTime: '2024-01-01T10:20:00Z',
-          durationSeconds: 1200,
+          startGameSeconds: 0,
+          endGameSeconds: 1200,
           createdAt: '2024-01-01T10:00:00Z',
           updatedAt: '2024-01-01T10:20:00Z',
         },
@@ -230,9 +188,8 @@ describe('playTimeCalculations', () => {
           playerId: mockPlayerId,
           gameId: mockGameId,
           positionId: 'pos-defense',
-          startTime: '2024-01-01T10:25:00Z',
-          endTime: '2024-01-01T10:35:00Z',
-          durationSeconds: 600,
+          startGameSeconds: 1200,
+          endGameSeconds: 1800,
           createdAt: '2024-01-01T10:25:00Z',
           updatedAt: '2024-01-01T10:35:00Z',
         },
@@ -241,9 +198,8 @@ describe('playTimeCalculations', () => {
           playerId: mockPlayerId,
           gameId: mockGameId,
           positionId: 'pos-forward',
-          startTime: '2024-01-01T10:40:00Z',
-          endTime: '2024-01-01T10:50:00Z',
-          durationSeconds: 600,
+          startGameSeconds: 1800,
+          endGameSeconds: 2400,
           createdAt: '2024-01-01T10:40:00Z',
           updatedAt: '2024-01-01T10:50:00Z',
         },
@@ -256,7 +212,7 @@ describe('playTimeCalculations', () => {
 
       const result = calculatePlayTimeByPosition(mockPlayerId, records, positions);
       
-      expect(result.get('Forward')).toBe(1800); // 30 minutes
+      expect(result.get('Forward')).toBe(1800); // 30 minutes (1200 + 600)
       expect(result.get('Defense')).toBe(600);  // 10 minutes
     });
 
@@ -267,9 +223,8 @@ describe('playTimeCalculations', () => {
           playerId: mockPlayerId,
           gameId: mockGameId,
           positionId: 'unknown-pos',
-          startTime: '2024-01-01T10:00:00Z',
-          endTime: '2024-01-01T10:10:00Z',
-          durationSeconds: 600,
+          startGameSeconds: 0,
+          endGameSeconds: 600,
           createdAt: '2024-01-01T10:00:00Z',
           updatedAt: '2024-01-01T10:10:00Z',
         },
@@ -323,9 +278,8 @@ describe('playTimeCalculations', () => {
           playerId: mockPlayerId,
           gameId: 'game-1',
           positionId: mockPositionId,
-          startTime: '2024-01-01T10:00:00Z',
-          endTime: '2024-01-01T10:20:00Z',
-          durationSeconds: 1200,
+          startGameSeconds: 0,
+          endGameSeconds: 1200,
           createdAt: '2024-01-01T10:00:00Z',
           updatedAt: '2024-01-01T10:20:00Z',
         },
@@ -334,9 +288,8 @@ describe('playTimeCalculations', () => {
           playerId: mockPlayerId,
           gameId: 'game-1', // Same game
           positionId: mockPositionId,
-          startTime: '2024-01-01T10:25:00Z',
-          endTime: '2024-01-01T10:35:00Z',
-          durationSeconds: 600,
+          startGameSeconds: 1200,
+          endGameSeconds: 1800,
           createdAt: '2024-01-01T10:25:00Z',
           updatedAt: '2024-01-01T10:35:00Z',
         },
@@ -345,9 +298,8 @@ describe('playTimeCalculations', () => {
           playerId: mockPlayerId,
           gameId: 'game-2', // Different game
           positionId: mockPositionId,
-          startTime: '2024-01-02T10:00:00Z',
-          endTime: '2024-01-02T10:20:00Z',
-          durationSeconds: 1200,
+          startGameSeconds: 0,
+          endGameSeconds: 1200,
           createdAt: '2024-01-02T10:00:00Z',
           updatedAt: '2024-01-02T10:20:00Z',
         },
@@ -369,9 +321,8 @@ describe('playTimeCalculations', () => {
           playerId: mockPlayerId,
           gameId: 'game-1',
           positionId: mockPositionId,
-          startTime: '2024-01-01T10:00:00Z',
-          endTime: '2024-01-01T10:20:00Z',
-          durationSeconds: 1200,
+          startGameSeconds: 0,
+          endGameSeconds: 1200,
           createdAt: '2024-01-01T10:00:00Z',
           updatedAt: '2024-01-01T10:20:00Z',
         },
@@ -380,9 +331,8 @@ describe('playTimeCalculations', () => {
           playerId: 'other-player',
           gameId: 'game-2',
           positionId: mockPositionId,
-          startTime: '2024-01-02T10:00:00Z',
-          endTime: '2024-01-02T10:20:00Z',
-          durationSeconds: 1200,
+          startGameSeconds: 0,
+          endGameSeconds: 1200,
           createdAt: '2024-01-02T10:00:00Z',
           updatedAt: '2024-01-02T10:20:00Z',
         },
@@ -401,9 +351,8 @@ describe('playTimeCalculations', () => {
           playerId: mockPlayerId,
           gameId: mockGameId,
           positionId: mockPositionId,
-          startTime: '2024-01-01T10:00:00Z',
-          endTime: null, // Active record
-          durationSeconds: null,
+          startGameSeconds: 0,
+          endGameSeconds: null, // Active record
           createdAt: '2024-01-01T10:00:00Z',
           updatedAt: '2024-01-01T10:00:00Z',
         },
@@ -420,9 +369,8 @@ describe('playTimeCalculations', () => {
           playerId: mockPlayerId,
           gameId: mockGameId,
           positionId: mockPositionId,
-          startTime: '2024-01-01T10:00:00Z',
-          endTime: '2024-01-01T10:20:00Z',
-          durationSeconds: 1200,
+          startGameSeconds: 0,
+          endGameSeconds: 1200,
           createdAt: '2024-01-01T10:00:00Z',
           updatedAt: '2024-01-01T10:20:00Z',
         },
@@ -444,9 +392,8 @@ describe('playTimeCalculations', () => {
           playerId: 'other-player',
           gameId: mockGameId,
           positionId: mockPositionId,
-          startTime: '2024-01-01T10:00:00Z',
-          endTime: null,
-          durationSeconds: null,
+          startGameSeconds: 0,
+          endGameSeconds: null,
           createdAt: '2024-01-01T10:00:00Z',
           updatedAt: '2024-01-01T10:00:00Z',
         },

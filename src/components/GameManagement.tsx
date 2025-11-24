@@ -239,7 +239,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         lastStartTime: startTime,
       });
 
-      // Create play time records for all starters
+      // Create play time records for all starters using game time
       const starterPromises = lineup
         .filter(l => l.isStarter)
         .map(l =>
@@ -247,7 +247,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             gameId: game.id,
             playerId: l.playerId,
             positionId: l.positionId,
-            startTime: startTime,
+            startGameSeconds: currentTime,
           })
         );
 
@@ -282,23 +282,19 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     setIsUpdatingTime(true);
     
     try {
-      const endTime = new Date().toISOString();
       const halftimeSeconds = currentTime; // Capture current time before any async operations
       
       // End all active play time records
-      const activeRecords = playTimeRecords.filter(r => !r.endTime);
+      const activeRecords = playTimeRecords.filter(r => r.endGameSeconds === null || r.endGameSeconds === undefined);
       console.log(`Halftime: Closing ${activeRecords.length} active play time records`);
       
       const endPromises = activeRecords.map(async (record) => {
-        const startTime = new Date(record.startTime!);
-        const durationSeconds = Math.floor((new Date(endTime).getTime() - startTime.getTime()) / 1000);
-        
-        console.log(`Closing record for player ${record.playerId}, duration: ${durationSeconds}s`);
+        const duration = halftimeSeconds - record.startGameSeconds;
+        console.log(`Closing record for player ${record.playerId}, duration: ${duration}s`);
         
         return client.models.PlayTimeRecord.update({
           id: record.id,
-          endTime: endTime,
-          durationSeconds: durationSeconds,
+          endGameSeconds: halftimeSeconds,
         });
       });
 
@@ -339,7 +335,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           gameId: game.id,
           playerId: l.playerId,
           positionId: l.positionId,
-          startTime: startTime,
+          startGameSeconds: resumeTime,
         });
       });
 
@@ -369,22 +365,19 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const handleEndGame = async () => {
     setIsRunning(false);
     try {
-      const endTime = new Date().toISOString();
+      const endGameTime = currentTime;
       
       // End all active play time records
-      const activeRecords = playTimeRecords.filter(r => !r.endTime);
+      const activeRecords = playTimeRecords.filter(r => r.endGameSeconds === null || r.endGameSeconds === undefined);
       console.log(`Ending game: Closing ${activeRecords.length} active play time records`);
       
       const endPromises = activeRecords.map(async (record) => {
-        const startTime = new Date(record.startTime!);
-        const durationSeconds = Math.floor((new Date(endTime).getTime() - startTime.getTime()) / 1000);
-        
-        console.log(`Closing record for player ${record.playerId}, duration: ${durationSeconds}s`);
+        const duration = endGameTime - record.startGameSeconds;
+        console.log(`Closing record for player ${record.playerId}, duration: ${duration}s`);
         
         return client.models.PlayTimeRecord.update({
           id: record.id,
-          endTime: endTime,
-          durationSeconds: durationSeconds,
+          endGameSeconds: endGameTime,
         });
       });
 
@@ -480,7 +473,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           gameId: game.id,
           playerId: playerToAssign,
           positionId: positionId,
-          startTime: new Date().toISOString(),
+          startGameSeconds: currentTime,
         });
       }
 
@@ -545,36 +538,18 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
   const handleAddTestTime = async (minutes: number) => {
     const secondsToAdd = minutes * 60;
-    const millisecondsToAdd = secondsToAdd * 1000;
     const newTime = currentTime + secondsToAdd;
     
     setIsUpdatingTime(true);
     setCurrentTime(newTime);
     
     try {
-      // Update game elapsed time
+      // Update game elapsed time - that's it!
+      // Player times automatically advance since they're based on game time
       await client.models.Game.update({
         id: game.id,
         elapsedSeconds: newTime,
       });
-
-      // TESTING TIME ONLY
-      // Adjust start times for all active play time records
-      // by moving them back in time to simulate the time passing
-      const activeRecords = playTimeRecords.filter(r => !r.endTime);
-      const updatePromises = activeRecords.map(async (record) => {
-        const currentStartTime = new Date(record.startTime!);
-        const adjustedStartTime = new Date(currentStartTime.getTime() - millisecondsToAdd);
-        
-        return client.models.PlayTimeRecord.update({
-          id: record.id,
-          startTime: adjustedStartTime.toISOString(),
-        });
-      });
-
-      await Promise.all(updatePromises);
-      // END TESTING TIME ONLY
-
     } catch (error) {
       console.error("Error updating time:", error);
     } finally {
@@ -607,16 +582,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
         // End play time for outgoing player
         const activePlayTime = playTimeRecords.find(
-          r => r.playerId === oldPlayerId && !r.endTime
+          r => r.playerId === oldPlayerId && (r.endGameSeconds === null || r.endGameSeconds === undefined)
         );
         if (activePlayTime) {
-          const startTime = new Date(activePlayTime.startTime!);
-          const durationSeconds = Math.floor((new Date(timestamp).getTime() - startTime.getTime()) / 1000);
-          
           await client.models.PlayTimeRecord.update({
             id: activePlayTime.id,
-            endTime: timestamp,
-            durationSeconds: durationSeconds,
+            endGameSeconds: currentTime,
           });
         }
 
@@ -636,7 +607,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           gameId: game.id,
           playerId: newPlayerId,
           positionId: positionId,
-          startTime: timestamp,
+          startGameSeconds: currentTime,
         });
 
         // Record substitution
@@ -675,17 +646,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     try {
       // End play time for outgoing player
       const activePlayTime = playTimeRecords.find(
-        r => r.playerId === oldPlayerId && !r.endTime
+        r => r.playerId === oldPlayerId && (r.endGameSeconds === null || r.endGameSeconds === undefined)
       );
       if (activePlayTime) {
-        const endTime = new Date().toISOString();
-        const startTime = new Date(activePlayTime.startTime!);
-        const durationSeconds = Math.floor((new Date(endTime).getTime() - startTime.getTime()) / 1000);
-        
         await client.models.PlayTimeRecord.update({
           id: activePlayTime.id,
-          endTime: endTime,
-          durationSeconds: durationSeconds,
+          endGameSeconds: currentTime,
         });
       }
 
@@ -705,7 +671,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         gameId: game.id,
         playerId: newPlayerId,
         positionId: positionId,
-        startTime: new Date().toISOString(),
+        startGameSeconds: currentTime,
       });
 
       // Record substitution
@@ -740,17 +706,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     try {
       // End play time for outgoing player
       const activePlayTime = playTimeRecords.find(
-        r => r.playerId === oldPlayerId && !r.endTime
+        r => r.playerId === oldPlayerId && (r.endGameSeconds === null || r.endGameSeconds === undefined)
       );
       if (activePlayTime) {
-        const endTime = new Date().toISOString();
-        const startTime = new Date(activePlayTime.startTime!);
-        const durationSeconds = Math.floor((new Date(endTime).getTime() - startTime.getTime()) / 1000);
-        
         await client.models.PlayTimeRecord.update({
           id: activePlayTime.id,
-          endTime: endTime,
-          durationSeconds: durationSeconds,
+          endGameSeconds: currentTime,
         });
       }
 
@@ -770,7 +731,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         gameId: game.id,
         playerId: newPlayerId,
         positionId: substitutionPosition.id,
-        startTime: new Date().toISOString(),
+        startGameSeconds: currentTime,
       });
 
       // Record substitution
@@ -794,11 +755,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
   // Use shared calculation utilities
   const getPlayerPlayTimeSeconds = (playerId: string): number => {
-    return calculatePlayerPlayTime(playerId, playTimeRecords);
+    return calculatePlayerPlayTime(playerId, playTimeRecords, currentTime);
   };
 
   const getPlayerPlayTime = (playerId: string): string => {
-    const totalSeconds = calculatePlayerPlayTime(playerId, playTimeRecords);
+    const totalSeconds = calculatePlayerPlayTime(playerId, playTimeRecords, currentTime);
     return formatPlayTime(totalSeconds, 'short');
   };
 

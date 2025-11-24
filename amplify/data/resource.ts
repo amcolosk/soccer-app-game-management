@@ -121,9 +121,8 @@ const schema = a.schema({
       player: a.belongsTo('Player', 'playerId'),
       positionId: a.id(),
       position: a.belongsTo('FieldPosition', 'positionId'),
-      startTime: a.datetime().required(), // When player entered field
-      endTime: a.datetime(), // When player left field (null if still playing)
-      durationSeconds: a.integer(), // Calculated duration
+      startGameSeconds: a.integer().required(), // Game time (elapsed seconds) when player entered field
+      endGameSeconds: a.integer(), // Game time when player left field (null if still playing)
     })
     .authorization((allow) => [allow.publicApiKey()]),
 

@@ -102,9 +102,6 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
       });
       setAllPositions(positionsResponse.data);
 
-      // Create map of games by ID for play time calculation
-      const gamesById = new Map(games.map(g => [g.id, g]));
-
       // Calculate stats for each player
       const stats: PlayerStats[] = playersList.map(player => {
         // Filter data for this player and this team's games
@@ -127,7 +124,8 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
         const redCards = playerNotes.filter(n => n.noteType === 'red-card').length;
 
         // Use shared calculation utility for play time
-        const totalPlayTimeSeconds = calculatePlayerPlayTime(player.id, playerPlayTime, gamesById);
+        // No need to pass currentGameTime since these are completed games
+        const totalPlayTimeSeconds = calculatePlayerPlayTime(player.id, playerPlayTime);
 
         // Use shared utility to count games played
         const gamesPlayed = countGamesPlayed(player.id, playerPlayTime);
@@ -224,14 +222,12 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
         allPositions.map(p => [p.id, { positionName: p.positionName }])
       );
 
-      // Create games map for game status checking
-      const gamesMap = new Map(allGames.map(g => [g.id, g]));
-
+      // Calculate play time by position
+      // No need to pass currentGameTime since these are completed games
       const playTimeByPosition = calculatePlayTimeByPosition(
         player.id,
         playerPlayTime,
-        positionsMap,
-        gamesMap
+        positionsMap
       );
 
       setPlayerDetails({
