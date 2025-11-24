@@ -224,12 +224,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     };
   }, [isRunning, gameState.status, gameState.currentHalf, halfLengthSeconds, currentTime, game.id]);
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
   const getCurrentHalfTime = () => {
     // Return total game time - timer continues from first half into second half
     return currentTime;
@@ -1047,10 +1041,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             {gameState.currentHalf === 1 ? 'First Half' : 'Second Half'}
           </div>
           <div className="time-display">
-            {formatTime(getCurrentHalfTime())}
+            {formatPlayTime(getCurrentHalfTime(), 'short')}
           </div>
           <div className="time-limit">
-            / {formatTime(halfLengthSeconds)}
+            / {formatPlayTime(halfLengthSeconds, 'short')}
           </div>
         </div>
 
