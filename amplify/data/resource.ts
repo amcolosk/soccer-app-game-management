@@ -107,7 +107,7 @@ const schema = a.schema({
       playerIn: a.belongsTo('Player', 'playerInId'),
       positionId: a.id(),
       position: a.belongsTo('FieldPosition', 'positionId'),
-      gameMinute: a.integer(),
+      gameSeconds: a.integer(),
       half: a.integer(),
       timestamp: a.datetime(),
     })
@@ -131,7 +131,7 @@ const schema = a.schema({
       gameId: a.id().required(),
       game: a.belongsTo('Game', 'gameId'),
       scoredByUs: a.boolean().required(), // true if our team scored, false if opponent
-      gameMinute: a.integer().required(), // Game time when goal was scored
+      gameSeconds: a.integer().required(), // Game time in seconds when goal was scored
       half: a.integer().required(), // 1 or 2
       scorerId: a.id(), // Player who scored (only if scoredByUs is true)
       scorer: a.belongsTo('Player', 'scorerId'),
@@ -149,7 +149,7 @@ const schema = a.schema({
       noteType: a.string().required(), // 'gold-star', 'yellow-card', 'red-card', 'other'
       playerId: a.id(), // Optional - can be associated with a player
       player: a.belongsTo('Player', 'playerId'),
-      gameMinute: a.integer().required(), // Game time when note was created
+      gameSeconds: a.integer().required(), // Game time in seconds when note was created
       half: a.integer().required(), // 1 or 2
       notes: a.string(), // The actual note text
       timestamp: a.datetime().required(), // Real-world timestamp when note was created

@@ -165,7 +165,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
         .filter(g => g.scorerId === player.id && teamGameIds.has(g.gameId))
         .map(g => ({
           game: allGames.find(game => game.id === g.gameId)!,
-          minute: g.gameMinute || 0,
+          minute: Math.floor((g.gameSeconds || 0) / 60),
           half: g.half || 1,
         }))
         .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
@@ -175,7 +175,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
         .filter(g => g.assistId === player.id && teamGameIds.has(g.gameId))
         .map(g => ({
           game: allGames.find(game => game.id === g.gameId)!,
-          minute: g.gameMinute || 0,
+          minute: Math.floor((g.gameSeconds || 0) / 60),
           half: g.half || 1,
         }))
         .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
@@ -189,7 +189,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
         .filter(n => n.noteType === 'gold-star')
         .map(n => ({
           game: allGames.find(game => game.id === n.gameId)!,
-          minute: n.gameMinute || 0,
+          minute: Math.floor((n.gameSeconds || 0) / 60),
           half: n.half || 1,
         }))
         .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
@@ -198,7 +198,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
         .filter(n => n.noteType === 'yellow-card')
         .map(n => ({
           game: allGames.find(game => game.id === n.gameId)!,
-          minute: n.gameMinute || 0,
+          minute: Math.floor((n.gameSeconds || 0) / 60),
           half: n.half || 1,
         }))
         .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
@@ -207,7 +207,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
         .filter(n => n.noteType === 'red-card')
         .map(n => ({
           game: allGames.find(game => game.id === n.gameId)!,
-          minute: n.gameMinute || 0,
+          minute: Math.floor((n.gameSeconds || 0) / 60),
           half: n.half || 1,
         }))
         .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));

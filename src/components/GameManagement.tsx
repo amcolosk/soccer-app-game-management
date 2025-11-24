@@ -158,7 +158,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }).subscribe({
       next: (data) => setGoals([...data.items].sort((a, b) => {
         if (a.half !== b.half) return a.half - b.half;
-        return a.gameMinute - b.gameMinute;
+        return a.gameSeconds - b.gameSeconds;
       })),
     });
 
@@ -168,7 +168,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }).subscribe({
       next: (data) => setGameNotes([...data.items].sort((a, b) => {
         if (a.half !== b.half) return a.half - b.half;
-        return a.gameMinute - b.gameMinute;
+        return a.gameSeconds - b.gameSeconds;
       })),
     });
 
@@ -565,7 +565,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     if (!confirm(confirmMessage)) return;
 
     const timestamp = new Date().toISOString();
-    const gameMinute = Math.floor(currentTime / 60);
     const half = gameState.currentHalf || 1;
 
     try {
@@ -616,7 +615,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           playerOutId: oldPlayerId,
           playerInId: newPlayerId,
           positionId: positionId,
-          gameMinute: gameMinute,
+          gameSeconds: currentTime,
           half: half,
           timestamp: timestamp,
         });
@@ -680,7 +679,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         playerOutId: oldPlayerId,
         playerInId: newPlayerId,
         positionId: positionId,
-        gameMinute: Math.floor(currentTime / 60),
+        gameSeconds: currentTime,
         half: gameState.currentHalf || 1,
         timestamp: new Date().toISOString(),
       });
@@ -740,7 +739,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         playerOutId: oldPlayerId,
         playerInId: newPlayerId,
         positionId: substitutionPosition.id,
-        gameMinute: Math.floor(currentTime / 60),
+        gameSeconds: currentTime,
         half: gameState.currentHalf || 1,
         timestamp: new Date().toISOString(),
       });
@@ -782,12 +781,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }
 
     try {
-      const gameMinute = Math.floor(getCurrentHalfTime() / 60);
-      
       await client.models.Goal.create({
         gameId: game.id,
         scoredByUs: goalScoredByUs,
-        gameMinute,
+        gameSeconds: getCurrentHalfTime(),
         half: gameState.currentHalf || 1,
         scorerId: goalScoredByUs && goalScorerId ? goalScorerId : undefined,
         assistId: goalScoredByUs && goalAssistId ? goalAssistId : undefined,
@@ -824,13 +821,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     try {
       // For completed games, use the total game time; otherwise use current half time
       const timeInSeconds = gameState.status === 'completed' ? currentTime : getCurrentHalfTime();
-      const gameMinute = Math.floor(timeInSeconds / 60);
       
       await client.models.GameNote.create({
         gameId: game.id,
         noteType,
         playerId: notePlayerId || undefined,
-        gameMinute,
+        gameSeconds: timeInSeconds,
         half: gameState.currentHalf || 2, // Default to 2nd half for completed games
         notes: noteText || undefined,
         timestamp: new Date().toISOString(),
@@ -1525,7 +1521,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                   <div className="goal-icon">⚽</div>
                   <div className="goal-info">
                     <div className="goal-header">
-                      <span className="goal-minute">{goal.gameMinute}'</span>
+                      <span className="goal-minute">{Math.floor(goal.gameSeconds / 60)}'</span>
                       <span className="goal-half">({goal.half === 1 ? '1st' : '2nd'} Half)</span>
                     </div>
                     {goal.scoredByUs ? (
@@ -1624,7 +1620,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                   <div className="note-info">
                     <div className="note-header">
                       <span className="note-type">{getNoteLabel(note.noteType)}</span>
-                      <span className="note-time">{note.gameMinute}' ({note.half === 1 ? '1st' : '2nd'} Half)</span>
+                      <span className="note-time">{Math.floor(note.gameSeconds / 60)}' ({note.half === 1 ? '1st' : '2nd'} Half)</span>
                     </div>
                     {notePlayer && (
                       <div className="note-player">
