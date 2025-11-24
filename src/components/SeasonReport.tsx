@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
+import {
+  calculatePlayerPlayTime,
+  calculatePlayTimeByPosition,
+  formatPlayTime,
+  countGamesPlayed,
+} from "../utils/playTimeCalculations";
 
 const client = generateClient<Schema>();
 
@@ -96,6 +102,9 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
       });
       setAllPositions(positionsResponse.data);
 
+      // Create map of games by ID for play time calculation
+      const gamesById = new Map(games.map(g => [g.id, g]));
+
       // Calculate stats for each player
       const stats: PlayerStats[] = playersList.map(player => {
         // Filter data for this player and this team's games
@@ -117,26 +126,11 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
         const yellowCards = playerNotes.filter(n => n.noteType === 'yellow-card').length;
         const redCards = playerNotes.filter(n => n.noteType === 'red-card').length;
 
-        // Calculate total play time
-        const totalPlayTimeSeconds = playerPlayTime.reduce((total, record) => {
-          if (record.durationSeconds) {
-            return total + record.durationSeconds;
-          } else if (record.startTime && record.endTime) {
-            // Has start and end time but no durationSeconds - calculate it
-            const startTime = new Date(record.startTime).getTime();
-            const endTime = new Date(record.endTime).getTime();
-            return total + Math.floor((endTime - startTime) / 1000);
-          } else if (record.startTime && !record.endTime) {
-            // Currently playing - calculate from start to now
-            const startTime = new Date(record.startTime).getTime();
-            const now = Date.now();
-            return total + Math.floor((now - startTime) / 1000);
-          }
-          return total;
-        }, 0);
+        // Use shared calculation utility for play time
+        const totalPlayTimeSeconds = calculatePlayerPlayTime(player.id, playerPlayTime, gamesById);
 
-        // Count unique games played
-        const gamesPlayed = new Set(playerPlayTime.map(r => r.gameId)).size;
+        // Use shared utility to count games played
+        const gamesPlayed = countGamesPlayed(player.id, playerPlayTime);
 
         return {
           player,
@@ -161,15 +155,6 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
     }
   };
 
-  const formatPlayTime = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    }
-    return `${minutes}m`;
-  };
-
   const loadPlayerDetails = async (player: Player) => {
     setLoadingDetails(true);
     setSelectedPlayer(player);
@@ -185,7 +170,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
           minute: g.gameMinute || 0,
           half: g.half || 1,
         }))
-        .sort((a, b) => a.game.gameDate.localeCompare(b.game.gameDate));
+        .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
 
       // Get assists by this player
       const playerAssists = allGoals
@@ -195,7 +180,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
           minute: g.gameMinute || 0,
           half: g.half || 1,
         }))
-        .sort((a, b) => a.game.gameDate.localeCompare(b.game.gameDate));
+        .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
 
       // Get notes for this player
       const playerNotes = allNotes.filter(n => 
@@ -209,7 +194,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
           minute: n.gameMinute || 0,
           half: n.half || 1,
         }))
-        .sort((a, b) => a.game.gameDate.localeCompare(b.game.gameDate));
+        .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
 
       const yellowCards = playerNotes
         .filter(n => n.noteType === 'yellow-card')
@@ -218,7 +203,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
           minute: n.gameMinute || 0,
           half: n.half || 1,
         }))
-        .sort((a, b) => a.game.gameDate.localeCompare(b.game.gameDate));
+        .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
 
       const redCards = playerNotes
         .filter(n => n.noteType === 'red-card')
@@ -227,36 +212,27 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
           minute: n.gameMinute || 0,
           half: n.half || 1,
         }))
-        .sort((a, b) => a.game.gameDate.localeCompare(b.game.gameDate));
+        .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
 
-      // Calculate play time by position
-      const playTimeByPosition = new Map<string, number>();
+      // Calculate play time by position using shared utility
       const playerPlayTime = allPlayTimeRecords.filter(r => 
         r.playerId === player.id && teamGameIds.has(r.gameId)
       );
 
-      for (const record of playerPlayTime) {
-        // Find the position name from the positionId
-        const position = allPositions.find(p => p.id === record.positionId);
-        const positionName = position?.positionName || 'Unknown';
-        
-        // Calculate duration - use durationSeconds if available, otherwise calculate from times
-        let duration = 0;
-        if (record.durationSeconds) {
-          duration = record.durationSeconds;
-        } else if (record.startTime && record.endTime) {
-          const startTime = new Date(record.startTime).getTime();
-          const endTime = new Date(record.endTime).getTime();
-          duration = Math.floor((endTime - startTime) / 1000);
-        } else if (record.startTime && !record.endTime) {
-          // Currently playing
-          const startTime = new Date(record.startTime).getTime();
-          const now = Date.now();
-          duration = Math.floor((now - startTime) / 1000);
-        }
-        
-        playTimeByPosition.set(positionName, (playTimeByPosition.get(positionName) || 0) + duration);
-      }
+      // Create position map with position names
+      const positionsMap = new Map(
+        allPositions.map(p => [p.id, { positionName: p.positionName }])
+      );
+
+      // Create games map for game status checking
+      const gamesMap = new Map(allGames.map(g => [g.id, g]));
+
+      const playTimeByPosition = calculatePlayTimeByPosition(
+        player.id,
+        playerPlayTime,
+        positionsMap,
+        gamesMap
+      );
 
       setPlayerDetails({
         player,
@@ -342,7 +318,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
                       {stat.player.firstName} {stat.player.lastName}
                     </td>
                     <td>{stat.gamesPlayed}</td>
-                    <td>{formatPlayTime(stat.totalPlayTimeSeconds)}</td>
+                    <td>{formatPlayTime(stat.totalPlayTimeSeconds, 'long')}</td>
                     <td className="stat-goals">{stat.goals || '-'}</td>
                     <td className="stat-assists">{stat.assists || '-'}</td>
                     <td className="stat-stars">{stat.goldStars || '-'}</td>
@@ -384,7 +360,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
                           .map(([position, seconds]) => (
                             <div key={position} className="position-time-item">
                               <span className="position-name">{position}</span>
-                              <span className="position-time">{formatPlayTime(seconds)}</span>
+                              <span className="position-time">{formatPlayTime(seconds, 'long')}</span>
                             </div>
                           ))}
                       </div>
@@ -399,7 +375,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
                         {playerDetails.goals.map((goal, idx) => (
                           <div key={idx} className="event-item">
                             <span className="event-game">
-                              vs {goal.game.opponent} ({new Date(goal.game.gameDate).toLocaleDateString()})
+                              vs {goal.game.opponent} ({goal.game.gameDate ? new Date(goal.game.gameDate).toLocaleDateString() : 'N/A'})
                             </span>
                             <span className="event-time">
                               {goal.minute}' (Half {goal.half})
@@ -418,7 +394,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
                         {playerDetails.assists.map((assist, idx) => (
                           <div key={idx} className="event-item">
                             <span className="event-game">
-                              vs {assist.game.opponent} ({new Date(assist.game.gameDate).toLocaleDateString()})
+                              vs {assist.game.opponent} ({assist.game.gameDate ? new Date(assist.game.gameDate).toLocaleDateString() : 'N/A'})
                             </span>
                             <span className="event-time">
                               {assist.minute}' (Half {assist.half})
@@ -437,7 +413,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
                         {playerDetails.goldStars.map((star, idx) => (
                           <div key={idx} className="event-item">
                             <span className="event-game">
-                              vs {star.game.opponent} ({new Date(star.game.gameDate).toLocaleDateString()})
+                              vs {star.game.opponent} ({star.game.gameDate ? new Date(star.game.gameDate).toLocaleDateString() : 'N/A'})
                             </span>
                             <span className="event-time">
                               {star.minute}' (Half {star.half})
@@ -456,7 +432,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
                         {playerDetails.yellowCards.map((card, idx) => (
                           <div key={idx} className="event-item">
                             <span className="event-game">
-                              vs {card.game.opponent} ({new Date(card.game.gameDate).toLocaleDateString()})
+                              vs {card.game.opponent} ({card.game.gameDate ? new Date(card.game.gameDate).toLocaleDateString() : 'N/A'})
                             </span>
                             <span className="event-time">
                               {card.minute}' (Half {card.half})
@@ -475,7 +451,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
                         {playerDetails.redCards.map((card, idx) => (
                           <div key={idx} className="event-item">
                             <span className="event-game">
-                              vs {card.game.opponent} ({new Date(card.game.gameDate).toLocaleDateString()})
+                              vs {card.game.opponent} ({card.game.gameDate ? new Date(card.game.gameDate).toLocaleDateString() : 'N/A'})
                             </span>
                             <span className="event-time">
                               {card.minute}' (Half {card.half})

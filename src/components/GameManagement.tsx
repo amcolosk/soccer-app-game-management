@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
+import {
+  calculatePlayerPlayTime,
+  formatPlayTime,
+  isPlayerCurrentlyPlaying,
+} from "../utils/playTimeCalculations";
 
 const client = generateClient<Schema>();
 
@@ -779,33 +784,18 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }
   };
 
+  // Use shared calculation utilities
   const getPlayerPlayTimeSeconds = (playerId: string): number => {
-    const records = playTimeRecords.filter(r => r.playerId === playerId);
-    let totalSeconds = 0;
-
-    records.forEach(record => {
-      if (record.endTime && record.durationSeconds) {
-        totalSeconds += record.durationSeconds;
-      } else if (!record.endTime && record.startTime) {
-        // Currently playing - calculate from start time to now
-        const startTime = new Date(record.startTime);
-        const now = new Date();
-        totalSeconds += Math.floor((now.getTime() - startTime.getTime()) / 1000);
-      }
-    });
-
-    return totalSeconds;
+    return calculatePlayerPlayTime(playerId, playTimeRecords);
   };
 
   const getPlayerPlayTime = (playerId: string): string => {
-    const totalSeconds = getPlayerPlayTimeSeconds(playerId);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    const totalSeconds = calculatePlayerPlayTime(playerId, playTimeRecords);
+    return formatPlayTime(totalSeconds, 'short');
   };
 
   const isCurrentlyPlaying = (playerId: string) => {
-    return playTimeRecords.some(r => r.playerId === playerId && !r.endTime);
+    return isPlayerCurrentlyPlaying(playerId, playTimeRecords);
   };
 
   const handleOpenGoalModal = (scoredByUs: boolean) => {

@@ -24,6 +24,15 @@ npm audit fix
 
 ## Feature Enhancements
 
+### Player Availability
+- [ ] Add player availability status (absent, injured, unavailable)
+  - Implement ability to mark players as absent, injured, or unavailable for games
+  - Filter unavailable players from lineup selection
+  - Track reasons for absence
+  - Display availability status in player roster
+  - Add date ranges for injuries/absences
+  - Show availability summary in game management view
+
 ### Position Management
 - [ ] Add position suggestions based on US Soccer standard positions
   - Goalkeeper (GK)
