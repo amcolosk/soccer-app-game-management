@@ -95,6 +95,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           const updatedGame = data.items[0];
           setGameState(updatedGame);
           
+          // Don't update time if timer is currently running in this component
+          // This prevents score updates from resetting the clock
+          if (isRunning) {
+            return;
+          }
+          
           // Auto-resume timer if game was in progress
           if (updatedGame.status === 'in-progress' && updatedGame.lastStartTime) {
             const lastStart = new Date(updatedGame.lastStartTime).getTime();
@@ -115,7 +121,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     return () => {
       gameSub.unsubscribe();
     };
-  }, [game.id]);
+  }, [game.id, isRunning]);
 
   useEffect(() => {
     // Load players
@@ -218,7 +224,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     };
   }, [isRunning, gameState.status, gameState.currentHalf, halfLengthSeconds, currentTime, game.id]);
 
-  const getCurrentHalfTime = () => {
+  const getCurrentGameTime = () => {
     // Return total game time - timer continues from first half into second half
     return currentTime;
   };
@@ -401,11 +407,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const handleEmptyPositionClick = (position: FieldPosition) => {
-    // Only allow filling empty positions at halftime or when scheduled
-    if (gameState.status !== 'halftime' && gameState.status !== 'scheduled') {
-      return;
-    }
-
     const startersCount = lineup.filter(l => l.isStarter).length;
     if (startersCount >= team.maxPlayersOnField) {
       alert(`Maximum ${team.maxPlayersOnField} starters allowed`);
@@ -755,7 +756,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       await client.models.Goal.create({
         gameId: game.id,
         scoredByUs: goalScoredByUs,
-        gameSeconds: getCurrentHalfTime(),
+        gameSeconds: getCurrentGameTime(),
         half: gameState.currentHalf || 1,
         scorerId: goalScoredByUs && goalScorerId ? goalScorerId : undefined,
         assistId: goalScoredByUs && goalAssistId ? goalAssistId : undefined,
@@ -791,7 +792,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const handleSaveNote = async () => {
     try {
       // For completed games, use the total game time; otherwise use current half time
-      const timeInSeconds = gameState.status === 'completed' ? currentTime : getCurrentHalfTime();
+      const timeInSeconds = gameState.status === 'completed' ? currentTime : getCurrentGameTime();
       
       await client.models.GameNote.create({
         gameId: game.id,
@@ -969,7 +970,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             {gameState.currentHalf === 1 ? 'First Half' : 'Second Half'}
           </div>
           <div className="time-display">
-            {formatPlayTime(getCurrentHalfTime(), 'short')}
+            {formatPlayTime(getCurrentGameTime(), 'short')}
           </div>
           <div className="time-limit">
             / {formatPlayTime(halfLengthSeconds, 'short')}
@@ -1395,7 +1396,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h2>Record Goal</h2>
             <p className="modal-subtitle">
-              {goalScoredByUs ? 'Our Goal' : `${gameState.opponent} Goal`} - {Math.floor(getCurrentHalfTime() / 60)}' ({gameState.currentHalf === 1 ? '1st' : '2nd'} Half)
+              {goalScoredByUs ? 'Our Goal' : `${gameState.opponent} Goal`} - {Math.floor(getCurrentGameTime() / 60)}' ({gameState.currentHalf === 1 ? '1st' : '2nd'} Half)
             </p>
             
             {goalScoredByUs && (
@@ -1531,7 +1532,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               </p>
             ) : (
               <p className="modal-subtitle">
-                {Math.floor(getCurrentHalfTime() / 60)}' ({gameState.currentHalf === 1 ? '1st' : '2nd'} Half)
+                {Math.floor(getCurrentGameTime() / 60)}' ({gameState.currentHalf === 1 ? '1st' : '2nd'} Half)
               </p>
             )}
             
