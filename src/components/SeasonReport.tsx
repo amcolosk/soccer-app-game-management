@@ -106,16 +106,16 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
       const stats: PlayerStats[] = playersList.map(player => {
         // Filter data for this player and this team's games
         const playerGoals = goals.filter(g => 
-          g.scorerId === player.id && teamGameIds.has(g.gameId)
+          g && g.scorerId === player.id && teamGameIds.has(g.gameId)
         );
         const playerAssists = goals.filter(g => 
-          g.assistId === player.id && teamGameIds.has(g.gameId)
+          g && g.assistId === player.id && teamGameIds.has(g.gameId)
         );
         const playerNotes = notes.filter(n => 
-          n.playerId === player.id && teamGameIds.has(n.gameId)
+          n && n.playerId === player.id && teamGameIds.has(n.gameId)
         );
         const playerPlayTime = playTimeRecords.filter(r => 
-          r.playerId === player.id && teamGameIds.has(r.gameId)
+          r && r.playerId === player.id && teamGameIds.has(r.gameId)
         );
 
         // Count note types
@@ -162,7 +162,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
       
       // Get goals scored by this player
       const playerGoals = allGoals
-        .filter(g => g.scorerId === player.id && teamGameIds.has(g.gameId))
+        .filter(g => g && g.scorerId === player.id && teamGameIds.has(g.gameId))
         .map(g => ({
           game: allGames.find(game => game.id === g.gameId)!,
           minute: Math.floor((g.gameSeconds || 0) / 60),
@@ -172,7 +172,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
 
       // Get assists by this player
       const playerAssists = allGoals
-        .filter(g => g.assistId === player.id && teamGameIds.has(g.gameId))
+        .filter(g => g && g.assistId === player.id && teamGameIds.has(g.gameId))
         .map(g => ({
           game: allGames.find(game => game.id === g.gameId)!,
           minute: Math.floor((g.gameSeconds || 0) / 60),
@@ -182,7 +182,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
 
       // Get notes for this player
       const playerNotes = allNotes.filter(n => 
-        n.playerId === player.id && teamGameIds.has(n.gameId)
+        n && n.playerId === player.id && teamGameIds.has(n.gameId)
       );
 
       const goldStars = playerNotes
@@ -214,7 +214,7 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
 
       // Calculate play time by position using shared utility
       const playerPlayTime = allPlayTimeRecords.filter(r => 
-        r.playerId === player.id && teamGameIds.has(r.gameId)
+        r && r.playerId === player.id && teamGameIds.has(r.gameId)
       );
 
       // Create position map with position names
