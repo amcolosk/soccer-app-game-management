@@ -47,7 +47,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [noteType, setNoteType] = useState<'gold-star' | 'yellow-card' | 'red-card' | 'other'>('other');
   const [notePlayerId, setNotePlayerId] = useState("");
   const [noteText, setNoteText] = useState("");
-  const [isUpdatingTime, setIsUpdatingTime] = useState(false);
 
   // Substitution queue: array of {playerId, positionId}
   interface SubQueue {
@@ -96,11 +95,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           const updatedGame = data.items[0];
           setGameState(updatedGame);
           
-          // Don't update time if we're currently updating it ourselves
-          if (isUpdatingTime) {
-            return;
-          }
-          
           // Auto-resume timer if game was in progress
           if (updatedGame.status === 'in-progress' && updatedGame.lastStartTime) {
             const lastStart = new Date(updatedGame.lastStartTime).getTime();
@@ -121,7 +115,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     return () => {
       gameSub.unsubscribe();
     };
-  }, [game.id, isUpdatingTime]);
+  }, [game.id]);
 
   useEffect(() => {
     // Load players
@@ -279,7 +273,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
   const handleHalftime = async () => {
     setIsRunning(false);
-    setIsUpdatingTime(true);
     
     try {
       const halftimeSeconds = currentTime; // Capture current time before any async operations
@@ -312,14 +305,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       setCurrentTime(halftimeSeconds);
     } catch (error) {
       console.error("Error setting halftime:", error);
-    } finally {
-      setTimeout(() => setIsUpdatingTime(false), 500);
     }
   };
 
   const handleStartSecondHalf = async () => {
-    setIsUpdatingTime(true);
-    
     try {
       const startTime = new Date().toISOString();
       const resumeTime = currentTime; // Capture current time to continue from
@@ -357,8 +346,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       setIsRunning(true);
     } catch (error) {
       console.error("Error starting second half:", error);
-    } finally {
-      setTimeout(() => setIsUpdatingTime(false), 500);
     }
   };
 
@@ -539,23 +526,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const handleAddTestTime = async (minutes: number) => {
     const secondsToAdd = minutes * 60;
     const newTime = currentTime + secondsToAdd;
-    
-    setIsUpdatingTime(true);
     setCurrentTime(newTime);
-    
-    try {
-      // Update game elapsed time - that's it!
-      // Player times automatically advance since they're based on game time
-      await client.models.Game.update({
-        id: game.id,
-        elapsedSeconds: newTime,
-      });
-    } catch (error) {
-      console.error("Error updating time:", error);
-    } finally {
-      // Reset the flag after a brief delay to allow the database update to propagate
-      setTimeout(() => setIsUpdatingTime(false), 500);
-    }
   };
 
   const handleExecuteAllSubstitutions = async () => {
