@@ -40,9 +40,10 @@ test.describe('Authentication', () => {
     await clickButton(page, 'Skip');
     
     // Wait for successful login - should see main app
-    await page.waitForSelector('text=Seasons', { timeout: 10000 });
-    await expect(page.getByText('Seasons')).toBeVisible();
-    
+    await waitForPageLoad(page);
+    await expect(page.locator('.season-selector')).toBeVisible();
+    await expect(page.getByRole('button', { name: '+ Create New Season' })).toBeVisible();
+
     console.log('✓ Login successful');
   });
   

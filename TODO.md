@@ -72,6 +72,15 @@ npm audit fix
 
 ## Feature Enhancements
 
+### Cascading Deletes
+- [ ] Implement cascading deletes for related data
+  - **Season deletion**: Delete all associated teams, games, players, positions, stats
+  - **Team deletion**: Delete all associated games, players, positions, stats
+  - **Game deletion**: Delete all associated game events, player stats, lineup data
+  - Add confirmation dialog showing what will be deleted
+  - Consider soft delete option to preserve historical data
+  - Update Amplify data schema to handle cascading relationships
+
 ### Player Availability
 - [ ] Add player availability status (absent, injured, unavailable)
   - Implement ability to mark players as absent, injured, or unavailable for games

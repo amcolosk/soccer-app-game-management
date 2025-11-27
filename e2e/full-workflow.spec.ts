@@ -71,6 +71,58 @@ async function login(page: Page) {
   await waitForPageLoad(page);
 }
 
+// Helper to clean up existing seasons
+async function cleanupExistingSeasons(page: Page) {
+  console.log('Cleaning up existing seasons...');
+  
+  // Wait for any existing season cards to load
+  await page.waitForTimeout(1000);
+  
+  // Find all delete buttons (✕) on season cards
+  let deleteButtons = page.locator('.season-card .btn-delete');
+  let count = await deleteButtons.count();
+  
+  if (count > 0) {
+    console.log(`Found ${count} existing season(s), deleting...`);
+    
+    // Set up persistent dialog handler for all confirmations
+    page.on('dialog', async (dialog) => {
+      console.log(`Auto-confirming: ${dialog.message()}`);
+      await dialog.accept();
+    });
+    
+    // Delete all existing seasons one by one
+    while (count > 0) {
+      // Click the first delete button
+      const firstDeleteButton = page.locator('.season-card .btn-delete').first();
+      await firstDeleteButton.click();
+      
+      // Wait for deletion to complete and UI to update
+      await page.waitForTimeout(2000);
+      await waitForPageLoad(page);
+      
+      // Re-check count
+      deleteButtons = page.locator('.season-card .btn-delete');
+      const newCount = await deleteButtons.count();
+      
+      if (newCount === count) {
+        console.log('⚠️ Season count did not decrease, stopping cleanup');
+        break;
+      }
+      
+      count = newCount;
+      console.log(`Remaining seasons: ${count}`);
+    }
+    
+    // Remove the dialog handler
+    page.removeAllListeners('dialog');
+    
+    console.log('✓ Existing seasons deleted');
+  } else {
+    console.log('✓ No existing seasons to clean up');
+  }
+}
+
 // Helper to create a season
 async function createSeason(page: Page) {
   console.log('Creating season...');
@@ -385,7 +437,7 @@ async function verifySeasonTotals(page: Page, gameData: any) {
   await waitForPageLoad(page);
   
   // Open Season Report
-  await clickButton(page, 'Season Report');
+  await clickButton(page, 'Reports');
   await waitForPageLoad(page);
   
   // Verify total goals in summary
@@ -416,7 +468,7 @@ async function verifySeasonTotals(page: Page, gameData: any) {
   console.log('✓ Individual player stats verified');
   
   // Click on a player to see details
-  const fionaRow = page.locator('tr').filter({ hasText: 'Fiona Fisher' });
+  const fionaRow = page.locator('tr').filter({ hasText: 'Alice Anderson' });
   await fionaRow.click();
   await page.waitForTimeout(1000);
   
@@ -428,6 +480,13 @@ async function verifySeasonTotals(page: Page, gameData: any) {
   
   // Verify play time by position
   await expect(page.locator('h3').filter({ hasText: /Play Time by Position/ })).toBeVisible();
+
+  // Verify specific position time (Goalkeeper - 40 minutes)
+  const positionTimeItem = page.locator('.position-time-item', { hasText: 'Goalkeeper' });
+  await expect(positionTimeItem).toBeVisible();
+  await expect(positionTimeItem.locator('.position-name')).toContainText('Goalkeeper');
+  await expect(positionTimeItem.locator('.position-time')).toContainText('40m');
+  console.log('✓ Position time verified: Goalkeeper 40m');
   
   console.log('✓ Player details verified');
 }
@@ -443,6 +502,11 @@ test.describe('Soccer App Full Workflow', () => {
     console.log('Step 1: Login');
     await login(page);
     console.log('✓ Logged in successfully\n');
+    
+    // Step 1.5: Clean up existing seasons
+    console.log('Step 1.5: Clean up existing data');
+    await cleanupExistingSeasons(page);
+    console.log('');
     
     // Step 2: Create Season
     console.log('Step 2: Create Season');
