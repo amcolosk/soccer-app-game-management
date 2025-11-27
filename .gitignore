@@ -27,3 +27,10 @@ dist-ssr
 .amplify
 amplify_outputs*
 amplifyconfiguration*
+seed-policy.json
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+.env.test
