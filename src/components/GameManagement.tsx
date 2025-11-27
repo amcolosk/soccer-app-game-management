@@ -101,6 +101,15 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             return;
           }
           
+          // Don't update time if game was just completed - the handleEndGame already set the final time
+          if (updatedGame.status === 'completed' && gameState.status !== 'completed') {
+            // Game just completed, use the final elapsedSeconds from database
+            if (updatedGame.elapsedSeconds !== null && updatedGame.elapsedSeconds !== undefined) {
+              setCurrentTime(updatedGame.elapsedSeconds);
+            }
+            return;
+          }
+          
           // Auto-resume timer if game was in progress
           if (updatedGame.status === 'in-progress' && updatedGame.lastStartTime) {
             const lastStart = new Date(updatedGame.lastStartTime).getTime();
@@ -108,8 +117,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             const additionalSeconds = Math.floor((now - lastStart) / 1000);
             setCurrentTime((updatedGame.elapsedSeconds || 0) + additionalSeconds);
             setIsRunning(true);
-          } else {
-            // Only restore elapsed time if game is not actively running
+          } else if (updatedGame.status !== 'completed') {
+            // Only restore elapsed time if game is not actively running and not completed
             if (updatedGame.elapsedSeconds !== null && updatedGame.elapsedSeconds !== undefined) {
               setCurrentTime(updatedGame.elapsedSeconds);
             }
@@ -356,9 +365,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const handleEndGame = async () => {
-    setIsRunning(false);
     try {
       const endGameTime = currentTime;
+      
+      // Stop the timer first and capture the final time
+      setIsRunning(false);
       
       // End all active play time records
       const activeRecords = playTimeRecords.filter(r => r.endGameSeconds === null || r.endGameSeconds === undefined);
@@ -377,12 +388,16 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       await Promise.all(endPromises);
       console.log('All play time records closed successfully');
       
+      // Update game with final time - use endGameTime to ensure consistency
       await client.models.Game.update({
         id: game.id,
         status: 'completed',
-        elapsedSeconds: currentTime,
+        elapsedSeconds: endGameTime,
       });
-      setGameState({ ...gameState, status: 'completed' });
+      
+      // Update local state with the exact end time
+      setGameState({ ...gameState, status: 'completed', elapsedSeconds: endGameTime });
+      setCurrentTime(endGameTime);
     } catch (error) {
       console.error("Error ending game:", error);
     }
