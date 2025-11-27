@@ -67,7 +67,7 @@ async function login(page: Page) {
   await clickButton(page, 'Skip');
   
   // Wait for successful login
-  await page.waitForSelector('text=Seasons', { timeout: 10000 });
+  await page.waitForSelector('text=Season', { timeout: 10000 });
   await waitForPageLoad(page);
 }
 
@@ -468,7 +468,7 @@ async function verifySeasonTotals(page: Page, gameData: any) {
   console.log('✓ Individual player stats verified');
   
   // Click on a player to see details
-  const fionaRow = page.locator('tr').filter({ hasText: 'Alice Anderson' });
+  const fionaRow = page.locator('tr').filter({ hasText: 'Diana Davis' });
   await fionaRow.click();
   await page.waitForTimeout(1000);
   
@@ -476,17 +476,17 @@ async function verifySeasonTotals(page: Page, gameData: any) {
   await expect(page.locator('.player-details-section')).toBeVisible();
   
   // Verify goals section exists
-  await expect(page.locator('h3').filter({ hasText: /Goals/ })).toBeVisible();
+  await expect(page.locator('h3').filter({ hasText: /Assists/ })).toBeVisible();
   
   // Verify play time by position
   await expect(page.locator('h3').filter({ hasText: /Play Time by Position/ })).toBeVisible();
 
-  // Verify specific position time (Goalkeeper - 40 minutes)
-  const positionTimeItem = page.locator('.position-time-item', { hasText: 'Goalkeeper' });
+  // Verify specific position time (Forward - 40 minutes)
+  const positionTimeItem = page.locator('.position-time-item', { hasText: 'Forward' });
   await expect(positionTimeItem).toBeVisible();
-  await expect(positionTimeItem.locator('.position-name')).toContainText('Goalkeeper');
+  await expect(positionTimeItem.locator('.position-name')).toContainText('Forward');
   await expect(positionTimeItem.locator('.position-time')).toContainText('40m');
-  console.log('✓ Position time verified: Goalkeeper 40m');
+  console.log('✓ Position time verified: Forward 40m');
   
   console.log('✓ Player details verified');
 }
