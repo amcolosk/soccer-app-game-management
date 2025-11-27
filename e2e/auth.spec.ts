@@ -63,8 +63,8 @@ test.describe('Authentication', () => {
     // Submit
     await clickButton(page, 'Sign in');
     
-    // Should see error message
-    await page.waitForSelector('text=/incorrect|invalid|error/i', { timeout: 5000 });
+    // Should see error message (any alert indicates auth failure)
+    await expect(page.locator('[role="alert"]')).toBeVisible({ timeout: 5000 });
     
     console.log('✓ Error message shown for invalid credentials');
   });

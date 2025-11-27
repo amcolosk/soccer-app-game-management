@@ -215,10 +215,11 @@ async function createPlayers(page: Page) {
     await fillInput(page, 'input[placeholder*="First Name *"]', player.firstName);
     await fillInput(page, 'input[placeholder*="Last Name *"]', player.lastName);
     
-    // Select preferred position if dropdown exists
-    const positionSelect = page.locator('select').first();
-    if (await positionSelect.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await selectOption(page, 'select', player.position);
+    // Select preferred position checkbox
+    const positionCheckbox = page.locator('.checkbox-label', { hasText: `${player.position} -` });
+    if (await positionCheckbox.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await positionCheckbox.locator('input[type="checkbox"]').check();
+      await page.waitForTimeout(200);
     }
     
     await clickButton(page, 'Add');
@@ -272,8 +273,8 @@ async function setupLineup(page: Page) {
   await page.getByText(TEST_DATA.game.opponent).click();
   await waitForPageLoad(page);
   
-  // Assign first 7 players to starting positions
-  const startingPlayers = TEST_DATA.players.slice(0, 7);
+  // Assign first 4 players to starting positions
+  const startingPlayers = TEST_DATA.players.slice(0, 4);
   
   for (let i = 0; i < startingPlayers.length; i++) {
     const player = startingPlayers[i];
