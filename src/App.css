@@ -1638,7 +1638,7 @@
 
 .stats-table tbody tr:hover td.player-number-cell,
 .stats-table tbody tr:hover td.player-name {
-  background: rgba(76, 175, 80, 0.05);
+  background: #e8f5e9;
 }
 
 .stats-table td.player-number-cell,
