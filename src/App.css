@@ -1596,6 +1596,8 @@
   border-radius: 12px;
   border: 3px solid var(--border-color);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  -webkit-overflow-scrolling: touch;
+  position: relative;
 }
 
 .stats-table {
@@ -1634,14 +1636,41 @@
   background: rgba(76, 175, 80, 0.05);
 }
 
-.stats-table .player-number {
-  font-weight: 600;
+.stats-table tbody tr:hover td.player-number-cell,
+.stats-table tbody tr:hover td.player-name {
+  background: rgba(76, 175, 80, 0.05);
+}
+
+.stats-table td.player-number-cell,
+.stats-table th.player-number-cell {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--card-background);
+  transition: background 0.2s;
+  padding: 0.5rem 1rem;
+}
+
+.stats-table thead th.player-number-cell {
+  background: var(--primary-green);
   color: white;
+  z-index: 3;
 }
 
 .player-name {
   font-weight: 600;
   min-width: 150px;
+  position: sticky;
+  left: 80px;
+  z-index: 2;
+  background: var(--card-background);
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+  transition: background 0.2s;
+}
+
+.stats-table thead th.player-name {
+  background: var(--primary-green);
+  z-index: 3;
 }
 
 .stat-goals,

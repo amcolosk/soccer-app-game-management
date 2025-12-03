@@ -289,8 +289,8 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
             <table className="stats-table">
               <thead>
                 <tr>
-                  <th>#</th>
-                  <th>Player</th>
+                  <th className="player-number-cell">#</th>
+                  <th className="player-name">Player</th>
                   <th>Games</th>
                   <th>Play Time</th>
                   <th>⚽ Goals</th>
@@ -307,8 +307,10 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
                     onClick={() => loadPlayerDetails(stat.player)}
                     className={`clickable-row ${selectedPlayer?.id === stat.player.id ? 'selected' : ''}`}
                   >
-                    <td className="player-number">
-                      {stat.player.playerNumber !== undefined ? `#${stat.player.playerNumber}` : '-'}
+                    <td className="player-number-cell">
+                      <div className="player-number">
+                        {stat.player.playerNumber !== undefined ? `#${stat.player.playerNumber}` : '-'}
+                      </div>
                     </td>
                     <td className="player-name">
                       {stat.player.firstName} {stat.player.lastName}
