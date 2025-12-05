@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import type { Player, FieldPosition, TeamManagementProps } from "../types";
+import { isValidPlayerNumber, isPlayerNumberUnique } from "../utils/validation";
 import { GameList } from "./GameList";
 import { GameManagement } from "./GameManagement";
 import { SeasonReport } from "./SeasonReport";
@@ -81,8 +82,13 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
     }
 
     const num = parseInt(playerNumber);
-    if (isNaN(num) || num < 0) {
-      alert("Please enter a valid player number");
+    if (isNaN(num) || !isValidPlayerNumber(num)) {
+      alert("Please enter a valid player number (1-99)");
+      return;
+    }
+
+    if (!isPlayerNumberUnique(num, team.id, players)) {
+      alert("This player number is already in use on this team");
       return;
     }
 
@@ -123,8 +129,13 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
     }
 
     const num = parseInt(playerNumber);
-    if (isNaN(num) || num < 0) {
-      alert("Please enter a valid player number");
+    if (isNaN(num) || !isValidPlayerNumber(num)) {
+      alert("Please enter a valid player number (1-99)");
+      return;
+    }
+
+    if (!isPlayerNumberUnique(num, team.id, players, editingPlayer.id)) {
+      alert("This player number is already in use on this team");
       return;
     }
 

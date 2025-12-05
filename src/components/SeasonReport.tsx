@@ -7,6 +7,13 @@ import {
   formatPlayTime,
   countGamesPlayed,
 } from "../utils/playTimeCalculations";
+import {
+  calculatePlayerGoals,
+  calculatePlayerAssists,
+  calculatePlayerGoldStars,
+  calculatePlayerYellowCards,
+  calculatePlayerRedCards,
+} from "../utils/gameCalculations";
 
 const client = generateClient<Schema>();
 
@@ -104,24 +111,19 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
 
       // Calculate stats for each player
       const stats: PlayerStats[] = playersList.map(player => {
-        // Filter data for this player and this team's games
-        const playerGoals = goals.filter(g => 
-          g && g.scorerId === player.id && teamGameIds.has(g.gameId)
-        );
-        const playerAssists = goals.filter(g => 
-          g && g.assistId === player.id && teamGameIds.has(g.gameId)
-        );
-        const playerNotes = notes.filter(n => 
-          n && n.playerId === player.id && teamGameIds.has(n.gameId)
-        );
+        // Filter data for this team's games only
+        const teamGoals = goals.filter(g => g && teamGameIds.has(g.gameId));
+        const teamNotes = notes.filter(n => n && teamGameIds.has(n.gameId));
         const playerPlayTime = playTimeRecords.filter(r => 
           r && r.playerId === player.id && teamGameIds.has(r.gameId)
         );
 
-        // Count note types
-        const goldStars = playerNotes.filter(n => n.noteType === 'gold-star').length;
-        const yellowCards = playerNotes.filter(n => n.noteType === 'yellow-card').length;
-        const redCards = playerNotes.filter(n => n.noteType === 'red-card').length;
+        // Use utility functions for calculations
+        const playerGoalsCount = calculatePlayerGoals(player.id, teamGoals);
+        const playerAssistsCount = calculatePlayerAssists(player.id, teamGoals);
+        const goldStars = calculatePlayerGoldStars(player.id, teamNotes);
+        const yellowCards = calculatePlayerYellowCards(player.id, teamNotes);
+        const redCards = calculatePlayerRedCards(player.id, teamNotes);
 
         // Use shared calculation utility for play time
         // No need to pass currentGameTime since these are completed games
@@ -132,8 +134,8 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
 
         return {
           player,
-          goals: playerGoals.length,
-          assists: playerAssists.length,
+          goals: playerGoalsCount,
+          assists: playerAssistsCount,
           goldStars,
           yellowCards,
           redCards,
@@ -159,10 +161,11 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
 
     try {
       const teamGameIds = new Set(allGames.map(g => g.id));
+      const teamGoals = allGoals.filter(g => g && teamGameIds.has(g.gameId));
       
-      // Get goals scored by this player
-      const playerGoals = allGoals
-        .filter(g => g && g.scorerId === player.id && teamGameIds.has(g.gameId))
+      // Get goals scored by this player using utility
+      const playerGoalsList = teamGoals.filter(g => g.scorerId === player.id);
+      const playerGoals = playerGoalsList
         .map(g => ({
           game: allGames.find(game => game.id === g.gameId)!,
           minute: Math.floor((g.gameSeconds || 0) / 60),
@@ -170,9 +173,9 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
         }))
         .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
 
-      // Get assists by this player
-      const playerAssists = allGoals
-        .filter(g => g && g.assistId === player.id && teamGameIds.has(g.gameId))
+      // Get assists by this player using utility
+      const playerAssistsList = teamGoals.filter(g => g.assistId === player.id);
+      const playerAssists = playerAssistsList
         .map(g => ({
           game: allGames.find(game => game.id === g.gameId)!,
           minute: Math.floor((g.gameSeconds || 0) / 60),
@@ -181,9 +184,8 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
         .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
 
       // Get notes for this player
-      const playerNotes = allNotes.filter(n => 
-        n && n.playerId === player.id && teamGameIds.has(n.gameId)
-      );
+      const teamNotes = allNotes.filter(n => n && teamGameIds.has(n.gameId));
+      const playerNotes = teamNotes.filter(n => n.playerId === player.id);
 
       const goldStars = playerNotes
         .filter(n => n.noteType === 'gold-star')

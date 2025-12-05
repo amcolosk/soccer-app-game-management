@@ -6,6 +6,9 @@ import {
   formatPlayTime,
   isPlayerCurrentlyPlaying,
 } from "../utils/playTimeCalculations";
+import {
+  isPlayerInLineup,
+} from "../utils/lineupUtils";
 
 const client = generateClient<Schema>();
 
@@ -491,7 +494,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const isInLineup = (playerId: string) => {
-    return lineup.some(l => l.playerId === playerId);
+    return isPlayerInLineup(playerId, lineup);
   };
 
   const getPlayerPosition = (playerId: string) => {
