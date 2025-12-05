@@ -28,19 +28,22 @@ const TEST_DATA = {
   },
   positions: [
     { name: 'Goalkeeper', abbreviation: 'GK' },
-    { name: 'Defender', abbreviation: 'DEF' },
-    { name: 'Midfielder', abbreviation: 'MID' },
+    { name: 'Left Defender', abbreviation: 'LD' },
+    { name: 'Right Defender', abbreviation: 'RD' },
+    { name: 'Center Midfielder', abbreviation: 'CM' },
+    { name: 'Left Midfielder', abbreviation: 'LM' },
+    { name: 'Right Midfielder', abbreviation: 'RM' },
     { name: 'Forward', abbreviation: 'FWD' },
   ],
   players: [
     { number: '1', firstName: 'Alice', lastName: 'Anderson', position: 'GK' },
-    { number: '2', firstName: 'Bob', lastName: 'Brown', position: 'DEF' },
-    { number: '3', firstName: 'Charlie', lastName: 'Clark', position: 'DEF' },
-    { number: '4', firstName: 'Diana', lastName: 'Davis', position: 'MID' },
-    { number: '5', firstName: 'Ethan', lastName: 'Evans', position: 'MID' },
-    { number: '6', firstName: 'Fiona', lastName: 'Fisher', position: 'FWD' },
+    { number: '2', firstName: 'Bob', lastName: 'Brown', position: 'LD' },
+    { number: '3', firstName: 'Charlie', lastName: 'Clark', position: 'RD' },
+    { number: '4', firstName: 'Diana', lastName: 'Davis', position: 'CM' },
+    { number: '5', firstName: 'Ethan', lastName: 'Evans', position: 'LM' },
+    { number: '6', firstName: 'Fiona', lastName: 'Fisher', position: 'RM' },
     { number: '7', firstName: 'George', lastName: 'Garcia', position: 'FWD' },
-    { number: '8', firstName: 'Hannah', lastName: 'Harris', position: 'MID' },
+    { number: '8', firstName: 'Hannah', lastName: 'Harris', position: 'CM' },
   ],
   game: {
     opponent: 'Lightning FC',
@@ -273,8 +276,8 @@ async function setupLineup(page: Page) {
   await page.getByText(TEST_DATA.game.opponent).click();
   await waitForPageLoad(page);
   
-  // Assign first 4 players to starting positions
-  const startingPlayers = TEST_DATA.players.slice(0, 4);
+  // Assign first 7 players to starting positions
+  const startingPlayers = TEST_DATA.players.slice(0, 7);
   
   for (let i = 0; i < startingPlayers.length; i++) {
     const player = startingPlayers[i];
@@ -350,17 +353,17 @@ async function runGame(page: Page) {
   
   console.log('✓ Gold star recorded');
   
-  // Make a substitution
+  // Make a substitution (Diana Davis at CM for Hannah Harris)
   await clickButton(page, '+5 min');
   await page.waitForTimeout(500);
   
-  // Click substitute button on a position (midfielder position)
-  const subButtons = page.locator('button.btn-substitute[title="Make substitution"]');
-  const subButtonCount = await subButtons.count();
+  // Find the position card for Diana Davis (CM) and click its substitute button
+  const dianaCard = page.locator('.position-card').filter({ hasText: 'Diana Davis' });
+  const dianaSubButton = dianaCard.locator('button.btn-substitute[title="Make substitution"]');
   
-  if (subButtonCount > 0) {
-    console.log(`Found ${subButtonCount} substitution buttons`);
-    await subButtons.first().click();
+  if (await dianaSubButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+    console.log('Found Diana\'s position, making substitution...');
+    await dianaSubButton.click();
     await page.waitForTimeout(500);
     
     // Wait for substitution modal to appear
@@ -377,9 +380,9 @@ async function runGame(page: Page) {
     // Verify the modal closed
     await expect(page.locator('.sub-player-item')).not.toBeVisible();
     
-    console.log('✓ Substitution made');
+    console.log('✓ Substitution made (Diana → Hannah at CM)');
   } else {
-    console.log('⚠️ No substitution buttons found, skipping substitution test');
+    console.log('⚠️ Could not find Diana\'s position for substitution, skipping');
   }
   
   // Add time to reach halftime
@@ -495,11 +498,11 @@ async function verifySeasonTotals(page: Page, gameData: any) {
   await expect(page.locator('h3').filter({ hasText: /Play Time by Position/ })).toBeVisible();
 
   // Verify specific position time (Forward - 40 minutes)
-  const positionTimeItem = page.locator('.position-time-item', { hasText: 'Forward' });
+  const positionTimeItem = page.locator('.position-time-item', { hasText: 'Center Midfielder' });
   await expect(positionTimeItem).toBeVisible();
-  await expect(positionTimeItem.locator('.position-name')).toContainText('Forward');
+  await expect(positionTimeItem.locator('.position-name')).toContainText('Center Midfielder');
   await expect(positionTimeItem.locator('.position-time')).toContainText('45m');
-  console.log('✓ Position time verified: Forward 45m');
+  console.log('✓ Position time verified: Center Midfielder 45m');
   
   console.log('✓ Player details verified');
 }
