@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
+import { sortPlayersByNumber } from "../utils/playerUtils";
 import {
   calculatePlayerPlayTime,
   calculatePlayTimeByPosition,
@@ -145,7 +146,9 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
       });
 
       // Sort by player number
-      stats.sort((a, b) => (a.player.playerNumber || 0) - (b.player.playerNumber || 0));
+      const sortedPlayers = sortPlayersByNumber(stats.map(s => s.player));
+      const playerOrderMap = new Map(sortedPlayers.map((p, i) => [p.id, i]));
+      stats.sort((a, b) => (playerOrderMap.get(a.player.id) || 0) - (playerOrderMap.get(b.player.id) || 0));
       setPlayerStats(stats);
     } catch (error) {
       console.error("Error loading season data:", error);

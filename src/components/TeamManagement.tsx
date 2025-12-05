@@ -3,6 +3,7 @@ import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import type { Player, FieldPosition, TeamManagementProps } from "../types";
 import { isValidPlayerNumber, isPlayerNumberUnique } from "../utils/validation";
+import { sortPlayersByNumber } from "../utils/playerUtils";
 import { GameList } from "./GameList";
 import { GameManagement } from "./GameManagement";
 import { SeasonReport } from "./SeasonReport";
@@ -60,7 +61,7 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
     const playerSub = client.models.Player.observeQuery({
       filter: { teamId: { eq: team.id } },
     }).subscribe({
-      next: (data) => setPlayers([...data.items].sort((a, b) => a.playerNumber - b.playerNumber)),
+      next: (data) => setPlayers(sortPlayersByNumber([...data.items])),
     });
 
     const positionSub = client.models.FieldPosition.observeQuery({

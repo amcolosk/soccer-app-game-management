@@ -9,6 +9,10 @@ import {
 import {
   isPlayerInLineup,
 } from "../utils/lineupUtils";
+import { sortPlayersByNumber } from "../utils/playerUtils";
+import { formatGameTimeDisplay, formatMinutesSeconds } from "../utils/gameTimeUtils";
+import { executeSubstitution, closeActivePlayTimeRecords } from "../services/substitutionService";
+import { PlayerSelect } from "./PlayerSelect";
 
 const client = generateClient<Schema>();
 
@@ -140,7 +144,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     const playerSub = client.models.Player.observeQuery({
       filter: { teamId: { eq: team.id } },
     }).subscribe({
-      next: (data) => setPlayers([...data.items].sort((a, b) => a.playerNumber - b.playerNumber)),
+      next: (data) => setPlayers(sortPlayersByNumber([...data.items])),
     });
 
     // Load positions
@@ -296,21 +300,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       const halftimeSeconds = currentTime; // Capture current time before any async operations
       
       // End all active play time records
-      const activeRecords = playTimeRecords.filter(r => r.endGameSeconds === null || r.endGameSeconds === undefined);
-      console.log(`Halftime: Closing ${activeRecords.length} active play time records`);
-      
-      const endPromises = activeRecords.map(async (record) => {
-        const duration = halftimeSeconds - record.startGameSeconds;
-        console.log(`Closing record for player ${record.playerId}, duration: ${duration}s`);
-        
-        return client.models.PlayTimeRecord.update({
-          id: record.id,
-          endGameSeconds: halftimeSeconds,
-        });
-      });
-
-      await Promise.all(endPromises);
-      console.log('All play time records closed successfully');
+      // Close all active play time records at halftime
+      await closeActivePlayTimeRecords(playTimeRecords, halftimeSeconds);
 
       // Update game status - preserve the exact halftime seconds
       await client.models.Game.update({
@@ -375,21 +366,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       setIsRunning(false);
       
       // End all active play time records
-      const activeRecords = playTimeRecords.filter(r => r.endGameSeconds === null || r.endGameSeconds === undefined);
-      console.log(`Ending game: Closing ${activeRecords.length} active play time records`);
-      
-      const endPromises = activeRecords.map(async (record) => {
-        const duration = endGameTime - record.startGameSeconds;
-        console.log(`Closing record for player ${record.playerId}, duration: ${duration}s`);
-        
-        return client.models.PlayTimeRecord.update({
-          id: record.id,
-          endGameSeconds: endGameTime,
-        });
-      });
-
-      await Promise.all(endPromises);
-      console.log('All play time records closed successfully');
+      await closeActivePlayTimeRecords(playTimeRecords, endGameTime);
       
       // Update game with final time - use endGameTime to ensure consistency
       await client.models.Game.update({
@@ -554,9 +531,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     const confirmMessage = `Execute all ${substitutionQueue.length} queued substitutions?`;
     if (!confirm(confirmMessage)) return;
 
-    const timestamp = new Date().toISOString();
-    const half = gameState.currentHalf || 1;
-
     try {
       // Process all substitutions
       for (const queueItem of substitutionQueue) {
@@ -569,46 +543,16 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
         const oldPlayerId = currentAssignment.playerId;
 
-        // End play time for outgoing player
-        const activePlayTime = playTimeRecords.find(
-          r => r.playerId === oldPlayerId && (r.endGameSeconds === null || r.endGameSeconds === undefined)
+        await executeSubstitution(
+          game.id,
+          oldPlayerId,
+          newPlayerId,
+          positionId,
+          currentTime,
+          gameState.currentHalf || 1,
+          playTimeRecords,
+          currentAssignment.id
         );
-        if (activePlayTime) {
-          await client.models.PlayTimeRecord.update({
-            id: activePlayTime.id,
-            endGameSeconds: currentTime,
-          });
-        }
-
-        // Remove old assignment
-        await client.models.LineupAssignment.delete({ id: currentAssignment.id });
-
-        // Create new assignment
-        await client.models.LineupAssignment.create({
-          gameId: game.id,
-          playerId: newPlayerId,
-          positionId: positionId,
-          isStarter: true,
-        });
-
-        // Start play time for incoming player
-        await client.models.PlayTimeRecord.create({
-          gameId: game.id,
-          playerId: newPlayerId,
-          positionId: positionId,
-          startGameSeconds: currentTime,
-        });
-
-        // Record substitution
-        await client.models.Substitution.create({
-          gameId: game.id,
-          playerOutId: oldPlayerId,
-          playerInId: newPlayerId,
-          positionId: positionId,
-          gameSeconds: currentTime,
-          half: half,
-          timestamp: timestamp,
-        });
       }
 
       // Clear the entire queue
@@ -633,46 +577,16 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     const oldPlayerId = currentAssignment.playerId;
 
     try {
-      // End play time for outgoing player
-      const activePlayTime = playTimeRecords.find(
-        r => r.playerId === oldPlayerId && (r.endGameSeconds === null || r.endGameSeconds === undefined)
+      await executeSubstitution(
+        game.id,
+        oldPlayerId,
+        newPlayerId,
+        positionId,
+        currentTime,
+        gameState.currentHalf || 1,
+        playTimeRecords,
+        currentAssignment.id
       );
-      if (activePlayTime) {
-        await client.models.PlayTimeRecord.update({
-          id: activePlayTime.id,
-          endGameSeconds: currentTime,
-        });
-      }
-
-      // Remove old assignment
-      await client.models.LineupAssignment.delete({ id: currentAssignment.id });
-
-      // Create new assignment
-      await client.models.LineupAssignment.create({
-        gameId: game.id,
-        playerId: newPlayerId,
-        positionId: positionId,
-        isStarter: true,
-      });
-
-      // Start play time for incoming player
-      await client.models.PlayTimeRecord.create({
-        gameId: game.id,
-        playerId: newPlayerId,
-        positionId: positionId,
-        startGameSeconds: currentTime,
-      });
-
-      // Record substitution
-      await client.models.Substitution.create({
-        gameId: game.id,
-        playerOutId: oldPlayerId,
-        playerInId: newPlayerId,
-        positionId: positionId,
-        gameSeconds: currentTime,
-        half: gameState.currentHalf || 1,
-        timestamp: new Date().toISOString(),
-      });
 
       // Remove from queue
       handleRemoveFromQueue(newPlayerId, positionId);
@@ -693,46 +607,16 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     const oldPlayerId = currentAssignment.playerId;
 
     try {
-      // End play time for outgoing player
-      const activePlayTime = playTimeRecords.find(
-        r => r.playerId === oldPlayerId && (r.endGameSeconds === null || r.endGameSeconds === undefined)
+      await executeSubstitution(
+        game.id,
+        oldPlayerId,
+        newPlayerId,
+        substitutionPosition.id,
+        currentTime,
+        gameState.currentHalf || 1,
+        playTimeRecords,
+        currentAssignment.id
       );
-      if (activePlayTime) {
-        await client.models.PlayTimeRecord.update({
-          id: activePlayTime.id,
-          endGameSeconds: currentTime,
-        });
-      }
-
-      // Remove old assignment
-      await client.models.LineupAssignment.delete({ id: currentAssignment.id });
-
-      // Create new assignment
-      await client.models.LineupAssignment.create({
-        gameId: game.id,
-        playerId: newPlayerId,
-        positionId: substitutionPosition.id,
-        isStarter: true,
-      });
-
-      // Start play time for incoming player
-      await client.models.PlayTimeRecord.create({
-        gameId: game.id,
-        playerId: newPlayerId,
-        positionId: substitutionPosition.id,
-        startGameSeconds: currentTime,
-      });
-
-      // Record substitution
-      await client.models.Substitution.create({
-        gameId: game.id,
-        playerOutId: oldPlayerId,
-        playerInId: newPlayerId,
-        positionId: substitutionPosition.id,
-        gameSeconds: currentTime,
-        half: gameState.currentHalf || 1,
-        timestamp: new Date().toISOString(),
-      });
 
       setShowSubstitution(false);
       setSubstitutionPosition(null);
@@ -1280,29 +1164,30 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                           pref === positionName || 
                           pref === positionAbbr
                         );
-                      }).sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0));
+                      });
+                      const sortedRecommendedPlayers = sortPlayersByNumber(recommendedPlayers);
                       
                       // Other players not in recommended list
-                      const otherPlayers = availablePlayers
-                        .filter(p => !recommendedPlayers.includes(p))
-                        .sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0));
+                      const otherPlayers = sortPlayersByNumber(
+                        availablePlayers.filter(p => !recommendedPlayers.includes(p))
+                      );
                       
                       return (
                         <>
-                          {recommendedPlayers.length > 0 && (
+                          {sortedRecommendedPlayers.length > 0 && (
                             <>
                               <div className="player-section-header">
                                 <span className="section-label">⭐ Recommended Players</span>
                                 <span className="section-hint">Prefer this position</span>
                               </div>
-                              {recommendedPlayers.map(player => {
+                              {sortedRecommendedPlayers.map(player => {
                                 const playTimeSeconds = getPlayerPlayTimeSeconds(player.id);
                                 return (
                                   <div key={player.id} className="sub-player-item recommended">
                                     <div className="sub-player-info">
                                       <span>#{player.playerNumber} {player.firstName} {player.lastName}</span>
                                       <span className="player-play-time">
-                                        {Math.floor(playTimeSeconds / 60)}:{String(playTimeSeconds % 60).padStart(2, '0')}
+                                        {formatMinutesSeconds(playTimeSeconds)}
                                       </span>
                                     </div>
                                     <div className="sub-player-actions">
@@ -1353,7 +1238,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                                     <div className="sub-player-info">
                                       <span>#{player.playerNumber} {player.firstName} {player.lastName}</span>
                                       <span className="player-play-time">
-                                        {Math.floor(playTimeSeconds / 60)}:{String(playTimeSeconds % 60).padStart(2, '0')}
+                                        {formatMinutesSeconds(playTimeSeconds)}
                                       </span>
                                     </div>
                                     <div className="sub-player-actions">
@@ -1414,48 +1299,32 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h2>Record Goal</h2>
             <p className="modal-subtitle">
-              {goalScoredByUs ? 'Our Goal' : `${gameState.opponent} Goal`} - {Math.floor(getCurrentGameTime() / 60)}' ({gameState.currentHalf === 1 ? '1st' : '2nd'} Half)
+              {goalScoredByUs ? 'Our Goal' : `${gameState.opponent} Goal`} - {formatGameTimeDisplay(getCurrentGameTime(), gameState.currentHalf || 1)}
             </p>
             
             {goalScoredByUs && (
               <>
                 <div className="form-group">
                   <label htmlFor="goalScorer">Who Scored? *</label>
-                  <select
-                    id="goalScorer"
+                  <PlayerSelect
+                    players={players}
                     value={goalScorerId}
-                    onChange={(e) => setGoalScorerId(e.target.value)}
-                    style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
-                  >
-                    <option value="">Select player...</option>
-                    {players
-                      .sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0))
-                      .map(player => (
-                        <option key={player.id} value={player.id}>
-                          #{player.playerNumber} {player.firstName} {player.lastName}
-                        </option>
-                      ))}
-                  </select>
+                    onChange={setGoalScorerId}
+                    placeholder="Select player..."
+                    className="w-full"
+                  />
                 </div>
 
                 <div className="form-group">
                   <label htmlFor="goalAssist">Assisted By (optional)</label>
-                  <select
-                    id="goalAssist"
+                  <PlayerSelect
+                    players={players}
                     value={goalAssistId}
-                    onChange={(e) => setGoalAssistId(e.target.value)}
-                    style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
-                  >
-                    <option value="">No assist / Select player...</option>
-                    {players
-                      .filter(p => p.id !== goalScorerId)
-                      .sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0))
-                      .map(player => (
-                        <option key={player.id} value={player.id}>
-                          #{player.playerNumber} {player.firstName} {player.lastName}
-                        </option>
-                      ))}
-                  </select>
+                    onChange={setGoalAssistId}
+                    excludeId={goalScorerId}
+                    placeholder="No assist / Select player..."
+                    className="w-full"
+                  />
                 </div>
 
                 <div className="form-group">
@@ -1550,27 +1419,19 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               </p>
             ) : (
               <p className="modal-subtitle">
-                {Math.floor(getCurrentGameTime() / 60)}' ({gameState.currentHalf === 1 ? '1st' : '2nd'} Half)
+                {formatGameTimeDisplay(getCurrentGameTime(), gameState.currentHalf || 1)}
               </p>
             )}
             
             <div className="form-group">
               <label htmlFor="notePlayer">Player (optional)</label>
-              <select
-                id="notePlayer"
+              <PlayerSelect
+                players={players}
                 value={notePlayerId}
-                onChange={(e) => setNotePlayerId(e.target.value)}
-                style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}
-              >
-                <option value="">None / General note</option>
-                {players
-                  .sort((a, b) => (a.playerNumber ?? 0) - (b.playerNumber ?? 0))
-                  .map(player => (
-                    <option key={player.id} value={player.id}>
-                      #{player.playerNumber} {player.firstName} {player.lastName}
-                    </option>
-                  ))}
-              </select>
+                onChange={setNotePlayerId}
+                placeholder="None / General note"
+                className="w-full"
+              />
             </div>
 
             <div className="form-group">
