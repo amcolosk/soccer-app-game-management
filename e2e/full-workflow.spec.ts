@@ -317,12 +317,12 @@ async function runGame(page: Page) {
   
   // Select scorer (first forward - Fiona)
   const scorerSelect = page.locator('select#goalScorer');
-  await scorerSelect.selectOption({ label: '#6 Fiona Fisher' });
+  await scorerSelect.selectOption({ label: '#6 - Fiona Fisher' });
   await page.waitForTimeout(300);
   
   // Select assist (first midfielder - Diana)
   const assistSelect = page.locator('select#goalAssist');
-  await assistSelect.selectOption({ label: '#4 Diana Davis' });
+  await assistSelect.selectOption({ label: '#4 - Diana Davis' });
   await page.waitForTimeout(300);
   
   await clickButton(page, 'Record Goal');
@@ -341,7 +341,7 @@ async function runGame(page: Page) {
   await page.waitForTimeout(500);
   
   const notePlayerSelect = page.locator('select#notePlayer');
-  await notePlayerSelect.selectOption({ label: '#1 Alice Anderson' });
+  await notePlayerSelect.selectOption({ label: '#1 - Alice Anderson' });
   await page.waitForTimeout(300);
   
   await fillInput(page, 'textarea#noteText', 'Great save!');
@@ -396,7 +396,7 @@ async function runGame(page: Page) {
   await page.waitForTimeout(500);
   
   const scorerSelect2 = page.locator('select#goalScorer');
-  await scorerSelect2.selectOption({ label: '#7 George Garcia' });
+  await scorerSelect2.selectOption({ label: '#7 - George Garcia' });
   await page.waitForTimeout(300);
   
   await clickButton(page, 'Record Goal');

@@ -10,6 +10,7 @@ interface PlayerSelectProps {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  id?: string;
 }
 
 export function PlayerSelect({
@@ -20,6 +21,7 @@ export function PlayerSelect({
   placeholder = "Select player...",
   disabled = false,
   className = "",
+  id,
 }: PlayerSelectProps) {
   const filteredPlayers = excludeId 
     ? players.filter(p => p.id !== excludeId)
@@ -31,6 +33,7 @@ export function PlayerSelect({
 
   return (
     <select
+      id={id}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}

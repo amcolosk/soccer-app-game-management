@@ -1307,6 +1307,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                 <div className="form-group">
                   <label htmlFor="goalScorer">Who Scored? *</label>
                   <PlayerSelect
+                    id="goalScorer"
                     players={players}
                     value={goalScorerId}
                     onChange={setGoalScorerId}
@@ -1318,6 +1319,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                 <div className="form-group">
                   <label htmlFor="goalAssist">Assisted By (optional)</label>
                   <PlayerSelect
+                    id="goalAssist"
                     players={players}
                     value={goalAssistId}
                     onChange={setGoalAssistId}
@@ -1426,6 +1428,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             <div className="form-group">
               <label htmlFor="notePlayer">Player (optional)</label>
               <PlayerSelect
+                id="notePlayer"
                 players={players}
                 value={notePlayerId}
                 onChange={setNotePlayerId}
