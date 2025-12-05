@@ -350,25 +350,37 @@ async function runGame(page: Page) {
   
   console.log('✓ Gold star recorded');
   
-//   // Make a substitution
-//   await clickButton(page, '+5 min');
-//   await page.waitForTimeout(500);
+  // Make a substitution
+  await clickButton(page, '+5 min');
+  await page.waitForTimeout(500);
   
-//   // Click substitute button on a position (midfielder position)
-//   const subButtons = page.locator('button[title="Make substitution"]');
-//   if (await subButtons.count() > 0) {
-//     await subButtons.first().click();
-//     await page.waitForTimeout(500);
+  // Click substitute button on a position (midfielder position)
+  const subButtons = page.locator('button.btn-substitute[title="Make substitution"]');
+  const subButtonCount = await subButtons.count();
+  
+  if (subButtonCount > 0) {
+    console.log(`Found ${subButtonCount} substitution buttons`);
+    await subButtons.first().click();
+    await page.waitForTimeout(500);
     
-//     // Select Hannah Harris (player 8) as substitute
-//     await page.getByText('Hannah Harris').first().click();
-//     await page.waitForTimeout(300);
+    // Wait for substitution modal to appear
+    await page.waitForSelector('.sub-player-item', { timeout: 5000 });
     
-//     await clickButtonByText(page, /Sub Now/);
-//     await page.waitForTimeout(1000);
+    // Find Hannah Harris in the substitution list and click "Sub Now"
+    const hannahItem = page.locator('.sub-player-item').filter({ hasText: 'Hannah Harris' });
+    await expect(hannahItem).toBeVisible();
     
-//     console.log('✓ Substitution made');
-//   }
+    const subNowButton = hannahItem.locator('button.btn-sub-now');
+    await subNowButton.click();
+    await page.waitForTimeout(1000);
+    
+    // Verify the modal closed
+    await expect(page.locator('.sub-player-item')).not.toBeVisible();
+    
+    console.log('✓ Substitution made');
+  } else {
+    console.log('⚠️ No substitution buttons found, skipping substitution test');
+  }
   
   // Add time to reach halftime
   await clickButton(page, '+5 min');
@@ -486,8 +498,8 @@ async function verifySeasonTotals(page: Page, gameData: any) {
   const positionTimeItem = page.locator('.position-time-item', { hasText: 'Forward' });
   await expect(positionTimeItem).toBeVisible();
   await expect(positionTimeItem.locator('.position-name')).toContainText('Forward');
-  await expect(positionTimeItem.locator('.position-time')).toContainText('40m');
-  console.log('✓ Position time verified: Forward 40m');
+  await expect(positionTimeItem.locator('.position-time')).toContainText('45m');
+  console.log('✓ Position time verified: Forward 45m');
   
   console.log('✓ Player details verified');
 }
