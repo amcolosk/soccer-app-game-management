@@ -7,19 +7,16 @@ import {
   selectOption,
   waitForElement,
 } from './helpers';
+import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
 /**
  * Authentication Test Suite
  * Tests login functionality with AWS Cognito
  */
 
-// Get credentials from environment or use defaults
-const TEST_EMAIL = process.env.TEST_USER_EMAIL || 'test@example.com';
-const TEST_PASSWORD = process.env.TEST_USER_PASSWORD || 'TestPassword123!';
-
 test.describe('Authentication', () => {
   test('should login successfully', async ({ page }) => {
-    test.setTimeout(30000);
+    test.setTimeout(TEST_CONFIG.timeout.short);
     
     console.log('Testing login with Cognito...');
     
@@ -30,8 +27,8 @@ test.describe('Authentication', () => {
     await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
     
     // Enter credentials
-    await fillInput(page, 'input[name="username"], input[type="email"]', TEST_EMAIL);
-    await fillInput(page, 'input[name="password"], input[type="password"]', TEST_PASSWORD);
+    await fillInput(page, 'input[name="username"], input[type="email"]', TEST_USERS.user1.email);
+    await fillInput(page, 'input[name="password"], input[type="password"]', TEST_USERS.user1.password);
     
     // Submit
     await clickButton(page, 'Sign in');
@@ -47,8 +44,37 @@ test.describe('Authentication', () => {
     console.log('✓ Login successful');
   });
   
+  test('should login successfully with second user', async ({ page }) => {
+    test.setTimeout(TEST_CONFIG.timeout.short);
+    
+    console.log(`Testing login with second user (${TEST_USERS.user2.email})...`);
+    
+    await page.goto('/');
+    await waitForPageLoad(page);
+    
+    // Wait for auth UI to load
+    await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
+    
+    // Enter second user credentials
+    await fillInput(page, 'input[name="username"], input[type="email"]', TEST_USERS.user2.email);
+    await fillInput(page, 'input[name="password"], input[type="password"]', TEST_USERS.user2.password);
+    
+    // Submit
+    await clickButton(page, 'Sign in');
+
+    // Click Skip Verification
+    await clickButton(page, 'Skip');
+    
+    // Wait for successful login - should see main app
+    await waitForPageLoad(page);
+    await expect(page.locator('.season-selector')).toBeVisible();
+    await expect(page.getByRole('button', { name: '+ Create New Season' })).toBeVisible();
+
+    console.log('✓ Second user login successful');
+  });
+  
   test('should show error for invalid credentials', async ({ page }) => {
-    test.setTimeout(30000);
+    test.setTimeout(TEST_CONFIG.timeout.short);
     
     await page.goto('/');
     await waitForPageLoad(page);

@@ -9,6 +9,7 @@ import {
   getTextContent,
   formatTime,
 } from './helpers';
+import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
 /**
  * Comprehensive E2E Test Suite for Soccer App
@@ -67,8 +68,8 @@ async function login(page: Page) {
   await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
   
   // If using email/password auth in sandbox
-  await fillInput(page, 'input[name="username"], input[type="email"]', 'test@example.com');
-  await fillInput(page, 'input[name="password"], input[type="password"]', 'TestPassword123!');
+  await fillInput(page, 'input[name="username"], input[type="email"]', TEST_USERS.user1.email);
+  await fillInput(page, 'input[name="password"], input[type="password"]', TEST_USERS.user1.password);
   await clickButton(page, 'Sign in');
 
   // Click Skip Verification
@@ -552,7 +553,7 @@ async function verifySeasonTotals(page: Page, gameData: any) {
 // Main test
 test.describe('Soccer App Full Workflow', () => {
   test('Complete workflow from login to season reporting', async ({ page }) => {
-    test.setTimeout(180000); // 3 minutes for full workflow
+    test.setTimeout(TEST_CONFIG.timeout.long); // 3 minutes for full workflow
     
     console.log('\n=== Starting E2E Test Suite ===\n');
     

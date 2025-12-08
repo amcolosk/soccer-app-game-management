@@ -1,10 +1,12 @@
-## Soccer Game Management App
+# TeamTrack
 
-A progressive web app (PWA) designed for soccer coaches to manage teams, players, and game day operations. Built with React, TypeScript, Vite, and AWS Amplify Gen2.
+**A Game Management App for Coaches and Team Managers**
+
+A progressive web app (PWA) designed for coaches to manage teams, players, and game day operations. Built with React, TypeScript, Vite, and AWS Amplify Gen2.
 
 ## Overview
 
-This application helps soccer coaches organize their teams and manage games from the sideline. Track lineups, monitor play time, make substitutions, and ensure fair playing time distribution across your roster—all from your mobile device or desktop.
+TeamTrack helps coaches organize their teams and manage games from the sideline. Track lineups, monitor play time, make substitutions, and ensure fair playing time distribution across your roster—all from your mobile device or desktop.
 
 ## Features
 
