@@ -45,10 +45,15 @@ const TEST_DATA = {
     { number: '7', firstName: 'George', lastName: 'Garcia', position: 'FWD' },
     { number: '8', firstName: 'Hannah', lastName: 'Harris', position: 'CM' },
   ],
-  game: {
+  game1: {
     opponent: 'Lightning FC',
-    date: '2025-11-30T14:00', // Add time component
+    date: '2025-11-30T14:00',
     isHome: true,
+  },
+  game2: {
+    opponent: 'Thunder Strikers',
+    date: '2025-12-07T15:00',
+    isHome: false,
   },
 };
 
@@ -236,25 +241,28 @@ async function createPlayers(page: Page) {
 }
 
 // Helper to create and setup a game
-async function createGame(page: Page) {
-  console.log('Creating game...');
+async function createGame(page: Page, gameData: { opponent: string; date: string; isHome: boolean }) {
+  console.log(`Creating game vs ${gameData.opponent}...`);
   
-  // Go to Games tab
-  await clickButton(page, 'Games');
-  await waitForPageLoad(page);
+  // Go to Games tab (if not already there)
+  const gamesTab = page.locator('button', { hasText: 'Games' });
+  if (await gamesTab.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await clickButton(page, 'Games');
+    await waitForPageLoad(page);
+  }
   
   // Create game
   await clickButton(page, '+ Schedule New Game');
   await waitForPageLoad(page);
   
   // Fill game form
-  await fillInput(page, 'input[placeholder*="Opponent Team Name *"]', TEST_DATA.game.opponent);
+  await fillInput(page, 'input[placeholder*="Opponent Team Name *"]', gameData.opponent);
   
-  await fillInput(page, 'input[type="datetime-local"]', TEST_DATA.game.date);
+  await fillInput(page, 'input[type="datetime-local"]', gameData.date);
 
   
   // Select home/away using getByRole for better reliability
-  if (TEST_DATA.game.isHome) {
+  if (gameData.isHome) {
     await page.getByRole('radio', { name: /home/i }).check();
   } else {
     await page.getByRole('radio', { name: /away/i }).check();
@@ -264,16 +272,16 @@ async function createGame(page: Page) {
   await waitForPageLoad(page);
   
   // Verify game was created
-  await expect(page.getByText(TEST_DATA.game.opponent)).toBeVisible();
-  console.log('✓ Game created');
+  await expect(page.getByText(gameData.opponent)).toBeVisible();
+  console.log(`✓ Game created vs ${gameData.opponent}`);
 }
 
 // Helper to setup lineup for the game
-async function setupLineup(page: Page) {
-  console.log('Setting up lineup...');
+async function setupLineup(page: Page, opponent: string) {
+  console.log(`Setting up lineup for game vs ${opponent}...`);
   
   // Click on the game to manage it
-  await page.getByText(TEST_DATA.game.opponent).click();
+  await page.getByText(opponent).click();
   await waitForPageLoad(page);
   
   // Assign first 7 players to starting positions
@@ -300,8 +308,8 @@ async function setupLineup(page: Page) {
 }
 
 // Helper to run the game simulation
-async function runGame(page: Page) {
-  console.log('Running game simulation...');
+async function runGame(page: Page, gameNumber: number = 1) {
+  console.log(`Running game ${gameNumber} simulation...`);
   
   // Start the game
   await clickButton(page, 'Start Game');
@@ -314,18 +322,26 @@ async function runGame(page: Page) {
   await clickButton(page, '+5 min');
   await page.waitForTimeout(500);
   
-  // Record a goal for us
+  // Record a goal for us (vary by game)
   await clickButtonByText(page, /Goal - Us/);
   await page.waitForTimeout(500);
   
-  // Select scorer (first forward - Fiona)
+  // Select scorer - different players for each game
   const scorerSelect = page.locator('select#goalScorer');
-  await scorerSelect.selectOption({ label: '#6 - Fiona Fisher' });
+  if (gameNumber === 1) {
+    await scorerSelect.selectOption({ label: '#6 - Fiona Fisher' });
+  } else {
+    await scorerSelect.selectOption({ label: '#7 - George Garcia' });
+  }
   await page.waitForTimeout(300);
   
-  // Select assist (first midfielder - Diana)
+  // Select assist - different players for each game
   const assistSelect = page.locator('select#goalAssist');
-  await assistSelect.selectOption({ label: '#4 - Diana Davis' });
+  if (gameNumber === 1) {
+    await assistSelect.selectOption({ label: '#4 - Diana Davis' });
+  } else {
+    await assistSelect.selectOption({ label: '#5 - Ethan Evans' });
+  }
   await page.waitForTimeout(300);
   
   await clickButton(page, 'Record Goal');
@@ -333,25 +349,30 @@ async function runGame(page: Page) {
   
   // Verify score updated
   await expect(page.locator('.score-display')).toContainText('1');
-  console.log('✓ Goal recorded');
+  console.log(`✓ Goal ${gameNumber}.1 recorded`);
   
   // Add more time
   await clickButton(page, '+5 min');
   await page.waitForTimeout(500);
   
-  // Record a gold star
+  // Record a gold star (vary by game)
   await clickButtonByText(page, /Gold Star/);
   await page.waitForTimeout(500);
   
   const notePlayerSelect = page.locator('select#notePlayer');
-  await notePlayerSelect.selectOption({ label: '#1 - Alice Anderson' });
+  if (gameNumber === 1) {
+    await notePlayerSelect.selectOption({ label: '#1 - Alice Anderson' });
+    await fillInput(page, 'textarea#noteText', 'Great save!');
+  } else {
+    await notePlayerSelect.selectOption({ label: '#2 - Bob Brown' });
+    await fillInput(page, 'textarea#noteText', 'Excellent defense!');
+  }
   await page.waitForTimeout(300);
   
-  await fillInput(page, 'textarea#noteText', 'Great save!');
   await clickButton(page, 'Save Note');
   await page.waitForTimeout(1000);
   
-  console.log('✓ Gold star recorded');
+  console.log(`✓ Gold star ${gameNumber} recorded`);
   
   // Make a substitution (Diana Davis at CM for Hannah Harris)
   await clickButton(page, '+5 min');
@@ -406,12 +427,16 @@ async function runGame(page: Page) {
   await clickButton(page, '+5 min');
   await page.waitForTimeout(500);
   
-  // Record another goal
+  // Record another goal (second goal of the game)
   await clickButtonByText(page, /Goal - Us/);
   await page.waitForTimeout(500);
   
   const scorerSelect2 = page.locator('select#goalScorer');
-  await scorerSelect2.selectOption({ label: '#7 - George Garcia' });
+  if (gameNumber === 1) {
+    await scorerSelect2.selectOption({ label: '#7 - George Garcia' });
+  } else {
+    await scorerSelect2.selectOption({ label: '#6 - Fiona Fisher' });
+  }
   await page.waitForTimeout(300);
   
   await clickButton(page, 'Record Goal');
@@ -420,7 +445,7 @@ async function runGame(page: Page) {
   // Verify score is now 2
   const scoreElements = page.locator('.score-display .score');
   await expect(scoreElements.first()).toContainText('2');
-  console.log('✓ Second goal recorded');
+  console.log(`✓ Goal ${gameNumber}.2 recorded`);
   
   // Add more time and end game
   await clickButton(page, '+5 min');
@@ -434,14 +459,31 @@ async function runGame(page: Page) {
   
   // Verify game completed
   await expect(page.getByText(/Game Completed/)).toBeVisible();
-  console.log('✓ Game completed');
+  console.log(`✓ Game ${gameNumber} completed`);
   
-  return {
-    goals: 2,
-    assists: 1,
-    goldStars: 1,
-    scorers: ['Fiona Fisher', 'George Garcia'],
-  };
+  // Navigate back to Games list for next game (if not the last game)
+  if (gameNumber === 1) {
+    await clickButtonByText(page, /Back to Games/);
+    await waitForPageLoad(page);
+    console.log('✓ Returned to Games list');
+  }
+  
+  // Return game statistics
+  if (gameNumber === 1) {
+    return {
+      goals: 2,
+      assists: 1,
+      goldStars: 1,
+      scorers: ['Fiona Fisher', 'George Garcia'],
+    };
+  } else {
+    return {
+      goals: 2,
+      assists: 1,
+      goldStars: 1,
+      scorers: ['George Garcia', 'Fiona Fisher'], // Both scored in game 2 as well
+    };
+  }
 }
 
 // Helper to verify season totals
@@ -449,7 +491,7 @@ async function verifySeasonTotals(page: Page, gameData: any) {
   console.log('Verifying season totals...');
   
   // Go back to team view
-  await clickButton(page, /Back to Games/);
+  await clickButtonByText(page, /Back to Games/);
   await waitForPageLoad(page);
   
   // Open Season Report
@@ -501,8 +543,8 @@ async function verifySeasonTotals(page: Page, gameData: any) {
   const positionTimeItem = page.locator('.position-time-item', { hasText: 'Center Midfielder' });
   await expect(positionTimeItem).toBeVisible();
   await expect(positionTimeItem.locator('.position-name')).toContainText('Center Midfielder');
-  await expect(positionTimeItem.locator('.position-time')).toContainText('45m');
-  console.log('✓ Position time verified: Center Midfielder 45m');
+  await expect(positionTimeItem.locator('.position-time')).toContainText('1h 30m');
+  console.log('✓ Position time verified: Center Midfielder 1h 30m');
   
   console.log('✓ Player details verified');
 }
@@ -544,24 +586,45 @@ test.describe('Soccer App Full Workflow', () => {
     await createPlayers(page);
     console.log('');
     
-    // Step 6: Create Game
-    console.log('Step 6: Create Game');
-    await createGame(page);
+    // Step 6: Create Game 1
+    console.log('Step 6: Create Game 1');
+    await createGame(page, TEST_DATA.game1);
     console.log('');
     
-    // Step 7: Setup Lineup
-    console.log('Step 7: Setup Lineup');
-    await setupLineup(page);
+    // Step 7: Setup Lineup for Game 1
+    console.log('Step 7: Setup Lineup for Game 1');
+    await setupLineup(page, TEST_DATA.game1.opponent);
     console.log('');
     
-    // Step 8: Run Game
-    console.log('Step 8: Run Game Simulation');
-    const gameData = await runGame(page);
+    // Step 8: Run Game 1
+    console.log('Step 8: Run Game 1 Simulation');
+    const game1Data = await runGame(page, 1);
     console.log('');
     
-    // Step 9: Verify Season Totals
-    console.log('Step 9: Verify Season Totals');
-    await verifySeasonTotals(page, gameData);
+    // Step 9: Create Game 2
+    console.log('Step 9: Create Game 2');
+    await createGame(page, TEST_DATA.game2);
+    console.log('');
+    
+    // Step 10: Setup Lineup for Game 2
+    console.log('Step 10: Setup Lineup for Game 2');
+    await setupLineup(page, TEST_DATA.game2.opponent);
+    console.log('');
+    
+    // Step 11: Run Game 2 (different scorers and assists)
+    console.log('Step 11: Run Game 2 Simulation');
+    const game2Data = await runGame(page, 2);
+    console.log('');
+    
+    // Step 12: Verify Season Totals (aggregate of both games)
+    console.log('Step 12: Verify Season Totals (Both Games)');
+    const aggregateData = {
+      goals: game1Data.goals + game2Data.goals,
+      assists: game1Data.assists + game2Data.assists,
+      goldStars: game1Data.goldStars + game2Data.goldStars,
+      scorers: [...new Set([...game1Data.scorers, ...game2Data.scorers])], // unique scorers
+    };
+    await verifySeasonTotals(page, aggregateData);
     console.log('');
     
     console.log('=== E2E Test Suite Completed Successfully ===\n');
