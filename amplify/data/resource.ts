@@ -15,8 +15,9 @@ const schema = a.schema({
       startDate: a.date(),
       endDate: a.date(),
       teams: a.hasMany('Team', 'seasonId'),
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.publicApiKey()]),
+    .authorization((allow) => [allow.owner()]),
 
   Team: a
     .model({
@@ -29,8 +30,9 @@ const schema = a.schema({
       players: a.hasMany('Player', 'teamId'),
       positions: a.hasMany('FieldPosition', 'teamId'),
       games: a.hasMany('Game', 'teamId'),
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.publicApiKey()]),
+    .authorization((allow) => [allow.owner()]),
 
   Player: a
     .model({
@@ -48,8 +50,9 @@ const schema = a.schema({
       goalsScored: a.hasMany('Goal', 'scorerId'),
       assists: a.hasMany('Goal', 'assistId'),
       gameNotes: a.hasMany('GameNote', 'playerId'),
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.publicApiKey()]),
+    .authorization((allow) => [allow.owner()]),
 
   FieldPosition: a
     .model({
@@ -61,8 +64,9 @@ const schema = a.schema({
       lineupAssignments: a.hasMany('LineupAssignment', 'positionId'),
       substitutions: a.hasMany('Substitution', 'positionId'),
       playTimeRecords: a.hasMany('PlayTimeRecord', 'positionId'),
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.publicApiKey()]),
+    .authorization((allow) => [allow.owner()]),
 
   Game: a
     .model({
@@ -82,8 +86,9 @@ const schema = a.schema({
       playTimeRecords: a.hasMany('PlayTimeRecord', 'gameId'),
       goals: a.hasMany('Goal', 'gameId'),
       gameNotes: a.hasMany('GameNote', 'gameId'),
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.publicApiKey()]),
+    .authorization((allow) => [allow.owner()]),
 
   LineupAssignment: a
     .model({
@@ -94,8 +99,9 @@ const schema = a.schema({
       positionId: a.id(),
       position: a.belongsTo('FieldPosition', 'positionId'),
       isStarter: a.boolean().required(),
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.publicApiKey()]),
+    .authorization((allow) => [allow.owner()]),
 
   Substitution: a
     .model({
@@ -110,8 +116,9 @@ const schema = a.schema({
       gameSeconds: a.integer(),
       half: a.integer(),
       timestamp: a.datetime(),
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.publicApiKey()]),
+    .authorization((allow) => [allow.owner()]),
 
   PlayTimeRecord: a
     .model({
@@ -123,8 +130,9 @@ const schema = a.schema({
       position: a.belongsTo('FieldPosition', 'positionId'),
       startGameSeconds: a.integer().required(), // Game time (elapsed seconds) when player entered field
       endGameSeconds: a.integer(), // Game time when player left field (null if still playing)
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.publicApiKey()]),
+    .authorization((allow) => [allow.owner()]),
 
   Goal: a
     .model({
@@ -139,8 +147,9 @@ const schema = a.schema({
       assist: a.belongsTo('Player', 'assistId'),
       notes: a.string(), // Any additional notes about the goal
       timestamp: a.datetime().required(), // Real-world timestamp when goal was recorded
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.publicApiKey()]),
+    .authorization((allow) => [allow.owner()]),
 
   GameNote: a
     .model({
@@ -153,8 +162,9 @@ const schema = a.schema({
       half: a.integer().required(), // 1 or 2
       notes: a.string(), // The actual note text
       timestamp: a.datetime().required(), // Real-world timestamp when note was created
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.publicApiKey()]),
+    .authorization((allow) => [allow.owner()]),
 });
 
 export type Schema = ClientSchema<typeof schema>;
@@ -162,11 +172,7 @@ export type Schema = ClientSchema<typeof schema>;
 export const data = defineData({
   schema,
   authorizationModes: {
-    defaultAuthorizationMode: "apiKey",
-    // API Key is used for a.allow.public() rules
-    apiKeyAuthorizationMode: {
-      expiresInDays: 30,
-    },
+    defaultAuthorizationMode: "userPool",
   },
 });
 
