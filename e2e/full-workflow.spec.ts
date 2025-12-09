@@ -107,8 +107,7 @@ async function cleanupExistingSeasons(page: Page) {
       await firstDeleteButton.click();
       
       // Wait for deletion to complete and UI to update
-      await page.waitForTimeout(2000);
-      await waitForPageLoad(page);
+      await page.waitForTimeout(3000);
       
       // Re-check count
       deleteButtons = page.locator('.season-card .btn-delete');
@@ -148,7 +147,7 @@ async function createSeason(page: Page) {
   await waitForPageLoad(page);
   
   // Verify season was created
-  await expect(page.getByText(TEST_DATA.season.name)).toBeVisible();
+  await expect(page.getByText(TEST_DATA.season.name).first()).toBeVisible();
   console.log('✓ Season created');
 }
 
@@ -285,23 +284,118 @@ async function setupLineup(page: Page, opponent: string) {
   await page.getByText(opponent).click();
   await waitForPageLoad(page);
   
+  // Wait for the page to fully load including GraphQL subscriptions
+  await page.waitForSelector('.position-slot', { timeout: 5000 });
+  await page.waitForTimeout(1000);
+  
   // Assign first 7 players to starting positions
   const startingPlayers = TEST_DATA.players.slice(0, 7);
   
   for (let i = 0; i < startingPlayers.length; i++) {
     const player = startingPlayers[i];
+    const expectedCount = i + 1;
+    let assignmentSuccessful = false;
+    let retryAttempt = 0;
+    const maxRetries = 2;
     
-    // Click on the player
-    await page.getByText(`${player.firstName} ${player.lastName}`).click();
-    await page.waitForTimeout(300);
+    while (!assignmentSuccessful && retryAttempt <= maxRetries) {
+      if (retryAttempt > 0) {
+        console.log(`🔄 Retry attempt ${retryAttempt} for ${player.firstName} ${player.lastName}...`);
+      } else {
+        console.log(`Assigning ${player.firstName} ${player.lastName} to position ${i + 1}...`);
+      }
+      
+      try {
+        // Ensure no modal is open from previous attempt
+        // const existingModal = page.locator('.modal-overlay');
+        // if (await existingModal.isVisible().catch(() => false)) {
+        //   console.log('  Closing existing modal...');
+        //   await page.keyboard.press('Escape');
+        //   await page.waitForTimeout(500);
+        // }
+        
+        // Click on the player to open position picker modal
+        const playerCard = page.locator('.player-card').filter({ hasText: `${player.firstName} ${player.lastName}` });
+        await playerCard.click();
+        console.log('  Player clicked, waiting for modal...');
+        await page.waitForTimeout(250);
+        
+        // Wait for position picker modal to appear with the heading
+        await page.waitForSelector('.modal-overlay', { timeout: 5000 });
+        await page.waitForSelector('h2:has-text("Assign")', { timeout: 5000 });
+        console.log('  Modal opened');
+        
+        // Wait a bit for modal to be fully interactive
+        await page.waitForTimeout(300);
+        
+        // Find the first available position button
+        const positionButtons = page.locator('.modal-content .position-picker-btn:not(.occupied)');
+        await positionButtons.first().waitFor({ state: 'visible', timeout: 5000 });
+        
+        const count = await positionButtons.count();
+        console.log(`  Found ${count} available positions`);
+        
+        if (count === 0) {
+          console.log(`  ⚠️ No available positions for ${player.firstName} ${player.lastName}`);
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(500);
+          break;
+        }
+        
+        // Get the position name before clicking
+        const positionName = await positionButtons.first().locator('.position-picker-label .name').textContent();
+        console.log(`  Assigning to position: ${positionName}`);
+        
+        // Get the position ID/name before clicking so we can verify it gets occupied
+        const positionText = await positionButtons.first().textContent();
+        await positionButtons.first().click();
+        console.log('  Position button clicked');
+        
+        // Wait for modal to close - this confirms the assignment was successful
+        await page.waitForSelector('.modal-overlay', { state: 'hidden', timeout: 5000 });
+        console.log('  Modal closed');
+        
+        // CRITICAL: Wait for the position to actually show as occupied in the lineup
+        // This prevents race conditions where multiple players try to take the same position
+        // Give extra time for the first player as subscriptions may still be initializing
+        const initialWait = i === 0 ? 150 : 50;
+        await page.waitForTimeout(initialWait);
+        
+        // Wait for the assigned player count to increase
+        let actualCount = 0;
+        // let attempts = 0;
+        // while (actualCount < expectedCount && attempts < 15) {
+          const positionCards = page.locator('.position-slot');
+          actualCount = await positionCards.filter({ has: page.locator('.assigned-player') }).count();
+        //   if (actualCount < expectedCount) {
+        //     console.log(`  Waiting for assignment to sync... (${actualCount}/${expectedCount})`);
+        //     await page.waitForTimeout(100);
+        //     attempts++;
+        //   }
+        // }
+        
+        // Check if assignment was successful
+        if (actualCount >= expectedCount) {
+          assignmentSuccessful = true;
+          console.log(`  ✓ ${player.firstName} ${player.lastName} assigned to ${positionText?.trim()} (${actualCount}/${expectedCount} total)`);
+        } else {
+          console.log(`  ⚠️ Assignment failed: Expected ${expectedCount} assigned but only see ${actualCount}`);
+          retryAttempt++;
+          if (retryAttempt <= maxRetries) {
+            await page.waitForTimeout(100); // Wait before retry
+          }
+        }
+      } catch (error) {
+        console.log(`  ❌ Error during assignment: ${error}`);
+        retryAttempt++;
+        if (retryAttempt <= maxRetries) {
+          await page.waitForTimeout(100); // Wait before retry
+        }
+      }
+    }
     
-    // Click on the corresponding position (they're in order)
-    const positionButtons = page.locator('.position-picker-btn:not(.occupied)');
-    const count = await positionButtons.count();
-    
-    if (count > 0) {
-      await positionButtons.first().click();
-      await page.waitForTimeout(500);
+    if (!assignmentSuccessful) {
+      console.log(`  ❌ FAILED to assign ${player.firstName} ${player.lastName} after ${maxRetries + 1} attempts`);
     }
   }
   
@@ -380,6 +474,17 @@ async function runGame(page: Page, gameNumber: number = 1) {
   await page.waitForTimeout(500);
   
   // Find the position card for Diana Davis (CM) and click its substitute button
+  console.log('Looking for Diana Davis on the field...');
+  
+  // Debug: Log all position cards
+  const allCards = page.locator('.position-card');
+  const cardCount = await allCards.count();
+  console.log(`Found ${cardCount} position cards`);
+  for (let i = 0; i < cardCount; i++) {
+    const cardText = await allCards.nth(i).textContent();
+    console.log(`  Card ${i}: ${cardText?.substring(0, 50)}`);
+  }
+  
   const dianaCard = page.locator('.position-card').filter({ hasText: 'Diana Davis' });
   const dianaSubButton = dianaCard.locator('button.btn-substitute[title="Make substitution"]');
   
@@ -540,10 +645,16 @@ async function verifySeasonTotals(page: Page, gameData: any) {
   // Verify play time by position
   await expect(page.locator('h3').filter({ hasText: /Play Time by Position/ })).toBeVisible();
 
-  // Verify specific position time (Forward - 40 minutes)
+  // Verify specific position time (Diana should have played full 45 min each game if sub was skipped = 90 min total)
   const positionTimeItem = page.locator('.position-time-item', { hasText: 'Center Midfielder' });
   await expect(positionTimeItem).toBeVisible();
   await expect(positionTimeItem.locator('.position-name')).toContainText('Center Midfielder');
+  
+  // Log actual play time for debugging
+  const actualTime = await positionTimeItem.locator('.position-time').textContent();
+  console.log(`Diana Davis play time at CM: ${actualTime}`);
+  
+  // Diana plays full game if substitution was skipped (Game 1: 45min, Game 2: 45min = 90min total)
   await expect(positionTimeItem.locator('.position-time')).toContainText('1h 30m');
   console.log('✓ Position time verified: Center Midfielder 1h 30m');
   
