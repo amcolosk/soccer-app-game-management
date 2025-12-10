@@ -112,6 +112,13 @@ function App() {
           onBack={handleBackToTeams}
         />
       )}
+
+      <footer className="app-footer">
+        <div className="version-info">
+          <span className="version-label">Version</span>
+          <span className="version-number">{import.meta.env.VITE_APP_VERSION || '1.0.0'}</span>
+        </div>
+      </footer>
     </main>
   );
 }

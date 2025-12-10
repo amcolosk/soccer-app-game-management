@@ -836,8 +836,11 @@ test.describe('Soccer App Full Workflow', () => {
     // Remove dialog handler
     page.removeAllListeners('dialog');
     
-    // Step 12: Verify all related data is cleaned up
+    // Step 12: Verify Data Cleanup
     console.log('Step 12: Verify Data Cleanup');
+    
+    // Wait for deletion to propagate through GraphQL subscriptions
+    await page.waitForTimeout(2000);
     
     // Navigate back to Reports
     await clickButton(page, 'Reports');
@@ -880,8 +883,6 @@ test.describe('Soccer App Full Workflow', () => {
       expect(stars?.trim()).toBe('0');
     }
     console.log('✓ All player gold stars reset to 0');
-    
-    console.log('');
     console.log('=== Game Deletion Data Cleanup Test Completed Successfully ===\n');
   });
 });
