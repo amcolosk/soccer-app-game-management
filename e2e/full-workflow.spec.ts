@@ -305,15 +305,7 @@ async function setupLineup(page: Page, opponent: string) {
         console.log(`Assigning ${player.firstName} ${player.lastName} to position ${i + 1}...`);
       }
       
-      try {
-        // Ensure no modal is open from previous attempt
-        // const existingModal = page.locator('.modal-overlay');
-        // if (await existingModal.isVisible().catch(() => false)) {
-        //   console.log('  Closing existing modal...');
-        //   await page.keyboard.press('Escape');
-        //   await page.waitForTimeout(500);
-        // }
-        
+      try {        
         // Click on the player to open position picker modal
         const playerCard = page.locator('.player-card').filter({ hasText: `${player.firstName} ${player.lastName}` });
         await playerCard.click();
@@ -363,16 +355,8 @@ async function setupLineup(page: Page, opponent: string) {
         
         // Wait for the assigned player count to increase
         let actualCount = 0;
-        // let attempts = 0;
-        // while (actualCount < expectedCount && attempts < 15) {
-          const positionCards = page.locator('.position-slot');
-          actualCount = await positionCards.filter({ has: page.locator('.assigned-player') }).count();
-        //   if (actualCount < expectedCount) {
-        //     console.log(`  Waiting for assignment to sync... (${actualCount}/${expectedCount})`);
-        //     await page.waitForTimeout(100);
-        //     attempts++;
-        //   }
-        // }
+        const positionCards = page.locator('.position-slot');
+        actualCount = await positionCards.filter({ has: page.locator('.assigned-player') }).count();
         
         // Check if assignment was successful
         if (actualCount >= expectedCount) {
@@ -740,5 +724,164 @@ test.describe('Soccer App Full Workflow', () => {
     console.log('');
     
     console.log('=== E2E Test Suite Completed Successfully ===\n');
+  });
+
+  test('Game deletion cleans up all related data', async ({ page }) => {
+    test.setTimeout(TEST_CONFIG.timeout.long); // 3 minutes for full game simulation
+    
+    console.log('\n=== Testing Game Deletion Data Cleanup ===\n');
+    
+    // Step 1: Login
+    console.log('Step 1: Login');
+    await login(page);
+    console.log('✓ Logged in successfully\n');
+    
+    // Step 2: Clean up existing data
+    console.log('Step 2: Clean up existing data');
+    await cleanupExistingSeasons(page);
+    console.log('');
+    
+    // Step 3: Create Season
+    console.log('Step 3: Create Season');
+    await createSeason(page);
+    console.log('');
+    
+    // Step 4: Create Team
+    console.log('Step 4: Create Team');
+    await createTeam(page);
+    console.log('');
+    
+    // Step 5: Create Positions
+    console.log('Step 5: Create Positions');
+    await createPositions(page);
+    console.log('');
+    
+    // Step 6: Create Players
+    console.log('Step 6: Create Players');
+    await createPlayers(page);
+    console.log('');
+    
+    // Step 7: Create a test game
+    console.log('Step 7: Create Test Game');
+    await createGame(page, TEST_DATA.game1);
+    console.log('');
+    
+    // Step 8: Setup Lineup
+    console.log('Step 8: Setup Lineup');
+    await setupLineup(page, TEST_DATA.game1.opponent);
+    console.log('');
+    
+    // Step 9: Run the game to create all related data
+    console.log('Step 9: Run Game to Generate Data');
+    await runGame(page, 1);
+    console.log('');
+    
+    // Step 10: Navigate to Team Reports to verify data exists
+    console.log('Step 10: Verify Data Exists Before Deletion');
+    await clickButton(page, 'Reports');
+    await page.waitForTimeout(1000);
+    
+    // Verify season report shows data
+    const reportTable = page.locator('table');
+    await expect(reportTable).toBeVisible();
+    
+    // Count rows (should have 8 players)
+    const playerRows = page.locator('tbody tr');
+    const initialRowCount = await playerRows.count();
+    console.log(`  Found ${initialRowCount} players with data`);
+    expect(initialRowCount).toBeGreaterThan(0);
+    
+    // Check that players have play time
+    const firstPlayerPlayTime = await playerRows.first().locator('td').nth(3).textContent(); // Play time column
+    console.log(`  Sample player play time: ${firstPlayerPlayTime}`);
+    expect(firstPlayerPlayTime).not.toBe('0:00');
+    
+    // Navigate back to Games
+    await clickButton(page, 'Games');
+    await page.waitForTimeout(1000);
+    
+    // Step 11: Delete the game
+    console.log('Step 11: Delete Game');
+    const gameCard = page.locator('.game-card').filter({ hasText: TEST_DATA.game1.opponent });
+    await expect(gameCard).toBeVisible();
+    
+    // Click on the game card to open game management
+    await gameCard.click();
+    await page.waitForTimeout(1000);
+    
+    // Wait for game management page to load
+    await expect(page.getByText(`vs ${TEST_DATA.game1.opponent}`)).toBeVisible();
+    console.log('  Opened game management');
+    
+    // Set up dialog handler to confirm deletion
+    page.on('dialog', async (dialog) => {
+      console.log(`  Confirming: ${dialog.message()}`);
+      await dialog.accept();
+    });
+    
+    // Find and click the "Delete Game" button at the bottom
+    const deleteButton = page.locator('button.btn-delete-game', { hasText: 'Delete Game' });
+    await expect(deleteButton).toBeVisible();
+    await deleteButton.click();
+    await page.waitForTimeout(2000);
+    
+    // Should be back at games list
+    await page.waitForTimeout(1000);
+    
+    // Verify game is gone from the list
+    const deletedGameCard = page.locator('.game-card').filter({ hasText: TEST_DATA.game1.opponent });
+    await expect(deletedGameCard).not.toBeVisible();
+    console.log('✓ Game deleted');
+    
+    // Remove dialog handler
+    page.removeAllListeners('dialog');
+    
+    // Step 12: Verify all related data is cleaned up
+    console.log('Step 12: Verify Data Cleanup');
+    
+    // Navigate back to Reports
+    await clickButton(page, 'Reports');
+    await page.waitForTimeout(1000);
+    
+    // Verify all player play times are now 0:00
+    const updatedPlayerRows = page.locator('tbody tr');
+    const updatedRowCount = await updatedPlayerRows.count();
+    console.log(`  Found ${updatedRowCount} players (should still exist)`);
+    expect(updatedRowCount).toBe(initialRowCount); // Players still exist
+    
+    // Check that all players now have zero play time
+    for (let i = 0; i < updatedRowCount; i++) {
+      const playTimeCell = updatedPlayerRows.nth(i).locator('td').nth(3);
+      const playTime = await playTimeCell.textContent();
+      expect(playTime?.trim()).toBe('0m');
+    }
+    console.log('✓ All player play times reset to 0m');
+    
+    // Check that all players have zero goals
+    for (let i = 0; i < updatedRowCount; i++) {
+      const goalsCell = updatedPlayerRows.nth(i).locator('td').nth(4);
+      const goals = await goalsCell.textContent();
+      expect(goals?.trim()).toBe('0');
+    }
+    console.log('✓ All player goals reset to 0');
+    
+    // Check that all players have zero assists
+    for (let i = 0; i < updatedRowCount; i++) {
+      const assistsCell = updatedPlayerRows.nth(i).locator('td').nth(5);
+      const assists = await assistsCell.textContent();
+      expect(assists?.trim()).toBe('0');
+    }
+    console.log('✓ All player assists reset to 0');
+    
+    // Check that all players have zero game notes
+    for (let i = 0; i < updatedRowCount; i++) {
+      const starsCell = updatedPlayerRows.nth(i).locator('td').nth(6);
+      const stars = await starsCell.textContent();
+      expect(stars?.trim()).toBe('0');
+    }
+    console.log('✓ All player gold stars reset to 0');
+    
+    console.log('');
+    console.log('=== Game Deletion Data Cleanup Test Completed Successfully ===\n');
   });
 });
