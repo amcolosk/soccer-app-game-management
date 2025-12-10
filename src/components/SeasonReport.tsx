@@ -28,7 +28,6 @@ type FieldPosition = Schema["FieldPosition"]["type"];
 
 interface SeasonReportProps {
   team: Team;
-  onBack: () => void;
 }
 
 interface PlayerStats {
@@ -52,7 +51,7 @@ interface PlayerDetails {
   playTimeByPosition: Map<string, number>;
 }
 
-export function SeasonReport({ team, onBack }: SeasonReportProps) {
+export function SeasonReport({ team }: SeasonReportProps) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [playerStats, setPlayerStats] = useState<PlayerStats[]>([]);
   const [loading, setLoading] = useState(true);
@@ -255,9 +254,6 @@ export function SeasonReport({ team, onBack }: SeasonReportProps) {
   return (
     <div className="season-report">
       <div className="report-header">
-        <button onClick={onBack} className="btn-back">
-          ← Back
-        </button>
         <h1>Season Report: {team.name}</h1>
       </div>
 

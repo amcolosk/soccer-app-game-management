@@ -547,7 +547,6 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
       {activeTab === "reports" && (
         <SeasonReport 
           team={team}
-          onBack={() => setActiveTab("games")}
         />
       )}
     </div>
