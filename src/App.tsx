@@ -4,6 +4,7 @@ import { generateClient } from "aws-amplify/data";
 import { SeasonSelector } from "./components/SeasonSelector";
 import { TeamSelector } from "./components/TeamSelector";
 import { TeamManagement } from "./components/TeamManagement";
+import { BugReport } from "./components/BugReport";
 import type { Season, Team } from "./types";
 import type { Schema } from "../amplify/data/resource";
 import "./App.css";
@@ -15,6 +16,7 @@ function App() {
   const [selectedSeason, setSelectedSeason] = useState<Season | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [isRestoring, setIsRestoring] = useState(true);
+  const [showBugReport, setShowBugReport] = useState(false);
 
   const handleSeasonSelect = (season: Season) => {
     setSelectedSeason(season);
@@ -80,7 +82,10 @@ function App() {
   return (
     <main className="app-container">
       <header className="app-header">
-        <h1>⚽ Soccer Coach Manager</h1>
+        <div className="app-branding">
+          <h1>⚽ TeamTrack</h1>
+          <p className="app-tagline">Game Management for Coaches</p>
+        </div>
         <button onClick={signOut} className="btn-signout">
           Sign out
         </button>
@@ -114,11 +119,22 @@ function App() {
       )}
 
       <footer className="app-footer">
+        <button 
+          onClick={() => setShowBugReport(true)} 
+          className="btn-bug-report"
+          title="Report a bug"
+        >
+          🐛 Report Issue
+        </button>
         <div className="version-info">
           <span className="version-label">Version</span>
           <span className="version-number">{import.meta.env.VITE_APP_VERSION || '1.0.0'}</span>
         </div>
       </footer>
+
+      {showBugReport && (
+        <BugReport onClose={() => setShowBugReport(false)} />
+      )}
     </main>
   );
 }
