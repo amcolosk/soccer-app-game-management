@@ -6,13 +6,15 @@ import { TeamSelector } from "./components/TeamSelector";
 import { TeamManagement } from "./components/TeamManagement";
 import { BugReport } from "./components/BugReport";
 import { UserProfile } from "./components/UserProfile";
+import { SeasonReport } from "./components/SeasonReport";
+import { Management } from "./components/Management";
 import type { Season, Team } from "./types";
 import type { Schema } from "../amplify/data/resource";
 import "./App.css";
 
 const client = generateClient<Schema>();
 
-type NavigationTab = 'home' | 'profile';
+type NavigationTab = 'home' | 'reports' | 'manage' | 'profile';
 
 function App() {
   const { signOut } = useAuthenticator();
@@ -122,6 +124,20 @@ function App() {
         />
       )}
 
+      {activeNav === 'reports' && selectedTeam && (
+        <SeasonReport team={selectedTeam} />
+      )}
+
+      {activeNav === 'reports' && !selectedTeam && (
+        <div className="empty-state">
+          <p>Please select a team from the Home tab to view reports.</p>
+        </div>
+      )}
+
+      {activeNav === 'manage' && (
+        <Management />
+      )}
+
       {activeNav === 'profile' && (
         <UserProfile />
       )}
@@ -134,6 +150,23 @@ function App() {
         >
           <span className="nav-icon">🏠</span>
           <span className="nav-label">Home</span>
+        </button>
+        <button 
+          className={`nav-item ${activeNav === 'reports' ? 'active' : ''}`}
+          onClick={() => setActiveNav('reports')}
+          aria-label="Reports"
+          disabled={!selectedTeam}
+        >
+          <span className="nav-icon">📊</span>
+          <span className="nav-label">Reports</span>
+        </button>
+        <button 
+          className={`nav-item ${activeNav === 'manage' ? 'active' : ''}`}
+          onClick={() => setActiveNav('manage')}
+          aria-label="Manage"
+        >
+          <span className="nav-icon">⚙️</span>
+          <span className="nav-label">Manage</span>
         </button>
         <button 
           className={`nav-item ${activeNav === 'profile' ? 'active' : ''}`}

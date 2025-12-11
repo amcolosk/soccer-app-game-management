@@ -6,7 +6,6 @@ import { isValidPlayerNumber, isPlayerNumberUnique } from "../utils/validation";
 import { sortPlayersByNumber } from "../utils/playerUtils";
 import { GameList } from "./GameList";
 import { GameManagement } from "./GameManagement";
-import { SeasonReport } from "./SeasonReport";
 
 const client = generateClient<Schema>();
 
@@ -15,7 +14,7 @@ type Game = Schema["Game"]["type"];
 export function TeamManagement({ team, onBack }: TeamManagementProps) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [positions, setPositions] = useState<FieldPosition[]>([]);
-  const [activeTab, setActiveTab] = useState<"players" | "positions" | "games" | "reports">("players");
+  const [activeTab, setActiveTab] = useState<"players" | "positions" | "games">("players");
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
 
   // Player form state
@@ -280,12 +279,6 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
         >
           Positions ({positions.length})
         </button>
-        <button
-          className={`tab ${activeTab === "reports" ? "active" : ""}`}
-          onClick={() => setActiveTab("reports")}
-        >
-          Reports
-        </button>
       </div>
 
       {activeTab === "players" && (
@@ -541,12 +534,6 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
           game={selectedGame}
           team={team}
           onBack={() => setSelectedGame(null)}
-        />
-      )}
-
-      {activeTab === "reports" && (
-        <SeasonReport 
-          team={team}
         />
       )}
     </div>
