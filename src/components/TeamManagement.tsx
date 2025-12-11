@@ -252,9 +252,9 @@ export function TeamManagement({ team, onBack }: TeamManagementProps) {
   return (
     <div className="team-management">
       <div className="team-header">
-        <button onClick={onBack} className="btn-back">
+        {/* <button onClick={onBack} className="btn-back">
           ← Back
-        </button>
+        </button> */}
         <div className="team-title">
           <h1>{team.name}</h1>
         </div>

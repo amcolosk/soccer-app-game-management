@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { generateClient } from 'aws-amplify/data';
+import { BugReport } from './BugReport';
 import type { Schema } from '../../amplify/data/resource';
 
 const client = generateClient<Schema>();
@@ -12,12 +13,15 @@ export function Management() {
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [games, setGames] = useState<Game[]>([]);
-  const [activeSection, setActiveSection] = useState<'seasons' | 'teams' | 'games'>('seasons');
+  const [activeSection, setActiveSection] = useState<'seasons' | 'teams' | 'games' | 'app'>('seasons');
+  const [showBugReport, setShowBugReport] = useState(false);
 
   // Season form state
   const [isCreatingSeason, setIsCreatingSeason] = useState(false);
+  const [editingSeason, setEditingSeason] = useState<Season | null>(null);
   const [newSeasonName, setNewSeasonName] = useState('');
   const [newSeasonYear, setNewSeasonYear] = useState('');
+  const [isArchived, setIsArchived] = useState(false);
 
   // Team form state
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
@@ -71,6 +75,46 @@ export function Management() {
       console.error('Error creating season:', error);
       alert('Failed to create season');
     }
+  };
+
+  const handleEditSeason = (season: Season) => {
+    setEditingSeason(season);
+    setNewSeasonName(season.name);
+    setNewSeasonYear(season.year);
+    setIsArchived(season.isArchived || false);
+    setIsCreatingSeason(false);
+  };
+
+  const handleUpdateSeason = async () => {
+    if (!editingSeason) return;
+    
+    if (!newSeasonName.trim() || !newSeasonYear.trim()) {
+      alert('Please enter both season name and year');
+      return;
+    }
+
+    try {
+      await client.models.Season.update({
+        id: editingSeason.id,
+        name: newSeasonName,
+        year: newSeasonYear,
+        isArchived: isArchived,
+      });
+      setNewSeasonName('');
+      setNewSeasonYear('');
+      setIsArchived(false);
+      setEditingSeason(null);
+    } catch (error) {
+      console.error('Error updating season:', error);
+      alert('Failed to update season');
+    }
+  };
+
+  const handleCancelSeasonEdit = () => {
+    setEditingSeason(null);
+    setNewSeasonName('');
+    setNewSeasonYear('');
+    setIsArchived(false);
   };
 
   const handleDeleteSeason = async (id: string) => {
@@ -222,14 +266,54 @@ export function Management() {
         >
           Games ({games.length})
         </button>
+        <button
+          className={`management-tab ${activeSection === 'app' ? 'active' : ''}`}
+          onClick={() => setActiveSection('app')}
+        >
+          App
+        </button>
       </div>
 
       {activeSection === 'seasons' && (
         <div className="management-section">
-          {!isCreatingSeason && (
+          {!isCreatingSeason && !editingSeason && (
             <button onClick={() => setIsCreatingSeason(true)} className="btn-primary">
               + Create New Season
             </button>
+          )}
+
+          {editingSeason && (
+            <div className="create-form">
+              <h3>Edit Season</h3>
+              <input
+                type="text"
+                placeholder="Season Name (e.g., Fall League)"
+                value={newSeasonName}
+                onChange={(e) => setNewSeasonName(e.target.value)}
+              />
+              <input
+                type="text"
+                placeholder="Year (e.g., 2025)"
+                value={newSeasonYear}
+                onChange={(e) => setNewSeasonYear(e.target.value)}
+              />
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={isArchived}
+                  onChange={(e) => setIsArchived(e.target.checked)}
+                />
+                <span>Archive this season (completed seasons)</span>
+              </label>
+              <div className="form-actions">
+                <button onClick={handleUpdateSeason} className="btn-primary">
+                  Update
+                </button>
+                <button onClick={handleCancelSeasonEdit} className="btn-secondary">
+                  Cancel
+                </button>
+              </div>
+            </div>
           )}
 
           {isCreatingSeason && (
@@ -270,18 +354,30 @@ export function Management() {
               <p className="empty-message">No seasons yet. Create your first season to get started!</p>
             ) : (
               seasons.map((season) => (
-                <div key={season.id} className="item-card">
+                <div key={season.id} className={`item-card ${season.isArchived ? 'archived' : ''}`}>
                   <div className="item-info">
-                    <h3>{season.name}</h3>
+                    <h3>
+                      {season.name}
+                      {season.isArchived && <span className="archive-badge">📦 Archived</span>}
+                    </h3>
                     <p>{season.year}</p>
                   </div>
-                  <button
-                    onClick={() => handleDeleteSeason(season.id)}
-                    className="btn-delete"
-                    aria-label="Delete season"
-                  >
-                    ✕
-                  </button>
+                  <div className="card-actions">
+                    <button
+                      onClick={() => handleEditSeason(season)}
+                      className="btn-edit"
+                      aria-label="Edit season"
+                    >
+                      ✎
+                    </button>
+                    <button
+                      onClick={() => handleDeleteSeason(season.id)}
+                      className="btn-delete"
+                      aria-label="Delete season"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -461,6 +557,45 @@ export function Management() {
               ))
             )}
           </div>
+        </div>
+      )}
+
+      {activeSection === 'app' && (
+        <div className="management-section">
+          <div className="app-info-section">
+            <div className="app-info-card">
+              <h3>📱 App Information</h3>
+              <div className="app-info-item">
+                <span className="info-label">Version:</span>
+                <span className="info-value">{import.meta.env.VITE_APP_VERSION || '1.0.0'}</span>
+              </div>
+              <div className="app-info-item">
+                <span className="info-label">Name:</span>
+                <span className="info-value">TeamTrack</span>
+              </div>
+              <div className="app-info-item">
+                <span className="info-label">Description:</span>
+                <span className="info-value">Game Management for Coaches</span>
+              </div>
+            </div>
+
+            <div className="app-info-card">
+              <h3>🐛 Report an Issue</h3>
+              <p className="info-description">
+                Found a bug or have feedback? Let us know so we can improve the app.
+              </p>
+              <button 
+                onClick={() => setShowBugReport(true)} 
+                className="btn-primary"
+              >
+                Report Issue
+              </button>
+            </div>
+          </div>
+
+          {showBugReport && (
+            <BugReport onClose={() => setShowBugReport(false)} />
+          )}
         </div>
       )}
     </div>

@@ -2,7 +2,11 @@ import { useState } from 'react';
 import { useAuthenticator } from '@aws-amplify/ui-react';
 import { updatePassword, deleteUser } from 'aws-amplify/auth';
 
-export function UserProfile() {
+interface UserProfileProps {
+  onSignOut: () => void;
+}
+
+export function UserProfile({ onSignOut }: UserProfileProps) {
   const { user } = useAuthenticator();
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -156,6 +160,12 @@ export function UserProfile() {
           disabled={isDeletingAccount}
         >
           {isDeletingAccount ? 'Deleting...' : 'Delete Account'}
+        </button>
+      </div>
+
+      <div className="profile-section">
+        <button onClick={onSignOut} className="btn-signout-profile">
+          Sign Out
         </button>
       </div>
     </div>

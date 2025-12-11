@@ -1,45 +1,34 @@
 import { useState, useEffect } from "react";
 import { useAuthenticator } from '@aws-amplify/ui-react';
 import { generateClient } from "aws-amplify/data";
-import { SeasonSelector } from "./components/SeasonSelector";
-import { TeamSelector } from "./components/TeamSelector";
+import { Home } from "./components/Home";
 import { TeamManagement } from "./components/TeamManagement";
-import { BugReport } from "./components/BugReport";
 import { UserProfile } from "./components/UserProfile";
 import { SeasonReport } from "./components/SeasonReport";
 import { Management } from "./components/Management";
-import type { Season, Team } from "./types";
+import type { Team } from "./types";
 import type { Schema } from "../amplify/data/resource";
 import "./App.css";
 
 const client = generateClient<Schema>();
 
+type Game = Schema['Game']['type'];
 type NavigationTab = 'home' | 'reports' | 'manage' | 'profile';
 
 function App() {
   const { signOut } = useAuthenticator();
-  const [selectedSeason, setSelectedSeason] = useState<Season | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [isRestoring, setIsRestoring] = useState(true);
-  const [showBugReport, setShowBugReport] = useState(false);
   const [activeNav, setActiveNav] = useState<NavigationTab>('home');
 
-  const handleSeasonSelect = (season: Season) => {
-    setSelectedSeason(season);
-    setSelectedTeam(null); // Reset team selection when season changes
-  };
-
-  const handleTeamSelect = (team: Team) => {
+  const handleGameSelect = (game: Game, team: Team) => {
+    setSelectedGame(game);
     setSelectedTeam(team);
   };
 
-  const handleBackToTeams = () => {
-    setSelectedTeam(null);
-    localStorage.removeItem('activeGame');
-  };
-
-  const handleBackToSeasons = () => {
-    setSelectedSeason(null);
+  const handleBackToHome = () => {
+    setSelectedGame(null);
     setSelectedTeam(null);
     localStorage.removeItem('activeGame');
   };
@@ -50,18 +39,14 @@ function App() {
       try {
         const activeGameData = localStorage.getItem('activeGame');
         if (activeGameData) {
-          const { seasonId, teamId } = JSON.parse(activeGameData);
+          const { teamId, gameId } = JSON.parse(activeGameData);
           
-          // Fetch season
-          const seasonResponse = await client.models.Season.get({ id: seasonId });
-          if (seasonResponse.data) {
-            setSelectedSeason(seasonResponse.data as Season);
-            
-            // Fetch team
-            const teamResponse = await client.models.Team.get({ id: teamId });
-            if (teamResponse.data) {
-              setSelectedTeam(teamResponse.data as Team);
-            }
+          const teamResponse = await client.models.Team.get({ id: teamId });
+          const gameResponse = await client.models.Game.get({ id: gameId });
+          
+          if (teamResponse.data && gameResponse.data) {
+            setSelectedTeam(teamResponse.data as Team);
+            setSelectedGame(gameResponse.data as Game);
           }
         }
       } catch (error) {
@@ -92,36 +77,19 @@ function App() {
           <h1>⚽ TeamTrack</h1>
           <p className="app-tagline">Game Management for Coaches</p>
         </div>
-        <button onClick={signOut} className="btn-signout">
-          Sign out
-        </button>
       </header>
 
-      {activeNav === 'home' && !selectedSeason && (
-        <SeasonSelector
-          onSeasonSelect={handleSeasonSelect}
-          selectedSeason={selectedSeason}
-        />
+      {activeNav === 'home' && !selectedGame && (
+        <Home onGameSelect={handleGameSelect} />
       )}
 
-      {activeNav === 'home' && selectedSeason && !selectedTeam && (
+      {activeNav === 'home' && selectedGame && selectedTeam && (
         <div>
-          <button onClick={handleBackToSeasons} className="btn-back">
-            ← Back to Seasons
-          </button>
-          <TeamSelector
-            seasonId={selectedSeason.id}
-            onTeamSelect={handleTeamSelect}
-            selectedTeam={selectedTeam}
+          <TeamManagement
+            team={selectedTeam}
+            onBack={handleBackToHome}
           />
         </div>
-      )}
-
-      {activeNav === 'home' && selectedTeam && (
-        <TeamManagement
-          team={selectedTeam}
-          onBack={handleBackToTeams}
-        />
       )}
 
       {activeNav === 'reports' && selectedTeam && (
@@ -130,7 +98,7 @@ function App() {
 
       {activeNav === 'reports' && !selectedTeam && (
         <div className="empty-state">
-          <p>Please select a team from the Home tab to view reports.</p>
+          <p>Please select a game from the Home tab to view reports for that team.</p>
         </div>
       )}
 
@@ -139,7 +107,7 @@ function App() {
       )}
 
       {activeNav === 'profile' && (
-        <UserProfile />
+        <UserProfile onSignOut={signOut} />
       )}
 
       <nav className="bottom-nav">
@@ -177,24 +145,6 @@ function App() {
           <span className="nav-label">Profile</span>
         </button>
       </nav>
-
-      <footer className="app-footer">
-        <button 
-          onClick={() => setShowBugReport(true)} 
-          className="btn-bug-report"
-          title="Report a bug"
-        >
-          🐛 Report Issue
-        </button>
-        <div className="version-info">
-          <span className="version-label">Version</span>
-          <span className="version-number">{import.meta.env.VITE_APP_VERSION || '1.0.0'}</span>
-        </div>
-      </footer>
-
-      {showBugReport && (
-        <BugReport onClose={() => setShowBugReport(false)} />
-      )}
     </main>
   );
 }

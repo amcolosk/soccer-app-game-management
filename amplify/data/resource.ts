@@ -14,6 +14,7 @@ const schema = a.schema({
       year: a.string().required(),
       startDate: a.date(),
       endDate: a.date(),
+      isArchived: a.boolean().default(false),
       teams: a.hasMany('Team', 'seasonId'),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
