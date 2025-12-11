@@ -1,0 +1,163 @@
+import { useState } from 'react';
+import { useAuthenticator } from '@aws-amplify/ui-react';
+import { updatePassword, deleteUser } from 'aws-amplify/auth';
+
+export function UserProfile() {
+  const { user } = useAuthenticator();
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (newPassword !== confirmPassword) {
+      setMessage({ type: 'error', text: 'New passwords do not match' });
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setMessage({ type: 'error', text: 'Password must be at least 8 characters' });
+      return;
+    }
+
+    setIsChangingPassword(true);
+    setMessage(null);
+
+    try {
+      await updatePassword({ oldPassword, newPassword });
+      setMessage({ type: 'success', text: 'Password updated successfully' });
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error: any) {
+      console.error('Error changing password:', error);
+      setMessage({ 
+        type: 'error', 
+        text: error.message || 'Failed to change password. Please check your current password.' 
+      });
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    const confirmed = window.confirm(
+      'Are you sure you want to delete your account? This action cannot be undone and will delete all your data including seasons, teams, players, and game records.'
+    );
+
+    if (!confirmed) return;
+
+    const doubleConfirm = window.confirm(
+      'This is your final warning. Deleting your account is PERMANENT. Are you absolutely sure?'
+    );
+
+    if (!doubleConfirm) return;
+
+    setIsDeletingAccount(true);
+    setMessage(null);
+
+    try {
+      await deleteUser();
+      // User will be automatically signed out after deletion
+    } catch (error: any) {
+      console.error('Error deleting account:', error);
+      setMessage({ 
+        type: 'error', 
+        text: error.message || 'Failed to delete account. Please try again.' 
+      });
+      setIsDeletingAccount(false);
+    }
+  };
+
+  return (
+    <div className="user-profile">
+      <h2>👤 User Profile</h2>
+
+      {message && (
+        <div className={`message message-${message.type}`}>
+          {message.text}
+        </div>
+      )}
+
+      <div className="profile-section">
+        <h3>Account Information</h3>
+        <div className="info-row">
+          <label>Email Address</label>
+          <div className="info-value">{user?.signInDetails?.loginId || 'Not available'}</div>
+        </div>
+      </div>
+
+      <div className="profile-section">
+        <h3>Change Password</h3>
+        <form onSubmit={handleChangePassword} className="password-form">
+          <div className="form-group">
+            <label htmlFor="oldPassword">Current Password</label>
+            <input
+              type="password"
+              id="oldPassword"
+              value={oldPassword}
+              onChange={(e) => setOldPassword(e.target.value)}
+              required
+              disabled={isChangingPassword}
+              autoComplete="current-password"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="newPassword">New Password</label>
+            <input
+              type="password"
+              id="newPassword"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+              disabled={isChangingPassword}
+              autoComplete="new-password"
+              minLength={8}
+            />
+            <small>Must be at least 8 characters</small>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="confirmPassword">Confirm New Password</label>
+            <input
+              type="password"
+              id="confirmPassword"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              disabled={isChangingPassword}
+              autoComplete="new-password"
+            />
+          </div>
+
+          <button 
+            type="submit" 
+            className="btn-primary"
+            disabled={isChangingPassword}
+          >
+            {isChangingPassword ? 'Updating...' : 'Update Password'}
+          </button>
+        </form>
+      </div>
+
+      <div className="profile-section danger-zone">
+        <h3>Danger Zone</h3>
+        <p className="warning-text">
+          Once you delete your account, there is no going back. All your data will be permanently deleted.
+        </p>
+        <button 
+          onClick={handleDeleteAccount}
+          className="btn-danger"
+          disabled={isDeletingAccount}
+        >
+          {isDeletingAccount ? 'Deleting...' : 'Delete Account'}
+        </button>
+      </div>
+    </div>
+  );
+}

@@ -5,11 +5,14 @@ import { SeasonSelector } from "./components/SeasonSelector";
 import { TeamSelector } from "./components/TeamSelector";
 import { TeamManagement } from "./components/TeamManagement";
 import { BugReport } from "./components/BugReport";
+import { UserProfile } from "./components/UserProfile";
 import type { Season, Team } from "./types";
 import type { Schema } from "../amplify/data/resource";
 import "./App.css";
 
 const client = generateClient<Schema>();
+
+type NavigationTab = 'home' | 'profile';
 
 function App() {
   const { signOut } = useAuthenticator();
@@ -17,6 +20,7 @@ function App() {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [isRestoring, setIsRestoring] = useState(true);
   const [showBugReport, setShowBugReport] = useState(false);
+  const [activeNav, setActiveNav] = useState<NavigationTab>('home');
 
   const handleSeasonSelect = (season: Season) => {
     setSelectedSeason(season);
@@ -91,14 +95,14 @@ function App() {
         </button>
       </header>
 
-      {!selectedSeason && (
+      {activeNav === 'home' && !selectedSeason && (
         <SeasonSelector
           onSeasonSelect={handleSeasonSelect}
           selectedSeason={selectedSeason}
         />
       )}
 
-      {selectedSeason && !selectedTeam && (
+      {activeNav === 'home' && selectedSeason && !selectedTeam && (
         <div>
           <button onClick={handleBackToSeasons} className="btn-back">
             ← Back to Seasons
@@ -111,12 +115,35 @@ function App() {
         </div>
       )}
 
-      {selectedTeam && (
+      {activeNav === 'home' && selectedTeam && (
         <TeamManagement
           team={selectedTeam}
           onBack={handleBackToTeams}
         />
       )}
+
+      {activeNav === 'profile' && (
+        <UserProfile />
+      )}
+
+      <nav className="bottom-nav">
+        <button 
+          className={`nav-item ${activeNav === 'home' ? 'active' : ''}`}
+          onClick={() => setActiveNav('home')}
+          aria-label="Home"
+        >
+          <span className="nav-icon">🏠</span>
+          <span className="nav-label">Home</span>
+        </button>
+        <button 
+          className={`nav-item ${activeNav === 'profile' ? 'active' : ''}`}
+          onClick={() => setActiveNav('profile')}
+          aria-label="Profile"
+        >
+          <span className="nav-icon">👤</span>
+          <span className="nav-label">Profile</span>
+        </button>
+      </nav>
 
       <footer className="app-footer">
         <button 
