@@ -525,6 +525,8 @@
   max-width: 800px;
   margin: 0 auto;
   padding: 1rem 0;
+  overflow-x: hidden;
+  width: 100%;
 }
 
 .management h2 {
@@ -537,6 +539,26 @@
   gap: 0.5rem;
   margin-bottom: 1.5rem;
   border-bottom: 2px solid var(--border-color);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  margin-left: -1rem;
+  margin-right: -1rem;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.management-tabs::-webkit-scrollbar {
+  height: 4px;
+}
+
+.management-tabs::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+.management-tabs::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
 }
 
 .management-tab {
@@ -550,6 +572,8 @@
   border-bottom: 3px solid transparent;
   transition: all 0.2s ease;
   margin-bottom: -2px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .management-tab:hover {
