@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuthenticator } from '@aws-amplify/ui-react';
 import { generateClient } from "aws-amplify/data";
 import { Home } from "./components/Home";
-import { TeamManagement } from "./components/TeamManagement";
+import { GameManagement } from "./components/GameManagement";
 import { UserProfile } from "./components/UserProfile";
 import { SeasonReport } from "./components/SeasonReport";
 import { Management } from "./components/Management";
@@ -84,12 +84,11 @@ function App() {
       )}
 
       {activeNav === 'home' && selectedGame && selectedTeam && (
-        <div>
-          <TeamManagement
-            team={selectedTeam}
-            onBack={handleBackToHome}
-          />
-        </div>
+        <GameManagement
+          game={selectedGame}
+          team={selectedTeam}
+          onBack={handleBackToHome}
+        />
       )}
 
       {activeNav === 'reports' && selectedTeam && (

@@ -19,7 +19,7 @@ const client = generateClient<Schema>();
 type Game = Schema["Game"]["type"];
 type Team = Schema["Team"]["type"];
 type Player = Schema["Player"]["type"];
-type FieldPosition = Schema["FieldPosition"]["type"];
+type FormationPosition = Schema["FormationPosition"]["type"];
 type LineupAssignment = Schema["LineupAssignment"]["type"];
 type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
 type Goal = Schema["Goal"]["type"];
@@ -38,7 +38,7 @@ interface GameManagementProps {
 
 export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [players, setPlayers] = useState<PlayerWithRoster[]>([]);
-  const [positions, setPositions] = useState<FieldPosition[]>([]);
+  const [positions, setPositions] = useState<FormationPosition[]>([]);
   const [lineup, setLineup] = useState<LineupAssignment[]>([]);
   const [playTimeRecords, setPlayTimeRecords] = useState<PlayTimeRecord[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -49,7 +49,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [showPositionPicker, setShowPositionPicker] = useState(false);
   const [showSubstitution, setShowSubstitution] = useState(false);
-  const [substitutionPosition, setSubstitutionPosition] = useState<FieldPosition | null>(null);
+  const [substitutionPosition, setSubstitutionPosition] = useState<FormationPosition | null>(null);
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [goalScoredByUs, setGoalScoredByUs] = useState(true);
   const [goalScorerId, setGoalScorerId] = useState("");
@@ -171,12 +171,15 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       },
     });
 
-    // Load positions
-    const positionSub = client.models.FieldPosition.observeQuery({
-      filter: { teamId: { eq: team.id } },
-    }).subscribe({
-      next: (data) => setPositions([...data.items].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))),
-    });
+    // Load positions from team's formation
+    let positionSub: any;
+    if (team.formationId) {
+      positionSub = client.models.FormationPosition.observeQuery({
+        filter: { formationId: { eq: team.formationId } },
+      }).subscribe({
+        next: (data) => setPositions([...data.items].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))),
+      });
+    }
 
     // Load lineup
     const lineupSub = client.models.LineupAssignment.observeQuery({
@@ -214,13 +217,13 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
     return () => {
       rosterSub.unsubscribe();
-      positionSub.unsubscribe();
+      if (positionSub) positionSub.unsubscribe();
       lineupSub.unsubscribe();
       playTimeSub.unsubscribe();
       goalSub.unsubscribe();
       noteSub.unsubscribe();
     };
-  }, [team.id, game.id]);
+  }, [team.id, team.formationId, game.id]);
 
   // Timer effect
   useEffect(() => {
@@ -425,7 +428,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }
   };
 
-  const handleEmptyPositionClick = (position: FieldPosition) => {
+  const handleEmptyPositionClick = (position: FormationPosition) => {
     const startersCount = lineup.filter(l => l.isStarter).length;
     if (startersCount >= team.maxPlayersOnField) {
       alert(`Maximum ${team.maxPlayersOnField} starters allowed`);
@@ -510,7 +513,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     return players.find(p => p.id === assignment.playerId);
   };
 
-  const handleSubstitute = (position: FieldPosition) => {
+  const handleSubstitute = (position: FormationPosition) => {
     setSubstitutionPosition(position);
     setShowSubstitution(true);
   };

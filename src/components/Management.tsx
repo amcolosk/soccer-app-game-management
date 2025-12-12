@@ -403,6 +403,17 @@ export function Management() {
     setEditRosterLastName('');
   };
 
+  const handleDeletePlayer = async (id: string) => {
+    if (window.confirm('Are you sure you want to delete this player? This will remove them from all team rosters.')) {
+      try {
+        await client.models.Player.delete({ id });
+      } catch (error) {
+        console.error('Error deleting player:', error);
+        alert('Failed to delete player');
+      }
+    }
+  };
+
   const getTeamFormationPositions = (teamId: string) => {
     const team = teams.find(t => t.id === teamId);
     if (!team?.formationId) return [];
@@ -1388,6 +1399,15 @@ export function Management() {
                       <p className="item-meta">
                         {teamsList || 'Not assigned to any team'}
                       </p>
+                    </div>
+                    <div className="item-actions">
+                      <button
+                        onClick={() => handleDeletePlayer(player.id)}
+                        className="btn-delete"
+                        aria-label="Delete player"
+                      >
+                        ✕
+                      </button>
                     </div>
                   </div>
                 );

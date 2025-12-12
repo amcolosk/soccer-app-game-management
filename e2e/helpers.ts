@@ -134,39 +134,20 @@ async function clickManagementTab(page: Page, tabName: string) {
 }
 
 /**
- * Clean up all test data (players, games, teams, seasons)
- * Should be called from Management page
+ * Clean up all test data (players, games, teams, seasons, formations)
+ * Should be called after navigating to Management page
  */
 export async function cleanupTestData(page: Page) {
   console.log('Cleaning up test data...');
   
-  // Clean up players
-  await clickManagementTab(page, 'Players');
-  await page.waitForTimeout(500);
-  
-  let playerDeleteButtons = page.locator('.item-card .btn-delete');
-  let playerCount = await playerDeleteButtons.count();
-  
-  if (playerCount > 0) {
-    console.log(`Found ${playerCount} player(s), deleting...`);
-    
-    page.on('dialog', async (dialog) => {
-      await dialog.accept();
-    });
-    
-    while (playerCount > 0) {
-      await playerDeleteButtons.first().click();
-      await page.waitForTimeout(1000);
-      const newCount = await playerDeleteButtons.count();
-      if (newCount === playerCount) break;
-      playerCount = newCount;
-    }
-    
-    page.removeAllListeners('dialog');
-    console.log('✓ Players deleted');
+  // Make sure we're on Management page
+  const manageTab = page.locator('button.nav-item', { hasText: 'Manage' });
+  if (await manageTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await manageTab.click();
+    await page.waitForTimeout(500);
   }
   
-  // Clean up teams
+  // Clean up teams first (which will clean up rosters)
   await clickManagementTab(page, 'Teams');
   await page.waitForTimeout(500);
   
@@ -190,6 +171,32 @@ export async function cleanupTestData(page: Page) {
     
     page.removeAllListeners('dialog');
     console.log('✓ Teams deleted');
+  }
+  
+  // Clean up players (now global)
+  await clickManagementTab(page, 'Players');
+  await page.waitForTimeout(500);
+  
+  let playerDeleteButtons = page.locator('.item-card .btn-delete');
+  let playerCount = await playerDeleteButtons.count();
+  
+  if (playerCount > 0) {
+    console.log(`Found ${playerCount} player(s), deleting...`);
+    
+    page.on('dialog', async (dialog) => {
+      await dialog.accept();
+    });
+    
+    while (playerCount > 0) {
+      await playerDeleteButtons.first().click();
+      await page.waitForTimeout(1000);
+      const newCount = await playerDeleteButtons.count();
+      if (newCount === playerCount) break;
+      playerCount = newCount;
+    }
+    
+    page.removeAllListeners('dialog');
+    console.log('✓ Players deleted');
   }
   
   // Clean up formations

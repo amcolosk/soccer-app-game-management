@@ -25,7 +25,7 @@ type Goal = Schema["Goal"]["type"];
 type GameNote = Schema["GameNote"]["type"];
 type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
 type Game = Schema["Game"]["type"];
-type FieldPosition = Schema["FieldPosition"]["type"];
+type FormationPosition = Schema["FormationPosition"]["type"];
 
 interface SeasonReportProps {
   team: Team;
@@ -67,11 +67,94 @@ export function SeasonReport({ team }: SeasonReportProps) {
   const [allNotes, setAllNotes] = useState<GameNote[]>([]);
   const [allPlayTimeRecords, setAllPlayTimeRecords] = useState<PlayTimeRecord[]>([]);
   const [allGames, setAllGames] = useState<Game[]>([]);
-  const [allPositions, setAllPositions] = useState<FieldPosition[]>([]);
+  const [allPositions, setAllPositions] = useState<FormationPosition[]>([]);
+  const [teamRosters, setTeamRosters] = useState<TeamRoster[]>([]);
 
   useEffect(() => {
     loadSeasonData();
+    
+    // Subscribe to PlayTimeRecord updates for reactive data
+    const playTimeSub = client.models.PlayTimeRecord.observeQuery().subscribe({
+      next: (data) => {
+        setAllPlayTimeRecords([...data.items]);
+        console.log(`[SeasonReport] PlayTimeRecords updated: ${data.items.length} records`);
+      },
+    });
+
+    return () => {
+      playTimeSub.unsubscribe();
+    };
   }, [team.id]);
+
+  // Recalculate stats when PlayTimeRecords update
+  useEffect(() => {
+    if (allPlayTimeRecords.length > 0 && teamRosters.length > 0 && players.length > 0 && allGames.length > 0) {
+      calculateStats();
+    }
+  }, [allPlayTimeRecords, teamRosters, players, allGames, allGoals, allNotes]);
+
+  const calculateStats = () => {
+    const teamGameIds = new Set(allGames.map(g => g.id));
+
+    const stats: PlayerStats[] = teamRosters.map((roster) => {
+      const player = players.find(p => p.id === roster.playerId);
+      if (!player) return null;
+      
+      // Filter data for this team's games only
+      const teamGoals = allGoals.filter(g => g && teamGameIds.has(g.gameId));
+      const teamNotes = allNotes.filter(n => n && teamGameIds.has(n.gameId));
+      const playerPlayTime = allPlayTimeRecords.filter(r => 
+        r && r.playerId === player.id && teamGameIds.has(r.gameId)
+      );
+
+      // Use utility functions for calculations
+      const playerGoalsCount = calculatePlayerGoals(player.id, teamGoals);
+      const playerAssistsCount = calculatePlayerAssists(player.id, teamGoals);
+      const goldStars = calculatePlayerGoldStars(player.id, teamNotes);
+      const yellowCards = calculatePlayerYellowCards(player.id, teamNotes);
+      const redCards = calculatePlayerRedCards(player.id, teamNotes);
+
+      // Use shared calculation utility for play time
+      const totalPlayTimeSeconds = calculatePlayerPlayTime(player.id, playerPlayTime);
+
+      // Debug: Log play time calculation for Diana Davis
+      if (player.firstName === 'Diana' && player.lastName === 'Davis') {
+        console.log(`[SeasonReport - Stats] Diana Davis play time records (${playerPlayTime.length} records):`,
+          playerPlayTime.map(r => ({
+            gameId: r.gameId,
+            startGameSeconds: r.startGameSeconds,
+            endGameSeconds: r.endGameSeconds,
+            duration: r.endGameSeconds !== null && r.endGameSeconds !== undefined 
+              ? r.endGameSeconds - r.startGameSeconds 
+              : 'incomplete'
+          }))
+        );
+        console.log(`[SeasonReport - Stats] Total play time: ${totalPlayTimeSeconds}s = ${formatPlayTime(totalPlayTimeSeconds, 'long')}`);
+      }
+
+      // Use shared utility to count games played
+      const gamesPlayed = countGamesPlayed(player.id, playerPlayTime);
+
+      return {
+        player,
+        roster,
+        goals: playerGoalsCount,
+        assists: playerAssistsCount,
+        goldStars,
+        yellowCards,
+        redCards,
+        totalPlayTimeSeconds,
+        gamesPlayed,
+      };
+    }).filter(Boolean) as PlayerStats[];
+
+    // Sort by player number using roster-based sorting
+    const sortedRosters = sortRosterByNumber(stats.map(s => s.roster));
+    const rosterOrderMap = new Map(sortedRosters.map((r, i) => [r.id, i]));
+    stats.sort((a, b) => (rosterOrderMap.get(a.roster.id) || 0) - (rosterOrderMap.get(b.roster.id) || 0));
+
+    setPlayerStats(stats);
+  };
 
   const loadSeasonData = async () => {
     setLoading(true);
@@ -80,7 +163,7 @@ export function SeasonReport({ team }: SeasonReportProps) {
       const rostersResponse = await client.models.TeamRoster.list({
         filter: { teamId: { eq: team.id } },
       });
-      const rostersList = rostersResponse.data;
+      setTeamRosters(rostersResponse.data);
 
       // Load all players
       const playersResponse = await client.models.Player.list();
@@ -97,10 +180,7 @@ export function SeasonReport({ team }: SeasonReportProps) {
       const notes = notesResponse.data;
       setAllNotes(notes);
 
-      // Load all play time records for this team
-      const playTimeResponse = await client.models.PlayTimeRecord.list();
-      const playTimeRecords = playTimeResponse.data;
-      setAllPlayTimeRecords(playTimeRecords);
+      // PlayTimeRecords are loaded via observeQuery subscription above
 
       // Get all games for this team to filter by
       const gamesResponse = await client.models.Game.list({
@@ -108,61 +188,21 @@ export function SeasonReport({ team }: SeasonReportProps) {
       });
       const games = gamesResponse.data;
       setAllGames(games);
-      const teamGameIds = new Set(games.map(g => g.id));
 
-      // Load all positions for this team
-      const positionsResponse = await client.models.FieldPosition.list({
-        filter: { teamId: { eq: team.id } },
-      });
-      setAllPositions(positionsResponse.data);
+      // Load all positions from team's formation
+      let formationPositions: FormationPosition[] = [];
+      if (team.formationId) {
+        const positionsResponse = await client.models.FormationPosition.list({
+          filter: { formationId: { eq: team.formationId } },
+        });
+        formationPositions = positionsResponse.data;
+      }
+      setAllPositions(formationPositions);
 
-      // Calculate stats for each roster entry (player on this team)
-      const stats: PlayerStats[] = rostersList.map((roster) => {
-        const player = playersList.find(p => p.id === roster.playerId);
-        if (!player) return null;
-        // Filter data for this team's games only
-        const teamGoals = goals.filter(g => g && teamGameIds.has(g.gameId));
-        const teamNotes = notes.filter(n => n && teamGameIds.has(n.gameId));
-        const playerPlayTime = playTimeRecords.filter(r => 
-          r && r.playerId === player.id && teamGameIds.has(r.gameId)
-        );
-
-        // Use utility functions for calculations
-        const playerGoalsCount = calculatePlayerGoals(player.id, teamGoals);
-        const playerAssistsCount = calculatePlayerAssists(player.id, teamGoals);
-        const goldStars = calculatePlayerGoldStars(player.id, teamNotes);
-        const yellowCards = calculatePlayerYellowCards(player.id, teamNotes);
-        const redCards = calculatePlayerRedCards(player.id, teamNotes);
-
-        // Use shared calculation utility for play time
-        // No need to pass currentGameTime since these are completed games
-        const totalPlayTimeSeconds = calculatePlayerPlayTime(player.id, playerPlayTime);
-
-        // Use shared utility to count games played
-        const gamesPlayed = countGamesPlayed(player.id, playerPlayTime);
-
-        return {
-          player,
-          roster,
-          goals: playerGoalsCount,
-          assists: playerAssistsCount,
-          goldStars,
-          yellowCards,
-          redCards,
-          totalPlayTimeSeconds,
-          gamesPlayed,
-        };
-      }).filter(s => s !== null) as PlayerStats[];
-
-      // Sort by player number using roster-based sorting
-      const sortedRosters = sortRosterByNumber(stats.map(s => s.roster));
-      const rosterOrderMap = new Map(sortedRosters.map((r, i) => [r.id, i]));
-      stats.sort((a, b) => (rosterOrderMap.get(a.roster.id) || 0) - (rosterOrderMap.get(b.roster.id) || 0));
-      setPlayerStats(stats);
+      setLoading(false);
     } catch (error) {
       console.error("Error loading season data:", error);
       alert("Failed to load season report");
-    } finally {
       setLoading(false);
     }
   };
@@ -230,7 +270,7 @@ export function SeasonReport({ team }: SeasonReportProps) {
       const playerPlayTime = allPlayTimeRecords.filter(r => 
         r && r.playerId === player.id && teamGameIds.has(r.gameId)
       );
-
+ 
       // Create position map with position names
       const positionsMap = new Map(
         allPositions.map(p => [p.id, { positionName: p.positionName }])
