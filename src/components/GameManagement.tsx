@@ -9,7 +9,7 @@ import {
 import {
   isPlayerInLineup,
 } from "../utils/lineupUtils";
-import { sortPlayersByNumber } from "../utils/playerUtils";
+import { sortRosterByNumber } from "../utils/playerUtils";
 import { formatGameTimeDisplay, formatMinutesSeconds } from "../utils/gameTimeUtils";
 import { executeSubstitution, closeActivePlayTimeRecords } from "../services/substitutionService";
 import { PlayerSelect } from "./PlayerSelect";
@@ -25,6 +25,11 @@ type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
 type Goal = Schema["Goal"]["type"];
 type GameNote = Schema["GameNote"]["type"];
 
+interface PlayerWithRoster extends Player {
+  playerNumber?: number;
+  preferredPosition?: string;
+}
+
 interface GameManagementProps {
   game: Game;
   team: Team;
@@ -32,7 +37,7 @@ interface GameManagementProps {
 }
 
 export function GameManagement({ game, team, onBack }: GameManagementProps) {
-  const [players, setPlayers] = useState<Player[]>([]);
+  const [players, setPlayers] = useState<PlayerWithRoster[]>([]);
   const [positions, setPositions] = useState<FieldPosition[]>([]);
   const [lineup, setLineup] = useState<LineupAssignment[]>([]);
   const [playTimeRecords, setPlayTimeRecords] = useState<PlayTimeRecord[]>([]);
@@ -140,11 +145,30 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   }, [game.id, isRunning]);
 
   useEffect(() => {
-    // Load players
-    const playerSub = client.models.Player.observeQuery({
+    // Load rosters for this team and merge with player data
+    const rosterSub = client.models.TeamRoster.observeQuery({
       filter: { teamId: { eq: team.id } },
     }).subscribe({
-      next: (data) => setPlayers(sortPlayersByNumber([...data.items])),
+      next: async (rosterData) => {
+        const rosters = sortRosterByNumber([...rosterData.items]);
+        
+        // Load all players
+        const playerResponse = await client.models.Player.list();
+        const allPlayers = playerResponse.data;
+        
+        // Merge roster data with player data
+        const playersWithRoster: PlayerWithRoster[] = rosters.map(roster => {
+          const player = allPlayers.find(p => p.id === roster.playerId);
+          if (!player) return null;
+          return {
+            ...player,
+            playerNumber: roster.playerNumber,
+            preferredPosition: roster.preferredPositions || undefined,
+          };
+        }).filter(p => p !== null) as PlayerWithRoster[];
+        
+        setPlayers(playersWithRoster);
+      },
     });
 
     // Load positions
@@ -189,7 +213,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     });
 
     return () => {
-      playerSub.unsubscribe();
+      rosterSub.unsubscribe();
       positionSub.unsubscribe();
       lineupSub.unsubscribe();
       playTimeSub.unsubscribe();
@@ -1159,18 +1183,21 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                         if (!p.preferredPosition) return false;
                         const preferredPositions = p.preferredPosition.split(', ');
                         // Check if the position ID, name, or abbreviation is in their preferred positions
-                        return preferredPositions.some(pref => 
+                        return preferredPositions.some((pref: string) => 
                           pref === substitutionPosition.id || 
                           pref === positionName || 
                           pref === positionAbbr
                         );
                       });
-                      const sortedRecommendedPlayers = sortPlayersByNumber(recommendedPlayers);
+                      // Sort recommended players by number
+                      const sortedRecommendedPlayers = [...recommendedPlayers].sort((a, b) => 
+                        (a.playerNumber || 999) - (b.playerNumber || 999)
+                      );
                       
                       // Other players not in recommended list
-                      const otherPlayers = sortPlayersByNumber(
-                        availablePlayers.filter(p => !recommendedPlayers.includes(p))
-                      );
+                      const otherPlayers = availablePlayers
+                        .filter(p => !recommendedPlayers.includes(p))
+                        .sort((a, b) => (a.playerNumber || 999) - (b.playerNumber || 999));
                       
                       return (
                         <>
@@ -1180,7 +1207,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                                 <span className="section-label">⭐ Recommended Players</span>
                                 <span className="section-hint">Prefer this position</span>
                               </div>
-                              {sortedRecommendedPlayers.map(player => {
+                              {sortedRecommendedPlayers.map((player: PlayerWithRoster) => {
                                 const playTimeSeconds = getPlayerPlayTimeSeconds(player.id);
                                 return (
                                   <div key={player.id} className="sub-player-item recommended">
@@ -1231,7 +1258,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                                   <span className="section-label">Other Players</span>
                                 </div>
                               )}
-                              {otherPlayers.map(player => {
+                              {otherPlayers.map((player: PlayerWithRoster) => {
                                 const playTimeSeconds = getPlayerPlayTimeSeconds(player.id);
                                 return (
                                   <div key={player.id} className="sub-player-item">

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
-import { sortPlayersByNumber } from "../utils/playerUtils";
+import { sortRosterByNumber } from "../utils/playerUtils";
 import {
   calculatePlayerPlayTime,
   calculatePlayTimeByPosition,
@@ -20,6 +20,7 @@ const client = generateClient<Schema>();
 
 type Team = Schema["Team"]["type"];
 type Player = Schema["Player"]["type"];
+type TeamRoster = Schema["TeamRoster"]["type"];
 type Goal = Schema["Goal"]["type"];
 type GameNote = Schema["GameNote"]["type"];
 type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
@@ -32,6 +33,7 @@ interface SeasonReportProps {
 
 interface PlayerStats {
   player: Player;
+  roster: TeamRoster;
   goals: number;
   assists: number;
   goldStars: number;
@@ -56,6 +58,7 @@ export function SeasonReport({ team }: SeasonReportProps) {
   const [playerStats, setPlayerStats] = useState<PlayerStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
+  const [selectedRoster, setSelectedRoster] = useState<TeamRoster | null>(null);
   const [playerDetails, setPlayerDetails] = useState<PlayerDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
@@ -73,10 +76,14 @@ export function SeasonReport({ team }: SeasonReportProps) {
   const loadSeasonData = async () => {
     setLoading(true);
     try {
-      // Load all players for this team
-      const playersResponse = await client.models.Player.list({
+      // Load all rosters for this team
+      const rostersResponse = await client.models.TeamRoster.list({
         filter: { teamId: { eq: team.id } },
       });
+      const rostersList = rostersResponse.data;
+
+      // Load all players
+      const playersResponse = await client.models.Player.list();
       const playersList = playersResponse.data;
       setPlayers(playersList);
 
@@ -109,8 +116,10 @@ export function SeasonReport({ team }: SeasonReportProps) {
       });
       setAllPositions(positionsResponse.data);
 
-      // Calculate stats for each player
-      const stats: PlayerStats[] = playersList.map(player => {
+      // Calculate stats for each roster entry (player on this team)
+      const stats: PlayerStats[] = rostersList.map((roster) => {
+        const player = playersList.find(p => p.id === roster.playerId);
+        if (!player) return null;
         // Filter data for this team's games only
         const teamGoals = goals.filter(g => g && teamGameIds.has(g.gameId));
         const teamNotes = notes.filter(n => n && teamGameIds.has(n.gameId));
@@ -134,6 +143,7 @@ export function SeasonReport({ team }: SeasonReportProps) {
 
         return {
           player,
+          roster,
           goals: playerGoalsCount,
           assists: playerAssistsCount,
           goldStars,
@@ -142,12 +152,12 @@ export function SeasonReport({ team }: SeasonReportProps) {
           totalPlayTimeSeconds,
           gamesPlayed,
         };
-      });
+      }).filter(s => s !== null) as PlayerStats[];
 
-      // Sort by player number
-      const sortedPlayers = sortPlayersByNumber(stats.map(s => s.player));
-      const playerOrderMap = new Map(sortedPlayers.map((p, i) => [p.id, i]));
-      stats.sort((a, b) => (playerOrderMap.get(a.player.id) || 0) - (playerOrderMap.get(b.player.id) || 0));
+      // Sort by player number using roster-based sorting
+      const sortedRosters = sortRosterByNumber(stats.map(s => s.roster));
+      const rosterOrderMap = new Map(sortedRosters.map((r, i) => [r.id, i]));
+      stats.sort((a, b) => (rosterOrderMap.get(a.roster.id) || 0) - (rosterOrderMap.get(b.roster.id) || 0));
       setPlayerStats(stats);
     } catch (error) {
       console.error("Error loading season data:", error);
@@ -305,12 +315,15 @@ export function SeasonReport({ team }: SeasonReportProps) {
                 {playerStats.map((stat) => (
                   <tr 
                     key={stat.player.id}
-                    onClick={() => loadPlayerDetails(stat.player)}
+                    onClick={() => {
+                      setSelectedRoster(stat.roster);
+                      loadPlayerDetails(stat.player);
+                    }}
                     className={`clickable-row ${selectedPlayer?.id === stat.player.id ? 'selected' : ''}`}
                   >
                     <td className="player-number-cell">
                       <div className="player-number">
-                        {stat.player.playerNumber !== undefined ? `#${stat.player.playerNumber}` : '-'}
+                        {stat.roster.playerNumber !== undefined ? `#${stat.roster.playerNumber}` : '-'}
                       </div>
                     </td>
                     <td className="player-name">
@@ -338,7 +351,7 @@ export function SeasonReport({ team }: SeasonReportProps) {
               <div className="details-header">
                 <h2>
                   {selectedPlayer.firstName} {selectedPlayer.lastName} 
-                  {selectedPlayer.playerNumber !== undefined && ` #${selectedPlayer.playerNumber}`}
+                  {selectedRoster?.playerNumber !== undefined && ` #${selectedRoster.playerNumber}`}
                 </h2>
                 <button onClick={() => setSelectedPlayer(null)} className="btn-secondary">
                   Close Details

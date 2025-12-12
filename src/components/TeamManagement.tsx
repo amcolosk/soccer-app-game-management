@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
-import type { Player, FieldPosition, TeamManagementProps } from "../types";
-import { isValidPlayerNumber, isPlayerNumberUnique } from "../utils/validation";
-import { sortPlayersByNumber } from "../utils/playerUtils";
+import type { Player, FieldPosition, TeamRoster, TeamManagementProps } from "../types";
+import { isValidPlayerNumber } from "../utils/validation";
 import { GameList } from "./GameList";
 import { GameManagement } from "./GameManagement";
 
@@ -13,6 +12,7 @@ type Game = Schema["Game"]["type"];
 
 export function TeamManagement({ team }: TeamManagementProps) {
   const [players, setPlayers] = useState<Player[]>([]);
+  const [teamRosters, setTeamRosters] = useState<TeamRoster[]>([]);
   const [positions, setPositions] = useState<FieldPosition[]>([]);
   const [activeTab, setActiveTab] = useState<"players" | "positions" | "games">("players");
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
@@ -57,10 +57,16 @@ export function TeamManagement({ team }: TeamManagementProps) {
   }, [team.id]);
 
   useEffect(() => {
-    const playerSub = client.models.Player.observeQuery({
+    // Get all players
+    const playerSub = client.models.Player.observeQuery().subscribe({
+      next: (data) => setPlayers([...data.items]),
+    });
+
+    // Get roster entries for this team
+    const rosterSub = client.models.TeamRoster.observeQuery({
       filter: { teamId: { eq: team.id } },
     }).subscribe({
-      next: (data) => setPlayers(sortPlayersByNumber([...data.items])),
+      next: (data) => setTeamRosters([...data.items]),
     });
 
     const positionSub = client.models.FieldPosition.observeQuery({
@@ -71,6 +77,7 @@ export function TeamManagement({ team }: TeamManagementProps) {
 
     return () => {
       playerSub.unsubscribe();
+      rosterSub.unsubscribe();
       positionSub.unsubscribe();
     };
   }, [team.id]);
@@ -87,19 +94,29 @@ export function TeamManagement({ team }: TeamManagementProps) {
       return;
     }
 
-    if (!isPlayerNumberUnique(num, team.id, players)) {
+    // Check if number is unique on this team's roster
+    if (teamRosters.some(r => r.playerNumber === num)) {
       alert("This player number is already in use on this team");
       return;
     }
 
     try {
-      await client.models.Player.create({
-        teamId: team.id,
+      // Create the player first
+      const newPlayer = await client.models.Player.create({
         firstName,
         lastName,
-        playerNumber: num,
-        preferredPosition: preferredPositions.length > 0 ? preferredPositions.join(", ") : undefined,
       });
+
+      // Then add them to the team roster
+      if (newPlayer.data) {
+        await client.models.TeamRoster.create({
+          teamId: team.id,
+          playerId: newPlayer.data.id,
+          playerNumber: num,
+          preferredPositions: preferredPositions.length > 0 ? preferredPositions.join(", ") : undefined,
+        });
+      }
+
       setFirstName("");
       setLastName("");
       setPlayerNumber("");
@@ -111,12 +128,15 @@ export function TeamManagement({ team }: TeamManagementProps) {
     }
   };
 
-  const handleEditPlayer = (player: Player) => {
+  const handleEditPlayer = (roster: TeamRoster) => {
+    const player = players.find(p => p.id === roster.playerId);
+    if (!player) return;
+    
     setEditingPlayer(player);
     setFirstName(player.firstName);
     setLastName(player.lastName);
-    setPlayerNumber(player.playerNumber.toString());
-    setPreferredPositions(player.preferredPosition ? player.preferredPosition.split(', ') : []);
+    setPlayerNumber(roster.playerNumber.toString());
+    setPreferredPositions(roster.preferredPositions ? roster.preferredPositions.split(', ') : []);
     setIsAddingPlayer(false);
   };
 
@@ -134,19 +154,34 @@ export function TeamManagement({ team }: TeamManagementProps) {
       return;
     }
 
-    if (!isPlayerNumberUnique(num, team.id, players, editingPlayer.id)) {
+    // Find the roster entry for this player on this team
+    const rosterEntry = teamRosters.find(r => r.playerId === editingPlayer.id);
+    if (!rosterEntry) {
+      alert("Roster entry not found");
+      return;
+    }
+
+    // Check if number is unique (excluding current roster entry)
+    if (teamRosters.some(r => r.playerNumber === num && r.id !== rosterEntry.id)) {
       alert("This player number is already in use on this team");
       return;
     }
 
     try {
+      // Update the player info
       await client.models.Player.update({
         id: editingPlayer.id,
         firstName,
         lastName,
-        playerNumber: num,
-        preferredPosition: preferredPositions.length > 0 ? preferredPositions.join(", ") : undefined,
       });
+
+      // Update the roster entry
+      await client.models.TeamRoster.update({
+        id: rosterEntry.id,
+        playerNumber: num,
+        preferredPositions: preferredPositions.length > 0 ? preferredPositions.join(", ") : undefined,
+      });
+
       setFirstName("");
       setLastName("");
       setPlayerNumber("");
@@ -166,12 +201,12 @@ export function TeamManagement({ team }: TeamManagementProps) {
     setPreferredPositions([]);
   };
 
-  const handleDeletePlayer = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this player?")) {
+  const handleDeletePlayer = async (rosterId: string) => {
+    if (window.confirm("Are you sure you want to remove this player from the team?")) {
       try {
-        await client.models.Player.delete({ id });
+        await client.models.TeamRoster.delete({ id: rosterId });
       } catch (error) {
-        console.error("Error deleting player:", error);
+        console.error("Error removing player from roster:", error);
         alert("Failed to delete player");
       }
     }
@@ -413,17 +448,20 @@ export function TeamManagement({ team }: TeamManagementProps) {
               <p className="empty-state">No players yet. Add your first player!</p>
             )}
             
-            {players.map((player) => {
-              const preferredPositionNames = player.preferredPosition
-                ? player.preferredPosition.split(', ').map(posId => {
+            {teamRosters.map((roster) => {
+              const player = players.find(p => p.id === roster.playerId);
+              if (!player) return null;
+
+              const preferredPositionNames = roster.preferredPositions
+                ? roster.preferredPositions.split(', ').map(posId => {
                     const pos = positions.find(p => p.id === posId);
                     return pos ? pos.abbreviation : null;
                   }).filter(Boolean).join(', ')
                 : '';
               
               return (
-                <div key={player.id} className="player-card">
-                  <div className="player-number">#{player.playerNumber}</div>
+                <div key={roster.id} className="player-card">
+                  <div className="player-number">#{roster.playerNumber}</div>
                   <div className="player-info">
                     <h3>{player.firstName} {player.lastName}</h3>
                     {preferredPositionNames && (
@@ -432,16 +470,16 @@ export function TeamManagement({ team }: TeamManagementProps) {
                   </div>
                   <div className="card-actions">
                     <button
-                      onClick={() => handleEditPlayer(player)}
+                      onClick={() => handleEditPlayer(roster)}
                       className="btn-edit"
                       aria-label="Edit player"
                     >
                       ✎
                     </button>
                     <button
-                      onClick={() => handleDeletePlayer(player.id)}
+                      onClick={() => handleDeletePlayer(roster.id)}
                       className="btn-delete"
-                      aria-label="Delete player"
+                      aria-label="Remove from team"
                     >
                       ✕
                     </button>

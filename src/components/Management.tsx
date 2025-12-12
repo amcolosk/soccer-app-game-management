@@ -8,6 +8,7 @@ const client = generateClient<Schema>();
 type Season = Schema['Season']['type'];
 type Team = Schema['Team']['type'];
 type Player = Schema['Player']['type'];
+type TeamRoster = Schema['TeamRoster']['type'];
 type FieldPosition = Schema['FieldPosition']['type'];
 type Formation = Schema['Formation']['type'];
 type FormationPosition = Schema['FormationPosition']['type'];
@@ -16,6 +17,7 @@ export function Management() {
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [teamRosters, setTeamRosters] = useState<TeamRoster[]>([]);
   const [positions, setPositions] = useState<FieldPosition[]>([]);
   const [formations, setFormations] = useState<Formation[]>([]);
   const [formationPositions, setFormationPositions] = useState<FormationPosition[]>([]);
@@ -51,7 +53,7 @@ export function Management() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [playerNumber, setPlayerNumber] = useState('');
-  const [preferredPosition, setPreferredPosition] = useState('');
+  const [preferredPositions, setPreferredPositions] = useState<string[]>([]);
 
   useEffect(() => {
     const seasonSub = client.models.Season.observeQuery().subscribe({
@@ -64,6 +66,10 @@ export function Management() {
 
     const playerSub = client.models.Player.observeQuery().subscribe({
       next: (data) => setPlayers([...data.items]),
+    });
+
+    const rosterSub = client.models.TeamRoster.observeQuery().subscribe({
+      next: (data) => setTeamRosters([...data.items]),
     });
 
     const positionSub = client.models.FieldPosition.observeQuery().subscribe({
@@ -82,6 +88,7 @@ export function Management() {
       seasonSub.unsubscribe();
       teamSub.unsubscribe();
       playerSub.unsubscribe();
+      rosterSub.unsubscribe();
       positionSub.unsubscribe();
       formationSub.unsubscribe();
       formationPositionSub.unsubscribe();
@@ -202,7 +209,7 @@ export function Management() {
     setTeamName(team.name);
     setSelectedSeasonForTeam(team.seasonId);
     setMaxPlayers(team.maxPlayersOnField.toString());
-    setHalfLength(team.halfLengthMinutes.toString());
+    setHalfLength((team.halfLengthMinutes || 30).toString());
     setSelectedFormation(team.formationId || '');
     setIsCreatingTeam(false);
   };
@@ -288,17 +295,26 @@ export function Management() {
     }
 
     try {
-      await client.models.Player.create({
-        teamId: selectedTeamForPlayer,
+      // Create the player first
+      const newPlayer = await client.models.Player.create({
         firstName,
         lastName,
-        playerNumber: parseInt(playerNumber),
-        preferredPosition: preferredPosition || undefined,
       });
+
+      // Then add them to the team roster
+      if (newPlayer.data) {
+        await client.models.TeamRoster.create({
+          teamId: selectedTeamForPlayer,
+          playerId: newPlayer.data.id,
+          playerNumber: parseInt(playerNumber),
+          preferredPositions: preferredPositions.length > 0 ? preferredPositions.join(', ') : undefined,
+        });
+      }
+
       setFirstName('');
       setLastName('');
       setPlayerNumber('');
-      setPreferredPosition('');
+      setPreferredPositions([]);
       setSelectedTeamForPlayer('');
       setIsCreatingPlayer(false);
     } catch (error) {
@@ -307,13 +323,13 @@ export function Management() {
     }
   };
 
-  const handleDeletePlayer = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this player?')) {
+  const handleDeletePlayer = async (rosterId: string) => {
+    if (window.confirm('Are you sure you want to remove this player from the team?')) {
       try {
-        await client.models.Player.delete({ id });
+        await client.models.TeamRoster.delete({ id: rosterId });
       } catch (error) {
-        console.error('Error deleting player:', error);
-        alert('Failed to delete player');
+        console.error('Error removing player from roster:', error);
+        alert('Failed to remove player from roster');
       }
     }
   };
@@ -465,19 +481,29 @@ export function Management() {
     setFormationPositionsList(formationPositionsList.filter((_, i) => i !== index));
   };
 
-  const getPositionName = (positionId: string) => {
-    const position = positions.find(p => p.id === positionId);
-    return position ? position.abbreviation || position.positionName : '';
-  };
+  const getPositionName = (positionIds: string) => {
+    if (!positionIds) return '';
+    const ids = positionIds.split(', ');
+    return ids.map(id => {
+      const fieldPos = positions.find(p => p.id === id);
+      if (fieldPos) return fieldPos.abbreviation || fieldPos.positionName;
+      const formPos = formationPositions.find(p => p.id === id);
+      return formPos ? (formPos.abbreviation || formPos.positionName) : id;
+    }).join(', ')  };
 
   const getFormationName = (formationId: string | null | undefined) => {
     if (!formationId) return null;
     return formations.find(f => f.id === formationId)?.name || null;
   };
 
+  const getTeamFormationPositions = (teamId: string) => {
+    const team = teams.find(t => t.id === teamId);
+    if (!team?.formationId) return [];
+    return formationPositions.filter(fp => fp.formationId === team.formationId).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  };
+
   return (
     <div className="management">
-      <h2>⚙️ Management</h2>
 
       <div className="management-tabs">
         <button
@@ -1032,8 +1058,8 @@ export function Management() {
                 value={selectedTeamForPlayer}
                 onChange={(e) => {
                   setSelectedTeamForPlayer(e.target.value);
-                  // Clear preferred position when team changes
-                  setPreferredPosition('');
+                  // Clear preferred positions when team changes
+                  setPreferredPositions([]);
                 }}
               >
                 <option value="">Select Team *</option>
@@ -1062,20 +1088,26 @@ export function Management() {
                 onChange={(e) => setPlayerNumber(e.target.value)}
                 min="0"
               />
-              {selectedTeamForPlayer && positions.filter(p => p.teamId === selectedTeamForPlayer).length > 0 && (
-                <select
-                  value={preferredPosition}
-                  onChange={(e) => setPreferredPosition(e.target.value)}
-                >
-                  <option value="">Preferred Position (optional)</option>
-                  {positions
-                    .filter(p => p.teamId === selectedTeamForPlayer)
-                    .map((position) => (
-                      <option key={position.id} value={position.id}>
-                        {position.abbreviation} - {position.positionName}
-                      </option>
-                    ))}
-                </select>
+              {selectedTeamForPlayer && getTeamFormationPositions(selectedTeamForPlayer).length > 0 && (
+                <div className="checkbox-group">
+                  <label className="group-label">Preferred Positions (optional)</label>
+                  {getTeamFormationPositions(selectedTeamForPlayer).map((position) => (
+                    <label key={position.id} className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={preferredPositions.includes(position.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setPreferredPositions([...preferredPositions, position.id]);
+                          } else {
+                            setPreferredPositions(preferredPositions.filter(id => id !== position.id));
+                          }
+                        }}
+                      />
+                      {position.abbreviation} - {position.positionName}
+                    </label>
+                  ))}
+                </div>
               )}
               <div className="form-actions">
                 <button onClick={handleCreatePlayer} className="btn-primary">
@@ -1087,7 +1119,7 @@ export function Management() {
                     setFirstName('');
                     setLastName('');
                     setPlayerNumber('');
-                    setPreferredPosition('');
+                    setPreferredPositions([]);
                     setSelectedTeamForPlayer('');
                   }}
                   className="btn-secondary"
@@ -1099,29 +1131,33 @@ export function Management() {
           )}
 
           <div className="items-list">
-            {players.length === 0 ? (
+            {teamRosters.length === 0 ? (
               <p className="empty-message">No players yet. Add your first player!</p>
             ) : (
-              players.map((player) => (
-                <div key={player.id} className="item-card">
-                  <div className="item-info">
-                    <h3>#{player.playerNumber} {player.firstName} {player.lastName}</h3>
-                    <p className="item-meta">
-                      {getTeamName(player.teamId)}
-                      {player.preferredPosition && (
-                        <> • Preferred: {getPositionName(player.preferredPosition)}</>
-                      )}
-                    </p>
+              teamRosters.map((roster) => {
+                const player = players.find(p => p.id === roster.playerId);
+                if (!player) return null;
+                return (
+                  <div key={roster.id} className="item-card">
+                    <div className="item-info">
+                      <h3>#{roster.playerNumber} {player.firstName} {player.lastName}</h3>
+                      <p className="item-meta">
+                        {getTeamName(roster.teamId)}
+                        {roster.preferredPositions && (
+                          <> • Preferred: {getPositionName(roster.preferredPositions)}</>
+                        )}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleDeletePlayer(roster.id)}
+                      className="btn-delete"
+                      aria-label="Remove player from team"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <button
-                    onClick={() => handleDeletePlayer(player.id)}
-                    className="btn-delete"
-                    aria-label="Delete player"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

@@ -2,8 +2,12 @@ import type { Schema } from "../../amplify/data/resource";
 
 type Player = Schema["Player"]["type"];
 
+interface PlayerWithRoster extends Player {
+  playerNumber?: number;
+}
+
 interface PlayerSelectProps {
-  players: Player[];
+  players: PlayerWithRoster[];
   value: string;
   onChange: (value: string) => void;
   excludeId?: string;

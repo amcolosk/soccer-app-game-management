@@ -50,7 +50,7 @@ const schema = a.schema({
       formation: a.belongsTo('Formation', 'formationId'),
       maxPlayersOnField: a.integer().required(),
       halfLengthMinutes: a.integer().default(30),
-      players: a.hasMany('Player', 'teamId'),
+      roster: a.hasMany('TeamRoster', 'teamId'),
       positions: a.hasMany('FieldPosition', 'teamId'),
       games: a.hasMany('Game', 'teamId'),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
@@ -59,13 +59,10 @@ const schema = a.schema({
 
   Player: a
     .model({
-      teamId: a.id().required(),
-      team: a.belongsTo('Team', 'teamId'),
       firstName: a.string().required(),
       lastName: a.string().required(),
-      playerNumber: a.integer().required(),
-      preferredPosition: a.string(),
       isActive: a.boolean().default(true),
+      teamRosters: a.hasMany('TeamRoster', 'playerId'),
       lineupAssignments: a.hasMany('LineupAssignment', 'playerId'),
       substitutionsOut: a.hasMany('Substitution', 'playerOutId'),
       substitutionsIn: a.hasMany('Substitution', 'playerInId'),
@@ -73,6 +70,19 @@ const schema = a.schema({
       goalsScored: a.hasMany('Goal', 'scorerId'),
       assists: a.hasMany('Goal', 'assistId'),
       gameNotes: a.hasMany('GameNote', 'playerId'),
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+    })
+    .authorization((allow) => [allow.owner()]),
+
+  TeamRoster: a
+    .model({
+      teamId: a.id().required(),
+      team: a.belongsTo('Team', 'teamId'),
+      playerId: a.id().required(),
+      player: a.belongsTo('Player', 'playerId'),
+      playerNumber: a.integer().required(),
+      preferredPositions: a.string(), // Comma-separated formation position IDs
+      isActive: a.boolean().default(true),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
     .authorization((allow) => [allow.owner()]),

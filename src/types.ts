@@ -4,6 +4,7 @@ import type { Schema } from "../amplify/data/resource";
 export type Season = Schema["Season"]["type"];
 export type Team = Schema["Team"]["type"];
 export type Player = Schema["Player"]["type"];
+export type TeamRoster = Schema["TeamRoster"]["type"];
 export type FieldPosition = Schema["FieldPosition"]["type"];
 
 // Component props types
