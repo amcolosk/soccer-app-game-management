@@ -5,6 +5,8 @@ import {
   clickButton,
   closePWAPrompt,
   cleanupTestData,
+  loginUser,
+  navigateToManagement,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -36,48 +38,6 @@ const TEST_DATA = {
   },
 };
 
-async function loginUser(page: Page, email: string, password: string) {
-  await page.goto('/');
-  await waitForPageLoad(page);
-  
-  // Wait for auth UI to load
-  await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
-  
-  // Enter credentials
-  await fillInput(page, 'input[name="username"], input[type="email"]', email);
-  await fillInput(page, 'input[name="password"], input[type="password"]', password);
-  
-  // Submit
-  await clickButton(page, 'Sign in');
-
-  // Click Skip Verification if it appears
-  try {
-    await page.waitForSelector('button:has-text("Skip")', { timeout: 2000 });
-    await clickButton(page, 'Skip');
-  } catch (e) {
-    // Skip button may not appear if already verified
-  }
-  
-  // Wait for successful login
-  await waitForPageLoad(page);
-  
-  // Close PWA update/offline prompt if it appears
-  await closePWAPrompt(page);
-}
-
-async function navigateToManagement(page: Page) {
-  // Close PWA prompt if it's still showing
-  await closePWAPrompt(page);
-  
-  // Click Manage tab in bottom navigation
-  const manageTab = page.locator('button.nav-item', { hasText: 'Manage' });
-  await manageTab.click();
-  await waitForPageLoad(page);
-  
-  // Verify we're on the management page
-  await expect(page.locator('.management')).toBeVisible();
-}
-
 async function clickTeamsTab(page: Page) {
   // Click Teams tab within Management
   const teamsTab = page.locator('button.management-tab', { hasText: /^Teams/ });
@@ -89,6 +49,13 @@ async function clickSeasonsTab(page: Page) {
   // Click Seasons tab within Management
   const seasonsTab = page.locator('button.management-tab', { hasText: /^Seasons/ });
   await seasonsTab.click();
+  await page.waitForTimeout(300);
+}
+
+async function clickFormationsTab(page: Page) {
+  // Click Formations tab within Management
+  const formationsTab = page.locator('button.management-tab', { hasText: /^Formations/ });
+  await formationsTab.click();
   await page.waitForTimeout(300);
 }
 
@@ -388,5 +355,95 @@ test.describe('Team Management CRUD', () => {
     console.log('✓ Team deleted after confirmation\n');
     
     console.log('=== Deletion Confirmation Test Complete ===\n');
+  });
+
+  test('should assign a formation to a team at creation', async ({ page }) => {
+    console.log('\n=== Testing Team Creation with Formation ===\n');
+    
+    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+    await navigateToManagement(page);
+    await cleanupTestData(page);
+    
+    // Create test season
+    await createTestSeason(page);
+    console.log('');
+    
+    // Create a test formation
+    console.log('Step 1: Create a test formation');
+    await clickFormationsTab(page);
+    await page.waitForTimeout(300);
+    
+    await clickButton(page, '+ Create Formation');
+    await page.waitForTimeout(300);
+    
+    await fillInput(page, 'input[placeholder*="Formation Name"]', '4-3-3');
+    await fillInput(page, 'input[placeholder*="Number of Players"]', '7');
+    
+    // Add a few positions
+    const positions = [
+      { name: 'Goalkeeper', abbreviation: 'GK' },
+      { name: 'Defender', abbreviation: 'D' },
+      { name: 'Midfielder', abbreviation: 'M' },
+      { name: 'Forward', abbreviation: 'F' },
+    ];
+    
+    for (const pos of positions) {
+      await clickButton(page, '+ Add Position');
+      await page.waitForTimeout(200);
+      
+      const positionRows = page.locator('.position-row');
+      const lastRow = positionRows.last();
+      await lastRow.locator('input[placeholder*="Position Name"]').fill(pos.name);
+      await lastRow.locator('input[placeholder*="Abbreviation"]').fill(pos.abbreviation);
+    }
+    
+    await clickButton(page, 'Create');
+    await page.waitForTimeout(1000);
+    
+    await expect(page.locator('.item-card').filter({ hasText: '4-3-3' })).toBeVisible();
+    console.log('✓ Formation created\n');
+    
+    // Create team with formation
+    console.log('Step 2: Create team with formation assignment');
+    await clickTeamsTab(page);
+    await page.waitForTimeout(300);
+    
+    await clickButton(page, '+ Create New Team');
+    await page.waitForTimeout(300);
+    
+    // Select season (first select element)
+    const seasonLabel = `${TEST_DATA.season.name} (${TEST_DATA.season.year})`;
+    await page.locator('select').first().selectOption({ label: seasonLabel });
+    await page.waitForTimeout(200);
+    
+    // Fill in team details
+    await fillInput(page, 'input[placeholder*="Team Name"]', 'Formation Test Team');
+    await fillInput(page, 'input[placeholder*="Max Players"]', '7');
+    await fillInput(page, 'input[placeholder*="Half Length"]', '25');
+    
+    // Select formation (second select element)
+    await page.locator('select').nth(1).selectOption({ label: '4-3-3 (7 players)' });
+    await page.waitForTimeout(200);
+    console.log('✓ Formation selected');
+    
+    // Submit
+    await clickButton(page, 'Create');
+    await page.waitForTimeout(1000);
+    
+    // Verify team was created with formation
+    const teamCard = page.locator('.item-card').filter({ hasText: 'Formation Test Team' });
+    await expect(teamCard).toBeVisible();
+    await expect(teamCard.locator('.item-meta')).toContainText('Formation: 4-3-3');
+    console.log('✓ Team created with formation assigned\n');
+    
+    // Verify formation is displayed in team details
+    console.log('Step 3: Verify formation details in team card');
+    await expect(teamCard.locator('h3')).toContainText('Formation Test Team');
+    await expect(teamCard.locator('.item-meta')).toContainText('7 players');
+    await expect(teamCard.locator('.item-meta')).toContainText('25 min halves');
+    await expect(teamCard.locator('.item-meta')).toContainText('Formation: 4-3-3');
+    console.log('✓ All team details verified\n');
+    
+    console.log('=== Team Creation with Formation Test Complete ===\n');
   });
 });

@@ -6,54 +6,10 @@ import {
   clickButtonByText,
   waitForElement,
   closePWAPrompt,
+  loginUser,
+  navigateToManagement,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
-
-/**
- * Season Management Test Suite
- * Tests CRUD operations for seasons in the Management tab
- */
-
-async function loginUser(page: Page, email: string, password: string) {
-  await page.goto('/');
-  await waitForPageLoad(page);
-  
-  // Wait for auth UI to load
-  await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
-  
-  // Enter credentials
-  await fillInput(page, 'input[name="username"], input[type="email"]', email);
-  await fillInput(page, 'input[name="password"], input[type="password"]', password);
-  
-  // Submit
-  await clickButton(page, 'Sign in');
-
-  // Click Skip Verification if it appears
-  try {
-    await page.waitForSelector('button:has-text("Skip")', { timeout: 2000 });
-    await clickButton(page, 'Skip');
-  } catch (e) {
-    // Skip button may not appear if already verified
-  }
-  
-  // Wait for successful login
-  await waitForPageLoad(page);
-  
-  // Close PWA update/offline prompt if it appears
-  await closePWAPrompt(page);
-}
-
-async function navigateToManagement(page: Page) {
-  // Close PWA prompt if it's still showing
-  await closePWAPrompt(page);
-  
-  // Click Manage tab in bottom navigation
-  await page.getByRole('button', { name: /manage/i }).click();
-  await waitForPageLoad(page);
-  
-  // Verify we're on the management page
-  await expect(page.locator('.management')).toBeVisible();
-}
 
 async function clickSeasonsTab(page: Page) {
   // Click Seasons tab within Management

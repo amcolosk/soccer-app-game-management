@@ -8,6 +8,9 @@ import {
   waitForElement,
   getTextContent,
   formatTime,
+  closePWAPrompt,
+  loginUser,
+  cleanupTestData,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -58,82 +61,23 @@ const TEST_DATA = {
   },
 };
 
-// Helper to login (adjust based on your auth setup)
-async function login(page: Page) {
-  await page.goto('/');
-  await waitForPageLoad(page);
-  
-  // Wait for Amplify auth UI to load
-  // Note: You may need to adjust these selectors based on your actual auth UI
-  await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
-  
-  // If using email/password auth in sandbox
-  await fillInput(page, 'input[name="username"], input[type="email"]', TEST_USERS.user1.email);
-  await fillInput(page, 'input[name="password"], input[type="password"]', TEST_USERS.user1.password);
-  await clickButton(page, 'Sign in');
-
-  // Click Skip Verification
-  await clickButton(page, 'Skip');
-  
-  // Wait for successful login
-  await page.waitForSelector('text=Season', { timeout: 10000 });
-  await waitForPageLoad(page);
-}
-
-// Helper to clean up existing seasons
-async function cleanupExistingSeasons(page: Page) {
-  console.log('Cleaning up existing seasons...');
-  
-  // Wait for any existing season cards to load
-  await page.waitForTimeout(1000);
-  
-  // Find all delete buttons (✕) on season cards
-  let deleteButtons = page.locator('.season-card .btn-delete');
-  let count = await deleteButtons.count();
-  
-  if (count > 0) {
-    console.log(`Found ${count} existing season(s), deleting...`);
-    
-    // Set up persistent dialog handler for all confirmations
-    page.on('dialog', async (dialog) => {
-      console.log(`Auto-confirming: ${dialog.message()}`);
-      await dialog.accept();
-    });
-    
-    // Delete all existing seasons one by one
-    while (count > 0) {
-      // Click the first delete button
-      const firstDeleteButton = page.locator('.season-card .btn-delete').first();
-      await firstDeleteButton.click();
-      
-      // Wait for deletion to complete and UI to update
-      await page.waitForTimeout(3000);
-      
-      // Re-check count
-      deleteButtons = page.locator('.season-card .btn-delete');
-      const newCount = await deleteButtons.count();
-      
-      if (newCount === count) {
-        console.log('⚠️ Season count did not decrease, stopping cleanup');
-        break;
-      }
-      
-      count = newCount;
-      console.log(`Remaining seasons: ${count}`);
-    }
-    
-    // Remove the dialog handler
-    page.removeAllListeners('dialog');
-    
-    console.log('✓ Existing seasons deleted');
-  } else {
-    console.log('✓ No existing seasons to clean up');
-  }
-}
-
 // Helper to create a season
 async function createSeason(page: Page) {
   console.log('Creating season...');
+  
+  // Navigate to Management tab if not already there
+  const manageTab = page.locator('button.nav-item', { hasText: 'Manage' });
+  if (await manageTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await manageTab.click();
+    await page.waitForTimeout(500);
+  }
+  
+  // Make sure we're on Seasons tab
+  const seasonsTab = page.locator('button.management-tab', { hasText: /Seasons/ });
+  if (await seasonsTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await seasonsTab.click();
+    await page.waitForTimeout(500);
+  }
   
   // Navigate to seasons and create new season
   await clickButton(page, '+ Create New Season');
@@ -155,18 +99,26 @@ async function createSeason(page: Page) {
 async function createTeam(page: Page) {
   console.log('Creating team...');
   
-  // Click on the season to enter it
-  await page.getByText(TEST_DATA.season.name).click();
-  await waitForPageLoad(page);
+  // Make sure we're on Teams tab in Management
+  const teamsTab = page.locator('button.management-tab', { hasText: /Teams/ });
+  if (await teamsTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await teamsTab.click();
+    await page.waitForTimeout(500);
+  }
   
   // Create team
   await clickButton(page, '+ Create New Team');
   await waitForPageLoad(page);
   
+  // Select season from dropdown - use label to match by text
+  const seasonLabel = `${TEST_DATA.season.name} (${TEST_DATA.season.year})`;
+  await page.selectOption('select', { label: seasonLabel });
+  await page.waitForTimeout(300);
+  
   // Fill team form
-  await fillInput(page, 'input[id="teamName"]', TEST_DATA.team.name);
-  await fillInput(page, 'input[id="halfLength"]', TEST_DATA.team.halfLength);
-  await fillInput(page, 'input[id="maxPlayers"]', TEST_DATA.team.maxPlayers);
+  await fillInput(page, 'input[placeholder*="Team Name"]', TEST_DATA.team.name);
+  await fillInput(page, 'input[placeholder*="Half Length"]', TEST_DATA.team.halfLength);
+  await fillInput(page, 'input[placeholder*="Max Players"]', TEST_DATA.team.maxPlayers);
   
   await clickButton(page, 'Create');
   await waitForPageLoad(page);
@@ -180,8 +132,50 @@ async function createTeam(page: Page) {
 async function createPositions(page: Page) {
   console.log('Creating positions...');
   
-  // Click on the team to enter it
-  await page.getByText(TEST_DATA.team.name).click();
+  // Navigate to Home tab to see games
+  const homeTab = page.locator('button.nav-item', { hasText: 'Home' });
+  if (await homeTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await homeTab.click();
+    await page.waitForTimeout(500);
+  }
+  
+  // We need to create a game first before we can access team management
+  // So we'll navigate back to Management → Games to create a game
+  const manageTab = page.locator('button.nav-item', { hasText: 'Manage' });
+  if (await manageTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await manageTab.click();
+    await page.waitForTimeout(500);
+  }
+  
+  // Go to Games tab
+  const gamesTab = page.locator('button.management-tab', { hasText: /Games/ });
+  if (await gamesTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await gamesTab.click();
+    await page.waitForTimeout(500);
+  }
+  
+  // Create a temporary game to access team management
+  await clickButton(page, '+ Create New Game');
+  await waitForPageLoad(page);
+  
+  // Select team from dropdown
+  await page.selectOption('select', { label: TEST_DATA.team.name });
+  await page.waitForTimeout(300);
+  
+  // Fill game form with temporary data
+  await fillInput(page, 'input[placeholder*="Opponent Team Name"]', 'Setup Game');
+  await fillInput(page, 'input[type="datetime-local"]', '2025-12-31T12:00');
+  await page.getByRole('radio', { name: /home/i }).check();
+  
+  await clickButton(page, 'Create');
+  await waitForPageLoad(page);
+  
+  // Navigate to Home and click on the game to access team management
+  await homeTab.click();
+  await page.waitForTimeout(500);
+  
+  const gameCard = page.locator('.game-card').filter({ hasText: 'Setup Game' });
+  await gameCard.click();
   await waitForPageLoad(page);
   
   // Go to Positions tab
@@ -204,11 +198,72 @@ async function createPositions(page: Page) {
   }
   
   console.log(`✓ Created ${TEST_DATA.positions.length} positions`);
+  
+  // Now delete the temporary setup game
+  // Go to Games tab
+  await clickButton(page, 'Games');
+  await waitForPageLoad(page);
+  
+  // Click on the Setup Game
+  const setupGameCard = page.locator('.game-card').filter({ hasText: 'Setup Game' });
+  await setupGameCard.click();
+  await page.waitForTimeout(500);
+  
+  // Set up dialog handler to confirm deletion
+  page.on('dialog', async (dialog) => {
+    console.log(`  Confirming: ${dialog.message()}`);
+    await dialog.accept();
+  });
+  
+  // Delete the game
+  const deleteButton = page.locator('button.btn-delete-game', { hasText: 'Delete Game' });
+  await deleteButton.click();
+  await page.waitForTimeout(1000);
+  
+  // Remove dialog handler
+  page.removeAllListeners('dialog');
+  
+  console.log('✓ Temporary setup game deleted');
 }
 
 // Helper to create players
 async function createPlayers(page: Page) {
   console.log('Creating players...');
+  
+  // Need to access team again - navigate to Home
+  const homeTab = page.locator('button.nav-item', { hasText: 'Home' });
+  await homeTab.click();
+  await page.waitForTimeout(500);
+  
+  // Create another temporary game to access team
+  const manageTab = page.locator('button.nav-item', { hasText: 'Manage' });
+  await manageTab.click();
+  await page.waitForTimeout(500);
+  
+  const gamesTab = page.locator('button.management-tab', { hasText: /Games/ });
+  await gamesTab.click();
+  await page.waitForTimeout(500);
+  
+  await clickButton(page, '+ Create New Game');
+  await waitForPageLoad(page);
+  
+  await page.selectOption('select', { label: TEST_DATA.team.name });
+  await page.waitForTimeout(300);
+  
+  await fillInput(page, 'input[placeholder*="Opponent Team Name"]', 'Player Setup Game');
+  await fillInput(page, 'input[type="datetime-local"]', '2025-12-31T13:00');
+  await page.getByRole('radio', { name: /home/i }).check();
+  
+  await clickButton(page, 'Create');
+  await waitForPageLoad(page);
+  
+  // Navigate to Home and click on the game
+  await homeTab.click();
+  await page.waitForTimeout(500);
+  
+  const gameCard = page.locator('.game-card').filter({ hasText: 'Player Setup Game' });
+  await gameCard.click();
+  await waitForPageLoad(page);
   
   // Go to Players tab
   await clickButton(page, 'Players');
@@ -238,28 +293,62 @@ async function createPlayers(page: Page) {
   }
   
   console.log(`✓ Created ${TEST_DATA.players.length} players`);
+  
+  // Now delete the temporary player setup game
+  // Go to Games tab
+  await clickButton(page, 'Games');
+  await waitForPageLoad(page);
+  
+  // Click on the Player Setup Game
+  const playerSetupGameCard = page.locator('.game-card').filter({ hasText: 'Player Setup Game' });
+  await playerSetupGameCard.click();
+  await page.waitForTimeout(500);
+  
+  // Set up dialog handler to confirm deletion
+  page.on('dialog', async (dialog) => {
+    console.log(`  Confirming: ${dialog.message()}`);
+    await dialog.accept();
+  });
+  
+  // Delete the game
+  const deleteButton = page.locator('button.btn-delete-game', { hasText: 'Delete Game' });
+  await deleteButton.click();
+  await page.waitForTimeout(1000);
+  
+  // Remove dialog handler
+  page.removeAllListeners('dialog');
+  
+  console.log('✓ Temporary player setup game deleted');
 }
 
 // Helper to create and setup a game
 async function createGame(page: Page, gameData: { opponent: string; date: string; isHome: boolean }) {
   console.log(`Creating game vs ${gameData.opponent}...`);
   
-  // Go to Games tab (if not already there)
-  const gamesTab = page.locator('button', { hasText: 'Games' });
-  if (await gamesTab.isVisible({ timeout: 1000 }).catch(() => false)) {
-    await clickButton(page, 'Games');
-    await waitForPageLoad(page);
+  // Navigate to Management → Games
+  const manageTab = page.locator('button.nav-item', { hasText: 'Manage' });
+  if (await manageTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await manageTab.click();
+    await page.waitForTimeout(500);
+  }
+  
+  const gamesTab = page.locator('button.management-tab', { hasText: /Games/ });
+  if (await gamesTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await gamesTab.click();
+    await page.waitForTimeout(500);
   }
   
   // Create game
-  await clickButton(page, '+ Schedule New Game');
+  await clickButton(page, '+ Create New Game');
   await waitForPageLoad(page);
   
-  // Fill game form
-  await fillInput(page, 'input[placeholder*="Opponent Team Name *"]', gameData.opponent);
+  // Select team from dropdown
+  await page.selectOption('select', { label: TEST_DATA.team.name });
+  await page.waitForTimeout(300);
   
+  // Fill game form
+  await fillInput(page, 'input[placeholder*="Opponent Team Name"]', gameData.opponent);
   await fillInput(page, 'input[type="datetime-local"]', gameData.date);
-
   
   // Select home/away using getByRole for better reliability
   if (gameData.isHome) {
@@ -271,7 +360,7 @@ async function createGame(page: Page, gameData: { opponent: string; date: string
   await clickButton(page, 'Create');
   await waitForPageLoad(page);
   
-  // Verify game was created
+  // Verify game was created in Management view
   await expect(page.getByText(gameData.opponent)).toBeVisible();
   console.log(`✓ Game created vs ${gameData.opponent}`);
 }
@@ -280,8 +369,26 @@ async function createGame(page: Page, gameData: { opponent: string; date: string
 async function setupLineup(page: Page, opponent: string) {
   console.log(`Setting up lineup for game vs ${opponent}...`);
   
-  // Click on the game to manage it
-  await page.getByText(opponent).click();
+  // Navigate to Home tab
+  const homeTab = page.locator('button.nav-item', { hasText: 'Home' });
+  await homeTab.click();
+  await page.waitForTimeout(500);
+  
+  // Click on the game card to manage it
+  const gameCard = page.locator('.game-card').filter({ hasText: opponent });
+  await gameCard.click();
+  await waitForPageLoad(page);
+  
+  // Now click on the Games tab within TeamManagement
+  const gamesTabInTeam = page.locator('button.tab', { hasText: 'Games' });
+  if (await gamesTabInTeam.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await gamesTabInTeam.click();
+    await page.waitForTimeout(500);
+  }
+  
+  // Click on the game in the list
+  const gameInList = page.locator('.game-card').filter({ hasText: opponent });
+  await gameInList.click();
   await waitForPageLoad(page);
   
   // Wait for the page to fully load including GraphQL subscriptions
@@ -551,11 +658,12 @@ async function runGame(page: Page, gameNumber: number = 1) {
   await expect(page.getByText(/Game Completed/)).toBeVisible();
   console.log(`✓ Game ${gameNumber} completed`);
   
-  // Navigate back to Games list for next game (if not the last game)
+  // Navigate back to Home to see games list for next game (if not the last game)
   if (gameNumber === 1) {
-    await clickButtonByText(page, /Back to Games/);
+    const homeTab = page.locator('button.nav-item', { hasText: 'Home' });
+    await homeTab.click();
     await waitForPageLoad(page);
-    console.log('✓ Returned to Games list');
+    console.log('✓ Returned to Home/Games list');
   }
   
   // Return game statistics
@@ -580,12 +688,9 @@ async function runGame(page: Page, gameNumber: number = 1) {
 async function verifySeasonTotals(page: Page, gameData: any) {
   console.log('Verifying season totals...');
   
-  // Go back to team view
-  await clickButtonByText(page, /Back to Games/);
-  await waitForPageLoad(page);
-  
-  // Open Season Report
-  await clickButton(page, 'Reports');
+  // Navigate to Reports tab at bottom nav
+  const reportsTab = page.locator('button.nav-item', { hasText: 'Reports' });
+  await reportsTab.click();
   await waitForPageLoad(page);
   
   // Verify total goals in summary
@@ -654,12 +759,12 @@ test.describe('Soccer App Full Workflow', () => {
     
     // Step 1: Login
     console.log('Step 1: Login');
-    await login(page);
+    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     console.log('✓ Logged in successfully\n');
     
-    // Step 1.5: Clean up existing seasons
+    // Step 1.5: Clean up existing test data
     console.log('Step 1.5: Clean up existing data');
-    await cleanupExistingSeasons(page);
+    await cleanupTestData(page);
     console.log('');
     
     // Step 2: Create Season
@@ -733,12 +838,12 @@ test.describe('Soccer App Full Workflow', () => {
     
     // Step 1: Login
     console.log('Step 1: Login');
-    await login(page);
+    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     console.log('✓ Logged in successfully\n');
     
-    // Step 2: Clean up existing data
+    // Step 2: Clean up existing test data
     console.log('Step 2: Clean up existing data');
-    await cleanupExistingSeasons(page);
+    await cleanupTestData(page);
     console.log('');
     
     // Step 3: Create Season
@@ -796,17 +901,30 @@ test.describe('Soccer App Full Workflow', () => {
     console.log(`  Sample player play time: ${firstPlayerPlayTime}`);
     expect(firstPlayerPlayTime).not.toBe('0:00');
     
-    // Navigate back to Games
-    await clickButton(page, 'Games');
-    await page.waitForTimeout(1000);
+    // Navigate to Home to access the game
+    const homeTab = page.locator('button.nav-item', { hasText: 'Home' });
+    await homeTab.click();
+    await page.waitForTimeout(500);
     
     // Step 11: Delete the game
     console.log('Step 11: Delete Game');
     const gameCard = page.locator('.game-card').filter({ hasText: TEST_DATA.game1.opponent });
     await expect(gameCard).toBeVisible();
     
-    // Click on the game card to open game management
+    // Click on the game card to open team management
     await gameCard.click();
+    await page.waitForTimeout(500);
+    
+    // Go to Games tab within team management
+    const gamesTabInTeam = page.locator('button.tab', { hasText: 'Games' });
+    if (await gamesTabInTeam.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await gamesTabInTeam.click();
+      await page.waitForTimeout(500);
+    }
+    
+    // Click on the game in the list to open game management
+    const gameInList = page.locator('.game-card').filter({ hasText: TEST_DATA.game1.opponent });
+    await gameInList.click();
     await page.waitForTimeout(1000);
     
     // Wait for game management page to load
@@ -842,8 +960,9 @@ test.describe('Soccer App Full Workflow', () => {
     // Wait for deletion to propagate through GraphQL subscriptions
     await page.waitForTimeout(2000);
     
-    // Navigate back to Reports
-    await clickButton(page, 'Reports');
+    // Navigate back to Reports tab
+    const reportsTab = page.locator('button.nav-item', { hasText: 'Reports' });
+    await reportsTab.click();
     await page.waitForTimeout(1000);
     
     // Verify all player play times are now 0:00

@@ -20,13 +20,35 @@ const schema = a.schema({
     })
     .authorization((allow) => [allow.owner()]),
 
+  Formation: a
+    .model({
+      name: a.string().required(), // e.g., "4-3-3", "3-5-2"
+      playerCount: a.integer().required(), // Number of field players in this formation
+      positions: a.hasMany('FormationPosition', 'formationId'),
+      teams: a.hasMany('Team', 'formationId'),
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+    })
+    .authorization((allow) => [allow.owner()]),
+
+  FormationPosition: a
+    .model({
+      formationId: a.id().required(),
+      formation: a.belongsTo('Formation', 'formationId'),
+      positionName: a.string().required(), // e.g., "Left Forward", "Center Midfielder"
+      abbreviation: a.string().required(), // e.g., "LF", "CM"
+      sortOrder: a.integer(), // Display order for the position
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+    })
+    .authorization((allow) => [allow.owner()]),
+
   Team: a
     .model({
       name: a.string().required(),
       seasonId: a.id().required(),
       season: a.belongsTo('Season', 'seasonId'),
+      formationId: a.id(),
+      formation: a.belongsTo('Formation', 'formationId'),
       maxPlayersOnField: a.integer().required(),
-      formation: a.string(), // e.g., "4-3-3", "4-4-2"
       halfLengthMinutes: a.integer().default(30),
       players: a.hasMany('Player', 'teamId'),
       positions: a.hasMany('FieldPosition', 'teamId'),

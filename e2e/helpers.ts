@@ -75,3 +75,189 @@ export function parseTime(timeString: string): number {
   const [mins, secs] = timeString.split(':').map(Number);
   return mins * 60 + secs;
 }
+
+/**
+ * Close PWA update/offline prompt if it appears
+ */
+export async function closePWAPrompt(page: Page) {
+  try {
+    const okButton = page.locator('.update-prompt button:has-text("OK")');
+    const isVisible = await okButton.isVisible({ timeout: 2000 }).catch(() => false);
+    if (isVisible) {
+      await okButton.click();
+      await page.waitForTimeout(500);
+    }
+  } catch (e) {
+    // Prompt may not appear or already closed
+  }
+}
+
+/**
+ * Login user with email and password
+ */
+export async function loginUser(page: Page, email: string, password: string) {
+  await page.goto('/');
+  await waitForPageLoad(page);
+  
+  // Wait for auth UI to load
+  await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
+  
+  // Enter credentials
+  await fillInput(page, 'input[name="username"], input[type="email"]', email);
+  await fillInput(page, 'input[name="password"], input[type="password"]', password);
+  
+  // Submit
+  await clickButton(page, 'Sign in');
+
+  // Click Skip Verification if it appears
+  try {
+    await page.waitForSelector('button:has-text("Skip")', { timeout: 2000 });
+    await clickButton(page, 'Skip');
+  } catch (e) {
+    // Skip button may not appear if already verified
+  }
+  
+  // Wait for successful login
+  await waitForPageLoad(page);
+  
+  // Close PWA update/offline prompt if it appears
+  await closePWAPrompt(page);
+}
+
+/**
+ * Navigate to specific tab in Management section
+ */
+async function clickManagementTab(page: Page, tabName: string) {
+  const tab = page.locator('button.management-tab', { hasText: new RegExp(`^${tabName}`) });
+  await tab.click();
+  await page.waitForTimeout(300);
+}
+
+/**
+ * Clean up all test data (players, games, teams, seasons)
+ * Should be called from Management page
+ */
+export async function cleanupTestData(page: Page) {
+  console.log('Cleaning up test data...');
+  
+  // Clean up players
+  await clickManagementTab(page, 'Players');
+  await page.waitForTimeout(500);
+  
+  let playerDeleteButtons = page.locator('.item-card .btn-delete');
+  let playerCount = await playerDeleteButtons.count();
+  
+  if (playerCount > 0) {
+    console.log(`Found ${playerCount} player(s), deleting...`);
+    
+    page.on('dialog', async (dialog) => {
+      await dialog.accept();
+    });
+    
+    while (playerCount > 0) {
+      await playerDeleteButtons.first().click();
+      await page.waitForTimeout(1000);
+      const newCount = await playerDeleteButtons.count();
+      if (newCount === playerCount) break;
+      playerCount = newCount;
+    }
+    
+    page.removeAllListeners('dialog');
+    console.log('✓ Players deleted');
+  }
+  
+  // Clean up teams
+  await clickManagementTab(page, 'Teams');
+  await page.waitForTimeout(500);
+  
+  let teamDeleteButtons = page.locator('.item-card .btn-delete');
+  let teamCount = await teamDeleteButtons.count();
+  
+  if (teamCount > 0) {
+    console.log(`Found ${teamCount} team(s), deleting...`);
+    
+    page.on('dialog', async (dialog) => {
+      await dialog.accept();
+    });
+    
+    while (teamCount > 0) {
+      await teamDeleteButtons.first().click();
+      await page.waitForTimeout(1000);
+      const newCount = await teamDeleteButtons.count();
+      if (newCount === teamCount) break;
+      teamCount = newCount;
+    }
+    
+    page.removeAllListeners('dialog');
+    console.log('✓ Teams deleted');
+  }
+  
+  // Clean up formations
+  await clickManagementTab(page, 'Formations');
+  await page.waitForTimeout(500);
+  
+  let formationDeleteButtons = page.locator('.item-card .btn-delete');
+  let formationCount = await formationDeleteButtons.count();
+  
+  if (formationCount > 0) {
+    console.log(`Found ${formationCount} formation(s), deleting...`);
+    
+    page.on('dialog', async (dialog) => {
+      await dialog.accept();
+    });
+    
+    while (formationCount > 0) {
+      await formationDeleteButtons.first().click();
+      await page.waitForTimeout(1000);
+      const newCount = await formationDeleteButtons.count();
+      if (newCount === formationCount) break;
+      formationCount = newCount;
+    }
+    
+    page.removeAllListeners('dialog');
+    console.log('✓ Formations deleted');
+  }
+  
+  // Clean up seasons
+  await clickManagementTab(page, 'Seasons');
+  await page.waitForTimeout(500);
+  
+  let seasonDeleteButtons = page.locator('.item-card .btn-delete');
+  let seasonCount = await seasonDeleteButtons.count();
+  
+  if (seasonCount > 0) {
+    console.log(`Found ${seasonCount} season(s), deleting...`);
+    
+    page.on('dialog', async (dialog) => {
+      await dialog.accept();
+    });
+    
+    while (seasonCount > 0) {
+      await seasonDeleteButtons.first().click();
+      await page.waitForTimeout(1000);
+      const newCount = await seasonDeleteButtons.count();
+      if (newCount === seasonCount) break;
+      seasonCount = newCount;
+    }
+    
+    page.removeAllListeners('dialog');
+    console.log('✓ Seasons deleted');
+  }
+}
+
+/**
+ * Season Management Test Suite
+ * Tests CRUD operations for seasons in the Management tab
+ */
+
+export async function navigateToManagement(page: Page) {
+  // Close PWA prompt if it's still showing
+  await closePWAPrompt(page);
+  
+  // Click Manage tab in bottom navigation
+  await page.getByRole('button', { name: /manage/i }).click();
+  await waitForPageLoad(page);
+  
+  // Verify we're on the management page
+  await expect(page.locator('.management')).toBeVisible();
+}

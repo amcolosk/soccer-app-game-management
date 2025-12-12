@@ -5,6 +5,8 @@ import {
   clickButton,
   closePWAPrompt,
   cleanupTestData,
+  loginUser,
+  navigateToManagement,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -60,48 +62,6 @@ const TEST_DATA = {
     ],
   },
 };
-
-async function loginUser(page: Page, email: string, password: string) {
-  await page.goto('/');
-  await waitForPageLoad(page);
-  
-  // Wait for auth UI to load
-  await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
-  
-  // Enter credentials
-  await fillInput(page, 'input[name="username"], input[type="email"]', email);
-  await fillInput(page, 'input[name="password"], input[type="password"]', password);
-  
-  // Submit
-  await clickButton(page, 'Sign in');
-
-  // Click Skip Verification if it appears
-  try {
-    await page.waitForSelector('button:has-text("Skip")', { timeout: 2000 });
-    await clickButton(page, 'Skip');
-  } catch (e) {
-    // Skip button may not appear if already verified
-  }
-  
-  // Wait for successful login
-  await waitForPageLoad(page);
-  
-  // Close PWA update/offline prompt if it appears
-  await closePWAPrompt(page);
-}
-
-async function navigateToManagement(page: Page) {
-  // Close PWA prompt if it's still showing
-  await closePWAPrompt(page);
-  
-  // Click Manage tab in bottom navigation
-  const manageTab = page.locator('button.nav-item', { hasText: 'Manage' });
-  await manageTab.click();
-  await waitForPageLoad(page);
-  
-  // Verify we're on the management page
-  await expect(page.locator('.management')).toBeVisible();
-}
 
 async function clickFormationsTab(page: Page) {
   // Click Formations tab within Management
@@ -448,6 +408,184 @@ test.describe('Formation Management CRUD', () => {
     console.log('  ✓ Formation created with modified positions\n');
     
     console.log('\n=== Position Addition/Removal Test Completed Successfully ===\n');
+  });
+
+  test('should edit and update a formation', async ({ page }) => {
+    console.log('\n=== Testing Formation Edit/Update ===\n');
+    
+    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+    await navigateToManagement(page);
+    await cleanupTestData(page);
+    await clickFormationsTab(page);
+    
+    // Create initial formation
+    console.log('Step 1: Create initial formation');
+    await clickButton(page, '+ Create Formation');
+    await page.waitForTimeout(300);
+    
+    await fillInput(page, 'input[placeholder*="Formation Name"]', '4-4-2');
+    await fillInput(page, 'input[placeholder*="Number of Players"]', '11');
+    
+    // Add initial positions
+    const initialPositions = [
+      { name: 'Goalkeeper', abbreviation: 'GK' },
+      { name: 'Defender', abbreviation: 'DEF' },
+      { name: 'Midfielder', abbreviation: 'MID' },
+      { name: 'Striker', abbreviation: 'STR' },
+    ];
+    
+    for (const pos of initialPositions) {
+      await clickButton(page, '+ Add Position');
+      await page.waitForTimeout(200);
+      
+      const positionRows = page.locator('.position-row');
+      const lastRow = positionRows.last();
+      await lastRow.locator('input[placeholder*="Position Name"]').fill(pos.name);
+      await lastRow.locator('input[placeholder*="Abbreviation"]').fill(pos.abbreviation);
+    }
+    
+    await clickButton(page, 'Create');
+    await page.waitForTimeout(1500);
+    
+    await expect(page.locator('.item-card').filter({ hasText: '4-4-2' })).toBeVisible();
+    console.log('  ✓ Initial formation created\n');
+    
+    // Click edit button
+    console.log('Step 2: Click edit button');
+    const formationCard = page.locator('.item-card').filter({ hasText: '4-4-2' });
+    const editBtn = formationCard.locator('.btn-edit');
+    await editBtn.click();
+    await page.waitForTimeout(500);
+    
+    // Verify edit form is visible with existing data
+    await expect(page.locator('.create-form')).toBeVisible();
+    await expect(page.locator('h3:has-text("Edit Formation")')).toBeVisible();
+    console.log('  ✓ Edit form visible');
+    
+    // Verify form is pre-filled
+    const nameInput = page.locator('input[placeholder*="Formation Name"]');
+    const countInput = page.locator('input[placeholder*="Number of Players"]');
+    await expect(nameInput).toHaveValue('4-4-2');
+    await expect(countInput).toHaveValue('11');
+    console.log('  ✓ Form pre-filled with existing data');
+    
+    // Verify positions are loaded
+    const positionRows = page.locator('.position-row');
+    const positionCount = await positionRows.count();
+    expect(positionCount).toBe(4);
+    console.log(`  ✓ Positions loaded: ${positionCount}\n`);
+    
+    // Update formation name and player count
+    console.log('Step 3: Update formation details');
+    await nameInput.fill('3-5-2');
+    await countInput.fill('8');
+    console.log('  ✓ Updated name and player count');
+    
+    // Remove one position
+    const secondRow = positionRows.nth(1);
+    await secondRow.locator('.btn-delete').click();
+    await page.waitForTimeout(300);
+    
+    const updatedCount = await page.locator('.position-row').count();
+    expect(updatedCount).toBe(3);
+    console.log('  ✓ Removed one position');
+    
+    // Add a new position
+    await clickButton(page, '+ Add Position');
+    await page.waitForTimeout(200);
+    
+    const newRow = page.locator('.position-row').last();
+    await newRow.locator('input[placeholder*="Position Name"]').fill('Wing Back');
+    await newRow.locator('input[placeholder*="Abbreviation"]').fill('WB');
+    console.log('  ✓ Added new position');
+    
+    // Modify an existing position
+    const firstRow = page.locator('.position-row').first();
+    await firstRow.locator('input[placeholder*="Abbreviation"]').fill('GKP');
+    console.log('  ✓ Modified existing position\n');
+    
+    // Submit update
+    console.log('Step 4: Submit update');
+    await clickButton(page, 'Update');
+    await page.waitForTimeout(1500);
+    
+    // Verify formation was updated
+    await expect(page.locator('.item-card').filter({ hasText: '3-5-2' })).toBeVisible();
+    await expect(page.locator('.item-card').filter({ hasText: '4-4-2' })).not.toBeVisible();
+    console.log('  ✓ Formation name updated');
+    
+    // Verify updated details
+    const updatedCard = page.locator('.item-card').filter({ hasText: '3-5-2' });
+    await expect(updatedCard.locator('.item-meta').first()).toContainText('8 players');
+    await expect(updatedCard.locator('.item-meta').last()).toContainText('GKP');
+    await expect(updatedCard.locator('.item-meta').last()).toContainText('WB');
+    await expect(updatedCard.locator('.item-meta').last()).not.toContainText('DEF');
+    console.log('  ✓ All details updated correctly\n');
+    
+    console.log('\n=== Formation Edit/Update Test Completed Successfully ===\n');
+  });
+
+  test('should cancel formation edit without saving', async ({ page }) => {
+    console.log('\n=== Testing Formation Edit Cancellation ===\n');
+    
+    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+    await navigateToManagement(page);
+    await cleanupTestData(page);
+    await clickFormationsTab(page);
+    
+    // Create formation
+    console.log('Step 1: Create formation');
+    await clickButton(page, '+ Create Formation');
+    await page.waitForTimeout(300);
+    
+    await fillInput(page, 'input[placeholder*="Formation Name"]', 'Original Formation');
+    await fillInput(page, 'input[placeholder*="Number of Players"]', '7');
+    
+    await clickButton(page, '+ Add Position');
+    await page.waitForTimeout(200);
+    const positionRow = page.locator('.position-row').last();
+    await positionRow.locator('input[placeholder*="Position Name"]').fill('Forward');
+    await positionRow.locator('input[placeholder*="Abbreviation"]').fill('FW');
+    
+    await clickButton(page, 'Create');
+    await page.waitForTimeout(1500);
+    
+    await expect(page.locator('.item-card').filter({ hasText: 'Original Formation' })).toBeVisible();
+    console.log('  ✓ Formation created\n');
+    
+    // Start editing
+    console.log('Step 2: Start editing');
+    const editBtn = page.locator('.item-card')
+      .filter({ hasText: 'Original Formation' })
+      .locator('.btn-edit');
+    await editBtn.click();
+    await page.waitForTimeout(500);
+    
+    await expect(page.locator('h3:has-text("Edit Formation")')).toBeVisible();
+    console.log('  ✓ Edit form opened');
+    
+    // Make changes
+    await page.locator('input[placeholder*="Formation Name"]').fill('Changed Name');
+    await page.locator('input[placeholder*="Number of Players"]').fill('10');
+    console.log('  ✓ Made changes to form\n');
+    
+    // Cancel edit
+    console.log('Step 3: Cancel edit');
+    await clickButton(page, 'Cancel');
+    await page.waitForTimeout(500);
+    
+    // Verify form is closed
+    await expect(page.locator('.create-form')).not.toBeVisible();
+    console.log('  ✓ Edit form closed');
+    
+    // Verify original data is unchanged
+    const formationCard = page.locator('.item-card').filter({ hasText: 'Original Formation' });
+    await expect(formationCard).toBeVisible();
+    await expect(formationCard.locator('.item-meta').first()).toContainText('7 players');
+    await expect(page.locator('.item-card').filter({ hasText: 'Changed Name' })).not.toBeVisible();
+    console.log('  ✓ Original data unchanged\n');
+    
+    console.log('\n=== Formation Edit Cancellation Test Completed Successfully ===\n');
   });
 
   test('should clean up all formation data', async ({ page }) => {

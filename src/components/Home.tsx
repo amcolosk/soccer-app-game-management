@@ -6,6 +6,7 @@ const client = generateClient<Schema>();
 
 type Game = Schema['Game']['type'];
 type Team = Schema['Team']['type'];
+type Season = Schema['Season']['type'];
 
 interface HomeProps {
   onGameSelect: (game: Game, team: Team) => void;
@@ -14,6 +15,12 @@ interface HomeProps {
 export function Home({ onGameSelect }: HomeProps) {
   const [games, setGames] = useState<Game[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [seasons, setSeasons] = useState<Season[]>([]);
+  const [isCreatingGame, setIsCreatingGame] = useState(false);
+  const [selectedTeamForGame, setSelectedTeamForGame] = useState('');
+  const [opponent, setOpponent] = useState('');
+  const [gameDate, setGameDate] = useState('');
+  const [isHome, setIsHome] = useState(true);
 
   useEffect(() => {
     const gameSub = client.models.Game.observeQuery().subscribe({
@@ -58,14 +65,52 @@ export function Home({ onGameSelect }: HomeProps) {
       next: (data) => setTeams([...data.items]),
     });
 
+    const seasonSub = client.models.Season.observeQuery().subscribe({
+      next: (data) => setSeasons([...data.items]),
+    });
+
     return () => {
       gameSub.unsubscribe();
       teamSub.unsubscribe();
+      seasonSub.unsubscribe();
     };
   }, []);
 
   const getTeam = (teamId: string) => {
     return teams.find(t => t.id === teamId);
+  };
+
+  const getSeasonName = (seasonId: string) => {
+    return seasons.find(s => s.id === seasonId)?.name || 'Unknown Season';
+  };
+
+  const handleCreateGame = async () => {
+    if (!opponent.trim() || !selectedTeamForGame) {
+      alert('Please enter opponent name and select a team');
+      return;
+    }
+
+    try {
+      const gameData: any = {
+        teamId: selectedTeamForGame,
+        opponent,
+        isHome,
+      };
+
+      if (gameDate) {
+        gameData.gameDate = new Date(gameDate).toISOString();
+      }
+
+      await client.models.Game.create(gameData);
+      setOpponent('');
+      setGameDate('');
+      setIsHome(true);
+      setSelectedTeamForGame('');
+      setIsCreatingGame(false);
+    } catch (error) {
+      console.error('Error creating game:', error);
+      alert('Failed to create game');
+    }
   };
 
   const formatDate = (dateString: string | null | undefined) => {
@@ -124,10 +169,69 @@ export function Home({ onGameSelect }: HomeProps) {
     <div className="home">
       <h2>🏠 Home</h2>
 
-      {games.length === 0 && (
+      {!isCreatingGame && (
+        <button onClick={() => setIsCreatingGame(true)} className="btn-primary">
+          + Schedule New Game
+        </button>
+      )}
+
+      {isCreatingGame && (
+        <div className="create-form">
+          <h3>Schedule New Game</h3>
+          <select
+            value={selectedTeamForGame}
+            onChange={(e) => setSelectedTeamForGame(e.target.value)}
+          >
+            <option value="">Select Team *</option>
+            {teams.map((team) => (
+              <option key={team.id} value={team.id}>
+                {team.name} ({getSeasonName(team.seasonId)})
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            placeholder="Opponent Team Name *"
+            value={opponent}
+            onChange={(e) => setOpponent(e.target.value)}
+          />
+          <input
+            type="datetime-local"
+            value={gameDate}
+            onChange={(e) => setGameDate(e.target.value)}
+          />
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={isHome}
+              onChange={(e) => setIsHome(e.target.checked)}
+            />
+            Home Game
+          </label>
+          <div className="form-actions">
+            <button onClick={handleCreateGame} className="btn-primary">
+              Create
+            </button>
+            <button
+              onClick={() => {
+                setIsCreatingGame(false);
+                setOpponent('');
+                setGameDate('');
+                setIsHome(true);
+                setSelectedTeamForGame('');
+              }}
+              className="btn-secondary"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {games.length === 0 && !isCreatingGame && (
         <div className="empty-state">
           <p>No games scheduled yet.</p>
-          <p>Go to the <strong>Manage</strong> tab to create seasons, teams, and games.</p>
+          <p>Click the button above to schedule your first game, or go to the Manage tab to create seasons and teams.</p>
         </div>
       )}
 

@@ -11,7 +11,7 @@ const client = generateClient<Schema>();
 
 type Game = Schema["Game"]["type"];
 
-export function TeamManagement({ team, onBack }: TeamManagementProps) {
+export function TeamManagement({ team }: TeamManagementProps) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [positions, setPositions] = useState<FieldPosition[]>([]);
   const [activeTab, setActiveTab] = useState<"players" | "positions" | "games">("players");

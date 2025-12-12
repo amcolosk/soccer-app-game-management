@@ -36,10 +36,10 @@ test.describe('Authentication', () => {
     // Click Skip Verification
     await clickButton(page, 'Skip');
     
-    // Wait for successful login - should see main app
+    // Wait for successful login - should see main app (Home page)
     await waitForPageLoad(page);
-    await expect(page.locator('.season-selector')).toBeVisible();
-    await expect(page.getByRole('button', { name: '+ Create New Season' })).toBeVisible();
+    await expect(page.locator('.home')).toBeVisible();
+    await expect(page.getByRole('button', { name: '+ Schedule New Game' })).toBeVisible();
 
     console.log('✓ Login successful');
   });
@@ -65,10 +65,10 @@ test.describe('Authentication', () => {
     // Click Skip Verification
     await clickButton(page, 'Skip');
     
-    // Wait for successful login - should see main app
+    // Wait for successful login - should see main app (Home page)
     await waitForPageLoad(page);
-    await expect(page.locator('.season-selector')).toBeVisible();
-    await expect(page.getByRole('button', { name: '+ Create New Season' })).toBeVisible();
+    await expect(page.locator('.home')).toBeVisible();
+    await expect(page.getByRole('button', { name: '+ Schedule New Game' })).toBeVisible();
 
     console.log('✓ Second user login successful');
   });
