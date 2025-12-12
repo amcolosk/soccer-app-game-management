@@ -9,7 +9,6 @@ type Season = Schema['Season']['type'];
 type Team = Schema['Team']['type'];
 type Player = Schema['Player']['type'];
 type TeamRoster = Schema['TeamRoster']['type'];
-type FieldPosition = Schema['FieldPosition']['type'];
 type Formation = Schema['Formation']['type'];
 type FormationPosition = Schema['FormationPosition']['type'];
 
@@ -18,7 +17,6 @@ export function Management() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [teamRosters, setTeamRosters] = useState<TeamRoster[]>([]);
-  const [positions, setPositions] = useState<FieldPosition[]>([]);
   const [formations, setFormations] = useState<Formation[]>([]);
   const [formationPositions, setFormationPositions] = useState<FormationPosition[]>([]);
   const [activeSection, setActiveSection] = useState<'seasons' | 'teams' | 'formations' | 'players' | 'app'>('seasons');
@@ -39,6 +37,14 @@ export function Management() {
   const [maxPlayers, setMaxPlayers] = useState('7');
   const [halfLength, setHalfLength] = useState('25');
   const [selectedFormation, setSelectedFormation] = useState('');
+  const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
+  const [isAddingRosterPlayer, setIsAddingRosterPlayer] = useState(false);
+  const [editingRoster, setEditingRoster] = useState<TeamRoster | null>(null);
+  const [selectedPlayerForRoster, setSelectedPlayerForRoster] = useState('');
+  const [rosterPlayerNumber, setRosterPlayerNumber] = useState('');
+  const [rosterPreferredPositions, setRosterPreferredPositions] = useState<string[]>([]);
+  const [editRosterFirstName, setEditRosterFirstName] = useState('');
+  const [editRosterLastName, setEditRosterLastName] = useState('');
 
   // Formation form state
   const [isCreatingFormation, setIsCreatingFormation] = useState(false);
@@ -49,11 +55,8 @@ export function Management() {
 
   // Player form state
   const [isCreatingPlayer, setIsCreatingPlayer] = useState(false);
-  const [selectedTeamForPlayer, setSelectedTeamForPlayer] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [playerNumber, setPlayerNumber] = useState('');
-  const [preferredPositions, setPreferredPositions] = useState<string[]>([]);
 
   useEffect(() => {
     const seasonSub = client.models.Season.observeQuery().subscribe({
@@ -72,10 +75,6 @@ export function Management() {
       next: (data) => setTeamRosters([...data.items]),
     });
 
-    const positionSub = client.models.FieldPosition.observeQuery().subscribe({
-      next: (data) => setPositions([...data.items]),
-    });
-
     const formationSub = client.models.Formation.observeQuery().subscribe({
       next: (data) => setFormations([...data.items]),
     });
@@ -89,7 +88,6 @@ export function Management() {
       teamSub.unsubscribe();
       playerSub.unsubscribe();
       rosterSub.unsubscribe();
-      positionSub.unsubscribe();
       formationSub.unsubscribe();
       formationPositionSub.unsubscribe();
     };
@@ -279,58 +277,158 @@ export function Management() {
     return seasons.find(s => s.id === seasonId)?.name || 'Unknown Season';
   };
 
-  const getTeamName = (teamId: string) => {
-    return teams.find(t => t.id === teamId)?.name || 'Unknown Team';
-  };
-
-  const handleCreatePlayer = async () => {
-    if (!selectedTeamForPlayer) {
-      alert('Please select a team');
+  const handleAddPlayerToRoster = async (teamId: string) => {
+    if (!selectedPlayerForRoster || !rosterPlayerNumber.trim()) {
+      alert('Please select a player and enter a player number');
       return;
     }
 
-    if (!firstName.trim() || !lastName.trim() || !playerNumber.trim()) {
-      alert('Please enter first name, last name, and player number');
+    const num = parseInt(rosterPlayerNumber);
+    if (isNaN(num) || num < 1 || num > 99) {
+      alert('Please enter a valid player number (1-99)');
+      return;
+    }
+
+    // Check if player is already on this team's roster
+    if (teamRosters.some(r => r.teamId === teamId && r.playerId === selectedPlayerForRoster)) {
+      alert('This player is already on the team roster');
+      return;
+    }
+
+    // Check if number is already in use on this team
+    if (teamRosters.some(r => r.teamId === teamId && r.playerNumber === num)) {
+      alert('This player number is already in use on this team');
       return;
     }
 
     try {
-      // Create the player first
-      const newPlayer = await client.models.Player.create({
-        firstName,
-        lastName,
+      await client.models.TeamRoster.create({
+        teamId,
+        playerId: selectedPlayerForRoster,
+        playerNumber: num,
+        preferredPositions: rosterPreferredPositions.length > 0 
+          ? rosterPreferredPositions.join(', ') 
+          : undefined,
       });
 
-      // Then add them to the team roster
-      if (newPlayer.data) {
-        await client.models.TeamRoster.create({
-          teamId: selectedTeamForPlayer,
-          playerId: newPlayer.data.id,
-          playerNumber: parseInt(playerNumber),
-          preferredPositions: preferredPositions.length > 0 ? preferredPositions.join(', ') : undefined,
-        });
-      }
-
-      setFirstName('');
-      setLastName('');
-      setPlayerNumber('');
-      setPreferredPositions([]);
-      setSelectedTeamForPlayer('');
-      setIsCreatingPlayer(false);
+      setSelectedPlayerForRoster('');
+      setRosterPlayerNumber('');
+      setRosterPreferredPositions([]);
+      setIsAddingRosterPlayer(false);
     } catch (error) {
-      console.error('Error creating player:', error);
-      alert('Failed to create player');
+      console.error('Error adding player to roster:', error);
+      alert('Failed to add player to roster');
     }
   };
 
-  const handleDeletePlayer = async (rosterId: string) => {
-    if (window.confirm('Are you sure you want to remove this player from the team?')) {
+  const handleRemovePlayerFromRoster = async (rosterId: string) => {
+    if (window.confirm('Are you sure you want to remove this player from the team roster?')) {
       try {
         await client.models.TeamRoster.delete({ id: rosterId });
       } catch (error) {
         console.error('Error removing player from roster:', error);
         alert('Failed to remove player from roster');
       }
+    }
+  };
+
+  const handleEditRoster = (roster: TeamRoster) => {
+    const player = players.find(p => p.id === roster.playerId);
+    setEditingRoster(roster);
+    setRosterPlayerNumber(roster.playerNumber?.toString() || '');
+    setRosterPreferredPositions(roster.preferredPositions ? roster.preferredPositions.split(', ') : []);
+    setEditRosterFirstName(player?.firstName || '');
+    setEditRosterLastName(player?.lastName || '');
+    setIsAddingRosterPlayer(false);
+  };
+
+  const handleUpdateRoster = async () => {
+    if (!editingRoster) return;
+
+    if (!rosterPlayerNumber.trim()) {
+      alert('Please enter a player number');
+      return;
+    }
+
+    const num = parseInt(rosterPlayerNumber);
+    if (isNaN(num) || num < 1 || num > 99) {
+      alert('Player number must be between 1 and 99');
+      return;
+    }
+
+    // Check if number is already in use by another player on this team
+    if (teamRosters.some(r => r.teamId === editingRoster.teamId && r.playerNumber === num && r.id !== editingRoster.id)) {
+      alert('This player number is already in use on this team');
+      return;
+    }
+
+    if (!editRosterFirstName.trim() || !editRosterLastName.trim()) {
+      alert('Please enter first name and last name');
+      return;
+    }
+
+    try {
+      // Update player name
+      await client.models.Player.update({
+        id: editingRoster.playerId,
+        firstName: editRosterFirstName,
+        lastName: editRosterLastName,
+      });
+
+      // Update roster entry
+      await client.models.TeamRoster.update({
+        id: editingRoster.id,
+        playerNumber: num,
+        preferredPositions: rosterPreferredPositions.length > 0 
+          ? rosterPreferredPositions.join(', ') 
+          : undefined,
+      });
+
+      setEditingRoster(null);
+      setRosterPlayerNumber('');
+      setRosterPreferredPositions([]);
+      setEditRosterFirstName('');
+      setEditRosterLastName('');
+    } catch (error) {
+      console.error('Error updating roster:', error);
+      alert('Failed to update roster');
+    }
+  };
+
+  const handleCancelRosterEdit = () => {
+    setEditingRoster(null);
+    setRosterPlayerNumber('');
+    setRosterPreferredPositions([]);
+    setEditRosterFirstName('');
+    setEditRosterLastName('');
+  };
+
+  const getTeamFormationPositions = (teamId: string) => {
+    const team = teams.find(t => t.id === teamId);
+    if (!team?.formationId) return [];
+    return formationPositions.filter(fp => fp.formationId === team.formationId);
+  };
+
+
+  const handleCreatePlayer = async () => {
+    if (!firstName.trim() || !lastName.trim()) {
+      alert('Please enter first name and last name');
+      return;
+    }
+
+    try {
+      // Create the player
+      await client.models.Player.create({
+        firstName,
+        lastName,
+      });
+
+      setFirstName('');
+      setLastName('');
+      setIsCreatingPlayer(false);
+    } catch (error) {
+      console.error('Error creating player:', error);
+      alert('Failed to create player');
     }
   };
 
@@ -481,25 +579,9 @@ export function Management() {
     setFormationPositionsList(formationPositionsList.filter((_, i) => i !== index));
   };
 
-  const getPositionName = (positionIds: string) => {
-    if (!positionIds) return '';
-    const ids = positionIds.split(', ');
-    return ids.map(id => {
-      const fieldPos = positions.find(p => p.id === id);
-      if (fieldPos) return fieldPos.abbreviation || fieldPos.positionName;
-      const formPos = formationPositions.find(p => p.id === id);
-      return formPos ? (formPos.abbreviation || formPos.positionName) : id;
-    }).join(', ')  };
-
   const getFormationName = (formationId: string | null | undefined) => {
     if (!formationId) return null;
     return formations.find(f => f.id === formationId)?.name || null;
-  };
-
-  const getTeamFormationPositions = (teamId: string) => {
-    const team = teams.find(t => t.id === teamId);
-    if (!team?.formationId) return [];
-    return formationPositions.filter(fp => fp.formationId === team.formationId).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
   };
 
   return (
@@ -816,35 +898,237 @@ export function Management() {
             {teams.length === 0 ? (
               <p className="empty-message">No teams yet. Create your first team!</p>
             ) : (
-              teams.map((team) => (
-                <div key={team.id} className="item-card">
-                  <div className="item-info">
-                    <h3>{team.name}</h3>
-                    <p className="item-meta">
-                      {getSeasonName(team.seasonId)} • {team.maxPlayersOnField} players • {team.halfLengthMinutes} min halves
-                      {getFormationName(team.formationId) && (
-                        <> • Formation: {getFormationName(team.formationId)}</>
-                      )}
-                    </p>
+              teams.map((team) => {
+                const teamRosterList = teamRosters.filter(r => r.teamId === team.id);
+                const isExpanded = expandedTeamId === team.id;
+                
+                return (
+                  <div key={team.id} className="item-card">
+                    <div className="item-info">
+                      <h3>{team.name}</h3>
+                      <p className="item-meta">
+                        {getSeasonName(team.seasonId)} • {team.maxPlayersOnField} players • {team.halfLengthMinutes} min halves
+                        {getFormationName(team.formationId) && (
+                          <> • Formation: {getFormationName(team.formationId)}</>
+                        )}
+                      </p>
+                      <p className="item-meta">Roster: {teamRosterList.length} player(s)</p>
+                    </div>
+                    <div className="card-actions">
+                      <button
+                        onClick={() => setExpandedTeamId(isExpanded ? null : team.id)}
+                        className="btn-edit"
+                        aria-label={isExpanded ? "Hide roster" : "Show roster"}
+                        title={isExpanded ? "Hide roster" : "Show roster"}
+                      >
+                        {isExpanded ? '▼' : '▶'}
+                      </button>
+                      <button
+                        onClick={() => handleEditTeam(team)}
+                        className="btn-edit"
+                        aria-label="Edit team"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        onClick={() => handleDeleteTeam(team.id)}
+                        className="btn-delete"
+                        aria-label="Delete team"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    {isExpanded && (
+                      <div className="team-roster-section" style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #ddd' }}>
+                        <h4>Team Roster</h4>
+                        
+                        {!isAddingRosterPlayer && !editingRoster && (
+                          <button 
+                            onClick={() => setIsAddingRosterPlayer(true)} 
+                            className="btn-secondary" 
+                            style={{ marginBottom: '1rem' }}
+                          >
+                            + Add Player to Roster
+                          </button>
+                        )}
+                        
+                        {isAddingRosterPlayer && (
+                          <div className="create-form" style={{ marginBottom: '1rem' }}>
+                            <h5>Add Player to Roster</h5>
+                            <select
+                              value={selectedPlayerForRoster}
+                              onChange={(e) => setSelectedPlayerForRoster(e.target.value)}
+                            >
+                              <option value="">Select Player *</option>
+                              {players
+                                .filter(p => !teamRosterList.some(r => r.playerId === p.id))
+                                .map(player => (
+                                  <option key={player.id} value={player.id}>
+                                    {player.firstName} {player.lastName}
+                                  </option>
+                                ))}
+                            </select>
+                            <input
+                              type="number"
+                              placeholder="Player Number *"
+                              value={rosterPlayerNumber}
+                              onChange={(e) => setRosterPlayerNumber(e.target.value)}
+                              min="1"
+                              max="99"
+                            />
+                            {getTeamFormationPositions(team.id).length > 0 && (
+                              <div className="checkbox-group">
+                                <label className="group-label">Preferred Positions (optional)</label>
+                                {getTeamFormationPositions(team.id).map((position) => (
+                                  <label key={position.id} className="checkbox-label">
+                                    <input
+                                      type="checkbox"
+                                      checked={rosterPreferredPositions.includes(position.id)}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setRosterPreferredPositions([...rosterPreferredPositions, position.id]);
+                                        } else {
+                                          setRosterPreferredPositions(rosterPreferredPositions.filter(id => id !== position.id));
+                                        }
+                                      }}
+                                    />
+                                    {position.abbreviation} - {position.positionName}
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                            <div className="form-actions">
+                              <button onClick={() => handleAddPlayerToRoster(team.id)} className="btn-primary">
+                                Add
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setIsAddingRosterPlayer(false);
+                                  setSelectedPlayerForRoster('');
+                                  setRosterPlayerNumber('');
+                                  setRosterPreferredPositions([]);
+                                }}
+                                className="btn-secondary"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {editingRoster && editingRoster.teamId === team.id && (
+                          <div className="create-form" style={{ marginBottom: '1rem' }}>
+                            <h5>Edit Roster Entry</h5>
+                            <label>
+                              First Name *
+                              <input
+                                type="text"
+                                placeholder="Enter first name"
+                                value={editRosterFirstName}
+                                onChange={(e) => setEditRosterFirstName(e.target.value)}
+                              />
+                            </label>
+                            <label>
+                              Last Name *
+                              <input
+                                type="text"
+                                placeholder="Enter last name"
+                                value={editRosterLastName}
+                                onChange={(e) => setEditRosterLastName(e.target.value)}
+                              />
+                            </label>
+                            <label>
+                              Player Number *
+                              <input
+                                type="number"
+                                placeholder="Player Number"
+                                value={rosterPlayerNumber}
+                                onChange={(e) => setRosterPlayerNumber(e.target.value)}
+                                min="1"
+                                max="99"
+                              />
+                            </label>
+                            {getTeamFormationPositions(team.id).length > 0 && (
+                              <div className="checkbox-group">
+                                <label className="group-label">Preferred Positions (optional)</label>
+                                {getTeamFormationPositions(team.id).map((position) => (
+                                  <label key={position.id} className="checkbox-label">
+                                    <input
+                                      type="checkbox"
+                                      checked={rosterPreferredPositions.includes(position.id)}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setRosterPreferredPositions([...rosterPreferredPositions, position.id]);
+                                        } else {
+                                          setRosterPreferredPositions(rosterPreferredPositions.filter(id => id !== position.id));
+                                        }
+                                      }}
+                                    />
+                                    {position.abbreviation} - {position.positionName}
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                            <div className="form-actions">
+                              <button onClick={handleUpdateRoster} className="btn-primary">
+                                Update
+                              </button>
+                              <button onClick={handleCancelRosterEdit} className="btn-secondary">
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {teamRosterList.length === 0 ? (
+                          <p className="empty-message" style={{ fontSize: '0.9em' }}>No players on roster yet.</p>
+                        ) : (
+                          <div className="roster-list" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {teamRosterList.map((roster) => {
+                              const player = players.find(p => p.id === roster.playerId);
+                              if (!player) return null;
+                              
+                              return (
+                                <div key={roster.id} className="roster-item" style={{ 
+                                  display: 'flex', 
+                                  justifyContent: 'space-between', 
+                                  alignItems: 'center',
+                                  padding: '0.5rem',
+                                  background: '#f5f5f5',
+                                  borderRadius: '4px'
+                                }}>
+                                  <span>
+                                    #{roster.playerNumber} {player.firstName} {player.lastName}
+                                  </span>
+                                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                    <button
+                                      onClick={() => handleEditRoster(roster)}
+                                      className="btn-edit"
+                                      style={{ fontSize: '0.9em' }}
+                                      aria-label="Edit roster entry"
+                                    >
+                                      ✎
+                                    </button>
+                                    <button
+                                      onClick={() => handleRemovePlayerFromRoster(roster.id)}
+                                      className="btn-delete"
+                                      style={{ fontSize: '0.9em' }}
+                                      aria-label="Remove from roster"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div className="card-actions">
-                    <button
-                      onClick={() => handleEditTeam(team)}
-                      className="btn-edit"
-                      aria-label="Edit team"
-                    >
-                      ✎
-                    </button>
-                    <button
-                      onClick={() => handleDeleteTeam(team.id)}
-                      className="btn-delete"
-                      aria-label="Delete team"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -1054,21 +1338,6 @@ export function Management() {
           {isCreatingPlayer && (
             <div className="create-form">
               <h3>Add New Player</h3>
-              <select
-                value={selectedTeamForPlayer}
-                onChange={(e) => {
-                  setSelectedTeamForPlayer(e.target.value);
-                  // Clear preferred positions when team changes
-                  setPreferredPositions([]);
-                }}
-              >
-                <option value="">Select Team *</option>
-                {teams.map((team) => (
-                  <option key={team.id} value={team.id}>
-                    {team.name}
-                  </option>
-                ))}
-              </select>
               <input
                 type="text"
                 placeholder="First Name *"
@@ -1081,34 +1350,7 @@ export function Management() {
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
               />
-              <input
-                type="number"
-                placeholder="Player Number *"
-                value={playerNumber}
-                onChange={(e) => setPlayerNumber(e.target.value)}
-                min="0"
-              />
-              {selectedTeamForPlayer && getTeamFormationPositions(selectedTeamForPlayer).length > 0 && (
-                <div className="checkbox-group">
-                  <label className="group-label">Preferred Positions (optional)</label>
-                  {getTeamFormationPositions(selectedTeamForPlayer).map((position) => (
-                    <label key={position.id} className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={preferredPositions.includes(position.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setPreferredPositions([...preferredPositions, position.id]);
-                          } else {
-                            setPreferredPositions(preferredPositions.filter(id => id !== position.id));
-                          }
-                        }}
-                      />
-                      {position.abbreviation} - {position.positionName}
-                    </label>
-                  ))}
-                </div>
-              )}
+              <p className="form-hint">Players can be assigned to teams in the Team Management section.</p>
               <div className="form-actions">
                 <button onClick={handleCreatePlayer} className="btn-primary">
                   Add
@@ -1118,9 +1360,6 @@ export function Management() {
                     setIsCreatingPlayer(false);
                     setFirstName('');
                     setLastName('');
-                    setPlayerNumber('');
-                    setPreferredPositions([]);
-                    setSelectedTeamForPlayer('');
                   }}
                   className="btn-secondary"
                 >
@@ -1131,30 +1370,25 @@ export function Management() {
           )}
 
           <div className="items-list">
-            {teamRosters.length === 0 ? (
+            {players.length === 0 ? (
               <p className="empty-message">No players yet. Add your first player!</p>
             ) : (
-              teamRosters.map((roster) => {
-                const player = players.find(p => p.id === roster.playerId);
-                if (!player) return null;
+              players.map((player) => {
+                // Get all team rosters for this player
+                const playerRosters = teamRosters.filter(r => r.playerId === player.id);
+                const teamsList = playerRosters.map(r => {
+                  const team = teams.find(t => t.id === r.teamId);
+                  return team ? `${team.name} #${r.playerNumber}` : '';
+                }).filter(Boolean).join(', ');
+                
                 return (
-                  <div key={roster.id} className="item-card">
+                  <div key={player.id} className="item-card">
                     <div className="item-info">
-                      <h3>#{roster.playerNumber} {player.firstName} {player.lastName}</h3>
+                      <h3>{player.firstName} {player.lastName}</h3>
                       <p className="item-meta">
-                        {getTeamName(roster.teamId)}
-                        {roster.preferredPositions && (
-                          <> • Preferred: {getPositionName(roster.preferredPositions)}</>
-                        )}
+                        {teamsList || 'Not assigned to any team'}
                       </p>
                     </div>
-                    <button
-                      onClick={() => handleDeletePlayer(roster.id)}
-                      className="btn-delete"
-                      aria-label="Remove player from team"
-                    >
-                      ✕
-                    </button>
                   </div>
                 );
               })

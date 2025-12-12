@@ -19,6 +19,8 @@ export function TeamManagement({ team }: TeamManagementProps) {
 
   // Player form state
   const [isAddingPlayer, setIsAddingPlayer] = useState(false);
+  const [isCreatingNewPlayer, setIsCreatingNewPlayer] = useState(false);
+  const [selectedExistingPlayerId, setSelectedExistingPlayerId] = useState("");
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -83,8 +85,8 @@ export function TeamManagement({ team }: TeamManagementProps) {
   }, [team.id]);
 
   const handleAddPlayer = async () => {
-    if (!firstName.trim() || !lastName.trim() || !playerNumber.trim()) {
-      alert("Please fill in all required fields");
+    if (!playerNumber.trim()) {
+      alert("Please enter a player number");
       return;
     }
 
@@ -101,27 +103,55 @@ export function TeamManagement({ team }: TeamManagementProps) {
     }
 
     try {
-      // Create the player first
-      const newPlayer = await client.models.Player.create({
-        firstName,
-        lastName,
-      });
+      let playerId: string;
 
-      // Then add them to the team roster
-      if (newPlayer.data) {
-        await client.models.TeamRoster.create({
-          teamId: team.id,
-          playerId: newPlayer.data.id,
-          playerNumber: num,
-          preferredPositions: preferredPositions.length > 0 ? preferredPositions.join(", ") : undefined,
+      if (isCreatingNewPlayer) {
+        // Creating a new player
+        if (!firstName.trim() || !lastName.trim()) {
+          alert("Please enter first name and last name");
+          return;
+        }
+
+        const newPlayer = await client.models.Player.create({
+          firstName,
+          lastName,
         });
+
+        if (!newPlayer.data) {
+          throw new Error("Failed to create player");
+        }
+        playerId = newPlayer.data.id;
+      } else {
+        // Adding existing player
+        if (!selectedExistingPlayerId) {
+          alert("Please select a player");
+          return;
+        }
+
+        // Check if player is already on this team's roster
+        if (teamRosters.some(r => r.playerId === selectedExistingPlayerId)) {
+          alert("This player is already on the team roster");
+          return;
+        }
+
+        playerId = selectedExistingPlayerId;
       }
+
+      // Add player to team roster
+      await client.models.TeamRoster.create({
+        teamId: team.id,
+        playerId,
+        playerNumber: num,
+        preferredPositions: preferredPositions.length > 0 ? preferredPositions.join(", ") : undefined,
+      });
 
       setFirstName("");
       setLastName("");
       setPlayerNumber("");
       setPreferredPositions([]);
+      setSelectedExistingPlayerId("");
       setIsAddingPlayer(false);
+      setIsCreatingNewPlayer(false);
     } catch (error) {
       console.error("Error adding player:", error);
       alert("Failed to add player");
@@ -386,18 +416,65 @@ export function TeamManagement({ team }: TeamManagementProps) {
 
           {isAddingPlayer && (
             <div className="create-form">
-              <input
-                type="text"
-                placeholder="First Name *"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-              />
-              <input
-                type="text"
-                placeholder="Last Name *"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-              />
+              <h3>Add Player to Roster</h3>
+              
+              <div className="form-group">
+                <label className="radio-group">
+                  <input
+                    type="radio"
+                    checked={!isCreatingNewPlayer}
+                    onChange={() => {
+                      setIsCreatingNewPlayer(false);
+                      setFirstName("");
+                      setLastName("");
+                    }}
+                  />
+                  <span>Select Existing Player</span>
+                </label>
+                <label className="radio-group">
+                  <input
+                    type="radio"
+                    checked={isCreatingNewPlayer}
+                    onChange={() => {
+                      setIsCreatingNewPlayer(true);
+                      setSelectedExistingPlayerId("");
+                    }}
+                  />
+                  <span>Create New Player</span>
+                </label>
+              </div>
+
+              {isCreatingNewPlayer ? (
+                <>
+                  <input
+                    type="text"
+                    placeholder="First Name *"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Last Name *"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                  />
+                </>
+              ) : (
+                <select
+                  value={selectedExistingPlayerId}
+                  onChange={(e) => setSelectedExistingPlayerId(e.target.value)}
+                >
+                  <option value="">Select Player *</option>
+                  {players
+                    .filter(p => !teamRosters.some(r => r.playerId === p.id))
+                    .map(player => (
+                      <option key={player.id} value={player.id}>
+                        {player.firstName} {player.lastName}
+                      </option>
+                    ))}
+                </select>
+              )}
+              
               <input
                 type="number"
                 placeholder="Player Number *"
@@ -436,7 +513,18 @@ export function TeamManagement({ team }: TeamManagementProps) {
                 <button onClick={handleAddPlayer} className="btn-primary">
                   Add
                 </button>
-                <button onClick={() => setIsAddingPlayer(false)} className="btn-secondary">
+                <button 
+                  onClick={() => {
+                    setIsAddingPlayer(false);
+                    setIsCreatingNewPlayer(false);
+                    setSelectedExistingPlayerId("");
+                    setFirstName("");
+                    setLastName("");
+                    setPlayerNumber("");
+                    setPreferredPositions([]);
+                  }} 
+                  className="btn-secondary"
+                >
                   Cancel
                 </button>
               </div>

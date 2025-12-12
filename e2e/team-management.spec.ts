@@ -134,9 +134,9 @@ test.describe('Team Management CRUD', () => {
     await page.waitForTimeout(200);
     
     // Fill in team details
-    await fillInput(page, 'input[placeholder*="Team Name"]', TEST_DATA.team1.name);
-    await fillInput(page, 'input[placeholder*="Max Players"]', TEST_DATA.team1.maxPlayers);
-    await fillInput(page, 'input[placeholder*="Half Length"]', TEST_DATA.team1.halfLength);
+    await fillInput(page, 'input[placeholder*="team name"]', TEST_DATA.team1.name);
+    await fillInput(page, 'input[placeholder*="max players"]', TEST_DATA.team1.maxPlayers);
+    await fillInput(page, 'input[placeholder*="half length"]', TEST_DATA.team1.halfLength);
     console.log('  ✓ Form filled');
     
     // Submit
@@ -154,9 +154,9 @@ test.describe('Team Management CRUD', () => {
     
     await page.selectOption('select', { label: seasonLabel });
     await page.waitForTimeout(200);
-    await fillInput(page, 'input[placeholder*="Team Name"]', TEST_DATA.team2.name);
-    await fillInput(page, 'input[placeholder*="Max Players"]', TEST_DATA.team2.maxPlayers);
-    await fillInput(page, 'input[placeholder*="Half Length"]', TEST_DATA.team2.halfLength);
+    await fillInput(page, 'input[placeholder*="team name"]', TEST_DATA.team2.name);
+    await fillInput(page, 'input[placeholder*="max players"]', TEST_DATA.team2.maxPlayers);
+    await fillInput(page, 'input[placeholder*="half length"]', TEST_DATA.team2.halfLength);
     
     await clickButton(page, 'Create');
     await page.waitForTimeout(1000);
@@ -309,9 +309,9 @@ test.describe('Team Management CRUD', () => {
     
     const seasonLabel = `${TEST_DATA.season.name} (${TEST_DATA.season.year})`;
     await page.selectOption('select', { label: seasonLabel });
-    await fillInput(page, 'input[placeholder*="Team Name"]', 'Test Team for Deletion');
-    await fillInput(page, 'input[placeholder*="Max Players"]', '7');
-    await fillInput(page, 'input[placeholder*="Half Length"]', '25');
+    await fillInput(page, 'input[placeholder*="team name"]', 'Test Team for Deletion');
+    await fillInput(page, 'input[placeholder*="max players"]', '7');
+    await fillInput(page, 'input[placeholder*="half length"]', '25');
     await clickButton(page, 'Create');
     await page.waitForTimeout(1000);
     
@@ -417,9 +417,9 @@ test.describe('Team Management CRUD', () => {
     await page.waitForTimeout(200);
     
     // Fill in team details
-    await fillInput(page, 'input[placeholder*="Team Name"]', 'Formation Test Team');
-    await fillInput(page, 'input[placeholder*="Max Players"]', '7');
-    await fillInput(page, 'input[placeholder*="Half Length"]', '25');
+    await fillInput(page, 'input[placeholder*="team name"]', 'Formation Test Team');
+    await fillInput(page, 'input[placeholder*="max players"]', '7');
+    await fillInput(page, 'input[placeholder*="half length"]', '25');
     
     // Select formation (second select element)
     await page.locator('select').nth(1).selectOption({ label: '4-3-3 (7 players)' });

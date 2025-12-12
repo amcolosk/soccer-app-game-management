@@ -104,9 +104,9 @@ async function createTestTeam(page: Page, teamData: typeof TEST_DATA.team1) {
   await page.selectOption('select', { label: seasonLabel });
   await page.waitForTimeout(200);
   
-  await fillInput(page, 'input[placeholder*="Team Name"]', teamData.name);
-  await fillInput(page, 'input[placeholder*="Max Players"]', teamData.maxPlayers);
-  await fillInput(page, 'input[placeholder*="Half Length"]', teamData.halfLength);
+  await fillInput(page, 'input[placeholder*="team name"]', teamData.name);
+  await fillInput(page, 'input[placeholder*="max players"]', teamData.maxPlayers);
+  await fillInput(page, 'input[placeholder*="half length"]', teamData.halfLength);
   
   await clickButton(page, 'Create');
   await page.waitForTimeout(1000);
@@ -140,7 +140,7 @@ async function createPositionsForTeam(page: Page, teamName: string) {
   await page.selectOption('select', { label: teamName });
   await page.waitForTimeout(300);
   
-  await fillInput(page, 'input[placeholder*="Opponent Team Name"]', 'Temp Position Setup');
+  await fillInput(page, 'input[placeholder*="opponent"]', 'Temp Position Setup');
   await fillInput(page, 'input[type="datetime-local"]', '2025-12-31T12:00');
   await page.getByRole('radio', { name: /home/i }).check();
   
