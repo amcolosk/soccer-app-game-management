@@ -12,9 +12,10 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 
 ### Team Management
 - **Season Organization**: Create and manage multiple seasons
-- **Team Roster**: Maintain player information with jersey numbers
-- **Field Positions**: Define custom formations with position abbreviations and names
-- **Drag & Drop**: Reorder positions to match your preferred formation layout
+- **Formation Templates**: Define reusable formations with position abbreviations and names
+- **Global Player Pool**: Manage all players across teams with central player database
+- **Team Rosters**: Assign players to teams with jersey numbers and preferred positions
+- **Roster Editing**: Edit player details, numbers, and position preferences directly from team rosters
 
 ### Game Day Management
 - **Game Scheduling**: Track upcoming games with opponent, home/away status, and date/time
@@ -28,6 +29,13 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 - **Substitution Management**: Easy substitution interface with play time visibility
 - **Fair Play Statistics**: View total play time per player to ensure equitable distribution
 - **Position History**: Track which positions each player has played
+
+### Season Reports
+- **Team Statistics**: View cumulative stats across all games in a season
+- **Player Details**: Drill down into individual player performance
+- **Play Time by Position**: See where each player has played and for how long
+- **Goals & Assists**: Track scoring statistics and gold stars
+- **Real-time Updates**: Reports automatically update as games are played
 
 ## Technology Stack
 
@@ -71,27 +79,34 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 
 1. **Sign up/Sign in** using the authentication form
 2. **Create a Season** to organize your coaching year
-3. **Add a Team** with the number of players allowed on field and half length
-4. **Add Players** to your roster with jersey numbers
-5. **Define Positions** for your formation (e.g., GK, LB, CB, RB, etc.)
-6. **Schedule Games** with opponent, location, and date/time
-7. **Manage Game Day**:
+3. **Create a Formation** template with positions (e.g., GK, LB, CB, RB, CM, FWD, etc.)
+4. **Add a Team** with formation, field size, and half length
+5. **Add Players** to the global player pool
+6. **Build Team Roster** by assigning players with jersey numbers and preferred positions
+7. **Schedule Games** from the Home page with opponent, location, and date/time
+8. **Manage Game Day**:
+   - Click the game to open game management
    - Assign starting lineup by position
    - Start the game timer
    - Make substitutions during the game
-   - View play time statistics
+   - View live play time statistics
+   - Record goals and game notes
    - End game when complete
+9. **View Season Reports** to analyze player statistics and play time distribution
 
 ## Data Models
 
 - **Season**: Container for teams in a specific time period
-- **Team**: Roster and configuration (name, field size, half length)
-- **Player**: Individual athletes with jersey numbers and names
-- **FieldPosition**: Positions in the formation (abbreviation, name, order)
-- **Game**: Scheduled matches with opponent and location details
+- **Formation**: Reusable position templates (e.g., 4-3-3, 3-3-1)
+- **FormationPosition**: Individual positions within a formation (abbreviation, name)
+- **Team**: Configuration and formation reference (name, field size, half length)
+- **Player**: Global player pool (first name, last name)
+- **TeamRoster**: Junction table linking players to teams with jersey numbers and preferred positions
+- **Game**: Scheduled matches with opponent, location, and date/time
 - **LineupAssignment**: Current player-to-position assignments for a game
-- **Substitution**: Historical record of all substitutions made
-- **PlayTimeRecord**: Granular tracking of when players enter/exit positions
+- **Goal**: Goal records with scorer, assists, and game time
+- **GameNote**: Game events (gold stars, yellow/red cards)
+- **PlayTimeRecord**: Granular tracking of when players enter/exit positions with game seconds
 
 ## Deploying to AWS
 

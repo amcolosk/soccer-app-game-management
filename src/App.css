@@ -525,6 +525,7 @@
   max-width: 800px;
   margin: 0 auto;
   padding: 1rem 0;
+  padding-bottom: 5rem; /* Buffer for bottom navigation */
   overflow-x: hidden;
   width: 100%;
 }
@@ -711,7 +712,7 @@
 .home {
   max-width: 800px;
   margin: 0 auto;
-  padding: 1rem 0;
+  padding-bottom: 5rem; /* Buffer for bottom navigation */
 }
 
 .home h2 {
@@ -720,6 +721,7 @@
 }
 
 .games-group {
+  margin-top: 2rem;
   margin-bottom: 2rem;
 }
 
@@ -1243,6 +1245,7 @@
 /* Game Management */
 .game-management {
   margin: 2rem 0;
+  padding-bottom: 5rem; /* Buffer for bottom navigation */
 }
 
 .game-timer-card {
@@ -2317,6 +2320,7 @@
 /* Season Report */
 .season-report {
   padding: 1rem 0;
+  padding-bottom: 5rem; /* Buffer for bottom navigation */
 }
 
 .report-header {

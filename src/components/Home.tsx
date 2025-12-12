@@ -167,7 +167,6 @@ export function Home({ onGameSelect }: HomeProps) {
 
   return (
     <div className="home">
-      <h2>🏠 Home</h2>
 
       {!isCreatingGame && (
         <button onClick={() => setIsCreatingGame(true)} className="btn-primary">
