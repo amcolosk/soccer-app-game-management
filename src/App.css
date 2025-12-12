@@ -541,7 +541,7 @@
   border-bottom: 2px solid var(--border-color);
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
+  scrollbar-width: none; /* Firefox */
   margin-left: -1rem;
   margin-right: -1rem;
   padding-left: 1rem;
@@ -549,16 +549,7 @@
 }
 
 .management-tabs::-webkit-scrollbar {
-  height: 4px;
-}
-
-.management-tabs::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
-}
-
-.management-tabs::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 4px;
+  display: none; /* Chrome, Safari, Edge */
 }
 
 .management-tab {
