@@ -8,6 +8,8 @@ import {
   loginUser,
   navigateToManagement,
   clickManagementTab,
+  handleConfirmDialog,
+  UI_TIMING,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -90,7 +92,7 @@ test.describe('Formation Management CRUD', () => {
     // ===== CREATE: Create first formation =====
     console.log('Step 4: CREATE - Create first formation');
     await clickManagementTab(page, 'Formations');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Verify empty state
     await expect(page.locator('.empty-message')).toBeVisible();
@@ -99,7 +101,7 @@ test.describe('Formation Management CRUD', () => {
     
     // Click Create Formation button
     await clickButton(page, '+ Create Formation');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Verify form is visible
     await expect(page.locator('.create-form')).toBeVisible();
@@ -117,7 +119,7 @@ test.describe('Formation Management CRUD', () => {
       
       // Click Add Position button
       await clickButton(page, '+ Add Position');
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(UI_TIMING.QUICK);
       
       // Fill in position details - target the last position row
       const positionRows = page.locator('.position-row');
@@ -131,7 +133,7 @@ test.describe('Formation Management CRUD', () => {
     
     // Submit
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     // Verify formation was created
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.formation1.name })).toBeVisible();
@@ -140,7 +142,7 @@ test.describe('Formation Management CRUD', () => {
     // ===== CREATE: Create second formation =====
     console.log('Step 5: CREATE - Create second formation');
     await clickButton(page, '+ Create Formation');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     await fillInput(page, 'input[placeholder*="Formation Name"]', TEST_DATA.formation2.name);
     await fillInput(page, 'input[placeholder*="Number of Players"]', TEST_DATA.formation2.playerCount);
@@ -149,7 +151,7 @@ test.describe('Formation Management CRUD', () => {
     for (let i = 0; i < TEST_DATA.formation2.positions.length; i++) {
       const pos = TEST_DATA.formation2.positions[i];
       await clickButton(page, '+ Add Position');
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(UI_TIMING.QUICK);
       
       const positionRows = page.locator('.position-row');
       const lastRow = positionRows.last();
@@ -158,7 +160,7 @@ test.describe('Formation Management CRUD', () => {
     }
     
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.formation2.name })).toBeVisible();
     console.log('  ✓ Second formation created\n');
@@ -197,7 +199,7 @@ test.describe('Formation Management CRUD', () => {
     await waitForPageLoad(page);
     await navigateToManagement(page);
     await clickManagementTab(page, 'Formations');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     // Verify formations still exist after reload
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.formation1.name })).toBeVisible();
@@ -209,17 +211,14 @@ test.describe('Formation Management CRUD', () => {
     console.log('Step 8: DELETE - Delete second formation');
     
     // Set up dialog handler
-    page.on('dialog', async (dialog) => {
-      console.log(`  Confirming: ${dialog.message()}`);
-      await dialog.accept();
-    });
+    const cleanupDialog = handleConfirmDialog(page);
     
     // Click delete button on second formation
     const formation2DeleteBtn = page.locator('.item-card')
       .filter({ hasText: TEST_DATA.formation2.name })
       .locator('.btn-delete');
     await formation2DeleteBtn.click();
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     // Verify second formation is deleted
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.formation2.name })).not.toBeVisible();
@@ -237,13 +236,19 @@ test.describe('Formation Management CRUD', () => {
     // ===== DELETE: Delete first formation =====
     console.log('Step 9: DELETE - Delete first formation');
     
+    // Dialog handler still active
     const formation1DeleteBtn = page.locator('.item-card')
       .filter({ hasText: TEST_DATA.formation1.name })
       .locator('.btn-delete');
     await formation1DeleteBtn.click();
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     // Verify first formation is deleted
+    await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.formation1.name })).not.toBeVisible();
+    console.log('  ✓ Formation 1 deleted');
+    
+    // Clean up dialog handler
+    cleanupDialog();
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.formation1.name })).not.toBeVisible();
     console.log('  ✓ Formation 1 deleted');
     
@@ -268,7 +273,7 @@ test.describe('Formation Management CRUD', () => {
     
     console.log('Step 1: Test empty form submission');
     await clickButton(page, '+ Create Formation');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Set up dialog handler to capture validation message
     let alertMessage = '';
@@ -280,7 +285,7 @@ test.describe('Formation Management CRUD', () => {
     
     // Try to submit without filling anything
     await clickButton(page, 'Create');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     // Verify alert was shown
     expect(alertMessage).toContain('formation name');
@@ -296,7 +301,7 @@ test.describe('Formation Management CRUD', () => {
     });
     
     await clickButton(page, 'Create');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     expect(alertMessage).toContain('player count');
     console.log('  ✓ Validation triggered for missing player count\n');
@@ -311,7 +316,7 @@ test.describe('Formation Management CRUD', () => {
     });
     
     await clickButton(page, 'Create');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     expect(alertMessage).toContain('position');
     console.log('  ✓ Validation triggered for missing positions\n');
@@ -319,14 +324,14 @@ test.describe('Formation Management CRUD', () => {
     console.log('Step 4: Test successful creation with all fields');
     // Add one position
     await clickButton(page, '+ Add Position');
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(UI_TIMING.QUICK);
     
     const positionRow = page.locator('.position-row').last();
     await positionRow.locator('input[placeholder*="Position Name"]').fill('Forward');
     await positionRow.locator('input[placeholder*="Abbreviation"]').fill('FW');
     
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     // Verify formation was created
     await expect(page.locator('.item-card').filter({ hasText: 'Test Formation' })).toBeVisible();
@@ -345,7 +350,7 @@ test.describe('Formation Management CRUD', () => {
     
     console.log('Step 1: Open formation creation form');
     await clickButton(page, '+ Create Formation');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     await fillInput(page, 'input[placeholder*="Formation Name"]', TEST_DATA.formation3.name);
     await fillInput(page, 'input[placeholder*="Number of Players"]', TEST_DATA.formation3.playerCount);
@@ -355,7 +360,7 @@ test.describe('Formation Management CRUD', () => {
     for (let i = 0; i < TEST_DATA.formation3.positions.length; i++) {
       const pos = TEST_DATA.formation3.positions[i];
       await clickButton(page, '+ Add Position');
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(UI_TIMING.QUICK);
       
       const positionRows = page.locator('.position-row');
       const count = await positionRows.count();
@@ -376,7 +381,7 @@ test.describe('Formation Management CRUD', () => {
     // Remove the second position
     const secondRow = page.locator('.position-row').nth(1);
     await secondRow.locator('.btn-delete').click();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     const remainingPositions = await page.locator('.position-row').count();
     expect(remainingPositions).toBe(TEST_DATA.formation3.positions.length - 1);
@@ -384,7 +389,7 @@ test.describe('Formation Management CRUD', () => {
     
     console.log('Step 4: Add position back');
     await clickButton(page, '+ Add Position');
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(UI_TIMING.QUICK);
     
     const lastRow = page.locator('.position-row').last();
     await lastRow.locator('input[placeholder*="Position Name"]').fill('New Position');
@@ -396,7 +401,7 @@ test.describe('Formation Management CRUD', () => {
     
     console.log('Step 5: Submit formation');
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.formation3.name })).toBeVisible();
     console.log('  ✓ Formation created with modified positions\n');
@@ -415,7 +420,7 @@ test.describe('Formation Management CRUD', () => {
     // Create initial formation
     console.log('Step 1: Create initial formation');
     await clickButton(page, '+ Create Formation');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     await fillInput(page, 'input[placeholder*="Formation Name"]', '4-4-2');
     await fillInput(page, 'input[placeholder*="Number of Players"]', '11');
@@ -430,7 +435,7 @@ test.describe('Formation Management CRUD', () => {
     
     for (const pos of initialPositions) {
       await clickButton(page, '+ Add Position');
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(UI_TIMING.QUICK);
       
       const positionRows = page.locator('.position-row');
       const lastRow = positionRows.last();
@@ -439,7 +444,7 @@ test.describe('Formation Management CRUD', () => {
     }
     
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     await expect(page.locator('.item-card').filter({ hasText: '4-4-2' })).toBeVisible();
     console.log('  ✓ Initial formation created\n');
@@ -449,7 +454,7 @@ test.describe('Formation Management CRUD', () => {
     const formationCard = page.locator('.item-card').filter({ hasText: '4-4-2' });
     const editBtn = formationCard.locator('.btn-edit');
     await editBtn.click();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     // Verify edit form is visible with existing data
     await expect(page.locator('.create-form')).toBeVisible();
@@ -478,7 +483,7 @@ test.describe('Formation Management CRUD', () => {
     // Remove one position
     const secondRow = positionRows.nth(1);
     await secondRow.locator('.btn-delete').click();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     const updatedCount = await page.locator('.position-row').count();
     expect(updatedCount).toBe(3);
@@ -486,7 +491,7 @@ test.describe('Formation Management CRUD', () => {
     
     // Add a new position
     await clickButton(page, '+ Add Position');
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(UI_TIMING.QUICK);
     
     const newRow = page.locator('.position-row').last();
     await newRow.locator('input[placeholder*="Position Name"]').fill('Wing Back');
@@ -501,7 +506,7 @@ test.describe('Formation Management CRUD', () => {
     // Submit update
     console.log('Step 4: Submit update');
     await clickButton(page, 'Update');
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     // Verify formation was updated
     await expect(page.locator('.item-card').filter({ hasText: '3-5-2' })).toBeVisible();
@@ -530,19 +535,19 @@ test.describe('Formation Management CRUD', () => {
     // Create formation
     console.log('Step 1: Create formation');
     await clickButton(page, '+ Create Formation');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     await fillInput(page, 'input[placeholder*="Formation Name"]', 'Original Formation');
     await fillInput(page, 'input[placeholder*="Number of Players"]', '7');
     
     await clickButton(page, '+ Add Position');
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(UI_TIMING.QUICK);
     const positionRow = page.locator('.position-row').last();
     await positionRow.locator('input[placeholder*="Position Name"]').fill('Forward');
     await positionRow.locator('input[placeholder*="Abbreviation"]').fill('FW');
     
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     await expect(page.locator('.item-card').filter({ hasText: 'Original Formation' })).toBeVisible();
     console.log('  ✓ Formation created\n');
@@ -553,7 +558,7 @@ test.describe('Formation Management CRUD', () => {
       .filter({ hasText: 'Original Formation' })
       .locator('.btn-edit');
     await editBtn.click();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     await expect(page.locator('h3:has-text("Edit Formation")')).toBeVisible();
     console.log('  ✓ Edit form opened');
@@ -566,7 +571,7 @@ test.describe('Formation Management CRUD', () => {
     // Cancel edit
     console.log('Step 3: Cancel edit');
     await clickButton(page, 'Cancel');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     // Verify form is closed
     await expect(page.locator('.create-form')).not.toBeVisible();
@@ -593,7 +598,7 @@ test.describe('Formation Management CRUD', () => {
     
     // Verify formations are cleaned up
     await clickManagementTab(page, 'Formations');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     await expect(page.locator('.empty-message')).toBeVisible();
     await expect(page.locator('.empty-message')).toContainText('No formations yet');
@@ -602,4 +607,5 @@ test.describe('Formation Management CRUD', () => {
     console.log('\n=== Formation Cleanup Test Completed Successfully ===\n');
   });
 });
+
 

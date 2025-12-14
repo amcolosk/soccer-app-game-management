@@ -268,7 +268,7 @@ export async function navigateToManagement(page: Page) {
 export async function clickManagementTab(page: Page, tabName: 'Seasons' | 'Teams' | 'Formations' | 'Players') {
   const tab = page.locator('button.management-tab', { hasText: new RegExp(`^${tabName}`) });
   await tab.click();
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(UI_TIMING.STANDARD);
 }
 
 /**
@@ -281,13 +281,13 @@ export async function createSeason(page: Page, seasonData: { name: string; year:
   
   await clickManagementTab(page, 'Seasons');
   await clickButton(page, '+ Create New Season');
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(UI_TIMING.STANDARD);
   
   await fillInput(page, 'input[placeholder*="Season Name"]', seasonData.name);
   await fillInput(page, 'input[placeholder*="Year"]', seasonData.year);
   
   await clickButton(page, 'Create');
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // Verify season was created
   await expect(page.getByText(seasonData.name).first()).toBeVisible();
@@ -311,12 +311,12 @@ export async function createTeam(
   
   await clickManagementTab(page, 'Teams');
   await clickButton(page, '+ Create New Team');
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(UI_TIMING.STANDARD);
   
   // Select season
   const seasonLabel = `${seasonData.name} (${seasonData.year})`;
   await page.selectOption('select', { label: seasonLabel });
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(UI_TIMING.QUICK);
   
   await fillInput(page, 'input[placeholder*="team name"]', teamData.name);
   await fillInput(page, 'input[placeholder*="max players"]', teamData.maxPlayers);
@@ -326,11 +326,11 @@ export async function createTeam(
   if (formationName) {
     const formationSelect = page.locator('select').nth(1); // Second select is for formation
     await formationSelect.selectOption({ label: formationName });
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
   }
   
   await clickButton(page, 'Create');
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   // Verify team was created
   await expect(page.locator('.item-card').filter({ hasText: teamData.name })).toBeVisible();
@@ -354,7 +354,7 @@ export async function createFormation(
   
   await clickManagementTab(page, 'Formations');
   await clickButton(page, '+ Create Formation');
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(UI_TIMING.STANDARD);
   
   await fillInput(page, 'input[placeholder*="Formation Name"]', formationData.name);
   await fillInput(page, 'input[placeholder*="Number of Players on Field"]', formationData.playerCount);
@@ -362,7 +362,7 @@ export async function createFormation(
   // Add each position to the formation
   for (const position of formationData.positions) {
     await clickButton(page, '+ Add Position');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Get all position inputs and fill the last (newly added) one
     const positionNameInputs = page.locator('input[placeholder*="Position Name"]');
@@ -374,9 +374,82 @@ export async function createFormation(
   }
   
   await clickButton(page, 'Create');
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   // Verify formation was created
   await expect(page.getByText(formationData.name)).toBeVisible();
   console.log(`✓ Formation created: ${formationData.name}`);
+}
+
+/**
+ * UI timing constants for consistent wait patterns across tests
+ */
+export const UI_TIMING = {
+  /** Short delay for simple UI updates (100ms) */
+  INSTANT: 100,
+  /** Standard delay for form inputs and minor updates (200ms) */
+  QUICK: 200,
+  /** Medium delay for tab switches and modal animations (300ms) */
+  STANDARD: 300,
+  /** Longer delay for navigation and page loads (500ms) */
+  NAVIGATION: 500,
+  /** Extended delay for data operations and async updates (1000ms) */
+  DATA_OPERATION: 1000,
+  /** Extra long delay for complex operations (1500ms) */
+  COMPLEX_OPERATION: 1500,
+} as const;
+
+/**
+ * Wait for UI to update after an action
+ * @param page - Playwright page object
+ * @param duration - Optional duration in ms (defaults to UI_TIMING.STANDARD)
+ */
+export async function waitForUIUpdate(page: Page, duration: number = UI_TIMING.STANDARD) {
+  await page.waitForTimeout(duration);
+}
+
+/**
+ * Set up a dialog handler to automatically accept confirmation dialogs
+ * Returns a cleanup function to remove the handler
+ * @param page - Playwright page object
+ * @param logMessage - Whether to log the dialog message (default: true)
+ * @returns Cleanup function to remove the dialog listener
+ */
+export function handleConfirmDialog(page: Page, logMessage: boolean = true): () => void {
+  const handler = async (dialog: any) => {
+    if (logMessage) {
+      console.log(`  Confirming: ${dialog.message()}`);
+    }
+    await dialog.accept();
+  };
+  
+  page.on('dialog', handler);
+  
+  // Return cleanup function
+  return () => {
+    page.removeListener('dialog', handler);
+  };
+}
+
+/**
+ * Set up a dialog handler to automatically dismiss/cancel dialogs
+ * Returns a cleanup function to remove the handler
+ * @param page - Playwright page object
+ * @param logMessage - Whether to log the dialog message (default: true)
+ * @returns Cleanup function to remove the dialog listener
+ */
+export function handleDismissDialog(page: Page, logMessage: boolean = true): () => void {
+  const handler = async (dialog: any) => {
+    if (logMessage) {
+      console.log(`  Dismissing: ${dialog.message()}`);
+    }
+    await dialog.dismiss();
+  };
+  
+  page.on('dialog', handler);
+  
+  // Return cleanup function
+  return () => {
+    page.removeListener('dialog', handler);
+  };
 }

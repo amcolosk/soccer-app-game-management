@@ -15,6 +15,8 @@ import {
   createSeason,
   createFormation,
   createTeam,
+  handleConfirmDialog,
+  UI_TIMING,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -85,7 +87,7 @@ async function createPlayers(page: Page) {
     await fillInput(page, 'input[placeholder*="Last"]', player.lastName);
     
     await clickButton(page, 'Add');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     // Verify player was created
     await expect(page.getByText(`${player.firstName} ${player.lastName}`)).toBeVisible();
@@ -101,23 +103,23 @@ async function addPlayersToRoster(page: Page) {
   // Navigate to Teams tab
   const teamsTab = page.locator('button.management-tab', { hasText: /Teams/ });
   await teamsTab.click();
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // Find and expand the team card
   const teamCard = page.locator('.item-card').filter({ hasText: TEST_DATA.team.name });
   const expandButton = teamCard.locator('button[aria-label*="roster"]').first();
   await expandButton.click();
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // Add each player to the roster
   for (const player of TEST_DATA.players) {
     await clickButton(page, '+ Add Player to Roster');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Select player from dropdown
     const playerOption = `${player.firstName} ${player.lastName}`;
     await page.selectOption('select', { label: playerOption });
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(UI_TIMING.QUICK);
     
     // Enter player number
     await fillInput(page, 'input[placeholder*="Player Number"]', player.number);
@@ -126,11 +128,11 @@ async function addPlayersToRoster(page: Page) {
     const positionCheckbox = page.locator('.checkbox-label', { hasText: player.position });
     if (await positionCheckbox.isVisible({ timeout: 1000 }).catch(() => false)) {
       await positionCheckbox.locator('input[type="checkbox"]').check();
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(UI_TIMING.QUICK);
     }
     
     await clickButton(page, 'Add');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     // Verify player was added to roster
     const rosterEntry = `#${player.number} ${player.firstName} ${player.lastName}`;
@@ -147,7 +149,7 @@ async function createGame(page: Page, gameData: { opponent: string; date: string
   // Navigate to Home tab
   const homeTab = page.locator('button.nav-item', { hasText: 'Home' });
   await homeTab.click();
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // Wait for the Schedule New Game button to be visible
   await page.waitForSelector('button:has-text("+ Schedule New Game")', { timeout: 5000 });
@@ -158,7 +160,7 @@ async function createGame(page: Page, gameData: { opponent: string; date: string
   
   // Select team from dropdown
   await page.selectOption('select', { label: `${TEST_DATA.team.name} (${TEST_DATA.season.name})` });
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(UI_TIMING.STANDARD);
   
   // Fill game form
   await fillInput(page, 'input[placeholder*="Opponent"]', gameData.opponent);
@@ -187,7 +189,7 @@ async function setupLineup(page: Page, opponent: string) {
   // Navigate to Home tab if not already there
   const homeTab = page.locator('button.nav-item', { hasText: 'Home' });
   await homeTab.click();
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // Click on the game card - this now goes directly to GameManagement
   const gameCard = page.locator('.game-card').filter({ hasText: opponent });
@@ -196,7 +198,7 @@ async function setupLineup(page: Page, opponent: string) {
   
   // Wait for the game management page to fully load
   await page.waitForSelector('.position-slot', { timeout: 5000 });
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   // Assign first 7 players to starting positions
   const startingPlayers = TEST_DATA.players.slice(0, 7);
@@ -220,7 +222,7 @@ async function setupLineup(page: Page, opponent: string) {
         const playerCard = page.locator('.player-card').filter({ hasText: `${player.firstName} ${player.lastName}` });
         await playerCard.click();
         console.log('  Player clicked, waiting for modal...');
-        await page.waitForTimeout(250);
+        await page.waitForTimeout(UI_TIMING.QUICK);
         
         // Wait for position picker modal to appear with the heading
         await page.waitForSelector('.modal-overlay', { timeout: 5000 });
@@ -228,7 +230,7 @@ async function setupLineup(page: Page, opponent: string) {
         console.log('  Modal opened');
         
         // Wait a bit for modal to be fully interactive
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(UI_TIMING.STANDARD);
         
         // Find the first available position button
         const positionButtons = page.locator('.modal-content .position-picker-btn:not(.occupied)');
@@ -240,7 +242,7 @@ async function setupLineup(page: Page, opponent: string) {
         if (count === 0) {
           console.log(`  ⚠️ No available positions for ${player.firstName} ${player.lastName}`);
           await page.keyboard.press('Escape');
-          await page.waitForTimeout(500);
+          await page.waitForTimeout(UI_TIMING.NAVIGATION);
           break;
         }
         
@@ -276,14 +278,14 @@ async function setupLineup(page: Page, opponent: string) {
           console.log(`  ⚠️ Assignment failed: Expected ${expectedCount} assigned but only see ${actualCount}`);
           retryAttempt++;
           if (retryAttempt <= maxRetries) {
-            await page.waitForTimeout(100); // Wait before retry
+            await page.waitForTimeout(UI_TIMING.INSTANT); // Wait before retry
           }
         }
       } catch (error) {
         console.log(`  ❌ Error during assignment: ${error}`);
         retryAttempt++;
         if (retryAttempt <= maxRetries) {
-          await page.waitForTimeout(100); // Wait before retry
+          await page.waitForTimeout(UI_TIMING.INSTANT); // Wait before retry
         }
       }
     }
@@ -302,18 +304,18 @@ async function runGame(page: Page, gameNumber: number = 1) {
   
   // Start the game
   await clickButton(page, 'Start Game');
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   // Verify timer is running
   await expect(page.locator('.timer-display')).toBeVisible();
   
   // Add test time to simulate game progress
   await clickButton(page, '+5 min');
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // Record a goal for us (vary by game)
   await clickButtonByText(page, /Goal - Us/);
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // Select scorer - different players for each game
   const scorerSelect = page.locator('select#goalScorer');
@@ -322,7 +324,7 @@ async function runGame(page: Page, gameNumber: number = 1) {
   } else {
     await scorerSelect.selectOption({ label: '#7 - George Garcia' });
   }
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(UI_TIMING.STANDARD);
   
   // Select assist - different players for each game
   const assistSelect = page.locator('select#goalAssist');
@@ -331,10 +333,10 @@ async function runGame(page: Page, gameNumber: number = 1) {
   } else {
     await assistSelect.selectOption({ label: '#5 - Ethan Evans' });
   }
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(UI_TIMING.STANDARD);
   
   await clickButton(page, 'Record Goal');
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   // Verify score updated
   await expect(page.locator('.score-display')).toContainText('1');
@@ -342,11 +344,11 @@ async function runGame(page: Page, gameNumber: number = 1) {
   
   // Add more time
   await clickButton(page, '+5 min');
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // Record a gold star (vary by game)
   await clickButtonByText(page, /Gold Star/);
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   const notePlayerSelect = page.locator('select#notePlayer');
   if (gameNumber === 1) {
@@ -356,16 +358,16 @@ async function runGame(page: Page, gameNumber: number = 1) {
     await notePlayerSelect.selectOption({ label: '#2 - Bob Brown' });
     await fillInput(page, 'textarea#noteText', 'Excellent defense!');
   }
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(UI_TIMING.STANDARD);
   
   await clickButton(page, 'Save Note');
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   console.log(`✓ Gold star ${gameNumber} recorded`);
   
   // Make a substitution (Diana Davis at CM for Hannah Harris)
   await clickButton(page, '+5 min');
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // Find the position card for Diana Davis (CM) and click its substitute button
   console.log('Looking for Diana Davis on the field...');
@@ -385,7 +387,7 @@ async function runGame(page: Page, gameNumber: number = 1) {
   if (await dianaSubButton.isVisible({ timeout: 1000 }).catch(() => false)) {
     console.log('Found Diana\'s position, making substitution...');
     await dianaSubButton.click();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     // Wait for substitution modal to appear
     await page.waitForSelector('.sub-player-item', { timeout: 5000 });
@@ -396,7 +398,7 @@ async function runGame(page: Page, gameNumber: number = 1) {
     
     const subNowButton = hannahItem.locator('button.btn-sub-now');
     await subNowButton.click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify the modal closed
     await expect(page.locator('.sub-player-item')).not.toBeVisible();
@@ -409,18 +411,18 @@ async function runGame(page: Page, gameNumber: number = 1) {
   // Add time to reach halftime
   await clickButton(page, '+5 min');
   await clickButton(page, '+5 min');
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // End first half (force click because bottom nav might cover it)
   await page.getByRole('button', { name: 'End First Half' }).click({ force: true });
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   // Verify halftime status
   await expect(page.getByText(/Halftime/)).toBeVisible();
   console.log('✓ First half ended');
   
   // Start second half - force scroll to button
-  await page.waitForTimeout(1000); // Give time for halftime screen to fully render
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION); // Give time for halftime screen to fully render
   
   // Find the button and scroll it into view using JavaScript
   const startBtn = page.locator('button.btn-primary.btn-large', { hasText: 'Start Second Half' });
@@ -438,7 +440,7 @@ async function runGame(page: Page, gameNumber: number = 1) {
   // Multiple click attempts
   for (let i = 0; i < 3; i++) {
     await startBtn.click({ force: true });
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     const halftimeGone = await page.getByText(/Halftime/).isVisible().catch(() => false);
     if (!halftimeGone) {
@@ -453,11 +455,11 @@ async function runGame(page: Page, gameNumber: number = 1) {
   
   // Add time in second half
   await clickButton(page, '+5 min');
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // Record another goal (second goal of the game)
   await clickButtonByText(page, /Goal - Us/);
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   const scorerSelect2 = page.locator('select#goalScorer');
   if (gameNumber === 1) {
@@ -465,10 +467,10 @@ async function runGame(page: Page, gameNumber: number = 1) {
   } else {
     await scorerSelect2.selectOption({ label: '#6 - Fiona Fisher' });
   }
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(UI_TIMING.STANDARD);
   
   await clickButton(page, 'Record Goal');
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   // Verify score is now 2
   const scoreElements = page.locator('.score-display .score');
@@ -479,11 +481,11 @@ async function runGame(page: Page, gameNumber: number = 1) {
   await clickButton(page, '+5 min');
   await clickButton(page, '+5 min');
   await clickButton(page, '+5 min');
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // End the game
   await clickButton(page, 'End Game');
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   // Verify game completed
   await expect(page.getByText(/Game Completed/)).toBeVisible();
@@ -496,13 +498,13 @@ async function runGame(page: Page, gameNumber: number = 1) {
     const backButtonVisible = await backButton.isVisible().catch(() => false);
     if (backButtonVisible) {
       await backButton.click();
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(UI_TIMING.NAVIGATION);
     }
     
     // Then navigate to Home tab
     const homeTab = page.locator('button.nav-item', { hasText: 'Home' });
     await homeTab.click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify we're on Home page by waiting for the Schedule button
     await page.waitForSelector('button:has-text("+ Schedule New Game")', { timeout: 5000 });
@@ -570,7 +572,7 @@ async function verifySeasonTotals(page: Page, gameData: any) {
   // Click on a player to see details
   const fionaRow = page.locator('tr').filter({ hasText: 'Diana Davis' });
   await fionaRow.click();
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   // Verify player details section appears
   await expect(page.locator('.player-details-section')).toBeVisible();
@@ -683,3 +685,4 @@ test.describe('Soccer App Full Workflow', () => {
     console.log('=== E2E Test Suite Completed Successfully ===\n');
   });
 });
+

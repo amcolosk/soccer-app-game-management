@@ -10,6 +10,8 @@ import {
   clickManagementTab,
   createSeason,
   createTeam,
+  handleConfirmDialog,
+  UI_TIMING,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -72,7 +74,7 @@ test.describe('Team Management CRUD', () => {
     // ===== CREATE: Create first team =====
     console.log('Step 5: CREATE - Create first team');
     await clickManagementTab(page, 'Teams');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Verify empty state
     await expect(page.locator('.empty-message')).toBeVisible();
@@ -81,7 +83,7 @@ test.describe('Team Management CRUD', () => {
     
     // Click Create New Team button
     await clickButton(page, '+ Create New Team');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Verify form is visible
     await expect(page.locator('.create-form')).toBeVisible();
@@ -91,7 +93,7 @@ test.describe('Team Management CRUD', () => {
     // Select season
     const seasonLabel = `${TEST_DATA.season.name} (${TEST_DATA.season.year})`;
     await page.selectOption('select', { label: seasonLabel });
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(UI_TIMING.QUICK);
     
     // Fill in team details
     await fillInput(page, 'input[placeholder*="team name"]', TEST_DATA.team1.name);
@@ -101,7 +103,7 @@ test.describe('Team Management CRUD', () => {
     
     // Submit
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify team was created
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.team1.name })).toBeVisible();
@@ -110,16 +112,16 @@ test.describe('Team Management CRUD', () => {
     // ===== CREATE: Create second team =====
     console.log('Step 6: CREATE - Create second team');
     await clickButton(page, '+ Create New Team');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     await page.selectOption('select', { label: seasonLabel });
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(UI_TIMING.QUICK);
     await fillInput(page, 'input[placeholder*="team name"]', TEST_DATA.team2.name);
     await fillInput(page, 'input[placeholder*="max players"]', TEST_DATA.team2.maxPlayers);
     await fillInput(page, 'input[placeholder*="half length"]', TEST_DATA.team2.halfLength);
     
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.team2.name })).toBeVisible();
     console.log('  ✓ Second team created\n');
@@ -157,7 +159,7 @@ test.describe('Team Management CRUD', () => {
     await waitForPageLoad(page);
     await navigateToManagement(page);
     await clickManagementTab(page, 'Teams');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     // Verify teams still exist after reload
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.team1.name })).toBeVisible();
@@ -169,21 +171,21 @@ test.describe('Team Management CRUD', () => {
     console.log('Step 9: DELETE - Delete second team');
     
     // Set up dialog handler
-    page.on('dialog', async (dialog) => {
-      console.log(`  Confirming: ${dialog.message()}`);
-      await dialog.accept();
-    });
+    const cleanupDialog = handleConfirmDialog(page);
     
     // Click delete button on second team
     const team2DeleteBtn = page.locator('.item-card')
       .filter({ hasText: TEST_DATA.team2.name })
       .locator('.btn-delete');
     await team2DeleteBtn.click();
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     // Verify second team is deleted
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.team2.name })).not.toBeVisible();
     console.log('  ✓ Team 2 deleted');
+    
+    // Clean up dialog handler
+    cleanupDialog();
     
     // Verify first team still exists
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.team1.name })).toBeVisible();
@@ -197,11 +199,12 @@ test.describe('Team Management CRUD', () => {
     // ===== DELETE: Delete first team =====
     console.log('Step 10: DELETE - Delete first team');
     
+    // Dialog handler still active from previous delete
     const team1DeleteBtn = page.locator('.item-card')
       .filter({ hasText: TEST_DATA.team1.name })
       .locator('.btn-delete');
     await team1DeleteBtn.click();
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     // Verify first team is deleted
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.team1.name })).not.toBeVisible();
@@ -228,12 +231,12 @@ test.describe('Team Management CRUD', () => {
     
     await clickManagementTab(page, 'Teams');
     await clickButton(page, '+ Create New Team');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Try to submit empty form
     console.log('Testing empty form submission...');
     await clickButton(page, 'Create');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     // Should show alert (browser native alert)
     // Note: We can't easily test native alerts, but the form should not submit
@@ -245,7 +248,7 @@ test.describe('Team Management CRUD', () => {
     // Test cancel button
     console.log('Testing cancel button...');
     await clickButton(page, 'Cancel');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Form should be hidden
     await expect(page.locator('.create-form')).not.toBeVisible();
@@ -265,7 +268,7 @@ test.describe('Team Management CRUD', () => {
     // Create a test team
     await clickManagementTab(page, 'Teams');
     await clickButton(page, '+ Create New Team');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     const seasonLabel = `${TEST_DATA.season.name} (${TEST_DATA.season.year})`;
     await page.selectOption('select', { label: seasonLabel });
@@ -273,7 +276,7 @@ test.describe('Team Management CRUD', () => {
     await fillInput(page, 'input[placeholder*="max players"]', '7');
     await fillInput(page, 'input[placeholder*="half length"]', '25');
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify team exists
     await expect(page.locator('.item-card').filter({ hasText: 'Test Team for Deletion' })).toBeVisible();
@@ -292,7 +295,7 @@ test.describe('Team Management CRUD', () => {
       .filter({ hasText: 'Test Team for Deletion' })
       .locator('.btn-delete');
     await deleteBtn.click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     expect(dialogShown).toBe(true);
     
@@ -331,10 +334,10 @@ test.describe('Team Management CRUD', () => {
     // Create a test formation
     console.log('Step 1: Create a test formation');
     await clickManagementTab(page, 'Formations');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     await clickButton(page, '+ Create Formation');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     await fillInput(page, 'input[placeholder*="Formation Name"]', '4-3-3');
     await fillInput(page, 'input[placeholder*="Number of Players"]', '7');
@@ -349,7 +352,7 @@ test.describe('Team Management CRUD', () => {
     
     for (const pos of positions) {
       await clickButton(page, '+ Add Position');
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(UI_TIMING.QUICK);
       
       const positionRows = page.locator('.position-row');
       const lastRow = positionRows.last();
@@ -358,7 +361,7 @@ test.describe('Team Management CRUD', () => {
     }
     
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     await expect(page.locator('.item-card').filter({ hasText: '4-3-3' })).toBeVisible();
     console.log('✓ Formation created\n');
@@ -366,15 +369,15 @@ test.describe('Team Management CRUD', () => {
     // Create team with formation
     console.log('Step 2: Create team with formation assignment');
     await clickManagementTab(page, 'Teams');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     await clickButton(page, '+ Create New Team');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Select season (first select element)
     const seasonLabel = `${TEST_DATA.season.name} (${TEST_DATA.season.year})`;
     await page.locator('select').first().selectOption({ label: seasonLabel });
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(UI_TIMING.QUICK);
     
     // Fill in team details
     await fillInput(page, 'input[placeholder*="team name"]', 'Formation Test Team');
@@ -383,12 +386,12 @@ test.describe('Team Management CRUD', () => {
     
     // Select formation (second select element)
     await page.locator('select').nth(1).selectOption({ label: '4-3-3 (7 players)' });
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(UI_TIMING.QUICK);
     console.log('✓ Formation selected');
     
     // Submit
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify team was created with formation
     const teamCard = page.locator('.item-card').filter({ hasText: 'Formation Test Team' });
@@ -407,6 +410,7 @@ test.describe('Team Management CRUD', () => {
     console.log('=== Team Creation with Formation Test Complete ===\n');
   });
 });
+
 
 
 

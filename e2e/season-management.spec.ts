@@ -9,6 +9,8 @@ import {
   loginUser,
   navigateToManagement,
   clickManagementTab,
+  handleConfirmDialog,
+  UI_TIMING,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -42,7 +44,7 @@ test.describe('Season Management', () => {
     
     // Click Create New Season button
     await clickButton(page, '+ Create New Season');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Verify form is visible
     await expect(page.locator('.create-form')).toBeVisible();
@@ -57,7 +59,7 @@ test.describe('Season Management', () => {
     
     // Submit form
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify season appears in the list
     await expect(page.locator('.item-card').filter({ hasText: seasonName })).toBeVisible();
@@ -75,7 +77,7 @@ test.describe('Season Management', () => {
     
     // Create a season first
     await clickButton(page, '+ Create New Season');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     const originalName = `Edit Test ${Date.now()}`;
     const originalYear = '2025';
@@ -83,7 +85,7 @@ test.describe('Season Management', () => {
     await fillInput(page, 'input[placeholder*="Season Name"]', originalName);
     await fillInput(page, 'input[placeholder*="Year"]', originalYear);
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Find the season card and click edit button
     const seasonCard = page.locator('.item-card').filter({ hasText: originalName });
@@ -91,7 +93,7 @@ test.describe('Season Management', () => {
     
     const editButton = seasonCard.locator('button[aria-label="Edit season"]');
     await editButton.click();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Verify edit form is visible
     await expect(page.locator('h3:has-text("Edit Season")')).toBeVisible();
@@ -111,7 +113,7 @@ test.describe('Season Management', () => {
     
     // Submit update
     await clickButton(page, 'Update');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify updated season appears in the list
     await expect(page.locator('.item-card').filter({ hasText: updatedName })).toBeVisible();
@@ -129,19 +131,19 @@ test.describe('Season Management', () => {
     
     // Create a season
     await clickButton(page, '+ Create New Season');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     const seasonName = `Archive Test ${Date.now()}`;
     await fillInput(page, 'input[placeholder*="Season Name"]', seasonName);
     await fillInput(page, 'input[placeholder*="Year"]', '2024');
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Edit the season to archive it
     const seasonCard = page.locator('.item-card').filter({ hasText: seasonName });
     const editButton = seasonCard.locator('button[aria-label="Edit season"]');
     await editButton.click();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Check the archive checkbox - locate by the label container
     const archiveCheckbox = page.locator('.checkbox-label:has-text("Archive")').locator('input[type="checkbox"]');
@@ -149,7 +151,7 @@ test.describe('Season Management', () => {
     
     // Submit update
     await clickButton(page, 'Update');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify season has archived badge - scoped to THIS season
     const updatedSeasonCard = page.locator('.item-card').filter({ hasText: seasonName });
@@ -172,33 +174,33 @@ test.describe('Season Management', () => {
     
     // Create and archive a season
     await clickButton(page, '+ Create New Season');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     const seasonName = `Unarchive Test ${Date.now()}`;
     await fillInput(page, 'input[placeholder*="Season Name"]', seasonName);
     await fillInput(page, 'input[placeholder*="Year"]', '2024');
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Archive it
     let seasonCard = page.locator('.item-card').filter({ hasText: seasonName });
     let editButton = seasonCard.locator('button[aria-label="Edit season"]');
     await editButton.click();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     await page.locator('.checkbox-label:has-text("Archive")').locator('input[type="checkbox"]').check();
     await clickButton(page, 'Update');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Now unarchive it
     seasonCard = page.locator('.item-card').filter({ hasText: seasonName });
     editButton = seasonCard.locator('button[aria-label="Edit season"]');
     await editButton.click();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     await page.locator('.checkbox-label:has-text("Archive")').locator('input[type="checkbox"]').uncheck();
     await clickButton(page, 'Update');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify archived badge is gone from THIS specific season
     seasonCard = page.locator('.item-card').filter({ hasText: seasonName });
@@ -217,13 +219,13 @@ test.describe('Season Management', () => {
     
     // Create a season to delete
     await clickButton(page, '+ Create New Season');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     const seasonName = `Delete Test ${Date.now()}`;
     await fillInput(page, 'input[placeholder*="Season Name"]', seasonName);
     await fillInput(page, 'input[placeholder*="Year"]', '2023');
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify season exists
     await expect(page.locator('.item-card').filter({ hasText: seasonName })).toBeVisible();
@@ -233,18 +235,17 @@ test.describe('Season Management', () => {
     const deleteButton = seasonCard.locator('button[aria-label="Delete season"]');
     
     // Set up dialog handler for confirmation
-    page.on('dialog', async dialog => {
-      expect(dialog.type()).toBe('confirm');
-      expect(dialog.message()).toContain('delete this season');
-      await dialog.accept();
-    });
+    const cleanupDialog = handleConfirmDialog(page, false);
     
     await deleteButton.click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify season is deleted
     const deletedSeason = await page.locator('.item-card').filter({ hasText: seasonName }).count();
     expect(deletedSeason).toBe(0);
+    
+    // Clean up dialog handler
+    cleanupDialog();
     
     console.log('✓ Season deleted successfully');
   });
@@ -261,14 +262,14 @@ test.describe('Season Management', () => {
     
     // Click Create New Season
     await clickButton(page, '+ Create New Season');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Fill form partially
     await fillInput(page, 'input[placeholder*="Season Name"]', 'Cancelled Season');
     
     // Click Cancel
     await clickButton(page, 'Cancel');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Verify form is hidden
     const formVisible = await page.locator('.create-form').count();
@@ -293,7 +294,7 @@ test.describe('Season Management', () => {
     
     // Create a season
     await clickButton(page, '+ Create New Season');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     const originalName = `Cancel Edit ${Date.now()}`;
     const originalYear = '2025';
@@ -301,13 +302,13 @@ test.describe('Season Management', () => {
     await fillInput(page, 'input[placeholder*="Season Name"]', originalName);
     await fillInput(page, 'input[placeholder*="Year"]', originalYear);
     await clickButton(page, 'Create');
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Click edit
     const seasonCard = page.locator('.item-card').filter({ hasText: originalName });
     const editButton = seasonCard.locator('button[aria-label="Edit season"]');
     await editButton.click();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Modify the name
     await page.locator('input[placeholder*="Season Name"]').clear();
@@ -315,7 +316,7 @@ test.describe('Season Management', () => {
     
     // Cancel edit
     await clickButton(page, 'Cancel');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Verify original name is still displayed
     await expect(page.locator('.item-card').filter({ hasText: originalName })).toBeVisible();
@@ -336,7 +337,7 @@ test.describe('Season Management', () => {
     
     // Click Create New Season
     await clickButton(page, '+ Create New Season');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Try to submit empty form
     const initialCount = await page.locator('.item-card').count();
@@ -352,7 +353,7 @@ test.describe('Season Management', () => {
     });
     
     await clickButton(page, 'Create');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     // Verify alert was shown
     expect(alertShown).toBe(true);
@@ -385,4 +386,5 @@ test.describe('Season Management', () => {
     console.log('✓ Empty state handled correctly');
   });
 });
+
 
