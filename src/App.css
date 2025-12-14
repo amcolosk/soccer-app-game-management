@@ -609,12 +609,21 @@
 .team-card-wrapper .item-card {
   border-bottom-left-radius: 12px;
   border-bottom-right-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+.team-card-wrapper:hover .item-card {
+  border-color: var(--primary-green);
 }
 
 .team-card-wrapper.expanded .item-card {
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
   border-bottom-color: transparent;
+}
+
+.team-card-wrapper.expanded:hover .item-card {
+  box-shadow: none;
 }
 
 .item-card:hover {
@@ -684,6 +693,12 @@
   border-radius: 0 0 12px 12px;
   padding: 1.5rem;
   margin-top: 0;
+  transition: all 0.2s ease;
+}
+
+.team-card-wrapper:hover .team-roster-section {
+  border-color: var(--primary-green);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .team-roster-section h4 {
