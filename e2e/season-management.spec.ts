@@ -8,14 +8,9 @@ import {
   closePWAPrompt,
   loginUser,
   navigateToManagement,
+  clickManagementTab,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
-
-async function clickSeasonsTab(page: Page) {
-  // Click Seasons tab within Management
-  await page.getByRole('button', { name: /^Seasons/ }).click();
-  await page.waitForTimeout(300);
-}
 
 test.describe('Season Management', () => {
   test.beforeEach(async ({ page }) => {
@@ -43,7 +38,7 @@ test.describe('Season Management', () => {
     
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
-    await clickSeasonsTab(page);
+    await clickManagementTab(page, 'Seasons');
     
     // Click Create New Season button
     await clickButton(page, '+ Create New Season');
@@ -76,7 +71,7 @@ test.describe('Season Management', () => {
     
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
-    await clickSeasonsTab(page);
+    await clickManagementTab(page, 'Seasons');
     
     // Create a season first
     await clickButton(page, '+ Create New Season');
@@ -130,7 +125,7 @@ test.describe('Season Management', () => {
     
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
-    await clickSeasonsTab(page);
+    await clickManagementTab(page, 'Seasons');
     
     // Create a season
     await clickButton(page, '+ Create New Season');
@@ -173,7 +168,7 @@ test.describe('Season Management', () => {
     
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
-    await clickSeasonsTab(page);
+    await clickManagementTab(page, 'Seasons');
     
     // Create and archive a season
     await clickButton(page, '+ Create New Season');
@@ -218,7 +213,7 @@ test.describe('Season Management', () => {
     
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
-    await clickSeasonsTab(page);
+    await clickManagementTab(page, 'Seasons');
     
     // Create a season to delete
     await clickButton(page, '+ Create New Season');
@@ -259,7 +254,7 @@ test.describe('Season Management', () => {
     
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
-    await clickSeasonsTab(page);
+    await clickManagementTab(page, 'Seasons');
     
     // Get initial season count
     const initialCount = await page.locator('.item-card').count();
@@ -294,7 +289,7 @@ test.describe('Season Management', () => {
     
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
-    await clickSeasonsTab(page);
+    await clickManagementTab(page, 'Seasons');
     
     // Create a season
     await clickButton(page, '+ Create New Season');
@@ -337,7 +332,7 @@ test.describe('Season Management', () => {
     
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
-    await clickSeasonsTab(page);
+    await clickManagementTab(page, 'Seasons');
     
     // Click Create New Season
     await clickButton(page, '+ Create New Season');
@@ -374,7 +369,7 @@ test.describe('Season Management', () => {
     
     await loginUser(page, TEST_USERS.user2.email, TEST_USERS.user2.password);
     await navigateToManagement(page);
-    await clickSeasonsTab(page);
+    await clickManagementTab(page, 'Seasons');
     
     // Check if empty message or create button is visible
     const hasSeasons = await page.locator('.item-card').count() > 0;
@@ -390,3 +385,4 @@ test.describe('Season Management', () => {
     console.log('✓ Empty state handled correctly');
   });
 });
+

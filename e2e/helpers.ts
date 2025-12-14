@@ -268,3 +268,14 @@ export async function navigateToManagement(page: Page) {
   // Verify we're on the management page
   await expect(page.locator('.management')).toBeVisible();
 }
+
+/**
+ * Click a specific management tab (Seasons, Teams, Formations, or Players)
+ * @param page - Playwright page object
+ * @param tabName - Name of the tab: 'Seasons' | 'Teams' | 'Formations' | 'Players'
+ */
+export async function clickManagementTab(page: Page, tabName: 'Seasons' | 'Teams' | 'Formations' | 'Players') {
+  const tab = page.locator('button.management-tab', { hasText: new RegExp(`^${tabName}`) });
+  await tab.click();
+  await page.waitForTimeout(300);
+}

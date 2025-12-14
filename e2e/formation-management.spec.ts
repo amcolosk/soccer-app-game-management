@@ -7,6 +7,7 @@ import {
   cleanupTestData,
   loginUser,
   navigateToManagement,
+  clickManagementTab,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -63,13 +64,6 @@ const TEST_DATA = {
   },
 };
 
-async function clickFormationsTab(page: Page) {
-  // Click Formations tab within Management
-  const formationsTab = page.locator('button.management-tab', { hasText: /^Formations/ });
-  await formationsTab.click();
-  await page.waitForTimeout(300);
-}
-
 test.describe('Formation Management CRUD', () => {
   test.beforeEach(async ({ page }) => {
     test.setTimeout(TEST_CONFIG.timeout.long);
@@ -95,7 +89,7 @@ test.describe('Formation Management CRUD', () => {
     
     // ===== CREATE: Create first formation =====
     console.log('Step 4: CREATE - Create first formation');
-    await clickFormationsTab(page);
+    await clickManagementTab(page, 'Formations');
     await page.waitForTimeout(300);
     
     // Verify empty state
@@ -202,7 +196,7 @@ test.describe('Formation Management CRUD', () => {
     await page.reload();
     await waitForPageLoad(page);
     await navigateToManagement(page);
-    await clickFormationsTab(page);
+    await clickManagementTab(page, 'Formations');
     await page.waitForTimeout(500);
     
     // Verify formations still exist after reload
@@ -270,7 +264,7 @@ test.describe('Formation Management CRUD', () => {
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
     await cleanupTestData(page);
-    await clickFormationsTab(page);
+    await clickManagementTab(page, 'Formations');
     
     console.log('Step 1: Test empty form submission');
     await clickButton(page, '+ Create Formation');
@@ -347,7 +341,7 @@ test.describe('Formation Management CRUD', () => {
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
     await cleanupTestData(page);
-    await clickFormationsTab(page);
+    await clickManagementTab(page, 'Formations');
     
     console.log('Step 1: Open formation creation form');
     await clickButton(page, '+ Create Formation');
@@ -416,7 +410,7 @@ test.describe('Formation Management CRUD', () => {
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
     await cleanupTestData(page);
-    await clickFormationsTab(page);
+    await clickManagementTab(page, 'Formations');
     
     // Create initial formation
     console.log('Step 1: Create initial formation');
@@ -531,7 +525,7 @@ test.describe('Formation Management CRUD', () => {
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
     await cleanupTestData(page);
-    await clickFormationsTab(page);
+    await clickManagementTab(page, 'Formations');
     
     // Create formation
     console.log('Step 1: Create formation');
@@ -598,7 +592,7 @@ test.describe('Formation Management CRUD', () => {
     await cleanupTestData(page);
     
     // Verify formations are cleaned up
-    await clickFormationsTab(page);
+    await clickManagementTab(page, 'Formations');
     await page.waitForTimeout(500);
     
     await expect(page.locator('.empty-message')).toBeVisible();
@@ -608,3 +602,4 @@ test.describe('Formation Management CRUD', () => {
     console.log('\n=== Formation Cleanup Test Completed Successfully ===\n');
   });
 });
+

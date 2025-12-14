@@ -7,6 +7,7 @@ import {
   cleanupTestData,
   loginUser,
   navigateToManagement,
+  clickManagementTab,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -57,29 +58,10 @@ const TEST_DATA = {
   },
 };
 
-async function clickPlayersTab(page: Page) {
-  // Click Players tab within Management
-  const playersTab = page.locator('button.management-tab', { hasText: /^Players/ });
-  await playersTab.click();
-  await page.waitForTimeout(300);
-}
-
-async function clickTeamsTab(page: Page) {
-  const teamsTab = page.locator('button.management-tab', { hasText: /^Teams/ });
-  await teamsTab.click();
-  await page.waitForTimeout(300);
-}
-
-async function clickSeasonsTab(page: Page) {
-  const seasonsTab = page.locator('button.management-tab', { hasText: /^Seasons/ });
-  await seasonsTab.click();
-  await page.waitForTimeout(300);
-}
-
 async function createTestSeason(page: Page) {
   console.log('Creating test season...');
   
-  await clickSeasonsTab(page);
+  await clickManagementTab(page, 'Seasons');
   await clickButton(page, '+ Create New Season');
   await page.waitForTimeout(300);
   
@@ -96,7 +78,7 @@ async function createTestSeason(page: Page) {
 async function createTestTeam(page: Page, teamData: typeof TEST_DATA.team1) {
   console.log(`Creating test team: ${teamData.name}...`);
   
-  await clickTeamsTab(page);
+  await clickManagementTab(page, 'Teams');
   await clickButton(page, '+ Create New Team');
   await page.waitForTimeout(300);
   
@@ -243,7 +225,7 @@ test.describe('Player Management CRUD', () => {
     
     // ===== CREATE: Create first player =====
     console.log('Step 7: CREATE - Create first player with preferred positions');
-    await clickPlayersTab(page);
+    await clickManagementTab(page, 'Players');
     await page.waitForTimeout(300);
     
     // Verify empty state
@@ -367,7 +349,7 @@ test.describe('Player Management CRUD', () => {
     await page.reload();
     await waitForPageLoad(page);
     await navigateToManagement(page);
-    await clickPlayersTab(page);
+    await clickManagementTab(page, 'Players');
     await page.waitForTimeout(500);
     
     // Verify all players still exist after reload
@@ -440,7 +422,7 @@ test.describe('Player Management CRUD', () => {
     await createTestSeason(page);
     await createTestTeam(page, TEST_DATA.team1);
     
-    await clickPlayersTab(page);
+    await clickManagementTab(page, 'Players');
     await clickButton(page, '+ Add Player');
     await page.waitForTimeout(300);
     
@@ -489,7 +471,7 @@ test.describe('Player Management CRUD', () => {
     await createTestTeam(page, TEST_DATA.team2);
     await createPositionsForTeam(page, TEST_DATA.team1.name);
     
-    await clickPlayersTab(page);
+    await clickManagementTab(page, 'Players');
     await clickButton(page, '+ Add Player');
     await page.waitForTimeout(300);
     
@@ -528,7 +510,7 @@ test.describe('Player Management CRUD', () => {
     await createTestTeam(page, TEST_DATA.team1);
     
     // Create a test player
-    await clickPlayersTab(page);
+    await clickManagementTab(page, 'Players');
     await clickButton(page, '+ Add Player');
     await page.waitForTimeout(300);
     
@@ -628,3 +610,4 @@ test.describe('Player Management CRUD', () => {
     console.log('=== Deletion Confirmation Test Complete ===\n');
   });
 });
+

@@ -11,6 +11,7 @@ import {
   closePWAPrompt,
   loginUser,
   cleanupTestData,
+  clickManagementTab,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -77,11 +78,7 @@ async function createSeason(page: Page) {
   }
   
   // Make sure we're on Seasons tab
-  const seasonsTab = page.locator('button.management-tab', { hasText: /Seasons/ });
-  if (await seasonsTab.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await seasonsTab.click();
-    await page.waitForTimeout(500);
-  }
+  await clickManagementTab(page, 'Seasons');
   
   // Navigate to seasons and create new season
   await clickButton(page, '+ Create New Season');
@@ -109,9 +106,7 @@ async function createFormation(page: Page) {
   await page.waitForTimeout(500);
   
   // Go to Formations tab
-  const formationsTab = page.locator('button.management-tab', { hasText: /Formations/ });
-  await formationsTab.click();
-  await page.waitForTimeout(500);
+  await clickManagementTab(page, 'Formations');
   
   // Create formation
   await clickButton(page, '+ Create Formation');
@@ -149,9 +144,7 @@ async function createTeam(page: Page) {
   console.log('Creating team...');
   
   // Make sure we're on Teams tab in Management
-  const teamsTab = page.locator('button.management-tab', { hasText: /Teams/ });
-  await teamsTab.click();
-  await page.waitForTimeout(500);
+  await clickManagementTab(page, 'Teams');
   
   // Create team
   await clickButton(page, '+ Create New Team');
@@ -185,9 +178,7 @@ async function createPlayers(page: Page) {
   console.log('Creating players...');
   
   // Navigate to Players tab in Management
-  const playersTab = page.locator('button.management-tab', { hasText: /Players/ });
-  await playersTab.click();
-  await page.waitForTimeout(500);
+  await clickManagementTab(page, 'Players');
   
   // Create each player
   for (const player of TEST_DATA.players) {
