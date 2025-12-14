@@ -914,44 +914,46 @@ export function Management() {
                 const isExpanded = expandedTeamId === team.id;
                 
                 return (
-                  <div key={team.id} className="item-card">
-                    <div className="item-info">
-                      <h3>{team.name}</h3>
-                      <p className="item-meta">
-                        {getSeasonName(team.seasonId)} • {team.maxPlayersOnField} players • {team.halfLengthMinutes} min halves
-                        {getFormationName(team.formationId) && (
-                          <> • Formation: {getFormationName(team.formationId)}</>
-                        )}
-                      </p>
-                      <p className="item-meta">Roster: {teamRosterList.length} player(s)</p>
-                    </div>
-                    <div className="card-actions">
-                      <button
-                        onClick={() => setExpandedTeamId(isExpanded ? null : team.id)}
-                        className="btn-edit"
-                        aria-label={isExpanded ? "Hide roster" : "Show roster"}
-                        title={isExpanded ? "Hide roster" : "Show roster"}
-                      >
-                        {isExpanded ? '▼' : '▶'}
-                      </button>
-                      <button
-                        onClick={() => handleEditTeam(team)}
-                        className="btn-edit"
-                        aria-label="Edit team"
-                      >
-                        ✎
-                      </button>
-                      <button
-                        onClick={() => handleDeleteTeam(team.id)}
-                        className="btn-delete"
-                        aria-label="Delete team"
-                      >
-                        ✕
-                      </button>
+                  <div key={team.id} className={`team-card-wrapper ${isExpanded ? 'expanded' : ''}`}>
+                    <div className="item-card">
+                      <div className="item-info">
+                        <h3>{team.name}</h3>
+                        <p className="item-meta">
+                          {getSeasonName(team.seasonId)} • {team.maxPlayersOnField} players • {team.halfLengthMinutes} min halves
+                          {getFormationName(team.formationId) && (
+                            <> • Formation: {getFormationName(team.formationId)}</>
+                          )}
+                        </p>
+                        <p className="item-meta">Roster: {teamRosterList.length} player(s)</p>
+                      </div>
+                      <div className="card-actions">
+                        <button
+                          onClick={() => setExpandedTeamId(isExpanded ? null : team.id)}
+                          className="btn-edit"
+                          aria-label={isExpanded ? "Hide roster" : "Show roster"}
+                          title={isExpanded ? "Hide roster" : "Show roster"}
+                        >
+                          {isExpanded ? '▼' : '▶'}
+                        </button>
+                        <button
+                          onClick={() => handleEditTeam(team)}
+                          className="btn-edit"
+                          aria-label="Edit team"
+                        >
+                          ✎
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTeam(team.id)}
+                          className="btn-delete"
+                          aria-label="Delete team"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </div>
                     
                     {isExpanded && (
-                      <div className="team-roster-section" style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #ddd' }}>
+                      <div className="team-roster-section">
                         <h4>Team Roster</h4>
                         
                         {!isAddingRosterPlayer && !editingRoster && (
