@@ -125,15 +125,6 @@ export async function loginUser(page: Page, email: string, password: string) {
 }
 
 /**
- * Navigate to specific tab in Management section
- */
-async function clickManagementTab(page: Page, tabName: string) {
-  const tab = page.locator('button.management-tab', { hasText: new RegExp(`^${tabName}`) });
-  await tab.click();
-  await page.waitForTimeout(300);
-}
-
-/**
  * Clean up all test data (players, games, teams, seasons, formations)
  * Should be called after navigating to Management page
  */
@@ -278,4 +269,114 @@ export async function clickManagementTab(page: Page, tabName: 'Seasons' | 'Teams
   const tab = page.locator('button.management-tab', { hasText: new RegExp(`^${tabName}`) });
   await tab.click();
   await page.waitForTimeout(300);
+}
+
+/**
+ * Create a new season
+ * @param page - Playwright page object
+ * @param seasonData - Season data object with name and year
+ */
+export async function createSeason(page: Page, seasonData: { name: string; year: string }) {
+  console.log(`Creating season: ${seasonData.name}...`);
+  
+  await clickManagementTab(page, 'Seasons');
+  await clickButton(page, '+ Create New Season');
+  await page.waitForTimeout(300);
+  
+  await fillInput(page, 'input[placeholder*="Season Name"]', seasonData.name);
+  await fillInput(page, 'input[placeholder*="Year"]', seasonData.year);
+  
+  await clickButton(page, 'Create');
+  await page.waitForTimeout(500);
+  
+  // Verify season was created
+  await expect(page.getByText(seasonData.name).first()).toBeVisible();
+  console.log(`✓ Season created: ${seasonData.name}`);
+}
+
+/**
+ * Create a new team
+ * @param page - Playwright page object
+ * @param teamData - Team data object with name, maxPlayers, and halfLength
+ * @param seasonData - Season data to select the team's season
+ * @param formationName - Optional formation name to select (with player count, e.g., "3-3-1 (7 players)")
+ */
+export async function createTeam(
+  page: Page, 
+  teamData: { name: string; maxPlayers: string; halfLength: string },
+  seasonData: { name: string; year: string },
+  formationName?: string
+) {
+  console.log(`Creating team: ${teamData.name}...`);
+  
+  await clickManagementTab(page, 'Teams');
+  await clickButton(page, '+ Create New Team');
+  await page.waitForTimeout(300);
+  
+  // Select season
+  const seasonLabel = `${seasonData.name} (${seasonData.year})`;
+  await page.selectOption('select', { label: seasonLabel });
+  await page.waitForTimeout(200);
+  
+  await fillInput(page, 'input[placeholder*="team name"]', teamData.name);
+  await fillInput(page, 'input[placeholder*="max players"]', teamData.maxPlayers);
+  await fillInput(page, 'input[placeholder*="half length"]', teamData.halfLength);
+  
+  // Select formation if provided
+  if (formationName) {
+    const formationSelect = page.locator('select').nth(1); // Second select is for formation
+    await formationSelect.selectOption({ label: formationName });
+    await page.waitForTimeout(300);
+  }
+  
+  await clickButton(page, 'Create');
+  await page.waitForTimeout(1000);
+  
+  // Verify team was created
+  await expect(page.locator('.item-card').filter({ hasText: teamData.name })).toBeVisible();
+  console.log(`✓ Team created: ${teamData.name}`);
+}
+
+/**
+ * Create a new formation with positions
+ * @param page - Playwright page object
+ * @param formationData - Formation data object with name, playerCount, and positions array
+ */
+export async function createFormation(
+  page: Page,
+  formationData: {
+    name: string;
+    playerCount: string;
+    positions: Array<{ name: string; abbreviation: string }>;
+  }
+) {
+  console.log(`Creating formation: ${formationData.name}...`);
+  
+  await clickManagementTab(page, 'Formations');
+  await clickButton(page, '+ Create Formation');
+  await page.waitForTimeout(300);
+  
+  await fillInput(page, 'input[placeholder*="Formation Name"]', formationData.name);
+  await fillInput(page, 'input[placeholder*="Number of Players on Field"]', formationData.playerCount);
+  
+  // Add each position to the formation
+  for (const position of formationData.positions) {
+    await clickButton(page, '+ Add Position');
+    await page.waitForTimeout(300);
+    
+    // Get all position inputs and fill the last (newly added) one
+    const positionNameInputs = page.locator('input[placeholder*="Position Name"]');
+    const abbreviationInputs = page.locator('input[placeholder*="Abbreviation"]');
+    
+    const count = await positionNameInputs.count();
+    await positionNameInputs.nth(count - 1).fill(position.name);
+    await abbreviationInputs.nth(count - 1).fill(position.abbreviation);
+  }
+  
+  await clickButton(page, 'Create');
+  await page.waitForTimeout(1000);
+  
+  // Verify formation was created
+  await expect(page.getByText(formationData.name)).toBeVisible();
+  console.log(`✓ Formation created: ${formationData.name}`);
 }

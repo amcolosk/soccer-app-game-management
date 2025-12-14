@@ -8,6 +8,8 @@ import {
   loginUser,
   navigateToManagement,
   clickManagementTab,
+  createSeason,
+  createTeam,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -57,45 +59,6 @@ const TEST_DATA = {
     preferredPositions: [],
   },
 };
-
-async function createTestSeason(page: Page) {
-  console.log('Creating test season...');
-  
-  await clickManagementTab(page, 'Seasons');
-  await clickButton(page, '+ Create New Season');
-  await page.waitForTimeout(300);
-  
-  await fillInput(page, 'input[placeholder*="Season Name"]', TEST_DATA.season.name);
-  await fillInput(page, 'input[placeholder*="Year"]', TEST_DATA.season.year);
-  
-  await clickButton(page, 'Create');
-  await page.waitForTimeout(500);
-  
-  await expect(page.getByText(TEST_DATA.season.name).first()).toBeVisible();
-  console.log('✓ Test season created');
-}
-
-async function createTestTeam(page: Page, teamData: typeof TEST_DATA.team1) {
-  console.log(`Creating test team: ${teamData.name}...`);
-  
-  await clickManagementTab(page, 'Teams');
-  await clickButton(page, '+ Create New Team');
-  await page.waitForTimeout(300);
-  
-  const seasonLabel = `${TEST_DATA.season.name} (${TEST_DATA.season.year})`;
-  await page.selectOption('select', { label: seasonLabel });
-  await page.waitForTimeout(200);
-  
-  await fillInput(page, 'input[placeholder*="team name"]', teamData.name);
-  await fillInput(page, 'input[placeholder*="max players"]', teamData.maxPlayers);
-  await fillInput(page, 'input[placeholder*="half length"]', teamData.halfLength);
-  
-  await clickButton(page, 'Create');
-  await page.waitForTimeout(1000);
-  
-  await expect(page.locator('.item-card').filter({ hasText: teamData.name })).toBeVisible();
-  console.log(`✓ Team created: ${teamData.name}`);
-}
 
 async function createPositionsForTeam(page: Page, teamName: string) {
   console.log(`Creating positions for ${teamName}...`);
@@ -209,13 +172,13 @@ test.describe('Player Management CRUD', () => {
     
     // Create test season
     console.log('Step 4: Create test season');
-    await createTestSeason(page);
+    await createSeason(page, TEST_DATA.season);
     console.log('');
     
     // Create test teams
     console.log('Step 5: Create test teams');
-    await createTestTeam(page, TEST_DATA.team1);
-    await createTestTeam(page, TEST_DATA.team2);
+    await createTeam(page, TEST_DATA.team1, TEST_DATA.season);
+    await createTeam(page, TEST_DATA.team2, TEST_DATA.season);
     console.log('');
     
     // Create positions for team1
@@ -419,8 +382,8 @@ test.describe('Player Management CRUD', () => {
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
     await cleanupTestData(page);
-    await createTestSeason(page);
-    await createTestTeam(page, TEST_DATA.team1);
+    await createSeason(page, TEST_DATA.season);
+    await createTeam(page, TEST_DATA.team1, TEST_DATA.season);
     
     await clickManagementTab(page, 'Players');
     await clickButton(page, '+ Add Player');
@@ -466,9 +429,9 @@ test.describe('Player Management CRUD', () => {
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
     await cleanupTestData(page);
-    await createTestSeason(page);
-    await createTestTeam(page, TEST_DATA.team1);
-    await createTestTeam(page, TEST_DATA.team2);
+    await createSeason(page, TEST_DATA.season);
+    await createTeam(page, TEST_DATA.team1, TEST_DATA.season);
+    await createTeam(page, TEST_DATA.team2, TEST_DATA.season);
     await createPositionsForTeam(page, TEST_DATA.team1.name);
     
     await clickManagementTab(page, 'Players');
@@ -506,8 +469,8 @@ test.describe('Player Management CRUD', () => {
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
     await cleanupTestData(page);
-    await createTestSeason(page);
-    await createTestTeam(page, TEST_DATA.team1);
+    await createSeason(page, TEST_DATA.season);
+    await createTeam(page, TEST_DATA.team1, TEST_DATA.season);
     
     // Create a test player
     await clickManagementTab(page, 'Players');
@@ -610,4 +573,5 @@ test.describe('Player Management CRUD', () => {
     console.log('=== Deletion Confirmation Test Complete ===\n');
   });
 });
+
 

@@ -8,6 +8,8 @@ import {
   loginUser,
   navigateToManagement,
   clickManagementTab,
+  createSeason,
+  createTeam,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -39,28 +41,6 @@ const TEST_DATA = {
   },
 };
 
-async function createTestSeason(page: Page) {
-  console.log('Creating test season...');
-  
-  await clickManagementTab(page, 'Seasons');
-  
-  // Click Create New Season button
-  await clickButton(page, '+ Create New Season');
-  await page.waitForTimeout(300);
-  
-  // Fill in season details
-  await fillInput(page, 'input[placeholder*="Season Name"]', TEST_DATA.season.name);
-  await fillInput(page, 'input[placeholder*="Year"]', TEST_DATA.season.year);
-  
-  // Submit
-  await clickButton(page, 'Create');
-  await page.waitForTimeout(500);
-  
-  // Verify season was created
-  await expect(page.getByText(TEST_DATA.season.name).first()).toBeVisible();
-  console.log('✓ Test season created');
-}
-
 test.describe('Team Management CRUD', () => {
   test.beforeEach(async ({ page }) => {
     test.setTimeout(TEST_CONFIG.timeout.long);
@@ -86,7 +66,7 @@ test.describe('Team Management CRUD', () => {
     
     // Create test season
     console.log('Step 4: Create test season');
-    await createTestSeason(page);
+    await createSeason(page, TEST_DATA.season);
     console.log('');
     
     // ===== CREATE: Create first team =====
@@ -244,7 +224,7 @@ test.describe('Team Management CRUD', () => {
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
     await cleanupTestData(page);
-    await createTestSeason(page);
+    await createSeason(page, TEST_DATA.season);
     
     await clickManagementTab(page, 'Teams');
     await clickButton(page, '+ Create New Team');
@@ -280,7 +260,7 @@ test.describe('Team Management CRUD', () => {
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
     await cleanupTestData(page);
-    await createTestSeason(page);
+    await createSeason(page, TEST_DATA.season);
     
     // Create a test team
     await clickManagementTab(page, 'Teams');
@@ -345,7 +325,7 @@ test.describe('Team Management CRUD', () => {
     await cleanupTestData(page);
     
     // Create test season
-    await createTestSeason(page);
+    await createSeason(page, TEST_DATA.season);
     console.log('');
     
     // Create a test formation
@@ -427,4 +407,6 @@ test.describe('Team Management CRUD', () => {
     console.log('=== Team Creation with Formation Test Complete ===\n');
   });
 });
+
+
 

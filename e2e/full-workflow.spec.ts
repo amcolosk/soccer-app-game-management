@@ -12,6 +12,9 @@ import {
   loginUser,
   cleanupTestData,
   clickManagementTab,
+  createSeason,
+  createFormation,
+  createTeam,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -65,113 +68,6 @@ const TEST_DATA = {
     isHome: false,
   },
 };
-
-// Helper to create a season
-async function createSeason(page: Page) {
-  console.log('Creating season...');
-  
-  // Navigate to Management tab if not already there
-  const manageTab = page.locator('button.nav-item', { hasText: 'Manage' });
-  if (await manageTab.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await manageTab.click();
-    await page.waitForTimeout(500);
-  }
-  
-  // Make sure we're on Seasons tab
-  await clickManagementTab(page, 'Seasons');
-  
-  // Navigate to seasons and create new season
-  await clickButton(page, '+ Create New Season');
-  await waitForPageLoad(page);
-  
-  // Fill season form
-  await fillInput(page, 'input[placeholder*="Season Name (e.g., Fall League)"]', TEST_DATA.season.name);
-  await fillInput(page, 'input[placeholder*="Year (e.g., 2025)"]', TEST_DATA.season.year);
-  
-  await clickButton(page, 'Create');
-  await waitForPageLoad(page);
-  
-  // Verify season was created
-  await expect(page.getByText(TEST_DATA.season.name).first()).toBeVisible();
-  console.log('✓ Season created');
-}
-
-// Helper to create a formation
-async function createFormation(page: Page) {
-  console.log('Creating formation...');
-  
-  // Navigate to Management tab
-  const manageTab = page.locator('button.nav-item', { hasText: 'Manage' });
-  await manageTab.click();
-  await page.waitForTimeout(500);
-  
-  // Go to Formations tab
-  await clickManagementTab(page, 'Formations');
-  
-  // Create formation
-  await clickButton(page, '+ Create Formation');
-  await waitForPageLoad(page);
-  
-  // Fill formation form
-  await fillInput(page, 'input[placeholder*="Formation Name"]', TEST_DATA.formation.name);
-  await fillInput(page, 'input[placeholder*="Number of Players on Field"]', TEST_DATA.formation.playerCount);
-  
-  // Add each position to the formation
-  for (const position of TEST_DATA.formation.positions) {
-    // Click to add a new position field first
-    await clickButton(page, '+ Add Position');
-    await page.waitForTimeout(300);
-    
-    // Get all position inputs and fill the last (newly added) one
-    const positionNameInputs = page.locator('input[placeholder*="Position Name"]');
-    const abbreviationInputs = page.locator('input[placeholder*="Abbreviation"]');
-    
-    const count = await positionNameInputs.count();
-    await positionNameInputs.nth(count - 1).fill(position.name);
-    await abbreviationInputs.nth(count - 1).fill(position.abbreviation);
-  }
-  
-  await clickButton(page, 'Create');
-  await waitForPageLoad(page);
-  
-  // Verify formation was created
-  await expect(page.getByText(TEST_DATA.formation.name)).toBeVisible();
-  console.log('✓ Formation created with positions');
-}
-
-// Helper to create a team
-async function createTeam(page: Page) {
-  console.log('Creating team...');
-  
-  // Make sure we're on Teams tab in Management
-  await clickManagementTab(page, 'Teams');
-  
-  // Create team
-  await clickButton(page, '+ Create New Team');
-  await waitForPageLoad(page);
-  
-  // Select season from dropdown
-  const seasonLabel = `${TEST_DATA.season.name} (${TEST_DATA.season.year})`;
-  await page.selectOption('select', { label: seasonLabel });
-  await page.waitForTimeout(300);
-  
-  // Fill team form
-  await fillInput(page, 'input[placeholder*="team name"]', TEST_DATA.team.name);
-  await fillInput(page, 'input[placeholder*="half length"]', TEST_DATA.team.halfLength);
-  await fillInput(page, 'input[placeholder*="max players"]', TEST_DATA.team.maxPlayers);
-  
-  // Select formation
-  const formationSelect = page.locator('select').nth(1); // Second select is for formation
-  await formationSelect.selectOption({ label: `${TEST_DATA.formation.name} (${TEST_DATA.formation.playerCount} players)` });
-  await page.waitForTimeout(300);
-  
-  await clickButton(page, 'Create');
-  await waitForPageLoad(page);
-  
-  // Verify team was created
-  await expect(page.getByText(TEST_DATA.team.name)).toBeVisible();
-  console.log('✓ Team created');
-}
 
 // Helper to create players globally
 async function createPlayers(page: Page) {
@@ -719,17 +615,18 @@ test.describe('Soccer App Full Workflow', () => {
     
     // Step 2: Create Season
     console.log('Step 2: Create Season');
-    await createSeason(page);
+    await createSeason(page, TEST_DATA.season);
     console.log('');
     
     // Step 3: Create Formation with Positions
     console.log('Step 3: Create Formation with Positions');
-    await createFormation(page);
+    await createFormation(page, TEST_DATA.formation);
     console.log('');
     
     // Step 4: Create Team with Formation
     console.log('Step 4: Create Team');
-    await createTeam(page);
+    const formationLabel = `${TEST_DATA.formation.name} (${TEST_DATA.formation.playerCount} players)`;
+    await createTeam(page, TEST_DATA.team, TEST_DATA.season, formationLabel);
     console.log('');
     
     // Step 5: Create Players Globally
