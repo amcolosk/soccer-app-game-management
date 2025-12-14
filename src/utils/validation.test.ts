@@ -5,59 +5,56 @@ import {
 } from './validation';
 import type { Schema } from "../../amplify/data/resource";
 
-type Player = Schema["Player"]["type"];
+type TeamRoster = Schema["TeamRoster"]["type"];
 
 describe('Player Number Uniqueness', () => {
-  const players: Partial<Player>[] = [
+  const rosters: Partial<TeamRoster>[] = [
     {
-      id: 'player-1',
+      id: 'roster-1',
       teamId: 'team-1',
+      playerId: 'player-1',
       playerNumber: 10,
-      firstName: 'John',
-      lastName: 'Doe',
     },
     {
-      id: 'player-2',
+      id: 'roster-2',
       teamId: 'team-1',
+      playerId: 'player-2',
       playerNumber: 7,
-      firstName: 'Jane',
-      lastName: 'Smith',
     },
     {
-      id: 'player-3',
+      id: 'roster-3',
       teamId: 'team-2',
+      playerId: 'player-3',
       playerNumber: 10,
-      firstName: 'Bob',
-      lastName: 'Johnson',
     },
   ];
 
   it('should return true when player number is unique in team', () => {
-    expect(isPlayerNumberUnique(5, 'team-1', players as Player[])).toBe(true);
+    expect(isPlayerNumberUnique(5, 'team-1', rosters as TeamRoster[])).toBe(true);
   });
 
   it('should return false when player number already exists in team', () => {
-    expect(isPlayerNumberUnique(10, 'team-1', players as Player[])).toBe(false);
+    expect(isPlayerNumberUnique(10, 'team-1', rosters as TeamRoster[])).toBe(false);
   });
 
   it('should return true when same number exists in different team', () => {
-    expect(isPlayerNumberUnique(10, 'team-3', players as Player[])).toBe(true);
+    expect(isPlayerNumberUnique(10, 'team-3', rosters as TeamRoster[])).toBe(true);
   });
 
-  it('should return true when updating player with their own number', () => {
-    expect(isPlayerNumberUnique(10, 'team-1', players as Player[], 'player-1')).toBe(true);
+  it('should return true when updating roster with same number', () => {
+    expect(isPlayerNumberUnique(10, 'team-1', rosters as TeamRoster[], 'roster-1')).toBe(true);
   });
 
-  it('should return false when updating player to existing number', () => {
-    expect(isPlayerNumberUnique(7, 'team-1', players as Player[], 'player-1')).toBe(false);
+  it('should return false when updating roster to existing number', () => {
+    expect(isPlayerNumberUnique(7, 'team-1', rosters as TeamRoster[], 'roster-1')).toBe(false);
   });
 
   it('should return true when player number is null', () => {
-    expect(isPlayerNumberUnique(null, 'team-1', players as Player[])).toBe(true);
+    expect(isPlayerNumberUnique(null, 'team-1', rosters as TeamRoster[])).toBe(true);
   });
 
   it('should return true when player number is undefined', () => {
-    expect(isPlayerNumberUnique(undefined, 'team-1', players as Player[])).toBe(true);
+    expect(isPlayerNumberUnique(undefined, 'team-1', rosters as TeamRoster[])).toBe(true);
   });
 });
 
