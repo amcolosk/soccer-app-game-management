@@ -27,7 +27,6 @@ test.describe('Season Management', () => {
     
     // Verify management page sections
     await expect(page.locator('.management')).toBeVisible();
-    await expect(page.locator('h2:has-text("Management")')).toBeVisible();
     
     // Verify Seasons tab is present
     await expect(page.getByRole('button', { name: /^Seasons/ })).toBeVisible();

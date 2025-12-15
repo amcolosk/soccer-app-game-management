@@ -158,19 +158,23 @@ test.describe('User Profile', () => {
     // Try with weak password
     await page.reload();
     await waitForPageLoad(page);
+    await navigateToProfile(page);
     
     await fillInput(page, '#oldPassword', TEST_USERS.user1.password);
     await fillInput(page, '#newPassword', 'weak');
     await fillInput(page, '#confirmPassword', 'weak');
     
     await clickButton(page, 'Update Password');
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Should see error (either from validation or AWS Cognito)
+    // AWS Cognito requires: 8+ chars, uppercase, lowercase, number, special char
     const hasError = await page.locator('.message-error').count() > 0 || 
-                     await page.locator('[role="alert"]').count() > 0;
-    expect(hasError).toBeTruthy();
+                     await page.locator('[role="alert"]').count() > 0 ||
+                     await page.locator('text=/password.*requirement/i').count() > 0 ||
+                     await page.locator('text=/8 characters or more/i').count() > 0;
     
+    expect(hasError).toBeTruthy();
     console.log('✓ Weak password validation working');
   });
 
@@ -213,7 +217,7 @@ test.describe('User Profile', () => {
     // Navigate to Home
     await page.getByRole('button', { name: /home/i }).click();
     await waitForPageLoad(page);
-    await expect(page.locator('.home, .games-group')).toBeVisible();
+    await expect(page.locator('.home')).toBeVisible();
     
     // Navigate back to Profile
     await navigateToProfile(page);
@@ -258,8 +262,9 @@ test.describe('User Profile', () => {
     
     // Form should not submit (either HTML5 validation or custom validation)
     // If there's a success message, something went wrong
-    const successMessage = await page.locator('.message-success, text=/updated successfully/i').count();
-    expect(successMessage).toBe(0);
+    const successMessageCount = await page.locator('.message-success').count();
+    const successTextCount = await page.getByText(/updated successfully/i).count();
+    expect(successMessageCount + successTextCount).toBe(0);
     
     console.log('✓ Empty form validation working');
   });

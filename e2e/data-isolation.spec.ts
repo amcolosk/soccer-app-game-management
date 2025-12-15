@@ -4,6 +4,8 @@ import {
   fillInput,
   clickButton,
   clickButtonByText,
+  loginUser,
+  closePWAPrompt,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -14,25 +16,16 @@ import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
 const TEST_SEASON_NAME = 'Private Season 2025';
 
-// Helper to login
-async function login(page: Page, email: string, password: string) {
-  await page.goto('/');
-  await waitForPageLoad(page);
-  
-  await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
-  
-  await fillInput(page, 'input[name="username"], input[type="email"]', email);
-  await fillInput(page, 'input[name="password"], input[type="password"]', password);
-  await clickButton(page, 'Sign in');
-  await clickButton(page, 'Skip');
-  
-  await page.waitForSelector('text=Season', { timeout: 10000 });
-  await waitForPageLoad(page);
-}
-
 // Helper to logout
 async function logout(page: Page) {
-  // Look for sign out button (adjust selector based on your UI)
+  // Navigate to profile tab
+  const profileTab = page.getByRole('button', { name: /profile/i });
+  if (await profileTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await profileTab.click();
+    await page.waitForTimeout(500);
+  }
+  
+  // Look for sign out button
   const signOutButton = page.getByRole('button', { name: /sign out/i });
   if (await signOutButton.isVisible({ timeout: 2000 }).catch(() => false)) {
     await signOutButton.click();
@@ -47,8 +40,12 @@ test.describe.serial('Data Isolation Between Users', () => {
     console.log('\n=== User 1: Creating Season ===');
     
     // Login as User 1
-    await login(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     console.log('✓ User 1 logged in');
+    
+    // Navigate to Management tab
+    await page.getByRole('button', { name: /manage/i }).click();
+    await waitForPageLoad(page);
     
     // Create a season
     await clickButton(page, '+ Create New Season');
@@ -75,11 +72,14 @@ test.describe.serial('Data Isolation Between Users', () => {
     console.log('=== User 2: Verifying Data Isolation ===');
     
     // Login as User 2
-    await login(page, TEST_USERS.user2.email, TEST_USERS.user2.password);
+    await loginUser(page, TEST_USERS.user2.email, TEST_USERS.user2.password);
     console.log('✓ User 2 logged in');
     
-    // Wait for season list to load
+    // Navigate to Management tab
+    await page.getByRole('button', { name: /manage/i }).click();
     await waitForPageLoad(page);
+    
+    // Wait for season list to load
     await page.waitForTimeout(1000);
     
     // Verify User 1's season is NOT visible

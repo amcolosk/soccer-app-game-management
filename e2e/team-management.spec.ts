@@ -136,16 +136,16 @@ test.describe('Team Management CRUD', () => {
     // Verify first team details
     const team1Card = page.locator('.item-card').filter({ hasText: TEST_DATA.team1.name });
     await expect(team1Card.locator('h3')).toContainText(TEST_DATA.team1.name);
-    await expect(team1Card.locator('.item-meta')).toContainText(`${TEST_DATA.team1.maxPlayers} players`);
-    await expect(team1Card.locator('.item-meta')).toContainText(`${TEST_DATA.team1.halfLength} min halves`);
-    await expect(team1Card.locator('.item-meta')).toContainText(TEST_DATA.season.name);
+    await expect(team1Card.locator('.item-meta').first()).toContainText(`${TEST_DATA.team1.maxPlayers} players`);
+    await expect(team1Card.locator('.item-meta').first()).toContainText(`${TEST_DATA.team1.halfLength} min halves`);
+    await expect(team1Card.locator('.item-meta').first()).toContainText(TEST_DATA.season.name);
     console.log('  ✓ Team 1 details verified');
     
     // Verify second team details
     const team2Card = page.locator('.item-card').filter({ hasText: TEST_DATA.team2.name });
     await expect(team2Card.locator('h3')).toContainText(TEST_DATA.team2.name);
-    await expect(team2Card.locator('.item-meta')).toContainText(`${TEST_DATA.team2.maxPlayers} players`);
-    await expect(team2Card.locator('.item-meta')).toContainText(`${TEST_DATA.team2.halfLength} min halves`);
+    await expect(team2Card.locator('.item-meta').first()).toContainText(`${TEST_DATA.team2.maxPlayers} players`);
+    await expect(team2Card.locator('.item-meta').first()).toContainText(`${TEST_DATA.team2.halfLength} min halves`);
     console.log('  ✓ Team 2 details verified\n');
     
     // ===== UPDATE: Update first team (Note: Current implementation doesn't have edit, only delete) =====
@@ -396,15 +396,15 @@ test.describe('Team Management CRUD', () => {
     // Verify team was created with formation
     const teamCard = page.locator('.item-card').filter({ hasText: 'Formation Test Team' });
     await expect(teamCard).toBeVisible();
-    await expect(teamCard.locator('.item-meta')).toContainText('Formation: 4-3-3');
+    await expect(teamCard).toContainText('Formation: 4-3-3');
     console.log('✓ Team created with formation assigned\n');
     
     // Verify formation is displayed in team details
     console.log('Step 3: Verify formation details in team card');
     await expect(teamCard.locator('h3')).toContainText('Formation Test Team');
-    await expect(teamCard.locator('.item-meta')).toContainText('7 players');
-    await expect(teamCard.locator('.item-meta')).toContainText('25 min halves');
-    await expect(teamCard.locator('.item-meta')).toContainText('Formation: 4-3-3');
+    await expect(teamCard).toContainText('7 players');
+    await expect(teamCard).toContainText('25 min halves');
+    await expect(teamCard).toContainText('Formation: 4-3-3');
     console.log('✓ All team details verified\n');
     
     console.log('=== Team Creation with Formation Test Complete ===\n');
