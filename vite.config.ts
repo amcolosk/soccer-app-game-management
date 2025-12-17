@@ -49,6 +49,8 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         skipWaiting: false,
         clientsClaim: false,
+        navigateFallback: 'index.html',
+        navigateFallbackAllowlist: [/^\/(?:\?.*)?$/],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.execute-api\..*\.amazonaws\.com\/.*/i,

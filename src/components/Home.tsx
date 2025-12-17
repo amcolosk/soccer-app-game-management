@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { generateClient } from 'aws-amplify/data';
+import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
 
 const client = generateClient<Schema>();
@@ -7,6 +8,7 @@ const client = generateClient<Schema>();
 type Game = Schema['Game']['type'];
 type Team = Schema['Team']['type'];
 type Season = Schema['Season']['type'];
+type TeamPermission = Schema['TeamPermission']['type'];
 
 interface HomeProps {
   onGameSelect: (game: Game, team: Team) => void;
@@ -23,6 +25,47 @@ export function Home({ onGameSelect }: HomeProps) {
   const [isHome, setIsHome] = useState(true);
 
   useEffect(() => {
+    loadTeamsAndData();
+  }, []);
+
+  async function loadTeamsAndData() {
+    try {
+      const user = await getCurrentUser();
+      
+      // Get owned teams
+      const ownedTeamsResponse = await client.models.Team.list();
+      const ownedTeams = ownedTeamsResponse.data || [];
+      
+      // Get team permissions for this user
+      const permissionsResponse = await client.models.TeamPermission.list({
+        filter: { userId: { eq: user.userId } }
+      });
+      const permissions = permissionsResponse.data || [];
+      
+      // Get teams from permissions
+      const permittedTeamIds = permissions.map(p => p.teamId);
+      const permittedTeamsPromises = permittedTeamIds.map(id => 
+        client.models.Team.get({ id, authMode: 'userPool' })
+      );
+      const permittedTeamsResponses = await Promise.all(permittedTeamsPromises);
+      const permittedTeams = permittedTeamsResponses
+        .map(r => r.data)
+        .filter((t): t is Team => t !== null && t !== undefined);
+      
+      // Combine and deduplicate teams
+      const allTeamsMap = new Map<string, Team>();
+      [...ownedTeams, ...permittedTeams].forEach(team => {
+        if (team && team.id) {
+          allTeamsMap.set(team.id, team);
+        }
+      });
+      
+      setTeams(Array.from(allTeamsMap.values()));
+    } catch (error) {
+      console.error('Error loading teams:', error);
+    }
+
+    // Subscribe to games and seasons
     const gameSub = client.models.Game.observeQuery().subscribe({
       next: (data) => {
         // Sort games: in-progress/halftime first, then scheduled, then completed
@@ -61,20 +104,15 @@ export function Home({ onGameSelect }: HomeProps) {
       },
     });
 
-    const teamSub = client.models.Team.observeQuery().subscribe({
-      next: (data) => setTeams([...data.items]),
-    });
-
     const seasonSub = client.models.Season.observeQuery().subscribe({
       next: (data) => setSeasons([...data.items]),
     });
 
     return () => {
       gameSub.unsubscribe();
-      teamSub.unsubscribe();
       seasonSub.unsubscribe();
     };
-  }, []);
+  }
 
   const getTeam = (teamId: string) => {
     return teams.find(t => t.id === teamId);

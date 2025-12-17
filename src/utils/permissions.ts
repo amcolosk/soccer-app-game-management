@@ -196,3 +196,36 @@ export async function getCurrentUserId(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Verify user has write permissions before performing team mutations
+ * Throws an error if user lacks required permissions
+ * 
+ * @param teamId - The team ID to check permissions for
+ * @param operation - Description of the operation being performed (for error messages)
+ * @throws Error if user lacks COACH-level permissions
+ */
+export async function requireTeamWritePermission(teamId: string, operation: string = 'modify this team'): Promise<void> {
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    throw new Error('User not authenticated');
+  }
+  
+  const hasPermission = await hasTeamPermission(userId, teamId, 'COACH');
+  if (!hasPermission) {
+    throw new Error(`You don't have permission to ${operation}. Contact the team owner for access.`);
+  }
+}
+
+/**
+ * Check if current user can write to a team (non-throwing version)
+ * 
+ * @param teamId - The team ID to check permissions for
+ * @returns true if user has COACH or OWNER permissions
+ */
+export async function canWriteToTeam(teamId: string): Promise<boolean> {
+  const userId = await getCurrentUserId();
+  if (!userId) return false;
+  
+  return await hasTeamPermission(userId, teamId, 'COACH');
+}

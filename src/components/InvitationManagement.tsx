@@ -300,10 +300,18 @@ export function InvitationManagement({
           gap: 5px;
         }
 
-        .permission-role,
-        .invitation-role {
+        .permission-role {
           font-weight: 600;
           color: #2196f3;
+        }
+
+        .invitation-role {
+          background: #667eea;
+          color: white;
+          padding: 4px 12px;
+          border-radius: 12px;
+          font-size: 0.85em;
+          font-weight: 600;
         }
 
         .permission-date,

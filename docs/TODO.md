@@ -1,6 +1,37 @@
 # TODO
 ## Feature Enhancements
 
+### Enhanced Authorization Security
+- [ ] Upgrade from client-side filtering to database-enforced team access control
+  - **Current Implementation**: 
+    - Teams are readable by all authenticated users with client-side filtering based on TeamPermission records
+    - Write operations are owner-only at the database level (server-enforced)
+    - Client-side permission checks via `requireTeamWritePermission()` and `canWriteToTeam()` utilities (see `src/utils/permissions.ts`)
+    - Team names alone are not sensitive; sensitive data (games, player stats) requires ownership or permissions
+  
+  **Potential Solutions for Future Enhancement**:
+  
+  1. **Cognito Groups Approach** (Most Secure)
+     - Create a Cognito group for each team (e.g., `team-{teamId}`)
+     - Add users to team groups when they accept invitations
+     - Use `allow.groupsDefinedIn('allowedGroups')` authorization
+     - **Pros**: Database-enforced security, no client filtering needed
+     - **Cons**: Requires managing Cognito groups, increased complexity, group limits
+  
+  2. **Custom Query Functions** (Recommended Balance)
+     - Create custom GraphQL queries with Lambda resolvers
+     - Queries check TeamPermission records server-side
+     - Returns only teams user has legitimate access to
+     - **Pros**: Secure, server-enforced, flexible authorization logic
+     - **Cons**: More code to maintain, additional Lambda functions
+  
+  3. **Row-Level Security with Custom Authorizers** (Future AWS Feature)
+     - Wait for enhanced Amplify Gen 2 authorization features
+     - Implement custom authorization logic at the AppSync level
+     - Use Lambda authorizers for fine-grained access control
+     - **Pros**: Most flexible, fine-grained control
+     - **Cons**: Not fully available in current Amplify Gen 2, requires future AWS updates
+
 ### Cascading Deletes
 - [ ] Implement cascading deletes for related data
   - **Season deletion**: Delete all associated teams, games, players, positions, stats

@@ -1,0 +1,12 @@
+{
+  "name": "send-invitation-email",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "handler.ts",
+  "dependencies": {
+    "@aws-sdk/client-ses": "^3.600.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.138"
+  }
+}

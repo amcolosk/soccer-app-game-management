@@ -6,6 +6,7 @@ import { GameManagement } from "./components/GameManagement";
 import { UserProfile } from "./components/UserProfile";
 import { SeasonReport } from "./components/SeasonReport";
 import { Management } from "./components/Management";
+import InvitationAcceptance from "./components/InvitationAcceptance";
 import type { Team } from "./types";
 import type { Schema } from "../amplify/data/resource";
 import "./App.css";
@@ -21,6 +22,13 @@ function App() {
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [isRestoring, setIsRestoring] = useState(true);
   const [activeNav, setActiveNav] = useState<NavigationTab>('home');
+  
+  // Initialize invitation ID directly from URL
+  const getInvitationIdFromUrl = () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get('invitationId');
+  };
+  const [invitationId, setInvitationId] = useState<string | null>(getInvitationIdFromUrl());
 
   const handleGameSelect = (game: Game, team: Team) => {
     setSelectedGame(game);
@@ -60,12 +68,39 @@ function App() {
     restoreState();
   }, []);
 
+  const handleInvitationComplete = () => {
+    // Remove invitation ID from URL and state
+    setInvitationId(null);
+    window.history.replaceState({}, '', window.location.pathname);
+    // Refresh the page to reload teams
+    window.location.reload();
+  };
+
   if (isRestoring) {
     return (
       <main className="app-container">
         <div style={{ padding: '2rem', textAlign: 'center' }}>
           <p>Loading...</p>
         </div>
+      </main>
+    );
+  }
+
+  // Show invitation acceptance UI if invitationId is present
+  if (invitationId) {
+    console.log('Rendering invitation acceptance UI for:', invitationId);
+    return (
+      <main className="app-container">
+        <header className="app-header">
+          <div className="app-branding">
+            <h1>⚽ TeamTrack</h1>
+            <p className="app-tagline">Game Management for Coaches</p>
+          </div>
+        </header>
+        <InvitationAcceptance 
+          invitationId={invitationId} 
+          onComplete={handleInvitationComplete}
+        />
       </main>
     );
   }

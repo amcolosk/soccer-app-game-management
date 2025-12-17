@@ -61,7 +61,14 @@ const schema = a.schema({
       invitations: a.hasMany('TeamInvitation', 'teamId'),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.owner()]),
+    .authorization((allow) => [
+      allow.owner(), // Full CRUD for team owners
+      allow.authenticated().to(['read']), // All authenticated users can read teams
+      // NOTE: Users with TeamPermission (COACH role) should have write access,
+      // but Amplify Gen 2 doesn't support dynamic permission checks.
+      // Client-side code must verify TeamPermission before attempting mutations.
+      // See docs/TODO.md for future security enhancements.
+    ]),
 
   Player: a
     .model({
@@ -78,7 +85,10 @@ const schema = a.schema({
       gameNotes: a.hasMany('GameNote', 'playerId'),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.owner()]),
+    .authorization((allow) => [
+      allow.owner(),
+      allow.authenticated().to(['read']),
+    ]),
 
   TeamRoster: a
     .model({
@@ -91,7 +101,10 @@ const schema = a.schema({
       isActive: a.boolean().default(true),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.owner()]),
+    .authorization((allow) => [
+      allow.owner(),
+      allow.authenticated().to(['read']),
+    ]),
 
   FieldPosition: a
     .model({
@@ -105,7 +118,10 @@ const schema = a.schema({
       playTimeRecords: a.hasMany('PlayTimeRecord', 'positionId'),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.owner()]),
+    .authorization((allow) => [
+      allow.owner(),
+      allow.authenticated().to(['read']),
+    ]),
 
   Game: a
     .model({
@@ -127,7 +143,10 @@ const schema = a.schema({
       gameNotes: a.hasMany('GameNote', 'gameId'),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.owner()]),
+    .authorization((allow) => [
+      allow.owner(),
+      allow.authenticated().to(['read']),
+    ]),
 
   LineupAssignment: a
     .model({
@@ -242,7 +261,10 @@ const schema = a.schema({
       acceptedAt: a.datetime(),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.owner()]),
+    .authorization((allow) => [
+      allow.owner(),
+      allow.authenticated().to(['read', 'update']), // Allow any authenticated user to read and accept/decline
+    ]),
 
   TeamInvitation: a
     .model({
@@ -257,7 +279,10 @@ const schema = a.schema({
       acceptedAt: a.datetime(),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.owner()]),
+    .authorization((allow) => [
+      allow.owner(),
+      allow.authenticated().to(['read', 'update']), // Allow any authenticated user to read and accept/decline
+    ]),
 });
 
 export type Schema = ClientSchema<typeof schema>;
