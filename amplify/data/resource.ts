@@ -15,7 +15,10 @@ const schema = a.schema({
       startDate: a.date(),
       endDate: a.date(),
       isArchived: a.boolean().default(false),
+      ownerId: a.string().required(), // User ID of the season creator
       teams: a.hasMany('Team', 'seasonId'),
+      permissions: a.hasMany('SeasonPermission', 'seasonId'),
+      invitations: a.hasMany('SeasonInvitation', 'seasonId'),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
     .authorization((allow) => [allow.owner()]),
@@ -46,6 +49,7 @@ const schema = a.schema({
       name: a.string().required(),
       seasonId: a.id().required(),
       season: a.belongsTo('Season', 'seasonId'),
+      ownerId: a.string().required(), // User ID of the team creator
       formationId: a.id(),
       formation: a.belongsTo('Formation', 'formationId'),
       maxPlayersOnField: a.integer().required(),
@@ -53,6 +57,8 @@ const schema = a.schema({
       roster: a.hasMany('TeamRoster', 'teamId'),
       positions: a.hasMany('FieldPosition', 'teamId'),
       games: a.hasMany('Game', 'teamId'),
+      permissions: a.hasMany('TeamPermission', 'teamId'),
+      invitations: a.hasMany('TeamInvitation', 'teamId'),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
     .authorization((allow) => [allow.owner()]),
@@ -195,6 +201,60 @@ const schema = a.schema({
       half: a.integer().required(), // 1 or 2
       notes: a.string(), // The actual note text
       timestamp: a.datetime().required(), // Real-world timestamp when note was created
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+    })
+    .authorization((allow) => [allow.owner()]),
+
+  SeasonPermission: a
+    .model({
+      seasonId: a.id().required(),
+      season: a.belongsTo('Season', 'seasonId'),
+      userId: a.string().required(),
+      role: a.enum(['OWNER', 'COACH', 'READ_ONLY']),
+      grantedAt: a.datetime().required(),
+      grantedBy: a.string().required(), // userId who granted this permission
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+    })
+    .authorization((allow) => [allow.owner()]),
+
+  TeamPermission: a
+    .model({
+      teamId: a.id().required(),
+      team: a.belongsTo('Team', 'teamId'),
+      userId: a.string().required(),
+      role: a.enum(['OWNER', 'COACH', 'READ_ONLY']),
+      grantedAt: a.datetime().required(),
+      grantedBy: a.string().required(), // userId who granted this permission
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+    })
+    .authorization((allow) => [allow.owner()]),
+
+  SeasonInvitation: a
+    .model({
+      seasonId: a.id().required(),
+      season: a.belongsTo('Season', 'seasonId'),
+      email: a.string().required(),
+      role: a.enum(['OWNER', 'COACH', 'PARENT']),
+      status: a.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED']),
+      invitedBy: a.string().required(), // userId who sent invite
+      invitedAt: a.datetime().required(),
+      expiresAt: a.datetime().required(),
+      acceptedAt: a.datetime(),
+      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+    })
+    .authorization((allow) => [allow.owner()]),
+
+  TeamInvitation: a
+    .model({
+      teamId: a.id().required(),
+      team: a.belongsTo('Team', 'teamId'),
+      email: a.string().required(),
+      role: a.enum(['OWNER', 'COACH', 'PARENT']),
+      status: a.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED']),
+      invitedBy: a.string().required(), // userId who sent invite
+      invitedAt: a.datetime().required(),
+      expiresAt: a.datetime().required(),
+      acceptedAt: a.datetime(),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
     .authorization((allow) => [allow.owner()]),

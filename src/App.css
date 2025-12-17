@@ -2479,3 +2479,118 @@
   margin-left: 1rem;
 }
 
+/* Sharing Section Styles */
+.sharing-selection {
+  margin-top: 20px;
+}
+
+.section-description {
+  color: var(--text-secondary);
+  margin-bottom: 30px;
+  line-height: 1.6;
+}
+
+.resource-list {
+  margin-top: 20px;
+}
+
+.resource-list h4 {
+  margin: 20px 0 10px 0;
+  color: var(--text-primary);
+  font-size: 1.1em;
+}
+
+.resource-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px;
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.resource-info {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.resource-info strong {
+  color: var(--text-primary);
+  font-size: 1.1em;
+}
+
+.resource-meta {
+  color: var(--text-secondary);
+  font-size: 0.9em;
+}
+
+.sharing-details {
+  margin-top: 20px;
+}
+/* Invitation Cards in Profile */
+.invitations-section {
+  background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+  border: 2px solid #667eea;
+  padding: 20px;
+}
+
+.invitations-section h3 {
+  margin-top: 0;
+  color: #667eea;
+}
+
+.section-hint {
+  color: var(--text-secondary);
+  margin-bottom: 15px;
+}
+
+.invitation-card {
+  background: white;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  border: 1px solid #ddd;
+}
+
+.invitation-card:last-child {
+  margin-bottom: 0;
+}
+
+.invitation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.invitation-header strong {
+  color: var(--text-primary);
+  font-size: 1.1em;
+}
+
+.invitation-role {
+  background: #667eea;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.invitation-meta {
+  color: var(--text-secondary);
+  font-size: 0.9em;
+  margin-bottom: 12px;
+}
+
+.invitation-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.invitation-actions button {
+  flex: 1;
+}

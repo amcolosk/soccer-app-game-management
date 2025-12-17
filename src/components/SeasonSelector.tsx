@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
+import { getCurrentUser } from "aws-amplify/auth";
 import type { Schema } from "../../amplify/data/resource";
 import type { Season, SeasonSelectorProps } from "../types";
 
@@ -26,9 +27,11 @@ export function SeasonSelector({ onSeasonSelect, selectedSeason }: SeasonSelecto
     }
 
     try {
+      const user = await getCurrentUser();
       await client.models.Season.create({
         name: newSeasonName,
         year: newSeasonYear,
+        ownerId: user.userId,
       });
       setNewSeasonName("");
       setNewSeasonYear("");

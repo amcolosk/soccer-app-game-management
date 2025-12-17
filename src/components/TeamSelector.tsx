@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
+import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from "../../amplify/data/resource";
 import type { Team, TeamSelectorProps } from "../types";
 
@@ -41,8 +42,10 @@ export function TeamSelector({ seasonId, onTeamSelect, selectedTeam }: TeamSelec
     }
 
     try {
+      const user = await getCurrentUser();
       await client.models.Team.create({
         name: teamName,
+        ownerId: user.userId,
         seasonId: seasonId,
         maxPlayersOnField: maxPlayersNum,
         halfLengthMinutes: halfLengthNum,

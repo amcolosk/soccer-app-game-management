@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { generateClient } from 'aws-amplify/data';
+import { getCurrentUser } from 'aws-amplify/auth';
 import { BugReport } from './BugReport';
+import { InvitationManagement } from './InvitationManagement';
 import type { Schema } from '../../amplify/data/resource';
 
 const client = generateClient<Schema>();
@@ -19,8 +21,14 @@ export function Management() {
   const [teamRosters, setTeamRosters] = useState<TeamRoster[]>([]);
   const [formations, setFormations] = useState<Formation[]>([]);
   const [formationPositions, setFormationPositions] = useState<FormationPosition[]>([]);
-  const [activeSection, setActiveSection] = useState<'seasons' | 'teams' | 'formations' | 'players' | 'app'>('seasons');
+  const [activeSection, setActiveSection] = useState<'seasons' | 'teams' | 'formations' | 'players' | 'sharing' | 'app'>('seasons');
   const [showBugReport, setShowBugReport] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string>('');
+
+  // Sharing state
+  const [sharingResourceType, setSharingResourceType] = useState<'season' | 'team' | null>(null);
+  const [sharingResourceId, setSharingResourceId] = useState<string>('');
+  const [sharingResourceName, setSharingResourceName] = useState<string>('');
 
   // Season form state
   const [isCreatingSeason, setIsCreatingSeason] = useState(false);
@@ -59,6 +67,8 @@ export function Management() {
   const [lastName, setLastName] = useState('');
 
   useEffect(() => {
+    loadCurrentUser();
+    
     const seasonSub = client.models.Season.observeQuery().subscribe({
       next: (data) => setSeasons([...data.items]),
     });
@@ -93,9 +103,23 @@ export function Management() {
     };
   }, []);
 
+  async function loadCurrentUser() {
+    try {
+      const user = await getCurrentUser();
+      setCurrentUserId(user.userId);
+    } catch (error) {
+      console.error('Error getting current user:', error);
+    }
+  }
+
   const handleCreateSeason = async () => {
     if (!newSeasonName.trim() || !newSeasonYear.trim()) {
       alert('Please enter both season name and year');
+      return;
+    }
+
+    if (!currentUserId) {
+      alert('User not authenticated');
       return;
     }
 
@@ -103,6 +127,7 @@ export function Management() {
       await client.models.Season.create({
         name: newSeasonName,
         year: newSeasonYear,
+        ownerId: currentUserId,
       });
       setNewSeasonName('');
       setNewSeasonYear('');
@@ -170,6 +195,11 @@ export function Management() {
       return;
     }
 
+    if (!currentUserId) {
+      alert('User not authenticated');
+      return;
+    }
+
     const maxPlayersNum = parseInt(maxPlayers);
     if (isNaN(maxPlayersNum) || maxPlayersNum < 1) {
       alert('Please enter a valid number of players');
@@ -186,6 +216,7 @@ export function Management() {
       await client.models.Team.create({
         name: teamName,
         seasonId: selectedSeasonForTeam,
+        ownerId: currentUserId,
         formationId: selectedFormation || undefined,
         maxPlayersOnField: maxPlayersNum,
         halfLengthMinutes: halfLengthNum,
@@ -622,6 +653,12 @@ export function Management() {
           onClick={() => setActiveSection('players')}
         >
           Players ({players.length})
+        </button>
+        <button
+          className={`management-tab ${activeSection === 'sharing' ? 'active' : ''}`}
+          onClick={() => setActiveSection('sharing')}
+        >
+          Sharing
         </button>
         <button
           className={`management-tab ${activeSection === 'app' ? 'active' : ''}`}
@@ -1416,6 +1453,96 @@ export function Management() {
               })
             )}
           </div>
+        </div>
+      )}
+
+      {activeSection === 'sharing' && (
+        <div className="management-section">
+          <h2>Sharing & Permissions</h2>
+          <p className="section-description">
+            Manage who has access to your seasons and teams. Invite other coaches to collaborate or add parents for read-only access.
+          </p>
+
+          {!sharingResourceType && (
+            <div className="sharing-selection">
+              <h3>Select what to share:</h3>
+              
+              <div className="resource-list">
+                <h4>Seasons</h4>
+                {seasons.length === 0 ? (
+                  <p className="empty-message">No seasons yet</p>
+                ) : (
+                  seasons.map((season) => (
+                    <div key={season.id} className="resource-item">
+                      <div className="resource-info">
+                        <strong>{season.name}</strong>
+                        <span className="resource-meta">{season.year}</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setSharingResourceType('season');
+                          setSharingResourceId(season.id);
+                          setSharingResourceName(season.name);
+                        }}
+                        className="btn-primary"
+                      >
+                        Manage Sharing
+                      </button>
+                    </div>
+                  ))
+                )}
+
+                <h4 style={{ marginTop: '30px' }}>Teams</h4>
+                {teams.length === 0 ? (
+                  <p className="empty-message">No teams yet</p>
+                ) : (
+                  teams.map((team) => {
+                    const season = seasons.find((s) => s.id === team.seasonId);
+                    return (
+                      <div key={team.id} className="resource-item">
+                        <div className="resource-info">
+                          <strong>{team.name}</strong>
+                          <span className="resource-meta">{season?.name || 'Unknown Season'}</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setSharingResourceType('team');
+                            setSharingResourceId(team.id);
+                            setSharingResourceName(team.name);
+                          }}
+                          className="btn-primary"
+                        >
+                          Manage Sharing
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {sharingResourceType && sharingResourceId && (
+            <div className="sharing-details">
+              <button
+                onClick={() => {
+                  setSharingResourceType(null);
+                  setSharingResourceId('');
+                  setSharingResourceName('');
+                }}
+                className="btn-secondary"
+                style={{ marginBottom: '20px' }}
+              >
+                ← Back to Selection
+              </button>
+              
+              <InvitationManagement
+                type={sharingResourceType}
+                resourceId={sharingResourceId}
+                resourceName={sharingResourceName}
+              />
+            </div>
+          )}
         </div>
       )}
 
