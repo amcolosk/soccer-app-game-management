@@ -32,8 +32,10 @@ export function Home({ onGameSelect }: HomeProps) {
     try {
       const user = await getCurrentUser();
       
-      // Get owned teams
-      const ownedTeamsResponse = await client.models.Team.list();
+      // Get owned teams (filter by ownerId to avoid getting all teams)
+      const ownedTeamsResponse = await client.models.Team.list({
+        filter: { ownerId: { eq: user.userId } }
+      });
       const ownedTeams = ownedTeamsResponse.data || [];
       
       // Get team permissions for this user
@@ -42,10 +44,10 @@ export function Home({ onGameSelect }: HomeProps) {
       });
       const permissions = permissionsResponse.data || [];
       
-      // Get teams from permissions
+      // Get teams from permissions (teams shared with this user)
       const permittedTeamIds = permissions.map(p => p.teamId);
       const permittedTeamsPromises = permittedTeamIds.map(id => 
-        client.models.Team.get({ id, authMode: 'userPool' })
+        client.models.Team.get({ id })
       );
       const permittedTeamsResponses = await Promise.all(permittedTeamsPromises);
       const permittedTeams = permittedTeamsResponses

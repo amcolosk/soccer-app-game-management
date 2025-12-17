@@ -68,13 +68,10 @@ export function Management() {
 
   useEffect(() => {
     loadCurrentUser();
+    loadTeamsWithPermissions();
     
     const seasonSub = client.models.Season.observeQuery().subscribe({
       next: (data) => setSeasons([...data.items]),
-    });
-
-    const teamSub = client.models.Team.observeQuery().subscribe({
-      next: (data) => setTeams([...data.items]),
     });
 
     const playerSub = client.models.Player.observeQuery().subscribe({
@@ -95,7 +92,6 @@ export function Management() {
 
     return () => {
       seasonSub.unsubscribe();
-      teamSub.unsubscribe();
       playerSub.unsubscribe();
       rosterSub.unsubscribe();
       formationSub.unsubscribe();
@@ -109,6 +105,46 @@ export function Management() {
       setCurrentUserId(user.userId);
     } catch (error) {
       console.error('Error getting current user:', error);
+    }
+  }
+
+  async function loadTeamsWithPermissions() {
+    try {
+      const user = await getCurrentUser();
+      
+      // Get owned teams
+      const ownedTeamsResponse = await client.models.Team.list({
+        filter: { ownerId: { eq: user.userId } }
+      });
+      const ownedTeams = ownedTeamsResponse.data || [];
+      
+      // Get team permissions for this user
+      const permissionsResponse = await client.models.TeamPermission.list({
+        filter: { userId: { eq: user.userId } }
+      });
+      const permissions = permissionsResponse.data || [];
+      
+      // Get teams from permissions
+      const permittedTeamIds = permissions.map(p => p.teamId);
+      const permittedTeamsPromises = permittedTeamIds.map(id => 
+        client.models.Team.get({ id })
+      );
+      const permittedTeamsResponses = await Promise.all(permittedTeamsPromises);
+      const permittedTeams = permittedTeamsResponses
+        .map(r => r.data)
+        .filter((t): t is Team => t !== null && t !== undefined);
+      
+      // Combine and deduplicate
+      const allTeamsMap = new Map<string, Team>();
+      [...ownedTeams, ...permittedTeams].forEach(team => {
+        if (team && team.id) {
+          allTeamsMap.set(team.id, team);
+        }
+      });
+      
+      setTeams(Array.from(allTeamsMap.values()));
+    } catch (error) {
+      console.error('Error loading teams:', error);
     }
   }
 
