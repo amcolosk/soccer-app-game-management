@@ -8,7 +8,6 @@ import {
   loginUser,
   navigateToManagement,
   clickManagementTab,
-  createSeason,
   createTeam,
   handleConfirmDialog,
   UI_TIMING,
@@ -22,10 +21,6 @@ import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
 // Test data
 const TEST_DATA = {
-  season: {
-    name: 'Test Season',
-    year: '2025',
-  },
   team1: {
     name: 'Thunder FC U10',
     maxPlayers: '7',
@@ -68,17 +63,13 @@ test.describe('Player Management CRUD', () => {
     await cleanupTestData(page);
     console.log('');
     
-    // Create test season and team (for roster assignment later)
-    console.log('Step 4: Create test season');
-    await createSeason(page, TEST_DATA.season);
-    console.log('');
-    
-    console.log('Step 5: Create test team');
-    await createTeam(page, TEST_DATA.team1, TEST_DATA.season);
+    // Create test team (for roster assignment later)
+    console.log('Step 4: Create test team');
+    await createTeam(page, TEST_DATA.team1);
     console.log('');
     
     // ===== CREATE: Create first player =====
-    console.log('Step 6: CREATE - Create first player');
+    console.log('Step 5: CREATE - Create first player');
     await clickManagementTab(page, 'Players');
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
@@ -112,7 +103,7 @@ test.describe('Player Management CRUD', () => {
     console.log('  ✓ Player 1 created\n');
     
     // ===== CREATE: Create second player =====
-    console.log('Step 7: CREATE - Create second player');
+    console.log('Step 6: CREATE - Create second player');
     await clickButton(page, '+ Add Player');
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
@@ -127,7 +118,7 @@ test.describe('Player Management CRUD', () => {
     console.log('  ✓ Player 2 created\n');
     
     // ===== CREATE: Create third player =====
-    console.log('Step 8: CREATE - Create third player');
+    console.log('Step 7: CREATE - Create third player');
     await clickButton(page, '+ Add Player');
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
@@ -142,7 +133,7 @@ test.describe('Player Management CRUD', () => {
     console.log('  ✓ Player 3 created\n');
     
     // ===== READ: Verify all players are listed =====
-    console.log('Step 9: READ - Verify players list');
+    console.log('Step 8: READ - Verify players list');
     const playerCards = page.locator('.item-card');
     const playerCount = await playerCards.count();
     expect(playerCount).toBe(3);
@@ -164,7 +155,7 @@ test.describe('Player Management CRUD', () => {
     console.log('  ✓ Player 3 details verified\n');
     
     // ===== DATA PERSISTENCE: Verify after reload =====
-    console.log('Step 10: Verify data persistence');
+    console.log('Step 9: Verify data persistence');
     await page.reload();
     await waitForPageLoad(page);
     await navigateToManagement(page);
@@ -178,7 +169,7 @@ test.describe('Player Management CRUD', () => {
     console.log('  ✓ Players persist after reload\n');
     
     // ===== DELETE: Delete player 2 =====
-    console.log('Step 11: DELETE - Delete player 2');
+    console.log('Step 10: DELETE - Delete player 2');
     
     // Set up dialog handler
     const cleanupDialog = handleConfirmDialog(page);

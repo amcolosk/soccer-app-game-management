@@ -7,8 +7,6 @@ const client = generateClient<Schema>();
 
 type Game = Schema['Game']['type'];
 type Team = Schema['Team']['type'];
-type Season = Schema['Season']['type'];
-type TeamPermission = Schema['TeamPermission']['type'];
 
 interface HomeProps {
   onGameSelect: (game: Game, team: Team) => void;
@@ -17,7 +15,6 @@ interface HomeProps {
 export function Home({ onGameSelect }: HomeProps) {
   const [games, setGames] = useState<Game[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
-  const [seasons, setSeasons] = useState<Season[]>([]);
   const [isCreatingGame, setIsCreatingGame] = useState(false);
   const [selectedTeamForGame, setSelectedTeamForGame] = useState('');
   const [opponent, setOpponent] = useState('');
@@ -52,13 +49,13 @@ export function Home({ onGameSelect }: HomeProps) {
       const permittedTeamsResponses = await Promise.all(permittedTeamsPromises);
       const permittedTeams = permittedTeamsResponses
         .map(r => r.data)
-        .filter((t): t is Team => t !== null && t !== undefined);
+        .filter((t): t is NonNullable<typeof t> => t !== null && t !== undefined);
       
       // Combine and deduplicate teams
       const allTeamsMap = new Map<string, Team>();
       [...ownedTeams, ...permittedTeams].forEach(team => {
         if (team && team.id) {
-          allTeamsMap.set(team.id, team);
+          allTeamsMap.set(team.id, team as Team);
         }
       });
       
@@ -67,7 +64,7 @@ export function Home({ onGameSelect }: HomeProps) {
       console.error('Error loading teams:', error);
     }
 
-    // Subscribe to games and seasons
+    // Subscribe to games
     const gameSub = client.models.Game.observeQuery().subscribe({
       next: (data) => {
         // Sort games: in-progress/halftime first, then scheduled, then completed
@@ -106,22 +103,13 @@ export function Home({ onGameSelect }: HomeProps) {
       },
     });
 
-    const seasonSub = client.models.Season.observeQuery().subscribe({
-      next: (data) => setSeasons([...data.items]),
-    });
-
     return () => {
       gameSub.unsubscribe();
-      seasonSub.unsubscribe();
     };
   }
 
   const getTeam = (teamId: string) => {
     return teams.find(t => t.id === teamId);
-  };
-
-  const getSeasonName = (seasonId: string) => {
-    return seasons.find(s => s.id === seasonId)?.name || 'Unknown Season';
   };
 
   const handleCreateGame = async () => {
@@ -224,7 +212,7 @@ export function Home({ onGameSelect }: HomeProps) {
             <option value="">Select Team *</option>
             {teams.map((team) => (
               <option key={team.id} value={team.id}>
-                {team.name} ({getSeasonName(team.seasonId)})
+                {team.name}
               </option>
             ))}
           </select>

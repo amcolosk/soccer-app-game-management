@@ -5,13 +5,13 @@ import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import {
   getUserPendingInvitations,
-  acceptSeasonInvitation,
   acceptTeamInvitation,
-  declineSeasonInvitation,
   declineTeamInvitation,
 } from '../services/invitationService';
 
 const client = generateClient<Schema>();
+
+type Team = Schema['Team']['type'];
 
 interface UserProfileProps {
   onSignOut: () => void;
@@ -26,11 +26,9 @@ export function UserProfile({ onSignOut }: UserProfileProps) {
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [pendingInvitations, setPendingInvitations] = useState<{
-    seasonInvitations: any[];
     teamInvitations: any[];
-  }>({ seasonInvitations: [], teamInvitations: [] });
-  const [seasons, setSeasons] = useState<any[]>([]);
-  const [teams, setTeams] = useState<any[]>([]);
+  }>({ teamInvitations: [] });
+  const [teams, setTeams] = useState<Team[]>([]);
   const [loadingInvitations, setLoadingInvitations] = useState(false);
 
   useEffect(() => {
@@ -43,20 +41,12 @@ export function UserProfile({ onSignOut }: UserProfileProps) {
       const invitations = await getUserPendingInvitations();
       setPendingInvitations(invitations);
 
-      // Load season and team names for the invitations
-      const seasonIds = invitations.seasonInvitations.map((inv) => inv.seasonId);
+      // Load team names for the invitations
       const teamIds = invitations.teamInvitations.map((inv) => inv.teamId);
-
-      const seasonPromises = seasonIds.map((id) => client.models.Season.get({ id }));
       const teamPromises = teamIds.map((id) => client.models.Team.get({ id }));
+      const teamResults = await Promise.all(teamPromises);
 
-      const [seasonResults, teamResults] = await Promise.all([
-        Promise.all(seasonPromises),
-        Promise.all(teamPromises),
-      ]);
-
-      setSeasons(seasonResults.map((r) => r.data).filter(Boolean));
-      setTeams(teamResults.map((r) => r.data).filter(Boolean));
+      setTeams(teamResults.map((r) => r.data).filter(t => t !== null) as Team[]);
     } catch (error) {
       console.error('Error loading invitations:', error);
     } finally {
@@ -64,34 +54,24 @@ export function UserProfile({ onSignOut }: UserProfileProps) {
     }
   }
 
-  async function handleAcceptInvitation(invitationId: string, type: 'season' | 'team') {
+  async function handleAcceptInvitation(invitationId: string) {
     try {
-      if (type === 'season') {
-        await acceptSeasonInvitation(invitationId);
-        setMessage({ type: 'success', text: 'Season invitation accepted!' });
-      } else {
-        await acceptTeamInvitation(invitationId);
-        setMessage({ type: 'success', text: 'Team invitation accepted!' });
-      }
+      await acceptTeamInvitation(invitationId);
+      setMessage({ type: 'success', text: 'Team invitation accepted!' });
       await loadPendingInvitations();
     } catch (error: any) {
       setMessage({ type: 'error', text: error.message || 'Failed to accept invitation' });
     }
   }
 
-  async function handleDeclineInvitation(invitationId: string, type: 'season' | 'team') {
+  async function handleDeclineInvitation(invitationId: string) {
     if (!confirm('Are you sure you want to decline this invitation?')) {
       return;
     }
 
     try {
-      if (type === 'season') {
-        await declineSeasonInvitation(invitationId);
-        setMessage({ type: 'success', text: 'Invitation declined' });
-      } else {
-        await declineTeamInvitation(invitationId);
-        setMessage({ type: 'success', text: 'Invitation declined' });
-      }
+      await declineTeamInvitation(invitationId);
+      setMessage({ type: 'success', text: 'Invitation declined' });
       await loadPendingInvitations();
     } catch (error: any) {
       setMessage({ type: 'error', text: error.message || 'Failed to decline invitation' });
@@ -171,44 +151,11 @@ export function UserProfile({ onSignOut }: UserProfileProps) {
       )}
 
       {/* Pending Invitations Section */}
-      {(pendingInvitations.seasonInvitations.length > 0 || pendingInvitations.teamInvitations.length > 0) && (
+      {pendingInvitations.teamInvitations.length > 0 && (
         <div className="profile-section invitations-section">
           <h3>✉️ Pending Invitations</h3>
-          <p className="section-hint">You've been invited to join the following seasons and teams:</p>
+          <p className="section-hint">You've been invited to join the following teams:</p>
           
-          {pendingInvitations.seasonInvitations.map((invitation) => {
-            const season = seasons.find((s) => s?.id === invitation.seasonId);
-            return (
-              <div key={invitation.id} className="invitation-card">
-                <div className="invitation-header">
-                  <strong>Season: {season?.name || 'Loading...'}</strong>
-                  <span className="invitation-role">
-                    {invitation.role === 'PARENT' ? 'Parent (Read-only)' : invitation.role}
-                  </span>
-                </div>
-                <div className="invitation-meta">
-                  Year: {season?.year || '—'} • Expires: {new Date(invitation.expiresAt).toLocaleDateString()}
-                </div>
-                <div className="invitation-actions">
-                  <button
-                    onClick={() => handleAcceptInvitation(invitation.id, 'season')}
-                    className="btn-primary"
-                    disabled={loadingInvitations}
-                  >
-                    Accept
-                  </button>
-                  <button
-                    onClick={() => handleDeclineInvitation(invitation.id, 'season')}
-                    className="btn-secondary"
-                    disabled={loadingInvitations}
-                  >
-                    Decline
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-
           {pendingInvitations.teamInvitations.map((invitation) => {
             const team = teams.find((t) => t?.id === invitation.teamId);
             return (
@@ -224,14 +171,14 @@ export function UserProfile({ onSignOut }: UserProfileProps) {
                 </div>
                 <div className="invitation-actions">
                   <button
-                    onClick={() => handleAcceptInvitation(invitation.id, 'team')}
+                    onClick={() => handleAcceptInvitation(invitation.id)}
                     className="btn-primary"
                     disabled={loadingInvitations}
                   >
                     Accept
                   </button>
                   <button
-                    onClick={() => handleDeclineInvitation(invitation.id, 'team')}
+                    onClick={() => handleDeclineInvitation(invitation.id)}
                     className="btn-secondary"
                     disabled={loadingInvitations}
                   >

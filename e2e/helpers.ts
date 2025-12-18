@@ -215,37 +215,10 @@ export async function cleanupTestData(page: Page) {
     page.removeAllListeners('dialog');
     console.log('✓ Formations deleted');
   }
-  
-  // Clean up seasons
-  await clickManagementTab(page, 'Seasons');
-  await page.waitForTimeout(500);
-  
-  let seasonDeleteButtons = page.locator('.item-card .btn-delete');
-  let seasonCount = await seasonDeleteButtons.count();
-  
-  if (seasonCount > 0) {
-    console.log(`Found ${seasonCount} season(s), deleting...`);
-    
-    page.on('dialog', async (dialog) => {
-      await dialog.accept();
-    });
-    
-    while (seasonCount > 0) {
-      await seasonDeleteButtons.first().click();
-      await page.waitForTimeout(1000);
-      const newCount = await seasonDeleteButtons.count();
-      if (newCount === seasonCount) break;
-      seasonCount = newCount;
-    }
-    
-    page.removeAllListeners('dialog');
-    console.log('✓ Seasons deleted');
-  }
 }
 
 /**
- * Season Management Test Suite
- * Tests CRUD operations for seasons in the Management tab
+ * Team Management Test Suite
  */
 
 export async function navigateToManagement(page: Page) {
@@ -261,76 +234,63 @@ export async function navigateToManagement(page: Page) {
 }
 
 /**
- * Click a specific management tab (Seasons, Teams, Formations, or Players)
+ * Click a specific management tab (Teams, Formations, or Players)
  * @param page - Playwright page object
- * @param tabName - Name of the tab: 'Seasons' | 'Teams' | 'Formations' | 'Players'
+ * @param tabName - Name of the tab: 'Teams' | 'Formations' | 'Players' | 'Sharing' | 'App'
  */
-export async function clickManagementTab(page: Page, tabName: 'Seasons' | 'Teams' | 'Formations' | 'Players') {
+export async function clickManagementTab(page: Page, tabName: 'Teams' | 'Formations' | 'Players' | 'Sharing' | 'App') {
   const tab = page.locator('button.management-tab', { hasText: new RegExp(`^${tabName}`) });
   await tab.click();
   await page.waitForTimeout(UI_TIMING.STANDARD);
 }
 
 /**
- * Create a new season
- * @param page - Playwright page object
- * @param seasonData - Season data object with name and year
- */
-export async function createSeason(page: Page, seasonData: { name: string; year: string }) {
-  console.log(`Creating season: ${seasonData.name}...`);
-  
-  await clickManagementTab(page, 'Seasons');
-  await clickButton(page, '+ Create New Season');
-  await page.waitForTimeout(UI_TIMING.STANDARD);
-  
-  await fillInput(page, 'input[placeholder*="Season Name"]', seasonData.name);
-  await fillInput(page, 'input[placeholder*="Year"]', seasonData.year);
-  
-  await clickButton(page, 'Create');
-  await page.waitForTimeout(UI_TIMING.NAVIGATION);
-  
-  // Verify season was created
-  await expect(page.getByText(seasonData.name).first()).toBeVisible();
-  console.log(`✓ Season created: ${seasonData.name}`);
-}
-
-/**
  * Create a new team
  * @param page - Playwright page object
  * @param teamData - Team data object with name, maxPlayers, and halfLength
- * @param seasonData - Season data to select the team's season
  * @param formationName - Optional formation name to select (with player count, e.g., "3-3-1 (7 players)")
  */
 export async function createTeam(
   page: Page, 
   teamData: { name: string; maxPlayers: string; halfLength: string },
-  seasonData: { name: string; year: string },
   formationName?: string
 ) {
   console.log(`Creating team: ${teamData.name}...`);
   
+  // Make sure we're on the Management page
+  const manageTab = page.locator('button.nav-item', { hasText: /Manage/i });
+  if (await manageTab.isVisible({ timeout: 1000 }).catch(() => false)) {
+    console.log('  Navigating to Management page...');
+    await manageTab.click();
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  }
+  
+  console.log('  Clicking Teams tab...');
   await clickManagementTab(page, 'Teams');
+  
+  console.log('  Clicking Create New Team button...');
   await clickButton(page, '+ Create New Team');
   await page.waitForTimeout(UI_TIMING.STANDARD);
   
-  // Select season
-  const seasonLabel = `${seasonData.name} (${seasonData.year})`;
-  await page.selectOption('select', { label: seasonLabel });
-  await page.waitForTimeout(UI_TIMING.QUICK);
-  
+  console.log('  Filling team form...');
   await fillInput(page, 'input[placeholder*="team name"]', teamData.name);
   await fillInput(page, 'input[placeholder*="max players"]', teamData.maxPlayers);
   await fillInput(page, 'input[placeholder*="half length"]', teamData.halfLength);
+  console.log(`    Name: ${teamData.name}, MaxPlayers: ${teamData.maxPlayers}, HalfLength: ${teamData.halfLength}`);
   
   // Select formation if provided
   if (formationName) {
-    const formationSelect = page.locator('select').nth(1); // Second select is for formation
+    console.log(`  Selecting formation: ${formationName}...`);
+    const formationSelect = page.locator('select');
     await formationSelect.selectOption({ label: formationName });
     await page.waitForTimeout(UI_TIMING.STANDARD);
   }
   
+  console.log('  Clicking Create button...');
   await clickButton(page, 'Create');
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+  
+  console.log('  Verifying team was created...');
   
   // Verify team was created
   await expect(page.locator('.item-card').filter({ hasText: teamData.name })).toBeVisible();

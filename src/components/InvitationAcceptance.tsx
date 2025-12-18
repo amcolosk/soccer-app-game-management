@@ -2,9 +2,7 @@ import { useState, useEffect } from 'react';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import {
-  acceptSeasonInvitation,
   acceptTeamInvitation,
-  declineSeasonInvitation,
   declineTeamInvitation
 } from '../services/invitationService';
 
@@ -18,7 +16,6 @@ interface InvitationAcceptanceProps {
 function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptanceProps) {
   const [loading, setLoading] = useState(true);
   const [invitation, setInvitation] = useState<any>(null);
-  const [invitationType, setInvitationType] = useState<'season' | 'team' | null>(null);
   const [resourceName, setResourceName] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -36,32 +33,13 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
     }
 
     try {
-      // Try loading as season invitation
-      const seasonInvResponse = await client.models.SeasonInvitation.get({
-        id: invitationId,
-      });
-
-      if (seasonInvResponse.data) {
-        setInvitation(seasonInvResponse.data);
-        setInvitationType('season');
-
-        // Load season name
-        const seasonResponse = await client.models.Season.get({
-          id: seasonInvResponse.data.seasonId,
-        });
-        setResourceName(seasonResponse.data?.name || 'Season');
-        setLoading(false);
-        return;
-      }
-
-      // Try loading as team invitation
+      // Load team invitation
       const teamInvResponse = await client.models.TeamInvitation.get({
         id: invitationId,
       });
 
       if (teamInvResponse.data) {
         setInvitation(teamInvResponse.data);
-        setInvitationType('team');
 
         // Load team name
         const teamResponse = await client.models.Team.get({
@@ -82,19 +60,14 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
   }
 
   async function handleAccept() {
-    if (!invitationId || !invitationType) return;
+    if (!invitationId) return;
 
     setProcessing(true);
     setMessage('');
     setError('');
 
     try {
-      if (invitationType === 'season') {
-        await acceptSeasonInvitation(invitationId);
-      } else {
-        await acceptTeamInvitation(invitationId);
-      }
-
+      await acceptTeamInvitation(invitationId);
       setMessage(`Successfully joined ${resourceName}!`);
       
       // Call onComplete callback after 2 seconds
@@ -110,7 +83,7 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
   }
 
   async function handleDecline() {
-    if (!invitationId || !invitationType) return;
+    if (!invitationId) return;
 
     if (!confirm('Are you sure you want to decline this invitation?')) {
       return;
@@ -121,12 +94,7 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
     setError('');
 
     try {
-      if (invitationType === 'season') {
-        await declineSeasonInvitation(invitationId);
-      } else {
-        await declineTeamInvitation(invitationId);
-      }
-
+      await declineTeamInvitation(invitationId);
       setMessage('Invitation declined');
       
       // Call onComplete callback after 2 seconds
@@ -196,25 +164,13 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
             </strong>
           </p>
 
-          {invitationType === 'season' && (
-            <p className="invitation-description">
-              As a {invitation.role === 'PARENT' ? 'parent' : 'coach'}, you'll be able to{' '}
-              {invitation.role === 'PARENT'
-                ? 'view season information, teams, and game schedules'
-                : 'help manage teams, schedule games, and track player stats'}
-              .
-            </p>
-          )}
-
-          {invitationType === 'team' && (
-            <p className="invitation-description">
-              As a {invitation.role === 'PARENT' ? 'parent' : 'coach'}, you'll be able to{' '}
-              {invitation.role === 'PARENT'
-                ? 'view team information and game schedules'
-                : 'help manage the roster, create lineups, and track games'}
-              .
-            </p>
-          )}
+          <p className="invitation-description">
+            As a {invitation.role === 'PARENT' ? 'parent' : 'coach'}, you'll be able to{' '}
+            {invitation.role === 'PARENT'
+              ? 'view team information and game schedules'
+              : 'help manage the roster, create lineups, and track games'}
+            .
+          </p>
 
           <p className="invitation-expiry">
             {isExpired ? (

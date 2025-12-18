@@ -2,9 +2,7 @@ import { useState, useEffect } from 'react';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import {
-  sendSeasonInvitation,
   sendTeamInvitation,
-  revokeSeasonPermission,
   revokeTeamPermission,
   type InvitationRole,
 } from '../services/invitationService';
@@ -12,7 +10,7 @@ import {
 const client = generateClient<Schema>();
 
 interface InvitationManagementProps {
-  type: 'season' | 'team';
+  type: 'team';
   resourceId: string;
   resourceName: string;
 }
@@ -35,31 +33,17 @@ export function InvitationManagement({
 
   async function loadData() {
     try {
-      if (type === 'season') {
-        // Load season permissions
-        const permsResponse = await client.models.SeasonPermission.list({
-          filter: { seasonId: { eq: resourceId } },
-        });
-        setPermissions(permsResponse.data || []);
+      // Load team permissions
+      const permsResponse = await client.models.TeamPermission.list({
+        filter: { teamId: { eq: resourceId } },
+      });
+      setPermissions(permsResponse.data || []);
 
-        // Load season invitations
-        const invsResponse = await client.models.SeasonInvitation.list({
-          filter: { seasonId: { eq: resourceId } },
-        });
-        setInvitations(invsResponse.data || []);
-      } else {
-        // Load team permissions
-        const permsResponse = await client.models.TeamPermission.list({
-          filter: { teamId: { eq: resourceId } },
-        });
-        setPermissions(permsResponse.data || []);
-
-        // Load team invitations
-        const invsResponse = await client.models.TeamInvitation.list({
-          filter: { teamId: { eq: resourceId } },
-        });
-        setInvitations(invsResponse.data || []);
-      }
+      // Load team invitations
+      const invsResponse = await client.models.TeamInvitation.list({
+        filter: { teamId: { eq: resourceId } },
+      });
+      setInvitations(invsResponse.data || []);
     } catch (error) {
       console.error('Error loading data:', error);
     }
@@ -84,12 +68,7 @@ export function InvitationManagement({
     setMessage('');
 
     try {
-      if (type === 'season') {
-        await sendSeasonInvitation(resourceId, inviteEmail, inviteRole);
-      } else {
-        await sendTeamInvitation(resourceId, inviteEmail, inviteRole);
-      }
-
+      await sendTeamInvitation(resourceId, inviteEmail, inviteRole);
       setMessage(`Invitation sent to ${inviteEmail}`);
       setInviteEmail('');
       await loadData();
@@ -107,12 +86,7 @@ export function InvitationManagement({
 
     setLoading(true);
     try {
-      if (type === 'season') {
-        await revokeSeasonPermission(permissionId);
-      } else {
-        await revokeTeamPermission(permissionId);
-      }
-
+      await revokeTeamPermission(permissionId);
       setMessage('Permission revoked successfully');
       await loadData();
     } catch (error: any) {
@@ -129,12 +103,7 @@ export function InvitationManagement({
 
     setLoading(true);
     try {
-      if (type === 'season') {
-        await client.models.SeasonInvitation.delete({ id: invitationId });
-      } else {
-        await client.models.TeamInvitation.delete({ id: invitationId });
-      }
-
+      await client.models.TeamInvitation.delete({ id: invitationId });
       setMessage('Invitation cancelled');
       await loadData();
     } catch (error: any) {
@@ -150,7 +119,7 @@ export function InvitationManagement({
     <div className="invitation-management">
       <h3>Sharing & Permissions: {resourceName}</h3>
       <p className="form-hint">
-        Invite coaches to help manage this {type}, or add parents for read-only access.
+        Invite coaches to help manage this team, or add parents for read-only access.
       </p>
 
       <form className="invite-form" onSubmit={handleSendInvite}>

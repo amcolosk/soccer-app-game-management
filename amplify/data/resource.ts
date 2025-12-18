@@ -2,27 +2,11 @@ import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
-- Season: Contains teams for a specific season
 - Team: Has players, formation, and field configuration
 - Player: Individual player on a team roster
 - FieldPosition: Positions used in the team's formation
 =========================================================================*/
 const schema = a.schema({
-  Season: a
-    .model({
-      name: a.string().required(),
-      year: a.string().required(),
-      startDate: a.date(),
-      endDate: a.date(),
-      isArchived: a.boolean().default(false),
-      ownerId: a.string().required(), // User ID of the season creator
-      teams: a.hasMany('Team', 'seasonId'),
-      permissions: a.hasMany('SeasonPermission', 'seasonId'),
-      invitations: a.hasMany('SeasonInvitation', 'seasonId'),
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
-    })
-    .authorization((allow) => [allow.owner()]),
-
   Formation: a
     .model({
       name: a.string().required(), // e.g., "4-3-3", "3-5-2"
@@ -47,8 +31,6 @@ const schema = a.schema({
   Team: a
     .model({
       name: a.string().required(),
-      seasonId: a.id().required(),
-      season: a.belongsTo('Season', 'seasonId'),
       ownerId: a.string().required(), // User ID of the team creator
       formationId: a.id(),
       formation: a.belongsTo('Formation', 'formationId'),
@@ -224,18 +206,6 @@ const schema = a.schema({
     })
     .authorization((allow) => [allow.owner()]),
 
-  SeasonPermission: a
-    .model({
-      seasonId: a.id().required(),
-      season: a.belongsTo('Season', 'seasonId'),
-      userId: a.string().required(),
-      role: a.enum(['OWNER', 'COACH', 'READ_ONLY']),
-      grantedAt: a.datetime().required(),
-      grantedBy: a.string().required(), // userId who granted this permission
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
-    })
-    .authorization((allow) => [allow.owner()]),
-
   TeamPermission: a
     .model({
       teamId: a.id().required(),
@@ -247,24 +217,6 @@ const schema = a.schema({
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
     .authorization((allow) => [allow.owner()]),
-
-  SeasonInvitation: a
-    .model({
-      seasonId: a.id().required(),
-      season: a.belongsTo('Season', 'seasonId'),
-      email: a.string().required(),
-      role: a.enum(['OWNER', 'COACH', 'PARENT']),
-      status: a.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED']),
-      invitedBy: a.string().required(), // userId who sent invite
-      invitedAt: a.datetime().required(),
-      expiresAt: a.datetime().required(),
-      acceptedAt: a.datetime(),
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
-    })
-    .authorization((allow) => [
-      allow.owner(),
-      allow.authenticated().to(['read', 'update']), // Allow any authenticated user to read and accept/decline
-    ]),
 
   TeamInvitation: a
     .model({

@@ -4,7 +4,7 @@ import { generateClient } from "aws-amplify/data";
 import { Home } from "./components/Home";
 import { GameManagement } from "./components/GameManagement";
 import { UserProfile } from "./components/UserProfile";
-import { SeasonReport } from "./components/SeasonReport";
+import { TeamReport } from "./components/SeasonReport";
 import { Management } from "./components/Management";
 import InvitationAcceptance from "./components/InvitationAcceptance";
 import type { Team } from "./types";
@@ -127,7 +127,7 @@ function App() {
       )}
 
       {activeNav === 'reports' && selectedTeam && (
-        <SeasonReport team={selectedTeam} />
+        <TeamReport team={selectedTeam} />
       )}
 
       {activeNav === 'reports' && !selectedTeam && (

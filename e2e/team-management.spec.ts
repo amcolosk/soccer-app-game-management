@@ -8,7 +8,6 @@ import {
   loginUser,
   navigateToManagement,
   clickManagementTab,
-  createSeason,
   createTeam,
   handleConfirmDialog,
   UI_TIMING,
@@ -22,10 +21,6 @@ import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
 // Test data
 const TEST_DATA = {
-  season: {
-    name: 'Test Season',
-    year: '2025',
-  },
   team1: {
     name: 'Thunder FC U10',
     maxPlayers: '7',
@@ -66,13 +61,8 @@ test.describe('Team Management CRUD', () => {
     await cleanupTestData(page);
     console.log('');
     
-    // Create test season
-    console.log('Step 4: Create test season');
-    await createSeason(page, TEST_DATA.season);
-    console.log('');
-    
     // ===== CREATE: Create first team =====
-    console.log('Step 5: CREATE - Create first team');
+    console.log('Step 4: CREATE - Create first team');
     await clickManagementTab(page, 'Teams');
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
@@ -90,11 +80,6 @@ test.describe('Team Management CRUD', () => {
     await expect(page.locator('h3:has-text("Create New Team")')).toBeVisible();
     console.log('  ✓ Create form visible');
     
-    // Select season
-    const seasonLabel = `${TEST_DATA.season.name} (${TEST_DATA.season.year})`;
-    await page.selectOption('select', { label: seasonLabel });
-    await page.waitForTimeout(UI_TIMING.QUICK);
-    
     // Fill in team details
     await fillInput(page, 'input[placeholder*="team name"]', TEST_DATA.team1.name);
     await fillInput(page, 'input[placeholder*="max players"]', TEST_DATA.team1.maxPlayers);
@@ -110,12 +95,10 @@ test.describe('Team Management CRUD', () => {
     console.log('  ✓ Team created\n');
     
     // ===== CREATE: Create second team =====
-    console.log('Step 6: CREATE - Create second team');
+    console.log('Step 5: CREATE - Create second team');
     await clickButton(page, '+ Create New Team');
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
-    await page.selectOption('select', { label: seasonLabel });
-    await page.waitForTimeout(UI_TIMING.QUICK);
     await fillInput(page, 'input[placeholder*="team name"]', TEST_DATA.team2.name);
     await fillInput(page, 'input[placeholder*="max players"]', TEST_DATA.team2.maxPlayers);
     await fillInput(page, 'input[placeholder*="half length"]', TEST_DATA.team2.halfLength);
@@ -127,7 +110,7 @@ test.describe('Team Management CRUD', () => {
     console.log('  ✓ Second team created\n');
     
     // ===== READ: Verify both teams are listed =====
-    console.log('Step 7: READ - Verify teams list');
+    console.log('Step 6: READ - Verify teams list');
     const teamCards = page.locator('.item-card');
     const teamCount = await teamCards.count();
     expect(teamCount).toBe(2);
@@ -138,7 +121,6 @@ test.describe('Team Management CRUD', () => {
     await expect(team1Card.locator('h3')).toContainText(TEST_DATA.team1.name);
     await expect(team1Card.locator('.item-meta').first()).toContainText(`${TEST_DATA.team1.maxPlayers} players`);
     await expect(team1Card.locator('.item-meta').first()).toContainText(`${TEST_DATA.team1.halfLength} min halves`);
-    await expect(team1Card.locator('.item-meta').first()).toContainText(TEST_DATA.season.name);
     console.log('  ✓ Team 1 details verified');
     
     // Verify second team details
@@ -149,7 +131,7 @@ test.describe('Team Management CRUD', () => {
     console.log('  ✓ Team 2 details verified\n');
     
     // ===== UPDATE: Update first team (Note: Current implementation doesn't have edit, only delete) =====
-    console.log('Step 8: UPDATE - Verify update capability');
+    console.log('Step 7: UPDATE - Verify update capability');
     // Note: The current Management component doesn't have an edit/update feature for teams
     // Teams can only be created and deleted, not updated in the UI
     // We'll verify that the team data persists correctly after page reload
@@ -168,7 +150,7 @@ test.describe('Team Management CRUD', () => {
     console.log('  ℹ Note: Team update UI not available, only create/delete\n');
     
     // ===== DELETE: Delete second team =====
-    console.log('Step 9: DELETE - Delete second team');
+    console.log('Step 8: DELETE - Delete second team');
     
     // Set up dialog handler
     const cleanupDialog = handleConfirmDialog(page);
@@ -227,7 +209,6 @@ test.describe('Team Management CRUD', () => {
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
     await cleanupTestData(page);
-    await createSeason(page, TEST_DATA.season);
     
     await clickManagementTab(page, 'Teams');
     await clickButton(page, '+ Create New Team');
@@ -263,15 +244,12 @@ test.describe('Team Management CRUD', () => {
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
     await cleanupTestData(page);
-    await createSeason(page, TEST_DATA.season);
     
     // Create a test team
     await clickManagementTab(page, 'Teams');
     await clickButton(page, '+ Create New Team');
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
-    const seasonLabel = `${TEST_DATA.season.name} (${TEST_DATA.season.year})`;
-    await page.selectOption('select', { label: seasonLabel });
     await fillInput(page, 'input[placeholder*="team name"]', 'Test Team for Deletion');
     await fillInput(page, 'input[placeholder*="max players"]', '7');
     await fillInput(page, 'input[placeholder*="half length"]', '25');
@@ -326,9 +304,6 @@ test.describe('Team Management CRUD', () => {
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
     await cleanupTestData(page);
-    
-    // Create test season
-    await createSeason(page, TEST_DATA.season);
     console.log('');
     
     // Create a test formation
@@ -374,18 +349,13 @@ test.describe('Team Management CRUD', () => {
     await clickButton(page, '+ Create New Team');
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
-    // Select season (first select element)
-    const seasonLabel = `${TEST_DATA.season.name} (${TEST_DATA.season.year})`;
-    await page.locator('select').first().selectOption({ label: seasonLabel });
-    await page.waitForTimeout(UI_TIMING.QUICK);
-    
     // Fill in team details
     await fillInput(page, 'input[placeholder*="team name"]', 'Formation Test Team');
     await fillInput(page, 'input[placeholder*="max players"]', '7');
     await fillInput(page, 'input[placeholder*="half length"]', '25');
     
-    // Select formation (second select element)
-    await page.locator('select').nth(1).selectOption({ label: '4-3-3 (7 players)' });
+    // Select formation
+    await page.locator('select').selectOption({ label: '4-3-3 (7 players)' });
     await page.waitForTimeout(UI_TIMING.QUICK);
     console.log('✓ Formation selected');
     

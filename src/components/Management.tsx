@@ -7,7 +7,6 @@ import type { Schema } from '../../amplify/data/resource';
 
 const client = generateClient<Schema>();
 
-type Season = Schema['Season']['type'];
 type Team = Schema['Team']['type'];
 type Player = Schema['Player']['type'];
 type TeamRoster = Schema['TeamRoster']['type'];
@@ -15,32 +14,23 @@ type Formation = Schema['Formation']['type'];
 type FormationPosition = Schema['FormationPosition']['type'];
 
 export function Management() {
-  const [seasons, setSeasons] = useState<Season[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [teamRosters, setTeamRosters] = useState<TeamRoster[]>([]);
   const [formations, setFormations] = useState<Formation[]>([]);
   const [formationPositions, setFormationPositions] = useState<FormationPosition[]>([]);
-  const [activeSection, setActiveSection] = useState<'seasons' | 'teams' | 'formations' | 'players' | 'sharing' | 'app'>('seasons');
+  const [activeSection, setActiveSection] = useState<'teams' | 'formations' | 'players' | 'sharing' | 'app'>('teams');
   const [showBugReport, setShowBugReport] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>('');
 
   // Sharing state
-  const [sharingResourceType, setSharingResourceType] = useState<'season' | 'team' | null>(null);
+  const [sharingResourceType, setSharingResourceType] = useState<'team' | null>(null);
   const [sharingResourceId, setSharingResourceId] = useState<string>('');
   const [sharingResourceName, setSharingResourceName] = useState<string>('');
-
-  // Season form state
-  const [isCreatingSeason, setIsCreatingSeason] = useState(false);
-  const [editingSeason, setEditingSeason] = useState<Season | null>(null);
-  const [newSeasonName, setNewSeasonName] = useState('');
-  const [newSeasonYear, setNewSeasonYear] = useState('');
-  const [isArchived, setIsArchived] = useState(false);
 
   // Team form state
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
-  const [selectedSeasonForTeam, setSelectedSeasonForTeam] = useState('');
   const [teamName, setTeamName] = useState('');
   const [maxPlayers, setMaxPlayers] = useState('7');
   const [halfLength, setHalfLength] = useState('25');
@@ -69,9 +59,12 @@ export function Management() {
   useEffect(() => {
     loadCurrentUser();
     loadTeamsWithPermissions();
-    
-    const seasonSub = client.models.Season.observeQuery().subscribe({
-      next: (data) => setSeasons([...data.items]),
+
+    const teamSub = client.models.Team.observeQuery().subscribe({
+      next: () => {
+        // Reload teams when any team changes
+        loadTeamsWithPermissions();
+      },
     });
 
     const playerSub = client.models.Player.observeQuery().subscribe({
@@ -91,7 +84,7 @@ export function Management() {
     });
 
     return () => {
-      seasonSub.unsubscribe();
+      teamSub.unsubscribe();
       playerSub.unsubscribe();
       rosterSub.unsubscribe();
       formationSub.unsubscribe();
@@ -132,13 +125,13 @@ export function Management() {
       const permittedTeamsResponses = await Promise.all(permittedTeamsPromises);
       const permittedTeams = permittedTeamsResponses
         .map(r => r.data)
-        .filter((t): t is Team => t !== null && t !== undefined);
+        .filter((t): t is NonNullable<typeof t> => t !== null && t !== undefined);
       
       // Combine and deduplicate
       const allTeamsMap = new Map<string, Team>();
       [...ownedTeams, ...permittedTeams].forEach(team => {
         if (team && team.id) {
-          allTeamsMap.set(team.id, team);
+          allTeamsMap.set(team.id, team as Team);
         }
       });
       
@@ -148,86 +141,9 @@ export function Management() {
     }
   }
 
-  const handleCreateSeason = async () => {
-    if (!newSeasonName.trim() || !newSeasonYear.trim()) {
-      alert('Please enter both season name and year');
-      return;
-    }
-
-    if (!currentUserId) {
-      alert('User not authenticated');
-      return;
-    }
-
-    try {
-      await client.models.Season.create({
-        name: newSeasonName,
-        year: newSeasonYear,
-        ownerId: currentUserId,
-      });
-      setNewSeasonName('');
-      setNewSeasonYear('');
-      setIsCreatingSeason(false);
-    } catch (error) {
-      console.error('Error creating season:', error);
-      alert('Failed to create season');
-    }
-  };
-
-  const handleEditSeason = (season: Season) => {
-    setEditingSeason(season);
-    setNewSeasonName(season.name);
-    setNewSeasonYear(season.year);
-    setIsArchived(season.isArchived || false);
-    setIsCreatingSeason(false);
-  };
-
-  const handleUpdateSeason = async () => {
-    if (!editingSeason) return;
-    
-    if (!newSeasonName.trim() || !newSeasonYear.trim()) {
-      alert('Please enter both season name and year');
-      return;
-    }
-
-    try {
-      await client.models.Season.update({
-        id: editingSeason.id,
-        name: newSeasonName,
-        year: newSeasonYear,
-        isArchived: isArchived,
-      });
-      setNewSeasonName('');
-      setNewSeasonYear('');
-      setIsArchived(false);
-      setEditingSeason(null);
-    } catch (error) {
-      console.error('Error updating season:', error);
-      alert('Failed to update season');
-    }
-  };
-
-  const handleCancelSeasonEdit = () => {
-    setEditingSeason(null);
-    setNewSeasonName('');
-    setNewSeasonYear('');
-    setIsArchived(false);
-  };
-
-  const handleDeleteSeason = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this season? This will also delete all teams, players, and games associated with it.')) {
-      try {
-        await client.models.Season.delete({ id });
-      } catch (error) {
-        console.error('Error deleting season:', error);
-        alert('Failed to delete season');
-      }
-    }
-  };
-
   const handleCreateTeam = async () => {
-    if (!teamName.trim() || !selectedSeasonForTeam) {
-      alert('Please enter team name and select a season');
+    if (!teamName.trim()) {
+      alert('Please enter team name');
       return;
     }
 
@@ -251,7 +167,6 @@ export function Management() {
     try {
       await client.models.Team.create({
         name: teamName,
-        seasonId: selectedSeasonForTeam,
         ownerId: currentUserId,
         formationId: selectedFormation || undefined,
         maxPlayersOnField: maxPlayersNum,
@@ -261,7 +176,6 @@ export function Management() {
       setMaxPlayers('7');
       setHalfLength('25');
       setSelectedFormation('');
-      setSelectedSeasonForTeam('');
       setIsCreatingTeam(false);
     } catch (error) {
       console.error('Error creating team:', error);
@@ -272,7 +186,6 @@ export function Management() {
   const handleEditTeam = (team: Team) => {
     setEditingTeam(team);
     setTeamName(team.name);
-    setSelectedSeasonForTeam(team.seasonId);
     setMaxPlayers(team.maxPlayersOnField.toString());
     setHalfLength((team.halfLengthMinutes || 30).toString());
     setSelectedFormation(team.formationId || '');
@@ -282,8 +195,8 @@ export function Management() {
   const handleUpdateTeam = async () => {
     if (!editingTeam) return;
 
-    if (!teamName.trim() || !selectedSeasonForTeam) {
-      alert('Please enter team name and select a season');
+    if (!teamName.trim()) {
+      alert('Please enter team name');
       return;
     }
 
@@ -303,7 +216,6 @@ export function Management() {
       await client.models.Team.update({
         id: editingTeam.id,
         name: teamName,
-        seasonId: selectedSeasonForTeam,
         formationId: selectedFormation || undefined,
         maxPlayersOnField: maxPlayersNum,
         halfLengthMinutes: halfLengthNum,
@@ -312,7 +224,6 @@ export function Management() {
       setMaxPlayers('7');
       setHalfLength('25');
       setSelectedFormation('');
-      setSelectedSeasonForTeam('');
       setEditingTeam(null);
     } catch (error) {
       console.error('Error updating team:', error);
@@ -326,7 +237,6 @@ export function Management() {
     setMaxPlayers('7');
     setHalfLength('25');
     setSelectedFormation('');
-    setSelectedSeasonForTeam('');
   };
 
   const handleDeleteTeam = async (id: string) => {
@@ -338,10 +248,6 @@ export function Management() {
         alert('Failed to delete team');
       }
     }
-  };
-
-  const getSeasonName = (seasonId: string) => {
-    return seasons.find(s => s.id === seasonId)?.name || 'Unknown Season';
   };
 
   const handleAddPlayerToRoster = async (teamId: string) => {
@@ -667,12 +573,6 @@ export function Management() {
 
       <div className="management-tabs">
         <button
-          className={`management-tab ${activeSection === 'seasons' ? 'active' : ''}`}
-          onClick={() => setActiveSection('seasons')}
-        >
-          Seasons ({seasons.length})
-        </button>
-        <button
           className={`management-tab ${activeSection === 'teams' ? 'active' : ''}`}
           onClick={() => setActiveSection('teams')}
         >
@@ -704,117 +604,6 @@ export function Management() {
         </button>
       </div>
 
-      {activeSection === 'seasons' && (
-        <div className="management-section">
-          {!isCreatingSeason && !editingSeason && (
-            <button onClick={() => setIsCreatingSeason(true)} className="btn-primary">
-              + Create New Season
-            </button>
-          )}
-
-          {editingSeason && (
-            <div className="create-form">
-              <h3>Edit Season</h3>
-              <input
-                type="text"
-                placeholder="Season Name (e.g., Fall League)"
-                value={newSeasonName}
-                onChange={(e) => setNewSeasonName(e.target.value)}
-              />
-              <input
-                type="text"
-                placeholder="Year (e.g., 2025)"
-                value={newSeasonYear}
-                onChange={(e) => setNewSeasonYear(e.target.value)}
-              />
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={isArchived}
-                  onChange={(e) => setIsArchived(e.target.checked)}
-                />
-                <span>Archive this season (completed seasons)</span>
-              </label>
-              <div className="form-actions">
-                <button onClick={handleUpdateSeason} className="btn-primary">
-                  Update
-                </button>
-                <button onClick={handleCancelSeasonEdit} className="btn-secondary">
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          {isCreatingSeason && (
-            <div className="create-form">
-              <h3>Create New Season</h3>
-              <input
-                type="text"
-                placeholder="Season Name (e.g., Fall League)"
-                value={newSeasonName}
-                onChange={(e) => setNewSeasonName(e.target.value)}
-              />
-              <input
-                type="text"
-                placeholder="Year (e.g., 2025)"
-                value={newSeasonYear}
-                onChange={(e) => setNewSeasonYear(e.target.value)}
-              />
-              <div className="form-actions">
-                <button onClick={handleCreateSeason} className="btn-primary">
-                  Create
-                </button>
-                <button
-                  onClick={() => {
-                    setIsCreatingSeason(false);
-                    setNewSeasonName('');
-                    setNewSeasonYear('');
-                  }}
-                  className="btn-secondary"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="items-list">
-            {seasons.length === 0 ? (
-              <p className="empty-message">No seasons yet. Create your first season to get started!</p>
-            ) : (
-              seasons.map((season) => (
-                <div key={season.id} className={`item-card ${season.isArchived ? 'archived' : ''}`}>
-                  <div className="item-info">
-                    <h3>
-                      {season.name}
-                      {season.isArchived && <span className="archive-badge">📦 Archived</span>}
-                    </h3>
-                    <p>{season.year}</p>
-                  </div>
-                  <div className="card-actions">
-                    <button
-                      onClick={() => handleEditSeason(season)}
-                      className="btn-edit"
-                      aria-label="Edit season"
-                    >
-                      ✎
-                    </button>
-                    <button
-                      onClick={() => handleDeleteSeason(season.id)}
-                      className="btn-delete"
-                      aria-label="Delete season"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-
       {activeSection === 'teams' && (
         <div className="management-section">
           {!isCreatingTeam && !editingTeam && (
@@ -826,20 +615,6 @@ export function Management() {
           {editingTeam && (
             <div className="create-form">
               <h3>Edit Team</h3>
-              <label>
-                Season *
-                <select
-                  value={selectedSeasonForTeam}
-                  onChange={(e) => setSelectedSeasonForTeam(e.target.value)}
-                >
-                  <option value="">Select Season</option>
-                  {seasons.map((season) => (
-                    <option key={season.id} value={season.id}>
-                      {season.name} ({season.year})
-                    </option>
-                  ))}
-                </select>
-              </label>
               <label>
                 Team Name *
                 <input
@@ -901,20 +676,6 @@ export function Management() {
             <div className="create-form">
               <h3>Create New Team</h3>
               <label>
-                Season *
-                <select
-                  value={selectedSeasonForTeam}
-                  onChange={(e) => setSelectedSeasonForTeam(e.target.value)}
-                >
-                  <option value="">Select Season</option>
-                  {seasons.map((season) => (
-                    <option key={season.id} value={season.id}>
-                      {season.name} ({season.year})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
                 Team Name *
                 <input
                   type="text"
@@ -968,7 +729,6 @@ export function Management() {
                     setMaxPlayers('7');
                     setHalfLength('25');
                     setSelectedFormation('');
-                    setSelectedSeasonForTeam('');
                   }}
                   className="btn-secondary"
                 >
@@ -992,7 +752,7 @@ export function Management() {
                       <div className="item-info">
                         <h3>{team.name}</h3>
                         <p className="item-meta">
-                          {getSeasonName(team.seasonId)} • {team.maxPlayersOnField} players • {team.halfLengthMinutes} min halves
+                          {team.maxPlayersOnField} players • {team.halfLengthMinutes} min halves
                           {getFormationName(team.formationId) && (
                             <> • Formation: {getFormationName(team.formationId)}</>
                           )}
@@ -1496,49 +1256,22 @@ export function Management() {
         <div className="management-section">
           <h2>Sharing & Permissions</h2>
           <p className="section-description">
-            Manage who has access to your seasons and teams. Invite other coaches to collaborate or add parents for read-only access.
+            Manage who has access to your teams. Invite other coaches to collaborate or add parents for read-only access.
           </p>
 
           {!sharingResourceType && (
             <div className="sharing-selection">
-              <h3>Select what to share:</h3>
+              <h3>Select a team to share:</h3>
               
               <div className="resource-list">
-                <h4>Seasons</h4>
-                {seasons.length === 0 ? (
-                  <p className="empty-message">No seasons yet</p>
-                ) : (
-                  seasons.map((season) => (
-                    <div key={season.id} className="resource-item">
-                      <div className="resource-info">
-                        <strong>{season.name}</strong>
-                        <span className="resource-meta">{season.year}</span>
-                      </div>
-                      <button
-                        onClick={() => {
-                          setSharingResourceType('season');
-                          setSharingResourceId(season.id);
-                          setSharingResourceName(season.name);
-                        }}
-                        className="btn-primary"
-                      >
-                        Manage Sharing
-                      </button>
-                    </div>
-                  ))
-                )}
-
-                <h4 style={{ marginTop: '30px' }}>Teams</h4>
                 {teams.length === 0 ? (
                   <p className="empty-message">No teams yet</p>
                 ) : (
                   teams.map((team) => {
-                    const season = seasons.find((s) => s.id === team.seasonId);
                     return (
                       <div key={team.id} className="resource-item">
                         <div className="resource-info">
                           <strong>{team.name}</strong>
-                          <span className="resource-meta">{season?.name || 'Unknown Season'}</span>
                         </div>
                         <button
                           onClick={() => {

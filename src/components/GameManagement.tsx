@@ -86,7 +86,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     localStorage.setItem('activeGame', JSON.stringify({
       gameId: game.id,
       teamId: team.id,
-      seasonId: team.seasonId,
     }));
 
     return () => {
@@ -95,7 +94,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         localStorage.removeItem('activeGame');
       }
     };
-  }, [game.id, team.id, team.seasonId, gameState.status]);
+  }, [game.id, team.id, gameState.status]);
 
   // Observe game changes and restore state
   useEffect(() => {

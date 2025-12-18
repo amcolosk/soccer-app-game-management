@@ -12,7 +12,6 @@ import {
   loginUser,
   cleanupTestData,
   clickManagementTab,
-  createSeason,
   createFormation,
   createTeam,
   handleConfirmDialog,
@@ -22,15 +21,11 @@ import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
 /**
  * Comprehensive E2E Test Suite for Soccer App
- * Tests the complete workflow from login to season reporting
+ * Tests the complete workflow from login to team reporting
  */
 
 // Test data
 const TEST_DATA = {
-  season: {
-    name: 'Fall 2025',
-    year: '2025',
-  },
   formation: {
     name: '3-3-1',
     playerCount: '7',
@@ -131,8 +126,10 @@ async function addPlayersToRoster(page: Page) {
       await page.waitForTimeout(UI_TIMING.QUICK);
     }
     
-    await clickButton(page, 'Add');
-    await page.waitForTimeout(UI_TIMING.NAVIGATION);
+    // Click the Add button in the form
+    const addButton = page.locator('.form-actions button.btn-primary', { hasText: 'Add' });
+    await addButton.click();
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify player was added to roster
     const rosterEntry = `#${player.number} ${player.firstName} ${player.lastName}`;
@@ -159,7 +156,7 @@ async function createGame(page: Page, gameData: { opponent: string; date: string
   await waitForPageLoad(page);
   
   // Select team from dropdown
-  await page.selectOption('select', { label: `${TEST_DATA.team.name} (${TEST_DATA.season.name})` });
+  await page.selectOption('select', { label: TEST_DATA.team.name });
   await page.waitForTimeout(UI_TIMING.STANDARD);
   
   // Fill game form
@@ -529,9 +526,9 @@ async function runGame(page: Page, gameNumber: number = 1) {
   }
 }
 
-// Helper to verify season totals
-async function verifySeasonTotals(page: Page, gameData: any) {
-  console.log('Verifying season totals...');
+// Helper to verify team totals
+async function verifyTeamTotals(page: Page, gameData: any) {
+  console.log('Verifying team totals...');
   
   // Wait for DynamoDB eventual consistency - PlayTimeRecords may take time to fully propagate
   console.log('Waiting for data to settle (DynamoDB eventual consistency)...');
@@ -600,7 +597,7 @@ async function verifySeasonTotals(page: Page, gameData: any) {
 
 // Main test
 test.describe('Soccer App Full Workflow', () => {
-  test('Complete workflow from login to season reporting', async ({ page }) => {
+  test('Complete workflow from login to team reporting', async ({ page }) => {
     test.setTimeout(TEST_CONFIG.timeout.long); // 3 minutes for full workflow
     
     console.log('\n=== Starting E2E Test Suite ===\n');
@@ -615,71 +612,66 @@ test.describe('Soccer App Full Workflow', () => {
     await cleanupTestData(page);
     console.log('');
     
-    // Step 2: Create Season
-    console.log('Step 2: Create Season');
-    await createSeason(page, TEST_DATA.season);
-    console.log('');
-    
-    // Step 3: Create Formation with Positions
-    console.log('Step 3: Create Formation with Positions');
+    // Step 2: Create Formation with Positions
+    console.log('Step 2: Create Formation with Positions');
     await createFormation(page, TEST_DATA.formation);
     console.log('');
     
-    // Step 4: Create Team with Formation
-    console.log('Step 4: Create Team');
+    // Step 3: Create Team with Formation
+    console.log('Step 3: Create Team');
     const formationLabel = `${TEST_DATA.formation.name} (${TEST_DATA.formation.playerCount} players)`;
-    await createTeam(page, TEST_DATA.team, TEST_DATA.season, formationLabel);
+    await createTeam(page, TEST_DATA.team, formationLabel);
     console.log('');
     
-    // Step 5: Create Players Globally
-    console.log('Step 5: Create Players');
+    // Step 4: Create Players Globally
+    console.log('Step 4: Create Players');
     await createPlayers(page);
     console.log('');
     
-    // Step 6: Add Players to Team Roster
-    console.log('Step 6: Add Players to Team Roster');
+    // Step 5: Add Players to Team Roster
+    console.log('Step 5: Add Players to Team Roster');
     await addPlayersToRoster(page);
     console.log('');
     
-    // Step 7: Create Game 1
-    console.log('Step 7: Create Game 1');
+    // Step 6: Create Game 1
+    console.log('Step 6: Create Game 1');
     await createGame(page, TEST_DATA.game1);
     console.log('');
     
-    // Step 8: Setup Lineup for Game 1
-    console.log('Step 8: Setup Lineup for Game 1');
+    // Step 7: Setup Lineup for Game 1
+    console.log('Step 7: Setup Lineup for Game 1');
     await setupLineup(page, TEST_DATA.game1.opponent);
     console.log('');
     
-    // Step 9: Run Game 1
-    console.log('Step 9: Run Game 1 Simulation');
+    // Step 8: Run Game 1
+    console.log('Step 8: Run Game 1 Simulation');
     const game1Data = await runGame(page, 1);
     console.log('');
     
-    // Step 10: Create Game 2
-    console.log('Step 10: Create Game 2');
+    // Step 9: Create Game 2
+    console.log('Step 9: Create Game 2');
     await createGame(page, TEST_DATA.game2);
     console.log('');
     
-    // Step 11: Setup Lineup for Game 2
-    console.log('Step 11: Setup Lineup for Game 2');
+    // Step 10: Setup Lineup for Game 2
+    console.log('Step 10: Setup Lineup for Game 2');
     await setupLineup(page, TEST_DATA.game2.opponent);
     console.log('');
     
-    // Step 12: Run Game 2
-    console.log('Step 12: Run Game 2 Simulation');
+    // Step 11: Run Game 2
+    console.log('Step 11: Run Game 2 Simulation');
     const game2Data = await runGame(page, 2);
     console.log('');
     
-    // Step 13: Verify Season Totals
-    console.log('Step 13: Verify Season Totals (Both Games)');
+    // Step 12: Verify Team Totals
+    console.log('Step 12: Verify Team Totals (Both Games)');
     const aggregateData = {
       goals: game1Data.goals + game2Data.goals,
       assists: game1Data.assists + game2Data.assists,
       goldStars: game1Data.goldStars + game2Data.goldStars,
       scorers: [...new Set([...game1Data.scorers, ...game2Data.scorers])],
     };
-    await verifySeasonTotals(page, aggregateData);
+    await verifyTeamTotals(page, aggregateData);
     console.log('');
     
     console.log('=== E2E Test Suite Completed Successfully ===\n');

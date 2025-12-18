@@ -6,6 +6,9 @@ import {
   clickButtonByText,
   loginUser,
   closePWAPrompt,
+  navigateToManagement,
+  clickManagementTab,
+  UI_TIMING,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -14,7 +17,7 @@ import { TEST_USERS, TEST_CONFIG } from '../test-config';
  * Verifies that data created by one user is not visible to another user
  */
 
-const TEST_SEASON_NAME = 'Private Season 2025';
+const TEST_TEAM_NAME = 'Private Team FC';
 
 // Helper to logout
 async function logout(page: Page) {
@@ -34,39 +37,41 @@ async function logout(page: Page) {
 }
 
 test.describe.serial('Data Isolation Between Users', () => {
-  test('User 1 creates a season', async ({ page }) => {
+  test('User 1 creates a team', async ({ page }) => {
     test.setTimeout(TEST_CONFIG.timeout.medium);
     
-    console.log('\n=== User 1: Creating Season ===');
+    console.log('\n=== User 1: Creating Team ===');
     
     // Login as User 1
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     console.log('✓ User 1 logged in');
     
     // Navigate to Management tab
-    await page.getByRole('button', { name: /manage/i }).click();
-    await waitForPageLoad(page);
+    await navigateToManagement(page);
+    await clickManagementTab(page, 'Teams');
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
-    // Create a season
-    await clickButton(page, '+ Create New Season');
-    await waitForPageLoad(page);
+    // Create a team
+    await clickButton(page, '+ Create New Team');
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
-    await fillInput(page, 'input[placeholder*="Season Name (e.g., Fall League)"]', TEST_SEASON_NAME);
-    await fillInput(page, 'input[placeholder*="Year (e.g., 2025)"]', '2025');
+    await fillInput(page, 'input[placeholder*="team name"]', TEST_TEAM_NAME);
+    await fillInput(page, 'input[placeholder*="max players"]', '7');
+    await fillInput(page, 'input[placeholder*="half length"]', '25');
     
     await clickButton(page, 'Create');
-    await waitForPageLoad(page);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
-    // Verify season was created
-    await expect(page.getByText(TEST_SEASON_NAME)).toBeVisible();
-    console.log(`✓ User 1 created season: ${TEST_SEASON_NAME}`);
+    // Verify team was created
+    await expect(page.locator('.item-card').filter({ hasText: TEST_TEAM_NAME })).toBeVisible();
+    console.log(`✓ User 1 created team: ${TEST_TEAM_NAME}`);
     
     // Logout
     await logout(page);
     console.log('✓ User 1 logged out\n');
   });
   
-  test('User 2 cannot see User 1\'s season', async ({ page }) => {
+  test('User 2 cannot see User 1\'s team', async ({ page }) => {
     test.setTimeout(TEST_CONFIG.timeout.medium);
     
     console.log('=== User 2: Verifying Data Isolation ===');
@@ -76,23 +81,21 @@ test.describe.serial('Data Isolation Between Users', () => {
     console.log('✓ User 2 logged in');
     
     // Navigate to Management tab
-    await page.getByRole('button', { name: /manage/i }).click();
-    await waitForPageLoad(page);
+    await navigateToManagement(page);
+    await clickManagementTab(page, 'Teams');
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
-    // Wait for season list to load
-    await page.waitForTimeout(1000);
-    
-    // Verify User 1's season is NOT visible
-    const seasonCard = page.getByText(TEST_SEASON_NAME);
-    const isVisible = await seasonCard.isVisible({ timeout: 2000 }).catch(() => false);
+    // Verify User 1's team is NOT visible
+    const teamCard = page.locator('.item-card').filter({ hasText: TEST_TEAM_NAME });
+    const isVisible = await teamCard.isVisible({ timeout: 2000 }).catch(() => false);
     
     expect(isVisible).toBe(false);
-    console.log(`✓ User 2 cannot see "${TEST_SEASON_NAME}"`);
+    console.log(`✓ User 2 cannot see "${TEST_TEAM_NAME}"`);
     
-    // Verify User 2 sees empty state or their own seasons only
-    const createButton = page.getByRole('button', { name: '+ Create New Season' });
+    // Verify User 2 sees empty state or their own teams only
+    const createButton = page.getByRole('button', { name: '+ Create New Team' });
     await expect(createButton).toBeVisible();
-    console.log('✓ User 2 sees their own empty season list');
+    console.log('✓ User 2 sees their own empty team list');
     
     console.log('✓ Data isolation verified\n');
   });

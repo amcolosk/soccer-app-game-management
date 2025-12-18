@@ -20,19 +20,10 @@ backend.sendInvitationEmail.resources.lambda.addToRolePolicy(
   })
 );
 
-// Get the DynamoDB tables for invitations
-const seasonInvitationTable = backend.data.resources.tables['SeasonInvitation'];
+// Get the DynamoDB table for team invitations
 const teamInvitationTable = backend.data.resources.tables['TeamInvitation'];
 
-// Add DynamoDB Stream event sources to trigger email sending
-backend.sendInvitationEmail.resources.lambda.addEventSource(
-  new DynamoEventSource(seasonInvitationTable, {
-    startingPosition: StartingPosition.LATEST,
-    batchSize: 1,
-    retryAttempts: 3,
-  })
-);
-
+// Add DynamoDB Stream event source to trigger email sending
 backend.sendInvitationEmail.resources.lambda.addEventSource(
   new DynamoEventSource(teamInvitationTable, {
     startingPosition: StartingPosition.LATEST,

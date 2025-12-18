@@ -27,7 +27,7 @@ type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
 type Game = Schema["Game"]["type"];
 type FormationPosition = Schema["FormationPosition"]["type"];
 
-interface SeasonReportProps {
+interface TeamReportProps {
   team: Team;
 }
 
@@ -53,7 +53,7 @@ interface PlayerDetails {
   playTimeByPosition: Map<string, number>;
 }
 
-export function SeasonReport({ team }: SeasonReportProps) {
+export function TeamReport({ team }: TeamReportProps) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [playerStats, setPlayerStats] = useState<PlayerStats[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,13 +71,13 @@ export function SeasonReport({ team }: SeasonReportProps) {
   const [teamRosters, setTeamRosters] = useState<TeamRoster[]>([]);
 
   useEffect(() => {
-    loadSeasonData();
+    loadTeamData();
     
     // Subscribe to PlayTimeRecord updates for reactive data
     const playTimeSub = client.models.PlayTimeRecord.observeQuery().subscribe({
       next: (data) => {
         setAllPlayTimeRecords([...data.items]);
-        console.log(`[SeasonReport] PlayTimeRecords updated: ${data.items.length} records`);
+        console.log(`[TeamReport] PlayTimeRecords updated: ${data.items.length} records`);
       },
     });
 
@@ -119,7 +119,7 @@ export function SeasonReport({ team }: SeasonReportProps) {
 
       // Debug: Log play time calculation for Diana Davis
       if (player.firstName === 'Diana' && player.lastName === 'Davis') {
-        console.log(`[SeasonReport - Stats] Diana Davis play time records (${playerPlayTime.length} records):`,
+        console.log(`[TeamReport - Stats] Diana Davis play time records (${playerPlayTime.length} records):`,
           playerPlayTime.map(r => ({
             gameId: r.gameId,
             startGameSeconds: r.startGameSeconds,
@@ -129,7 +129,7 @@ export function SeasonReport({ team }: SeasonReportProps) {
               : 'incomplete'
           }))
         );
-        console.log(`[SeasonReport - Stats] Total play time: ${totalPlayTimeSeconds}s = ${formatPlayTime(totalPlayTimeSeconds, 'long')}`);
+        console.log(`[TeamReport - Stats] Total play time: ${totalPlayTimeSeconds}s = ${formatPlayTime(totalPlayTimeSeconds, 'long')}`, );
       }
 
       // Use shared utility to count games played
@@ -156,7 +156,7 @@ export function SeasonReport({ team }: SeasonReportProps) {
     setPlayerStats(stats);
   };
 
-  const loadSeasonData = async () => {
+  const loadTeamData = async () => {
     setLoading(true);
     try {
       // Load all rosters for this team

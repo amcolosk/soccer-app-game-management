@@ -1,14 +1,11 @@
 import type { Schema } from "../amplify/data/resource";
 
 // Type definitions from Amplify schema
-export type Season = Schema["Season"]["type"];
 export type Team = Schema["Team"]["type"];
 export type Player = Schema["Player"]["type"];
 export type TeamRoster = Schema["TeamRoster"]["type"];
 export type FieldPosition = Schema["FieldPosition"]["type"];
-export type SeasonPermission = Schema["SeasonPermission"]["type"];
 export type TeamPermission = Schema["TeamPermission"]["type"];
-export type SeasonInvitation = Schema["SeasonInvitation"]["type"];
 export type TeamInvitation = Schema["TeamInvitation"]["type"];
 
 // Permission and invitation enums
@@ -17,13 +14,7 @@ export type InvitationRole = 'OWNER' | 'COACH' | 'PARENT';
 export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED';
 
 // Component props types
-export interface SeasonSelectorProps {
-  onSeasonSelect: (season: Season) => void;
-  selectedSeason: Season | null;
-}
-
 export interface TeamSelectorProps {
-  seasonId: string;
   onTeamSelect: (team: Team) => void;
   selectedTeam: Team | null;
 }
