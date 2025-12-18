@@ -181,12 +181,17 @@ test.describe('Team Management CRUD', () => {
     // ===== DELETE: Delete first team =====
     console.log('Step 10: DELETE - Delete first team');
     
-    // Dialog handler still active from previous delete
+    // Set up a new dialog handler
+    const cleanup2 = handleConfirmDialog(page);
+    
     const team1DeleteBtn = page.locator('.item-card')
       .filter({ hasText: TEST_DATA.team1.name })
       .locator('.btn-delete');
     await team1DeleteBtn.click();
     await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
+    
+    // Extra wait for subscription to update
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify first team is deleted
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.team1.name })).not.toBeVisible();
@@ -198,7 +203,7 @@ test.describe('Team Management CRUD', () => {
     console.log('  ✓ Empty state visible again');
     
     // Remove dialog handler
-    page.removeAllListeners('dialog');
+    cleanup2();
     
     console.log('\n=== Team CRUD Test Completed Successfully ===\n');
   });

@@ -6,6 +6,7 @@ import {
   clickButtonByText,
   waitForElement,
   loginUser,
+  UI_TIMING,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -167,12 +168,15 @@ test.describe('User Profile', () => {
     await clickButton(page, 'Update Password');
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
+    // Wait for error message to appear
+    await page.waitForTimeout(500);
+    
     // Should see error (either from validation or AWS Cognito)
     // AWS Cognito requires: 8+ chars, uppercase, lowercase, number, special char
-    const hasError = await page.locator('.message-error').count() > 0 || 
+    const hasError = await page.locator('.message.message-error').count() > 0 || 
                      await page.locator('[role="alert"]').count() > 0 ||
                      await page.locator('text=/password.*requirement/i').count() > 0 ||
-                     await page.locator('text=/8 characters or more/i').count() > 0;
+                     await page.locator('text=/8 characters/i').count() > 0;
     
     expect(hasError).toBeTruthy();
     console.log('✓ Weak password validation working');

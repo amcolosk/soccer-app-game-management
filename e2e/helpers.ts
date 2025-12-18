@@ -24,7 +24,13 @@ export async function fillInput(page: Page, selector: string, value: string) {
  * Click button and wait for action to complete
  */
 export async function clickButton(page: Page, text: string) {
-  await page.getByRole('button', { name: text }).click();
+  const button = page.getByRole('button', { name: text });
+  
+  // Scroll into view if needed, with center alignment to avoid bottom nav
+  await button.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(100);
+  
+  await button.click();
   await page.waitForTimeout(300);
 }
 
@@ -228,9 +234,10 @@ export async function navigateToManagement(page: Page) {
   // Click Manage tab in bottom navigation
   await page.getByRole('button', { name: /manage/i }).click();
   await waitForPageLoad(page);
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
-  // Verify we're on the management page
-  await expect(page.locator('.management')).toBeVisible();
+  // Wait for management page to load
+  await page.waitForSelector('.management', { timeout: 5000 });
 }
 
 /**
