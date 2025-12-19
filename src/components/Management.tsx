@@ -570,6 +570,22 @@ export function Management() {
     return formations.find(f => f.id === formationId)?.name || null;
   };
 
+  // Filter formations to only show those used by teams the user has access to OR owned by current user
+  const accessibleFormations = formations.filter(formation => 
+    formation.owner === currentUserId || teams.some(team => team.formationId === formation.id)
+  );
+
+  // Filter players to show those on rosters for accessible teams OR owned by current user
+  const teamIds = new Set(teams.map(t => t.id));
+  const accessiblePlayerIds = new Set(
+    teamRosters
+      .filter(roster => teamIds.has(roster.teamId))
+      .map(roster => roster.playerId)
+  );
+  const accessiblePlayers = players.filter(player => 
+    player.owner === currentUserId || accessiblePlayerIds.has(player.id)
+  );
+
   return (
     <div className="management">
 
@@ -584,13 +600,13 @@ export function Management() {
           className={`management-tab ${activeSection === 'formations' ? 'active' : ''}`}
           onClick={() => setActiveSection('formations')}
         >
-          Formations ({formations.length})
+          Formations ({accessibleFormations.length})
         </button>
         <button
           className={`management-tab ${activeSection === 'players' ? 'active' : ''}`}
           onClick={() => setActiveSection('players')}
         >
-          Players ({players.length})
+          Players ({accessiblePlayers.length})
         </button>
         <button
           className={`management-tab ${activeSection === 'sharing' ? 'active' : ''}`}
@@ -653,7 +669,7 @@ export function Management() {
                   onChange={(e) => setSelectedFormation(e.target.value)}
                 >
                   <option value="">Select formation (optional)</option>
-                  {formations.map((formation) => (
+                  {accessibleFormations.map((formation) => (
                     <option key={formation.id} value={formation.id}>
                       {formation.name} ({formation.playerCount} players)
                     </option>
@@ -713,7 +729,7 @@ export function Management() {
                   onChange={(e) => setSelectedFormation(e.target.value)}
                 >
                   <option value="">Select formation (optional)</option>
-                  {formations.map((formation) => (
+                  {accessibleFormations.map((formation) => (
                     <option key={formation.id} value={formation.id}>
                       {formation.name} ({formation.playerCount} players)
                     </option>
@@ -1130,10 +1146,10 @@ export function Management() {
           )}
 
           <div className="items-list">
-            {formations.length === 0 ? (
+            {accessibleFormations.length === 0 ? (
               <p className="empty-message">No formations yet. Create your first formation!</p>
             ) : (
-              formations.map((formation) => {
+              accessibleFormations.map((formation) => {
                 const formationPositionList = formationPositions.filter(p => p.formationId === formation.id);
                 return (
                   <div key={formation.id} className="item-card">
@@ -1218,10 +1234,10 @@ export function Management() {
           )}
 
           <div className="items-list">
-            {players.length === 0 ? (
+            {accessiblePlayers.length === 0 ? (
               <p className="empty-message">No players yet. Add your first player!</p>
             ) : (
-              players.map((player) => {
+              accessiblePlayers.map((player) => {
                 // Get all team rosters for this player
                 const playerRosters = teamRosters.filter(r => r.playerId === player.id);
                 const teamsList = playerRosters.map(r => {
