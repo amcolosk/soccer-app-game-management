@@ -233,6 +233,8 @@ export function Management() {
       setHalfLength('25');
       setSelectedFormation('');
       setEditingTeam(null);
+      // Explicitly reload teams to ensure UI updates on mobile
+      await loadTeamsWithPermissions();
     } catch (error) {
       console.error('Error updating team:', error);
       alert('Failed to update team');
@@ -251,6 +253,8 @@ export function Management() {
     if (window.confirm('Are you sure you want to delete this team? This will also delete all players, positions, and games.')) {
       try {
         await client.models.Team.delete({ id });
+        // Explicitly reload teams to ensure UI updates on mobile
+        await loadTeamsWithPermissions();
       } catch (error) {
         console.error('Error deleting team:', error);
         alert('Failed to delete team');
