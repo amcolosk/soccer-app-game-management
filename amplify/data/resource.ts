@@ -15,7 +15,10 @@ const schema = a.schema({
       teams: a.hasMany('Team', 'formationId'),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.owner()]),
+    .authorization((allow) => [
+      allow.owner(), // Full CRUD for formation owners
+      allow.authenticated().to(['read']), // All authenticated users can read formations
+    ]),
 
   FormationPosition: a
     .model({
@@ -26,7 +29,10 @@ const schema = a.schema({
       sortOrder: a.integer(), // Display order for the position
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.owner()]),
+    .authorization((allow) => [
+      allow.owner(), // Full CRUD for formation owners
+      allow.authenticated().to(['read']), // All authenticated users can read formation positions
+    ]),
 
   Team: a
     .model({
@@ -141,7 +147,10 @@ const schema = a.schema({
       isStarter: a.boolean().required(),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.owner()]),
+    .authorization((allow) => [
+      allow.owner(),
+      allow.authenticated().to(['read']),
+    ]),
 
   Substitution: a
     .model({
@@ -158,7 +167,10 @@ const schema = a.schema({
       timestamp: a.datetime(),
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.owner()]),
+    .authorization((allow) => [
+      allow.owner(),
+      allow.authenticated().to(['read']),
+    ]),
 
   PlayTimeRecord: a
     .model({
@@ -172,7 +184,10 @@ const schema = a.schema({
       endGameSeconds: a.integer(), // Game time when player left field (null if still playing)
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.owner()]),
+    .authorization((allow) => [
+      allow.owner(),
+      allow.authenticated().to(['read']),
+    ]),
 
   Goal: a
     .model({
@@ -189,7 +204,10 @@ const schema = a.schema({
       timestamp: a.datetime().required(), // Real-world timestamp when goal was recorded
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.owner()]),
+    .authorization((allow) => [
+      allow.owner(),
+      allow.authenticated().to(['read']),
+    ]),
 
   GameNote: a
     .model({
@@ -204,7 +222,10 @@ const schema = a.schema({
       timestamp: a.datetime().required(), // Real-world timestamp when note was created
       owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
-    .authorization((allow) => [allow.owner()]),
+    .authorization((allow) => [
+      allow.owner(),
+      allow.authenticated().to(['read']),
+    ]),
 
   TeamPermission: a
     .model({
