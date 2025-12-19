@@ -1325,12 +1325,25 @@ export function Management() {
                 <span className="info-value">{import.meta.env.VITE_APP_VERSION || '1.0.0'}</span>
               </div>
               <div className="app-info-item">
-                <span className="info-label">Name:</span>
-                <span className="info-value">TeamTrack</span>
+                <span className="info-label">Build Date:</span>
+                <span className="info-value">
+                  {import.meta.env.VITE_BUILD_TIMESTAMP 
+                    ? new Date(import.meta.env.VITE_BUILD_TIMESTAMP).toLocaleString()
+                    : 'Unknown'}
+                </span>
               </div>
               <div className="app-info-item">
-                <span className="info-label">Description:</span>
-                <span className="info-value">Game Management for Coaches</span>
+                <span className="info-label">Source Code:</span>
+                <span className="info-value">
+                  <a 
+                    href="https://github.com/amcol/soccer-app-game-management" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    style={{ color: '#2e8555', textDecoration: 'underline' }}
+                  >
+                    GitHub Repository
+                  </a>
+                </span>
               </div>
             </div>
 

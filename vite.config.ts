@@ -6,10 +6,14 @@ import { VitePWA } from 'vite-plugin-pwa'
 const packageJson = await import('./package.json', { with: { type: 'json' } });
 const version = packageJson.default.version;
 
+// Generate build timestamp
+const buildTimestamp = new Date().toISOString();
+
 // https://vitejs.dev/config/
 export default defineConfig({
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(version),
+    'import.meta.env.VITE_BUILD_TIMESTAMP': JSON.stringify(buildTimestamp),
   },
   plugins: [
     react(),
