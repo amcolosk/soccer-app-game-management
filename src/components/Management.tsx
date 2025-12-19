@@ -177,6 +177,8 @@ export function Management() {
       setHalfLength('25');
       setSelectedFormation('');
       setIsCreatingTeam(false);
+      // Explicitly reload teams to ensure UI updates on mobile
+      await loadTeamsWithPermissions();
     } catch (error) {
       console.error('Error creating team:', error);
       alert('Failed to create team');
