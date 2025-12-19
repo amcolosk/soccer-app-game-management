@@ -63,7 +63,7 @@ test.describe.serial('Data Isolation Between Users', () => {
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify team was created
-    await expect(page.locator('.item-card').filter({ hasText: TEST_TEAM_NAME })).toBeVisible();
+    await expect(page.locator('.item-card').filter({ hasText: TEST_TEAM_NAME }).first()).toBeVisible();
     console.log(`✓ User 1 created team: ${TEST_TEAM_NAME}`);
     
     // Logout

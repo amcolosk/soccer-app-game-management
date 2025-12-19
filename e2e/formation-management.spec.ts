@@ -9,6 +9,7 @@ import {
   navigateToManagement,
   clickManagementTab,
   handleConfirmDialog,
+  swipeToDelete,
   UI_TIMING,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
@@ -213,11 +214,8 @@ test.describe('Formation Management CRUD', () => {
     // Set up dialog handler
     const cleanupDialog = handleConfirmDialog(page);
     
-    // Click delete button on second formation
-    const formation2DeleteBtn = page.locator('.item-card')
-      .filter({ hasText: TEST_DATA.formation2.name })
-      .locator('.btn-delete');
-    await formation2DeleteBtn.click();
+    // Swipe to delete second formation
+    await swipeToDelete(page, '.item-card:has-text("' + TEST_DATA.formation2.name + '")');
     await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     // Verify second formation is deleted
@@ -237,10 +235,8 @@ test.describe('Formation Management CRUD', () => {
     console.log('Step 9: DELETE - Delete first formation');
     
     // Dialog handler still active
-    const formation1DeleteBtn = page.locator('.item-card')
-      .filter({ hasText: TEST_DATA.formation1.name })
-      .locator('.btn-delete');
-    await formation1DeleteBtn.click();
+    // Swipe to delete first formation
+    await swipeToDelete(page, '.item-card:has-text("' + TEST_DATA.formation1.name + '")');
     await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     // Verify first formation is deleted

@@ -646,6 +646,56 @@
   cursor: pointer;
 }
 
+/* Swipeable item container */
+.swipeable-item-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  margin-bottom: 1rem;
+}
+
+.swipeable-item-container .item-card {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 0;
+  touch-action: pan-y;
+  user-select: none;
+  cursor: grab;
+}
+
+.swipeable-item-container .item-card:active {
+  cursor: grabbing;
+}
+
+.delete-action {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #dc3545;
+  z-index: 1;
+}
+
+.btn-delete-swipe {
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+  width: 100%;
+  height: 100%;
+}
+
+.btn-delete-swipe:active {
+  opacity: 0.8;
+}
+
 /* Team Roster Section */
 .team-roster-section {
   background: var(--card-background);

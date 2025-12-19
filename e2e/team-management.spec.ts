@@ -10,6 +10,7 @@ import {
   clickManagementTab,
   createTeam,
   handleConfirmDialog,
+  swipeToDelete,
   UI_TIMING,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
@@ -155,11 +156,8 @@ test.describe('Team Management CRUD', () => {
     // Set up dialog handler
     const cleanupDialog = handleConfirmDialog(page);
     
-    // Click delete button on second team
-    const team2DeleteBtn = page.locator('.item-card')
-      .filter({ hasText: TEST_DATA.team2.name })
-      .locator('.btn-delete');
-    await team2DeleteBtn.click();
+    // Swipe to delete second team
+    await swipeToDelete(page, '.item-card:has-text("' + TEST_DATA.team2.name + '")');
     await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     // Verify second team is deleted
@@ -184,10 +182,8 @@ test.describe('Team Management CRUD', () => {
     // Set up a new dialog handler
     const cleanup2 = handleConfirmDialog(page);
     
-    const team1DeleteBtn = page.locator('.item-card')
-      .filter({ hasText: TEST_DATA.team1.name })
-      .locator('.btn-delete');
-    await team1DeleteBtn.click();
+    // Swipe to delete first team
+    await swipeToDelete(page, '.item-card:has-text("' + TEST_DATA.team1.name + '")');
     await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     // Extra wait for subscription to update
@@ -274,10 +270,8 @@ test.describe('Team Management CRUD', () => {
       await dialog.dismiss(); // Cancel deletion
     });
     
-    const deleteBtn = page.locator('.item-card')
-      .filter({ hasText: 'Test Team for Deletion' })
-      .locator('.btn-delete');
-    await deleteBtn.click();
+    // Swipe to delete the team
+    await swipeToDelete(page, '.item-card:has-text("Test Team for Deletion")');
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     expect(dialogShown).toBe(true);
@@ -293,7 +287,8 @@ test.describe('Team Management CRUD', () => {
       await dialog.accept();
     });
     
-    await deleteBtn.click();
+    // Swipe to delete the team
+    await swipeToDelete(page, '.item-card:has-text("Test Team for Deletion")');
     await page.waitForTimeout(1500);
     
     // Team should be deleted

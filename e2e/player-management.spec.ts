@@ -10,6 +10,7 @@ import {
   clickManagementTab,
   createTeam,
   handleConfirmDialog,
+  swipeToDelete,
   UI_TIMING,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
@@ -174,10 +175,8 @@ test.describe('Player Management CRUD', () => {
     // Set up dialog handler
     const cleanupDialog = handleConfirmDialog(page);
     
-    const player2DeleteBtn = page.locator('.item-card')
-      .filter({ hasText: TEST_DATA.player2.firstName })
-      .locator('.btn-delete');
-    await player2DeleteBtn.click();
+    // Swipe to delete player 2
+    await swipeToDelete(page, '.item-card:has-text("' + TEST_DATA.player2.firstName + '")');
     await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     // Verify player 2 is deleted
@@ -197,16 +196,12 @@ test.describe('Player Management CRUD', () => {
     console.log('Step 13: DELETE - Delete remaining players');
     
     // Dialog handler still active
-    const player1DeleteBtn = page.locator('.item-card')
-      .filter({ hasText: TEST_DATA.player1.firstName })
-      .locator('.btn-delete');
-    await player1DeleteBtn.click();
+    // Swipe to delete player 1
+    await swipeToDelete(page, '.item-card:has-text("' + TEST_DATA.player1.firstName + '")');
     await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
-    const player3DeleteBtn = page.locator('.item-card')
-      .filter({ hasText: TEST_DATA.player3.firstName })
-      .locator('.btn-delete');
-    await player3DeleteBtn.click();
+    // Swipe to delete player 3
+    await swipeToDelete(page, '.item-card:has-text("' + TEST_DATA.player3.firstName + '")');
     await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     // Verify empty state returns
@@ -296,10 +291,8 @@ test.describe('Player Management CRUD', () => {
       await dialog.dismiss(); // Cancel deletion
     });
     
-    const deleteBtn = page.locator('.item-card')
-      .filter({ hasText: 'Delete Test' })
-      .locator('.btn-delete');
-    await deleteBtn.click();
+    // Swipe to delete the player
+    await swipeToDelete(page, '.item-card:has-text("Delete Test")');
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     expect(dialogShown).toBe(true);
@@ -315,7 +308,8 @@ test.describe('Player Management CRUD', () => {
       await dialog.accept();
     });
     
-    await deleteBtn.click();
+    // Swipe to delete the player
+    await swipeToDelete(page, '.item-card:has-text("Delete Test")');
     await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     // Player should be deleted

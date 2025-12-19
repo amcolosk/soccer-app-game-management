@@ -148,8 +148,8 @@ export async function cleanupTestData(page: Page) {
   await clickManagementTab(page, 'Teams');
   await page.waitForTimeout(500);
   
-  let teamDeleteButtons = page.locator('.item-card .btn-delete');
-  let teamCount = await teamDeleteButtons.count();
+  let teamCards = page.locator('.item-card');
+  let teamCount = await teamCards.count();
   
   if (teamCount > 0) {
     console.log(`Found ${teamCount} team(s), deleting...`);
@@ -159,9 +159,10 @@ export async function cleanupTestData(page: Page) {
     });
     
     while (teamCount > 0) {
-      await teamDeleteButtons.first().click();
+      await swipeToDelete(page, '.item-card');
       await page.waitForTimeout(1000);
-      const newCount = await teamDeleteButtons.count();
+      teamCards = page.locator('.item-card'); // Re-query to get updated list
+      const newCount = await teamCards.count();
       if (newCount === teamCount) break;
       teamCount = newCount;
     }
@@ -174,8 +175,8 @@ export async function cleanupTestData(page: Page) {
   await clickManagementTab(page, 'Players');
   await page.waitForTimeout(500);
   
-  let playerDeleteButtons = page.locator('.item-card .btn-delete');
-  let playerCount = await playerDeleteButtons.count();
+  let playerCards = page.locator('.item-card');
+  let playerCount = await playerCards.count();
   
   if (playerCount > 0) {
     console.log(`Found ${playerCount} player(s), deleting...`);
@@ -185,9 +186,10 @@ export async function cleanupTestData(page: Page) {
     });
     
     while (playerCount > 0) {
-      await playerDeleteButtons.first().click();
+      await swipeToDelete(page, '.item-card');
       await page.waitForTimeout(1000);
-      const newCount = await playerDeleteButtons.count();
+      playerCards = page.locator('.item-card'); // Re-query to get updated list
+      const newCount = await playerCards.count();
       if (newCount === playerCount) break;
       playerCount = newCount;
     }
@@ -200,8 +202,8 @@ export async function cleanupTestData(page: Page) {
   await clickManagementTab(page, 'Formations');
   await page.waitForTimeout(500);
   
-  let formationDeleteButtons = page.locator('.item-card .btn-delete');
-  let formationCount = await formationDeleteButtons.count();
+  let formationCards = page.locator('.item-card');
+  let formationCount = await formationCards.count();
   
   if (formationCount > 0) {
     console.log(`Found ${formationCount} formation(s), deleting...`);
@@ -211,9 +213,10 @@ export async function cleanupTestData(page: Page) {
     });
     
     while (formationCount > 0) {
-      await formationDeleteButtons.first().click();
+      await swipeToDelete(page, '.item-card');
       await page.waitForTimeout(1000);
-      const newCount = await formationDeleteButtons.count();
+      formationCards = page.locator('.item-card'); // Re-query to get updated list
+      const newCount = await formationCards.count();
       if (newCount === formationCount) break;
       formationCount = newCount;
     }
@@ -419,4 +422,42 @@ export function handleDismissDialog(page: Page, logMessage: boolean = true): () 
   return () => {
     page.removeListener('dialog', handler);
   };
+}
+
+/**
+ * Swipe an item to reveal the delete button and click it
+ * This simulates the swipe-to-delete interaction for teams, players, and formations
+ * @param page - Playwright page object
+ * @param itemSelector - Selector for the item card to swipe
+ */
+export async function swipeToDelete(page: Page, itemSelector: string) {
+  // Locate the swipeable container (use .first() if selector matches multiple elements)
+  const itemCard = page.locator(itemSelector).first();
+  
+  // Get the bounding box to calculate swipe coordinates
+  const box = await itemCard.boundingBox();
+  if (!box) {
+    throw new Error('Could not get bounding box for item');
+  }
+  
+  // Perform a mouse drag from right to left to reveal delete button
+  // Start from the right edge, drag left by 100px
+  const startX = box.x + box.width - 10;
+  const startY = box.y + box.height / 2;
+  const endX = startX - 100;
+  const endY = startY;
+  
+  // Perform the drag operation
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(endX, endY, { steps: 10 });
+  await page.mouse.up();
+  
+  // Wait for animation to complete
+  await page.waitForTimeout(UI_TIMING.STANDARD);
+  
+  // Click the delete button that's now visible
+  const deleteButton = page.locator('.btn-delete-swipe').first();
+  await deleteButton.click();
+  await page.waitForTimeout(UI_TIMING.QUICK);
 }

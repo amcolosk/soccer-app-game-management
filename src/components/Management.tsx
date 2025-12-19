@@ -44,6 +44,11 @@ export function Management() {
   const [editRosterFirstName, setEditRosterFirstName] = useState('');
   const [editRosterLastName, setEditRosterLastName] = useState('');
 
+  // Swipe-to-delete state
+  const [swipedItemId, setSwipedItemId] = useState<string | null>(null);
+  const [swipeStartX, setSwipeStartX] = useState<number>(0);
+  const [swipeCurrentX, setSwipeCurrentX] = useState<number>(0);
+
   // Formation form state
   const [isCreatingFormation, setIsCreatingFormation] = useState(false);
   const [editingFormation, setEditingFormation] = useState<Formation | null>(null);
@@ -53,6 +58,7 @@ export function Management() {
 
   // Player form state
   const [isCreatingPlayer, setIsCreatingPlayer] = useState(false);
+  const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
 
@@ -418,6 +424,43 @@ export function Management() {
     }
   };
 
+  const handleEditPlayer = (player: Player) => {
+    setEditingPlayer(player);
+    setFirstName(player.firstName);
+    setLastName(player.lastName);
+    setIsCreatingPlayer(false);
+  };
+
+  const handleUpdatePlayer = async () => {
+    if (!editingPlayer) return;
+    
+    if (!firstName.trim() || !lastName.trim()) {
+      alert('Please enter first name and last name');
+      return;
+    }
+
+    try {
+      await client.models.Player.update({
+        id: editingPlayer.id,
+        firstName,
+        lastName,
+      });
+
+      setFirstName('');
+      setLastName('');
+      setEditingPlayer(null);
+    } catch (error) {
+      console.error('Error updating player:', error);
+      alert('Failed to update player');
+    }
+  };
+
+  const handleCancelPlayerEdit = () => {
+    setEditingPlayer(null);
+    setFirstName('');
+    setLastName('');
+  };
+
   const handleCreateFormation = async () => {
     if (!formationName.trim() || !playerCount.trim()) {
       alert('Please enter formation name and specify player count');
@@ -568,6 +611,67 @@ export function Management() {
   const getFormationName = (formationId: string | null | undefined) => {
     if (!formationId) return null;
     return formations.find(f => f.id === formationId)?.name || null;
+  };
+
+  // Swipe-to-delete handlers (mobile)
+  const handleTouchStart = (e: React.TouchEvent, itemId: string) => {
+    setSwipeStartX(e.touches[0].clientX);
+    setSwipedItemId(itemId);
+    setSwipeCurrentX(0);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (swipedItemId === null) return;
+    const currentX = e.touches[0].clientX;
+    const diff = swipeStartX - currentX;
+    // Only allow left swipe (positive diff) up to 100px
+    if (diff > 0 && diff <= 100) {
+      setSwipeCurrentX(diff);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    // If swiped more than 50px, keep it open at 80px, otherwise close
+    if (swipeCurrentX > 50) {
+      setSwipeCurrentX(80);
+    } else {
+      setSwipeCurrentX(0);
+      setSwipedItemId(null);
+    }
+  };
+
+  // Mouse handlers for desktop drag-to-delete
+  const handleMouseDown = (e: React.MouseEvent, itemId: string) => {
+    setSwipeStartX(e.clientX);
+    setSwipedItemId(itemId);
+    setSwipeCurrentX(0);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (swipedItemId === null || swipeStartX === 0) return;
+    const currentX = e.clientX;
+    const diff = swipeStartX - currentX;
+    // Only allow left drag (positive diff) up to 100px
+    if (diff > 0 && diff <= 100) {
+      setSwipeCurrentX(diff);
+    }
+  };
+
+  const handleMouseUp = () => {
+    // If dragged more than 50px, keep it open at 80px, otherwise close
+    if (swipeCurrentX > 50) {
+      setSwipeCurrentX(80);
+    } else {
+      setSwipeCurrentX(0);
+      setSwipedItemId(null);
+    }
+    setSwipeStartX(0); // Reset to indicate drag ended
+  };
+
+  const closeSwipe = () => {
+    setSwipeCurrentX(0);
+    setSwipedItemId(null);
+    setSwipeStartX(0);
   };
 
   // Filter formations to only show those used by teams the user has access to OR owned by current user
@@ -763,44 +867,68 @@ export function Management() {
               teams.map((team) => {
                 const teamRosterList = teamRosters.filter(r => r.teamId === team.id);
                 const isExpanded = expandedTeamId === team.id;
+                const isSwiped = swipedItemId === team.id;
+                const swipeOffset = isSwiped ? swipeCurrentX : 0;
                 
                 return (
                   <div key={team.id} className={`team-card-wrapper ${isExpanded ? 'expanded' : ''}`}>
-                    <div className="item-card">
-                      <div className="item-info">
-                        <h3>{team.name}</h3>
-                        <p className="item-meta">
-                          {team.maxPlayersOnField} players • {team.halfLengthMinutes} min halves
-                          {getFormationName(team.formationId) && (
-                            <> • Formation: {getFormationName(team.formationId)}</>
-                          )}
-                        </p>
-                        <p className="item-meta">Roster: {teamRosterList.length} player(s)</p>
+                    <div className="swipeable-item-container">
+                      <div 
+                        className="item-card"
+                        style={{
+                          transform: `translateX(-${swipeOffset}px)`,
+                          transition: swipeStartX === 0 ? 'transform 0.3s ease' : 'none'
+                        }}
+                        onTouchStart={(e) => handleTouchStart(e, team.id)}
+                        onTouchMove={handleTouchMove}
+                        onTouchEnd={handleTouchEnd}
+                        onMouseDown={(e) => handleMouseDown(e, team.id)}
+                        onMouseMove={handleMouseMove}
+                        onMouseUp={handleMouseUp}
+                        onMouseLeave={handleMouseUp}
+                      >
+                        <div className="item-info">
+                          <h3>{team.name}</h3>
+                          <p className="item-meta">
+                            {team.maxPlayersOnField} players • {team.halfLengthMinutes} min halves
+                            {getFormationName(team.formationId) && (
+                              <> • Formation: {getFormationName(team.formationId)}</>
+                            )}
+                          </p>
+                          <p className="item-meta">Roster: {teamRosterList.length} player(s)</p>
+                        </div>
+                        <div className="card-actions">
+                          <button
+                            onClick={() => setExpandedTeamId(isExpanded ? null : team.id)}
+                            className="btn-edit"
+                            aria-label={isExpanded ? "Hide roster" : "Show roster"}
+                            title={isExpanded ? "Hide roster" : "Show roster"}
+                          >
+                            {isExpanded ? '▼' : '▶'}
+                          </button>
+                          <button
+                            onClick={() => handleEditTeam(team)}
+                            className="btn-edit"
+                            aria-label="Edit team"
+                          >
+                            ✎
+                          </button>
+                        </div>
                       </div>
-                      <div className="card-actions">
-                        <button
-                          onClick={() => setExpandedTeamId(isExpanded ? null : team.id)}
-                          className="btn-edit"
-                          aria-label={isExpanded ? "Hide roster" : "Show roster"}
-                          title={isExpanded ? "Hide roster" : "Show roster"}
-                        >
-                          {isExpanded ? '▼' : '▶'}
-                        </button>
-                        <button
-                          onClick={() => handleEditTeam(team)}
-                          className="btn-edit"
-                          aria-label="Edit team"
-                        >
-                          ✎
-                        </button>
-                        <button
-                          onClick={() => handleDeleteTeam(team.id)}
-                          className="btn-delete"
-                          aria-label="Delete team"
-                        >
-                          ✕
-                        </button>
-                      </div>
+                      {isSwiped && swipeOffset > 0 && (
+                        <div className="delete-action">
+                          <button
+                            onClick={() => {
+                              handleDeleteTeam(team.id);
+                              closeSwipe();
+                            }}
+                            className="btn-delete-swipe"
+                            aria-label="Delete team"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
                     </div>
                     
                     {isExpanded && (
@@ -1151,38 +1279,63 @@ export function Management() {
             ) : (
               accessibleFormations.map((formation) => {
                 const formationPositionList = formationPositions.filter(p => p.formationId === formation.id);
+                const isSwiped = swipedItemId === formation.id;
+                const swipeOffset = isSwiped ? swipeCurrentX : 0;
+                
                 return (
-                  <div key={formation.id} className="item-card">
-                    <div className="item-info">
-                      <h3>{formation.name}</h3>
-                      <p className="item-meta">
-                        {formation.playerCount} players
-                      </p>
-                      {formationPositionList.length > 0 && (
-                        <p className="item-meta" style={{ marginTop: '0.5rem' }}>
-                          Positions: {formationPositionList
-                            .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
-                            .map(p => p.abbreviation)
-                            .join(', ')}
+                  <div key={formation.id} className="swipeable-item-container">
+                    <div 
+                      className="item-card"
+                      style={{
+                        transform: `translateX(-${swipeOffset}px)`,
+                        transition: swipeStartX === 0 ? 'transform 0.3s ease' : 'none'
+                      }}
+                      onTouchStart={(e) => handleTouchStart(e, formation.id)}
+                      onTouchMove={handleTouchMove}
+                      onTouchEnd={handleTouchEnd}
+                      onMouseDown={(e) => handleMouseDown(e, formation.id)}
+                      onMouseMove={handleMouseMove}
+                      onMouseUp={handleMouseUp}
+                      onMouseLeave={handleMouseUp}
+                    >
+                      <div className="item-info">
+                        <h3>{formation.name}</h3>
+                        <p className="item-meta">
+                          {formation.playerCount} players
                         </p>
-                      )}
+                        {formationPositionList.length > 0 && (
+                          <p className="item-meta" style={{ marginTop: '0.5rem' }}>
+                            Positions: {formationPositionList
+                              .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+                              .map(p => p.abbreviation)
+                              .join(', ')}
+                          </p>
+                        )}
+                      </div>
+                      <div className="card-actions">
+                        <button
+                          onClick={() => handleEditFormation(formation)}
+                          className="btn-edit"
+                          aria-label="Edit formation"
+                        >
+                          ✎
+                        </button>
+                      </div>
                     </div>
-                    <div className="card-actions">
-                      <button
-                        onClick={() => handleEditFormation(formation)}
-                        className="btn-edit"
-                        aria-label="Edit formation"
-                      >
-                        ✎
-                      </button>
-                      <button
-                        onClick={() => handleDeleteFormation(formation.id)}
-                        className="btn-delete"
-                        aria-label="Delete formation"
-                      >
-                        ✕
-                      </button>
-                    </div>
+                    {isSwiped && swipeOffset > 0 && (
+                      <div className="delete-action">
+                        <button
+                          onClick={() => {
+                            handleDeleteFormation(formation.id);
+                            closeSwipe();
+                          }}
+                          className="btn-delete-swipe"
+                          aria-label="Delete formation"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -1193,7 +1346,7 @@ export function Management() {
 
       {activeSection === 'players' && (
         <div className="management-section">
-          {!isCreatingPlayer && (
+          {!isCreatingPlayer && !editingPlayer && (
             <button onClick={() => setIsCreatingPlayer(true)} className="btn-primary">
               + Add Player
             </button>
@@ -1233,6 +1386,32 @@ export function Management() {
             </div>
           )}
 
+          {editingPlayer && (
+            <div className="create-form">
+              <h3>Edit Player</h3>
+              <input
+                type="text"
+                placeholder="First Name *"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+              />
+              <input
+                type="text"
+                placeholder="Last Name *"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+              />
+              <div className="form-actions">
+                <button onClick={handleUpdatePlayer} className="btn-primary">
+                  Save
+                </button>
+                <button onClick={handleCancelPlayerEdit} className="btn-secondary">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="items-list">
             {accessiblePlayers.length === 0 ? (
               <p className="empty-message">No players yet. Add your first player!</p>
@@ -1244,24 +1423,55 @@ export function Management() {
                   const team = teams.find(t => t.id === r.teamId);
                   return team ? `${team.name} #${r.playerNumber}` : '';
                 }).filter(Boolean).join(', ');
+                const isSwiped = swipedItemId === player.id;
+                const swipeOffset = isSwiped ? swipeCurrentX : 0;
                 
                 return (
-                  <div key={player.id} className="item-card">
-                    <div className="item-info">
-                      <h3>{player.firstName} {player.lastName}</h3>
-                      <p className="item-meta">
-                        {teamsList || 'Not assigned to any team'}
-                      </p>
+                  <div key={player.id} className="swipeable-item-container">
+                    <div 
+                      className="item-card"
+                      style={{
+                        transform: `translateX(-${swipeOffset}px)`,
+                        transition: swipeStartX === 0 ? 'transform 0.3s ease' : 'none'
+                      }}
+                      onTouchStart={(e) => handleTouchStart(e, player.id)}
+                      onTouchMove={handleTouchMove}
+                      onTouchEnd={handleTouchEnd}
+                      onMouseDown={(e) => handleMouseDown(e, player.id)}
+                      onMouseMove={handleMouseMove}
+                      onMouseUp={handleMouseUp}
+                      onMouseLeave={handleMouseUp}
+                    >
+                      <div className="item-info">
+                        <h3>{player.firstName} {player.lastName}</h3>
+                        <p className="item-meta">
+                          {teamsList || 'Not assigned to any team'}
+                        </p>
+                      </div>
+                      <div className="card-actions">
+                        <button
+                          onClick={() => handleEditPlayer(player)}
+                          className="btn-edit"
+                          aria-label="Edit player"
+                        >
+                          ✎
+                        </button>
+                      </div>
                     </div>
-                    <div className="item-actions">
-                      <button
-                        onClick={() => handleDeletePlayer(player.id)}
-                        className="btn-delete"
-                        aria-label="Delete player"
-                      >
-                        ✕
-                      </button>
-                    </div>
+                    {isSwiped && swipeOffset > 0 && (
+                      <div className="delete-action">
+                        <button
+                          onClick={() => {
+                            handleDeletePlayer(player.id);
+                            closeSwipe();
+                          }}
+                          className="btn-delete-swipe"
+                          aria-label="Delete player"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })
