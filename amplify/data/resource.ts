@@ -240,6 +240,7 @@ const schema = a.schema({
     ]),
 
   // Custom mutation for accepting invitations with elevated permissions
+  // NOTE: After deployment, run: .\scripts\fix-appsync-datasource.ps1
   acceptInvitation: a
     .mutation()
     .arguments({

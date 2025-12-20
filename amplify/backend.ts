@@ -34,26 +34,11 @@ backend.sendInvitationEmail.resources.lambda.addEventSource(
   })
 );
 
-// Grant the acceptInvitation Lambda function access to the data API
-backend.acceptInvitation.resources.lambda.addToRolePolicy(
-  new PolicyStatement({
-    actions: [
-      'dynamodb:GetItem',
-      'dynamodb:UpdateItem',
-      'dynamodb:Query'
-    ],
-    resources: [
-      backend.data.resources.tables['Team'].tableArn,
-      backend.data.resources.tables['TeamInvitation'].tableArn,
-    ],
-  })
-);
+// Grant table access for acceptInvitation Lambda
+const teamTable = backend.data.resources.tables['Team'];
+teamTable.grantReadWriteData(backend.acceptInvitation.resources.lambda);
+teamInvitationTable.grantReadWriteData(backend.acceptInvitation.resources.lambda);
 
-// Add table names as environment variables using CDK
-const { Stack } = await import('aws-cdk-lib');
-const stack = Stack.of(backend.acceptInvitation.resources.lambda);
-const cfnFunction = backend.acceptInvitation.resources.lambda.node.defaultChild;
-if (cfnFunction) {
-  (cfnFunction as any).addPropertyOverride('Environment.Variables.TEAM_TABLE', backend.data.resources.tables['Team'].tableName);
-  (cfnFunction as any).addPropertyOverride('Environment.Variables.TEAM_INVITATION_TABLE', backend.data.resources.tables['TeamInvitation'].tableName);
-}
+// Add table names as environment variables
+backend.acceptInvitation.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.acceptInvitation.addEnvironment('TEAM_INVITATION_TABLE', teamInvitationTable.tableName);
