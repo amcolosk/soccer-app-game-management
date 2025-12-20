@@ -28,6 +28,16 @@ export function UpdatePrompt() {
     }
   }, [needRefresh]);
 
+  useEffect(() => {
+    // Auto-dismiss offline ready notification after 3 seconds
+    if (offlineReady) {
+      const timer = setTimeout(() => {
+        setOfflineReady(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [offlineReady, setOfflineReady]);
+
   const close = () => {
     setOfflineReady(false);
     setNeedRefresh(false);
@@ -43,18 +53,18 @@ export function UpdatePrompt() {
   }
 
   return (
-    <div className="update-prompt-overlay">
-      <div className="update-prompt">
-        {offlineReady ? (
-          <>
-            <div className="update-icon">✓</div>
-            <h3>App ready to work offline</h3>
-            <button onClick={close} className="btn-primary">
-              OK
-            </button>
-          </>
-        ) : (
-          <>
+    <>
+      {offlineReady ? (
+        <div className="notification-banner">
+          <div className="notification-content">
+            <span className="notification-icon">✓</span>
+            <span>App is available offline</span>
+            <button onClick={() => setOfflineReady(false)} className="notification-close">×</button>
+          </div>
+        </div>
+      ) : (
+        <div className="update-prompt-overlay">
+          <div className="update-prompt">
             <div className="update-icon">🔄</div>
             <h3>New version available!</h3>
             <p>Click reload to get the latest updates.</p>
@@ -66,9 +76,9 @@ export function UpdatePrompt() {
                 Later
               </button>
             </div>
-          </>
-        )}
-      </div>
-    </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
