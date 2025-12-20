@@ -189,6 +189,10 @@ export function InvitationManagement({
                   <span className="invitation-expiry">
                     Expires: {new Date(inv.expiresAt).toLocaleDateString()}
                   </span>
+                  {/* For testing - display invitation link */}
+                  <span className="invitation-link" data-invitation-id={inv.id}>
+                    Link: {window.location.origin}/?invitationId={inv.id}
+                  </span>
                 </div>
                 <button
                   onClick={() => handleCancelInvitation(inv.id)}

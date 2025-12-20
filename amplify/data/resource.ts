@@ -49,7 +49,6 @@ const schema = a.schema({
     })
     .authorization((allow) => [
       allow.ownersDefinedIn('coaches'), // Full access for coaches
-      allow.authenticated().to(['read']), // Allow reading for invitation acceptance
     ]),
 
   Player: a
@@ -225,6 +224,7 @@ const schema = a.schema({
     .model({
       teamId: a.id().required(),
       team: a.belongsTo('Team', 'teamId'),
+      teamName: a.string(), // Denormalized team name for display during acceptance
       email: a.string().required(),
       role: a.enum(['OWNER', 'COACH', 'PARENT']),
       status: a.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED']),
@@ -238,6 +238,16 @@ const schema = a.schema({
       allow.ownersDefinedIn('coaches'),
       allow.authenticated().to(['read', 'update']), // Allow any authenticated user to read and accept/decline
     ]),
+
+  // Custom mutation for accepting invitations with elevated permissions
+  acceptInvitation: a
+    .mutation()
+    .arguments({
+      invitationId: a.string().required(),
+    })
+    .returns(a.ref('Team'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function('acceptInvitation')),
 });
 
 export type Schema = ClientSchema<typeof schema>;

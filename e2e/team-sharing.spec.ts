@@ -160,20 +160,14 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     await expect(invitationsList).toContainText(TEST_USERS.user2.email, { timeout: 5000 });
     console.log(`✓ Invitation sent to ${TEST_USERS.user2.email}`);
     
-    // Extract invitation ID from the page
-    const pageContent = await page.content();
-    const idMatch = pageContent.match(/invitationId=([a-f0-9-]{36})/i);
-    if (idMatch) {
-      invitationId = idMatch[1];
+    // Extract invitation ID from the data attribute
+    const invitationLink = page.locator('.invitation-link').first();
+    const invitationIdAttr = await invitationLink.getAttribute('data-invitation-id');
+    if (invitationIdAttr) {
+      invitationId = invitationIdAttr;
       console.log(`✓ Invitation ID: ${invitationId}`);
     } else {
-      // Try to get it from the invitation list
-      const invitationText = await invitationsList.textContent();
-      const match = invitationText?.match(/([a-f0-9-]{36})/);
-      if (match) {
-        invitationId = match[1];
-        console.log(`✓ Invitation ID extracted: ${invitationId}`);
-      }
+      console.warn('⚠ Could not extract invitation ID from UI');
     }
     
     // Logout User 1
@@ -228,24 +222,45 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       const acceptButton = page.getByRole('button', { name: /accept/i });
       await expect(acceptButton).toBeVisible({ timeout: 5000 });
       await acceptButton.click();
-      await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+      
+      // Wait for success message
+      await expect(page.getByText(/Successfully joined/i)).toBeVisible({ timeout: 10000 });
+      
+      // Wait for the app's automatic reload (2s delay + reload)
+      await page.waitForTimeout(3000);
+      await waitForPageLoad(page);
       
       console.log('✓ Invitation accepted');
-      
-      // Navigate to home after accepting invitation
-      await page.goto('/');
-      await waitForPageLoad(page);
     }
     
     // Navigate to Management > Teams to verify access
     console.log('\n--- Verifying Shared Team Access ---');
+    
+    // Force a reload to ensure we have fresh data
+    await page.reload();
+    await waitForPageLoad(page);
+    
     await navigateToManagement(page);
     await clickManagementTab(page, 'Teams');
+    
+    // Wait for data to load with multiple retries
+    console.log('Waiting for team list to load...');
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    
+    // Check if there are any team cards at all
+    const allTeamCards = page.locator('.item-card');
+    const teamCount = await allTeamCards.count();
+    console.log(`Found ${teamCount} team card(s)`);
+    
+    if (teamCount > 0) {
+      const teamNames = await allTeamCards.allTextContents();
+      console.log('Team cards:', teamNames);
+    }
     
     // Verify User 2 can now see the shared team
     const sharedTeam = page.locator('.item-card').filter({ hasText: SHARED_TEAM_NAME });
-    await expect(sharedTeam.first()).toBeVisible({ timeout: 5000 });
+    // Increase timeout to account for subscription sync
+    await expect(sharedTeam.first()).toBeVisible({ timeout: 20000 });
     console.log(`✓ User 2 can see shared team: ${SHARED_TEAM_NAME}`);
     
     // Verify roster is visible

@@ -5,11 +5,13 @@ import { DynamoEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { auth } from './auth/resource';
 import { data } from './data/resource';
 import { sendInvitationEmail } from './functions/send-invitation-email/resource';
+import { acceptInvitation } from './functions/accept-invitation/resource';
 
 const backend = defineBackend({
   auth,
   data,
   sendInvitationEmail,
+  acceptInvitation,
 });
 
 // Grant the Lambda function permission to send emails via SES

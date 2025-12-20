@@ -28,6 +28,7 @@ export async function sendTeamInvitation(
 
     const invitation = await client.models.TeamInvitation.create({
       teamId,
+      teamName: teamResponse.data.name,
       email: email.toLowerCase(),
       role,
       status: 'PENDING',
@@ -46,7 +47,7 @@ export async function sendTeamInvitation(
 }
 
 /**
- * Accept a team invitation
+ * Accept a team invitation using the custom mutation with elevated permissions
  */
 export async function acceptTeamInvitation(invitationId: string) {
   try {
@@ -54,7 +55,7 @@ export async function acceptTeamInvitation(invitationId: string) {
     const userAttributes = await user.signInDetails;
     const userEmail = userAttributes?.loginId?.toLowerCase();
 
-    // Get the invitation
+    // Get the invitation to verify email
     const invitationResponse = await client.models.TeamInvitation.get({
       id: invitationId,
     });
@@ -74,125 +75,24 @@ export async function acceptTeamInvitation(invitationId: string) {
       throw new Error(`Invitation is ${invitation.status?.toLowerCase() || 'invalid'}`);
     }
 
-    // Check if expired
-    if (new Date(invitation.expiresAt) < new Date()) {
-      await client.models.TeamInvitation.update({
-        id: invitationId,
-        status: 'EXPIRED',
-      });
-      throw new Error('Invitation has expired');
-    }
+    console.log('Calling acceptInvitation mutation for:', invitationId);
 
-    // Get the team to update coaches array
-    const teamResponse = await client.models.Team.get({
-      id: invitation.teamId,
-    });
-    const team = teamResponse.data;
-
-    if (!team) {
-      throw new Error('Team not found');
-    }
-
-    // Add user to coaches array if not already present
-    const coaches = team.coaches || [];
-    if (!coaches.includes(user.userId)) {
-      const newCoaches = [...coaches, user.userId];
-      
-      // 1. Update Team
-      await client.models.Team.update({
-        id: team.id,
-        coaches: newCoaches,
-      });
-
-      // 2. Propagate access to all related team data
-      await grantCoachAccessToTeamData(team.id, newCoaches);
-    }
-
-    // Update invitation status
-    const updatedInvitation = await client.models.TeamInvitation.update({
-      id: invitationId,
-      status: 'ACCEPTED',
-      acceptedAt: new Date().toISOString(),
+    // Call the custom mutation which has elevated permissions
+    const result = await client.mutations.acceptInvitation({
+      invitationId,
     });
 
-    return updatedInvitation.data;
+    if (result.errors && result.errors.length > 0) {
+      console.error('Mutation errors:', result.errors);
+      throw new Error(result.errors[0].message || 'Failed to accept invitation');
+    }
+
+    console.log('Invitation accepted successfully:', result.data);
+
+    return result.data;
   } catch (error) {
     console.error('Error accepting team invitation:', error);
     throw error;
-  }
-}
-
-/**
- * Helper to propagate coach access to all related team data
- */
-async function grantCoachAccessToTeamData(teamId: string, newCoaches: string[]) {
-  try {
-    // 1. Update TeamRosters
-    const rosters = await client.models.TeamRoster.list({
-      filter: { teamId: { eq: teamId } }
-    });
-    
-    const playerIds = new Set<string>();
-    
-    for (const roster of rosters.data) {
-      await client.models.TeamRoster.update({
-        id: roster.id,
-        coaches: newCoaches
-      });
-      if (roster.playerId) playerIds.add(roster.playerId);
-    }
-
-    // 2. Update Players (ensure they have access to the players on the roster)
-    // Note: Players might be shared across teams, so we need to be careful not to remove other coaches
-    // But here we are adding, so we merge the new coaches with existing ones
-    for (const playerId of playerIds) {
-      const player = await client.models.Player.get({ id: playerId });
-      if (player.data) {
-        const existingCoaches = player.data.coaches || [];
-        // Merge existing coaches with new team coaches, removing duplicates
-        const mergedCoaches = Array.from(new Set([...existingCoaches, ...newCoaches]));
-        
-        // Only update if there's a change
-        if (mergedCoaches.length > existingCoaches.length) {
-          await client.models.Player.update({
-            id: playerId,
-            coaches: mergedCoaches
-          });
-        }
-      }
-    }
-
-    // 3. Update FieldPositions
-    const positions = await client.models.FieldPosition.list({
-      filter: { teamId: { eq: teamId } }
-    });
-    
-    for (const position of positions.data) {
-      await client.models.FieldPosition.update({
-        id: position.id,
-        coaches: newCoaches
-      });
-    }
-
-    // 4. Update Games
-    const games = await client.models.Game.list({
-      filter: { teamId: { eq: teamId } }
-    });
-    
-    for (const game of games.data) {
-      await client.models.Game.update({
-        id: game.id,
-        coaches: newCoaches
-      });
-      
-      // Note: We could also update deep game data (LineupAssignments, etc.) here
-      // For now, we'll assume the most critical data is the Game itself
-    }
-    
-    console.log(`✓ Propagated access for team ${teamId} to ${newCoaches.length} coaches`);
-  } catch (error) {
-    console.error('Error propagating coach access:', error);
-    // Don't throw here, as the main invitation acceptance succeeded
   }
 }
 

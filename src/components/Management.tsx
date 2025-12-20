@@ -70,27 +70,15 @@ export function Management() {
     if (!currentUserId) return;
 
     const teamSub = client.models.Team.observeQuery().subscribe({
-      next: (data) => {
-        // Filter teams where I am a coach
-        const myTeams = data.items.filter(t => t.coaches.includes(currentUserId));
-        setTeams(myTeams);
-      },
+      next: (data) => setTeams([...data.items]),
     });
 
     const playerSub = client.models.Player.observeQuery().subscribe({
-      next: (data) => {
-        // Filter players where I am a coach
-        const myPlayers = data.items.filter(p => p.coaches.includes(currentUserId));
-        setPlayers(myPlayers);
-      },
+      next: (data) => setPlayers([...data.items]),
     });
 
     const rosterSub = client.models.TeamRoster.observeQuery().subscribe({
-      next: (data) => {
-        // Filter rosters where I am a coach
-        const myRosters = data.items.filter(r => r.coaches.includes(currentUserId));
-        setTeamRosters(myRosters);
-      },
+      next: (data) => setTeamRosters([...data.items]),
     });
 
     const formationSub = client.models.Formation.observeQuery().subscribe({

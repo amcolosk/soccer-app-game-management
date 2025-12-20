@@ -40,12 +40,7 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
 
       if (teamInvResponse.data) {
         setInvitation(teamInvResponse.data);
-
-        // Load team name
-        const teamResponse = await client.models.Team.get({
-          id: teamInvResponse.data.teamId,
-        });
-        setResourceName(teamResponse.data?.name || 'Team');
+        setResourceName(teamInvResponse.data.teamName || 'Team');
         setLoading(false);
         return;
       }
