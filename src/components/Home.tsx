@@ -109,9 +109,9 @@ export function Home({ onGameSelect }: HomeProps) {
       // Ensure current user is included in coaches array
       // This handles cases where the team data might be slightly stale
       // and not yet reflect the user's addition to the coaches array
-      const coachesArray = currentUserId && !team.coaches.includes(currentUserId)
+      const coachesArray = currentUserId && team.coaches && !team.coaches.includes(currentUserId)
         ? [...team.coaches, currentUserId]
-        : team.coaches;
+        : team.coaches || [];
 
       const gameData: any = {
         teamId: selectedTeamForGame,

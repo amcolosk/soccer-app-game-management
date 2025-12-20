@@ -582,7 +582,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           gameState.currentHalf || 1,
           playTimeRecords,
           currentAssignment.id,
-          team.coaches // Pass coaches array from team
+          team.coaches || [] // Pass coaches array from team
         );
       }
 
@@ -617,7 +617,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         gameState.currentHalf || 1,
         playTimeRecords,
         currentAssignment.id,
-        team.coaches // Pass coaches array from team
+        team.coaches || [] // Pass coaches array from team
       );
 
       // Remove from queue
@@ -648,7 +648,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         gameState.currentHalf || 1,
         playTimeRecords,
         currentAssignment.id,
-        team.coaches // Pass coaches array from team
+        team.coaches || [] // Pass coaches array from team
       );
 
       setShowSubstitution(false);
