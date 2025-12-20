@@ -8,9 +8,8 @@ backend:
         - npx ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID
     postBuild:
       commands:
-        - echo "Configuring AppSync data source for acceptInvitation Lambda..."
-        - chmod +x ./scripts/fix-appsync-datasource.sh
-        - ./scripts/fix-appsync-datasource.sh
+        - echo "Backend deployment complete. Manual post-deployment step required:"
+        - echo "Run './scripts/fix-appsync-datasource.sh' (or .ps1 on Windows) with AWS credentials that have AppSync, Lambda, and IAM permissions"
 frontend:
   phases:
     build:

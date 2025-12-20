@@ -127,12 +127,14 @@ export async function loginUser(page: Page, email: string, password: string) {
   // Submit
   await clickButton(page, 'Sign in');
 
-  // Click Skip Verification if it appears
+  // Click Skip Verification if it appears (wait longer for it to load)
   try {
-    await page.waitForSelector('button:has-text("Skip")', { timeout: 2000 });
+    await page.waitForSelector('button:has-text("Skip")', { timeout: 5000 });
     await clickButton(page, 'Skip');
+    console.log('Clicked Skip on email verification');
   } catch (e) {
     // Skip button may not appear if already verified
+    console.log('No Skip button found - user may already be verified');
   }
   
   // Wait for successful login
