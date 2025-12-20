@@ -3,7 +3,7 @@ import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import {
   sendTeamInvitation,
-  revokeTeamPermission,
+  revokeCoachAccess,
   type InvitationRole,
 } from '../services/invitationService';
 
@@ -22,7 +22,7 @@ export function InvitationManagement({
 }: InvitationManagementProps) {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<InvitationRole>('COACH');
-  const [permissions, setPermissions] = useState<any[]>([]);
+  const [coaches, setCoaches] = useState<string[]>([]);
   const [invitations, setInvitations] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -33,11 +33,9 @@ export function InvitationManagement({
 
   async function loadData() {
     try {
-      // Load team permissions
-      const permsResponse = await client.models.TeamPermission.list({
-        filter: { teamId: { eq: resourceId } },
-      });
-      setPermissions(permsResponse.data || []);
+      // Load team coaches
+      const teamResponse = await client.models.Team.get({ id: resourceId });
+      setCoaches(teamResponse.data?.coaches || []);
 
       // Load team invitations
       const invsResponse = await client.models.TeamInvitation.list({
@@ -79,18 +77,18 @@ export function InvitationManagement({
     }
   }
 
-  async function handleRevokePermission(permissionId: string) {
-    if (!confirm('Are you sure you want to revoke this permission?')) {
+  async function handleRevokeAccess(userId: string) {
+    if (!confirm('Are you sure you want to revoke access for this coach?')) {
       return;
     }
 
     setLoading(true);
     try {
-      await revokeTeamPermission(permissionId);
-      setMessage('Permission revoked successfully');
+      await revokeCoachAccess(resourceId, userId);
+      setMessage('Coach access revoked successfully');
       await loadData();
     } catch (error: any) {
-      setMessage(`Error: ${error.message || 'Failed to revoke permission'}`);
+      setMessage(`Error: ${error.message || 'Failed to revoke access'}`);
     } finally {
       setLoading(false);
     }
@@ -155,23 +153,17 @@ export function InvitationManagement({
         </div>
       )}
 
-      {permissions.length > 0 && (
+      {coaches.length > 0 && (
         <div className="permissions-section">
-          <h4>Current Members ({permissions.length})</h4>
+          <h4>Current Coaches ({coaches.length})</h4>
           <div className="permissions-list">
-            {permissions.map((perm) => (
-              <div key={perm.id} className="permission-item">
+            {coaches.map((userId) => (
+              <div key={userId} className="permission-item">
                 <div className="permission-info">
-                  <span className="permission-user">User ID: {perm.userId}</span>
-                  <span className="permission-role">
-                    {perm.role === 'READ_ONLY' ? 'Parent (Read-only)' : perm.role}
-                  </span>
-                  <span className="permission-date">
-                    Added: {new Date(perm.grantedAt).toLocaleDateString()}
-                  </span>
+                  <span className="permission-user">User ID: {userId}</span>
                 </div>
                 <button
-                  onClick={() => handleRevokePermission(perm.id)}
+                  onClick={() => handleRevokeAccess(userId)}
                   className="btn-secondary"
                   disabled={loading}
                 >
@@ -211,9 +203,9 @@ export function InvitationManagement({
         </div>
       )}
 
-      {permissions.length === 0 && pendingInvitations.length === 0 && (
+      {coaches.length === 0 && pendingInvitations.length === 0 && (
         <p className="empty-message">
-          No members or pending invitations. Send an invitation to get started!
+          No coaches or pending invitations. Send an invitation to get started!
         </p>
       )}
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { generateClient } from 'aws-amplify/data';
+import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
 
 const client = generateClient<Schema>();
@@ -26,6 +27,9 @@ export function BugReport({ onClose }: BugReportProps) {
     setIsSubmitting(true);
 
     try {
+      // Get current user for coaches array
+      const user = await getCurrentUser();
+      
       // Collect system information
       const systemInfo = {
         userAgent: navigator.userAgent,
@@ -52,6 +56,7 @@ export function BugReport({ onClose }: BugReportProps) {
           systemInfo,
         }),
         timestamp: new Date().toISOString(),
+        coaches: [user.userId], // Bug reports owned by the reporting user
       });
 
       setIsSubmitted(true);

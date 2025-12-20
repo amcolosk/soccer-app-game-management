@@ -4,15 +4,12 @@ import { getCurrentUser } from 'aws-amplify/auth';
 
 const client = generateClient<Schema>();
 
-export type PermissionRole = 'OWNER' | 'COACH' | 'READ_ONLY';
-
 /**
- * Check if a user has permission to access a team with a specific role
+ * Check if a user has access to a team (is in the coaches array)
  */
-export async function hasTeamPermission(
+export async function hasTeamAccess(
   userId: string,
-  teamId: string,
-  requiredRole: PermissionRole = 'READ_ONLY'
+  teamId: string
 ): Promise<boolean> {
   try {
     // Get the team
@@ -21,67 +18,24 @@ export async function hasTeamPermission(
     
     if (!team) return false;
     
-    // Check if user is the owner
-    if (team.ownerId === userId) return true;
-    
-    // Check team-specific permissions
-    const permissionsResponse = await client.models.TeamPermission.list({
-      filter: {
-        teamId: { eq: teamId },
-        userId: { eq: userId },
-      },
-    });
-    
-    const permissions = permissionsResponse.data;
-    if (!permissions || permissions.length === 0) return false;
-    
-    const userRole = permissions[0].role as PermissionRole;
-    
-    // Role hierarchy: OWNER > COACH > READ_ONLY
-    const roleHierarchy: Record<PermissionRole, number> = {
-      OWNER: 3,
-      COACH: 2,
-      READ_ONLY: 1,
-    };
-    
-    return roleHierarchy[userRole] >= roleHierarchy[requiredRole];
+    // Check if user is in the coaches array
+    return team.coaches?.includes(userId) ?? false;
   } catch (error) {
-    console.error('Error checking team permission:', error);
+    console.error('Error checking team access:', error);
     return false;
   }
 }
 
 /**
- * Get all teams that a user has access to (owned or shared)
+ * Get all teams that a user has access to
+ * With ownersDefinedIn authorization, Team.list() automatically returns only accessible teams
  */
-export async function getUserTeams(userId: string) {
+export async function getUserTeams() {
   try {
-    // Get teams owned by user
-    const ownedTeamsResponse = await client.models.Team.list({
-      filter: { ownerId: { eq: userId } },
-    });
-    
-    // Get teams with direct permissions
-    const permissionsResponse = await client.models.TeamPermission.list({
-      filter: { userId: { eq: userId } },
-    });
-    
-    const sharedTeamIds = permissionsResponse.data.map((p) => p.teamId);
-    const sharedTeamsPromises = sharedTeamIds.map((id) =>
-      client.models.Team.get({ id })
-    );
-    const sharedTeamsResults = await Promise.all(sharedTeamsPromises);
-    const sharedTeams = sharedTeamsResults
-      .map((r) => r.data)
-      .filter((t) => t !== null);
-    
-    // Combine and deduplicate
-    const allTeams = [...ownedTeamsResponse.data, ...sharedTeams];
-    const uniqueTeams = Array.from(
-      new Map(allTeams.map((t) => [t!.id, t])).values()
-    );
-    
-    return uniqueTeams;
+    // With ownersDefinedIn('coaches'), the backend automatically filters
+    // to only return teams where the user is in the coaches array
+    const teamsResponse = await client.models.Team.list();
+    return teamsResponse.data || [];
   } catch (error) {
     console.error('Error getting user teams:', error);
     return [];
@@ -103,11 +57,11 @@ export async function getCurrentUserId(): Promise<string | null> {
 
 /**
  * Verify user has write permissions before performing team mutations
- * Throws an error if user lacks required permissions
+ * With ownersDefinedIn authorization, if the user can access the team, they can write to it
  * 
  * @param teamId - The team ID to check permissions for
  * @param operation - Description of the operation being performed (for error messages)
- * @throws Error if user lacks COACH-level permissions
+ * @throws Error if user lacks access
  */
 export async function requireTeamWritePermission(teamId: string, operation: string = 'modify this team'): Promise<void> {
   const userId = await getCurrentUserId();
@@ -115,9 +69,9 @@ export async function requireTeamWritePermission(teamId: string, operation: stri
     throw new Error('User not authenticated');
   }
   
-  const hasPermission = await hasTeamPermission(userId, teamId, 'COACH');
-  if (!hasPermission) {
-    throw new Error(`You don't have permission to ${operation}. Contact the team owner for access.`);
+  const hasAccess = await hasTeamAccess(userId, teamId);
+  if (!hasAccess) {
+    throw new Error(`You don't have permission to ${operation}. Contact a team coach for access.`);
   }
 }
 
@@ -125,11 +79,11 @@ export async function requireTeamWritePermission(teamId: string, operation: stri
  * Check if current user can write to a team (non-throwing version)
  * 
  * @param teamId - The team ID to check permissions for
- * @returns true if user has COACH or OWNER permissions
+ * @returns true if user has access to the team
  */
 export async function canWriteToTeam(teamId: string): Promise<boolean> {
   const userId = await getCurrentUserId();
   if (!userId) return false;
   
-  return await hasTeamPermission(userId, teamId, 'COACH');
+  return await hasTeamAccess(userId, teamId);
 }

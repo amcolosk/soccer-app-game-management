@@ -76,10 +76,18 @@ export function GameList({ teamId, onGameSelect }: GameListProps) {
     }
 
     try {
+      // Fetch the team to get coaches array
+      const teamResponse = await client.models.Team.get({ id: teamId });
+      if (!teamResponse.data) {
+        alert('Team not found');
+        return;
+      }
+
       const gameData: any = {
         teamId,
         opponent,
         isHome,
+        coaches: teamResponse.data.coaches, // Copy coaches array from team
       };
 
       // Convert datetime-local to ISO format if provided

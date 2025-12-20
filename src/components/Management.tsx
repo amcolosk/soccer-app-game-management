@@ -64,21 +64,33 @@ export function Management() {
 
   useEffect(() => {
     loadCurrentUser();
-    loadTeamsWithPermissions();
+  }, []);
+
+  useEffect(() => {
+    if (!currentUserId) return;
 
     const teamSub = client.models.Team.observeQuery().subscribe({
-      next: () => {
-        // Reload teams when any team changes
-        loadTeamsWithPermissions();
+      next: (data) => {
+        // Filter teams where I am a coach
+        const myTeams = data.items.filter(t => t.coaches.includes(currentUserId));
+        setTeams(myTeams);
       },
     });
 
     const playerSub = client.models.Player.observeQuery().subscribe({
-      next: (data) => setPlayers([...data.items]),
+      next: (data) => {
+        // Filter players where I am a coach
+        const myPlayers = data.items.filter(p => p.coaches.includes(currentUserId));
+        setPlayers(myPlayers);
+      },
     });
 
     const rosterSub = client.models.TeamRoster.observeQuery().subscribe({
-      next: (data) => setTeamRosters([...data.items]),
+      next: (data) => {
+        // Filter rosters where I am a coach
+        const myRosters = data.items.filter(r => r.coaches.includes(currentUserId));
+        setTeamRosters(myRosters);
+      },
     });
 
     const formationSub = client.models.Formation.observeQuery().subscribe({
@@ -96,7 +108,7 @@ export function Management() {
       formationSub.unsubscribe();
       formationPositionSub.unsubscribe();
     };
-  }, []);
+  }, [currentUserId]);
 
   async function loadCurrentUser() {
     try {
@@ -104,46 +116,6 @@ export function Management() {
       setCurrentUserId(user.userId);
     } catch (error) {
       console.error('Error getting current user:', error);
-    }
-  }
-
-  async function loadTeamsWithPermissions() {
-    try {
-      const user = await getCurrentUser();
-      
-      // Get owned teams
-      const ownedTeamsResponse = await client.models.Team.list({
-        filter: { ownerId: { eq: user.userId } }
-      });
-      const ownedTeams = ownedTeamsResponse.data || [];
-      
-      // Get team permissions for this user
-      const permissionsResponse = await client.models.TeamPermission.list({
-        filter: { userId: { eq: user.userId } }
-      });
-      const permissions = permissionsResponse.data || [];
-      
-      // Get teams from permissions
-      const permittedTeamIds = permissions.map(p => p.teamId);
-      const permittedTeamsPromises = permittedTeamIds.map(id => 
-        client.models.Team.get({ id })
-      );
-      const permittedTeamsResponses = await Promise.all(permittedTeamsPromises);
-      const permittedTeams = permittedTeamsResponses
-        .map(r => r.data)
-        .filter((t): t is NonNullable<typeof t> => t !== null && t !== undefined);
-      
-      // Combine and deduplicate
-      const allTeamsMap = new Map<string, Team>();
-      [...ownedTeams, ...permittedTeams].forEach(team => {
-        if (team && team.id) {
-          allTeamsMap.set(team.id, team as Team);
-        }
-      });
-      
-      setTeams(Array.from(allTeamsMap.values()));
-    } catch (error) {
-      console.error('Error loading teams:', error);
     }
   }
 
@@ -173,7 +145,7 @@ export function Management() {
     try {
       await client.models.Team.create({
         name: teamName,
-        ownerId: currentUserId,
+        coaches: [currentUserId], // Initialize with current user as the only coach
         formationId: selectedFormation || undefined,
         maxPlayersOnField: maxPlayersNum,
         halfLengthMinutes: halfLengthNum,
@@ -183,8 +155,6 @@ export function Management() {
       setHalfLength('25');
       setSelectedFormation('');
       setIsCreatingTeam(false);
-      // Explicitly reload teams to ensure UI updates on mobile
-      await loadTeamsWithPermissions();
     } catch (error) {
       console.error('Error creating team:', error);
       alert('Failed to create team');
@@ -233,8 +203,6 @@ export function Management() {
       setHalfLength('25');
       setSelectedFormation('');
       setEditingTeam(null);
-      // Explicitly reload teams to ensure UI updates on mobile
-      await loadTeamsWithPermissions();
     } catch (error) {
       console.error('Error updating team:', error);
       alert('Failed to update team');
@@ -253,8 +221,6 @@ export function Management() {
     if (window.confirm('Are you sure you want to delete this team? This will also delete all players, positions, and games.')) {
       try {
         await client.models.Team.delete({ id });
-        // Explicitly reload teams to ensure UI updates on mobile
-        await loadTeamsWithPermissions();
       } catch (error) {
         console.error('Error deleting team:', error);
         alert('Failed to delete team');
@@ -286,6 +252,12 @@ export function Management() {
       return;
     }
 
+    const team = teams.find(t => t.id === teamId);
+    if (!team) {
+      alert('Team not found');
+      return;
+    }
+
     try {
       await client.models.TeamRoster.create({
         teamId,
@@ -294,6 +266,7 @@ export function Management() {
         preferredPositions: rosterPreferredPositions.length > 0 
           ? rosterPreferredPositions.join(', ') 
           : undefined,
+        coaches: team.coaches, // Copy coaches array from team
       });
 
       setSelectedPlayerForRoster('');
@@ -412,11 +385,29 @@ export function Management() {
       return;
     }
 
+    if (!currentUserId) {
+      alert('User not authenticated');
+      return;
+    }
+
+    // Players need to be associated with a team to get coaches array
+    // Use the first team in the list or prompt user to select
+    const team = teams.length > 0 ? teams[0] : null;
+    if (!team) {
+      alert('Please create a team first before adding players');
+      return;
+    }
+
     try {
-      // Create the player
+      // Create the player with coaches array containing only the current user
+      // This ensures the player is private to the creator initially
+      // They will be shared with the team when added to a roster
+      const coachesArray = [currentUserId];
+
       await client.models.Player.create({
         firstName,
         lastName,
+        coaches: coachesArray,
       });
 
       setFirstName('');
@@ -683,7 +674,7 @@ export function Management() {
     formation.owner === currentUserId || teams.some(team => team.formationId === formation.id)
   );
 
-  // Filter players to show those on rosters for accessible teams OR owned by current user
+  // Filter players to show those on rosters for accessible teams OR where user is a coach
   const teamIds = new Set(teams.map(t => t.id));
   const accessiblePlayerIds = new Set(
     teamRosters
@@ -691,7 +682,7 @@ export function Management() {
       .map(roster => roster.playerId)
   );
   const accessiblePlayers = players.filter(player => 
-    player.owner === currentUserId || accessiblePlayerIds.has(player.id)
+    player.coaches?.includes(currentUserId) || accessiblePlayerIds.has(player.id)
   );
 
   return (

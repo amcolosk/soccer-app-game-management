@@ -290,6 +290,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             playerId: l.playerId,
             positionId: l.positionId,
             startGameSeconds: currentTime,
+            coaches: team.coaches, // Copy coaches array from team
           })
         );
 
@@ -360,6 +361,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           playerId: l.playerId,
           positionId: l.positionId,
           startGameSeconds: resumeTime,
+          coaches: team.coaches, // Copy coaches array from team
         });
       });
 
@@ -474,6 +476,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         playerId: playerToAssign,
         positionId: positionId,
         isStarter: true,
+        coaches: team.coaches, // Copy coaches array from team
       });
 
       // If game has started, create a play time record
@@ -483,6 +486,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           playerId: playerToAssign,
           positionId: positionId,
           startGameSeconds: currentTime,
+          coaches: team.coaches, // Copy coaches array from team
         });
       }
 
@@ -577,7 +581,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           currentTime,
           gameState.currentHalf || 1,
           playTimeRecords,
-          currentAssignment.id
+          currentAssignment.id,
+          team.coaches // Pass coaches array from team
         );
       }
 
@@ -611,7 +616,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         currentTime,
         gameState.currentHalf || 1,
         playTimeRecords,
-        currentAssignment.id
+        currentAssignment.id,
+        team.coaches // Pass coaches array from team
       );
 
       // Remove from queue
@@ -641,7 +647,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         currentTime,
         gameState.currentHalf || 1,
         playTimeRecords,
-        currentAssignment.id
+        currentAssignment.id,
+        team.coaches // Pass coaches array from team
       );
 
       setShowSubstitution(false);
@@ -690,6 +697,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         assistId: goalScoredByUs && goalAssistId ? goalAssistId : undefined,
         notes: goalNotes || undefined,
         timestamp: new Date().toISOString(),
+        coaches: team.coaches, // Copy coaches array from team
       });
 
       // Update game score
@@ -730,6 +738,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         half: gameState.currentHalf || 2, // Default to 2nd half for completed games
         notes: noteText || undefined,
         timestamp: new Date().toISOString(),
+        coaches: team.coaches, // Copy coaches array from team
       });
 
       setShowNoteModal(false);

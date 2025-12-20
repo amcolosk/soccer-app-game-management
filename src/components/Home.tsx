@@ -20,46 +20,27 @@ export function Home({ onGameSelect }: HomeProps) {
   const [opponent, setOpponent] = useState('');
   const [gameDate, setGameDate] = useState('');
   const [isHome, setIsHome] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string>('');
 
   useEffect(() => {
+    loadCurrentUser();
     loadTeamsAndData();
   }, []);
 
-  async function loadTeamsAndData() {
+  async function loadCurrentUser() {
     try {
       const user = await getCurrentUser();
-      
-      // Get owned teams (filter by ownerId to avoid getting all teams)
-      const ownedTeamsResponse = await client.models.Team.list({
-        filter: { ownerId: { eq: user.userId } }
-      });
-      const ownedTeams = ownedTeamsResponse.data || [];
-      
-      // Get team permissions for this user
-      const permissionsResponse = await client.models.TeamPermission.list({
-        filter: { userId: { eq: user.userId } }
-      });
-      const permissions = permissionsResponse.data || [];
-      
-      // Get teams from permissions (teams shared with this user)
-      const permittedTeamIds = permissions.map(p => p.teamId);
-      const permittedTeamsPromises = permittedTeamIds.map(id => 
-        client.models.Team.get({ id })
-      );
-      const permittedTeamsResponses = await Promise.all(permittedTeamsPromises);
-      const permittedTeams = permittedTeamsResponses
-        .map(r => r.data)
-        .filter((t): t is NonNullable<typeof t> => t !== null && t !== undefined);
-      
-      // Combine and deduplicate teams
-      const allTeamsMap = new Map<string, Team>();
-      [...ownedTeams, ...permittedTeams].forEach(team => {
-        if (team && team.id) {
-          allTeamsMap.set(team.id, team as Team);
-        }
-      });
-      
-      setTeams(Array.from(allTeamsMap.values()));
+      setCurrentUserId(user.userId);
+    } catch (error) {
+      console.error('Error getting current user:', error);
+    }
+  }
+
+  async function loadTeamsAndData() {
+    try {
+      // With ownersDefinedIn('coaches'), Team.list() automatically returns only accessible teams
+      const teamsResponse = await client.models.Team.list();
+      setTeams(teamsResponse.data || []);
     } catch (error) {
       console.error('Error loading teams:', error);
     }
@@ -119,10 +100,24 @@ export function Home({ onGameSelect }: HomeProps) {
     }
 
     try {
+      const team = teams.find(t => t.id === selectedTeamForGame);
+      if (!team) {
+        alert('Team not found');
+        return;
+      }
+
+      // Ensure current user is included in coaches array
+      // This handles cases where the team data might be slightly stale
+      // and not yet reflect the user's addition to the coaches array
+      const coachesArray = currentUserId && !team.coaches.includes(currentUserId)
+        ? [...team.coaches, currentUserId]
+        : team.coaches;
+
       const gameData: any = {
         teamId: selectedTeamForGame,
         opponent,
         isHome,
+        coaches: coachesArray,
       };
 
       if (gameDate) {
@@ -135,6 +130,13 @@ export function Home({ onGameSelect }: HomeProps) {
       setIsHome(true);
       setSelectedTeamForGame('');
       setIsCreatingGame(false);
+      
+      console.log('✓ Game created successfully:', gameData);
+      
+      // Force a reload to ensure PWA service worker syncs the new data
+      // This addresses potential issues with DynamoDB eventual consistency
+      // and subscription update timing
+      window.location.reload();
     } catch (error) {
       console.error('Error creating game:', error);
       alert('Failed to create game');

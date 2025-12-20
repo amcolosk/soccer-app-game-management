@@ -87,11 +87,23 @@ export function parseTime(timeString: string): number {
  */
 export async function closePWAPrompt(page: Page) {
   try {
-    const okButton = page.locator('.update-prompt button:has-text("OK")');
-    const isVisible = await okButton.isVisible({ timeout: 2000 }).catch(() => false);
-    if (isVisible) {
-      await okButton.click();
-      await page.waitForTimeout(500);
+    const overlay = page.locator('.update-prompt-overlay');
+    if (await overlay.isVisible({ timeout: 2000 }).catch(() => false)) {
+      console.log('Closing PWA prompt...');
+      // Try to click OK or Later or Reload
+      const okButton = overlay.locator('button:has-text("OK")');
+      const laterButton = overlay.locator('button:has-text("Later")');
+      const reloadButton = overlay.locator('button:has-text("Reload")');
+      
+      if (await okButton.isVisible()) {
+        await okButton.click();
+      } else if (await laterButton.isVisible()) {
+        await laterButton.click();
+      } else if (await reloadButton.isVisible()) {
+        await reloadButton.click();
+      }
+      
+      await expect(overlay).not.toBeVisible({ timeout: 5000 });
     }
   } catch (e) {
     // Prompt may not appear or already closed
@@ -126,6 +138,9 @@ export async function loginUser(page: Page, email: string, password: string) {
   // Wait for successful login
   await waitForPageLoad(page);
   
+  // Wait for the app to be ready (bottom nav visible)
+  await page.waitForSelector('.bottom-nav', { timeout: 15000 });
+  
   // Close PWA update/offline prompt if it appears
   await closePWAPrompt(page);
 }
@@ -136,6 +151,9 @@ export async function loginUser(page: Page, email: string, password: string) {
  */
 export async function cleanupTestData(page: Page) {
   console.log('Cleaning up test data...');
+  
+  // Close PWA prompt if it's showing
+  await closePWAPrompt(page);
   
   // Make sure we're on Management page
   const manageTab = page.locator('button.nav-item', { hasText: 'Manage' });
@@ -234,8 +252,18 @@ export async function navigateToManagement(page: Page) {
   // Close PWA prompt if it's still showing
   await closePWAPrompt(page);
   
+  // Wait for any loading state to disappear
+  const loadingIndicator = page.getByText('Loading...', { exact: true });
+  if (await loadingIndicator.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await expect(loadingIndicator).not.toBeVisible({ timeout: 10000 });
+  }
+
+  // Wait for Manage button to be visible
+  const manageButton = page.getByRole('button', { name: /manage/i });
+  await manageButton.waitFor({ state: 'visible', timeout: 10000 });
+  
   // Click Manage tab in bottom navigation
-  await page.getByRole('button', { name: /manage/i }).click();
+  await manageButton.click();
   await waitForPageLoad(page);
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
   

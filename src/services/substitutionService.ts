@@ -60,6 +60,7 @@ export async function closeActivePlayTimeRecords(
  * @param currentHalf - Current half (1 or 2)
  * @param playTimeRecords - All play time records to find active record
  * @param oldAssignmentId - ID of the lineup assignment to remove
+ * @param coaches - Array of coach user IDs for authorization
  * @returns Promise that resolves when substitution is complete
  */
 export async function executeSubstitution(
@@ -70,7 +71,8 @@ export async function executeSubstitution(
   currentGameSeconds: number,
   currentHalf: number,
   playTimeRecords: PlayTimeRecord[],
-  oldAssignmentId: string
+  oldAssignmentId: string,
+  coaches: string[]
 ): Promise<void> {
   console.log(`Executing substitution: ${oldPlayerId} OUT, ${newPlayerId} IN at position ${positionId}`);
 
@@ -102,6 +104,7 @@ export async function executeSubstitution(
     playerId: newPlayerId,
     positionId: positionId,
     isStarter: false,
+    coaches: coaches, // Copy coaches array from team
   });
 
   // 4. Start play time for incoming player
@@ -111,6 +114,7 @@ export async function executeSubstitution(
     playerId: newPlayerId,
     positionId: positionId,
     startGameSeconds: currentGameSeconds,
+    coaches: coaches, // Copy coaches array from team
   });
 
   // 5. Record the substitution
@@ -122,6 +126,7 @@ export async function executeSubstitution(
     playerInId: newPlayerId,
     half: currentHalf,
     gameSeconds: currentGameSeconds,
+    coaches: coaches, // Copy coaches array from team
   });
 
   console.log('Substitution completed successfully');

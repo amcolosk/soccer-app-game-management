@@ -37,7 +37,7 @@ const schema = a.schema({
   Team: a
     .model({
       name: a.string().required(),
-      ownerId: a.string().required(), // User ID of the team creator
+      coaches: a.string().array().required(), // Array of user IDs who can access this team
       formationId: a.id(),
       formation: a.belongsTo('Formation', 'formationId'),
       maxPlayersOnField: a.integer().required(),
@@ -45,17 +45,11 @@ const schema = a.schema({
       roster: a.hasMany('TeamRoster', 'teamId'),
       positions: a.hasMany('FieldPosition', 'teamId'),
       games: a.hasMany('Game', 'teamId'),
-      permissions: a.hasMany('TeamPermission', 'teamId'),
       invitations: a.hasMany('TeamInvitation', 'teamId'),
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
     .authorization((allow) => [
-      allow.owner(), // Full CRUD for team owners
-      allow.authenticated().to(['read']), // All authenticated users can read teams
-      // NOTE: Users with TeamPermission (COACH role) should have write access,
-      // but Amplify Gen 2 doesn't support dynamic permission checks.
-      // Client-side code must verify TeamPermission before attempting mutations.
-      // See docs/TODO.md for future security enhancements.
+      allow.ownersDefinedIn('coaches'), // Full access for coaches
+      allow.authenticated().to(['read']), // Allow reading for invitation acceptance
     ]),
 
   Player: a
@@ -63,6 +57,7 @@ const schema = a.schema({
       firstName: a.string().required(),
       lastName: a.string().required(),
       isActive: a.boolean().default(true),
+      coaches: a.string().array().required(), // Team coaches who can access this player
       teamRosters: a.hasMany('TeamRoster', 'playerId'),
       lineupAssignments: a.hasMany('LineupAssignment', 'playerId'),
       substitutionsOut: a.hasMany('Substitution', 'playerOutId'),
@@ -71,10 +66,9 @@ const schema = a.schema({
       goalsScored: a.hasMany('Goal', 'scorerId'),
       assists: a.hasMany('Goal', 'assistId'),
       gameNotes: a.hasMany('GameNote', 'playerId'),
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
     .authorization((allow) => [
-      allow.owner(),
+      allow.ownersDefinedIn('coaches'),
       allow.authenticated().to(['read']),
     ]),
 
@@ -87,10 +81,10 @@ const schema = a.schema({
       playerNumber: a.integer().required(),
       preferredPositions: a.string(), // Comma-separated formation position IDs
       isActive: a.boolean().default(true),
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+      coaches: a.string().array().required(), // Team coaches who can access this roster entry
     })
     .authorization((allow) => [
-      allow.owner(),
+      allow.ownersDefinedIn('coaches'),
       allow.authenticated().to(['read']),
     ]),
 
@@ -101,13 +95,13 @@ const schema = a.schema({
       positionName: a.string().required(), // e.g., "Forward", "Midfielder", "Defender", "Goalkeeper"
       abbreviation: a.string(), // e.g., "FW", "MF", "DF", "GK"
       sortOrder: a.integer(),
+      coaches: a.string().array().required(), // Team coaches who can access this position
       lineupAssignments: a.hasMany('LineupAssignment', 'positionId'),
       substitutions: a.hasMany('Substitution', 'positionId'),
       playTimeRecords: a.hasMany('PlayTimeRecord', 'positionId'),
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
     .authorization((allow) => [
-      allow.owner(),
+      allow.ownersDefinedIn('coaches'),
       allow.authenticated().to(['read']),
     ]),
 
@@ -124,15 +118,15 @@ const schema = a.schema({
       lastStartTime: a.string(), // ISO timestamp when timer last started
       ourScore: a.integer().default(0),
       opponentScore: a.integer().default(0),
+      coaches: a.string().array().required(), // Team coaches who can access this game
       lineupAssignments: a.hasMany('LineupAssignment', 'gameId'),
       substitutions: a.hasMany('Substitution', 'gameId'),
       playTimeRecords: a.hasMany('PlayTimeRecord', 'gameId'),
       goals: a.hasMany('Goal', 'gameId'),
       gameNotes: a.hasMany('GameNote', 'gameId'),
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
     })
     .authorization((allow) => [
-      allow.owner(),
+      allow.ownersDefinedIn('coaches'),
       allow.authenticated().to(['read']),
     ]),
 
@@ -145,10 +139,10 @@ const schema = a.schema({
       positionId: a.id(),
       position: a.belongsTo('FieldPosition', 'positionId'),
       isStarter: a.boolean().required(),
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+      coaches: a.string().array().required(), // Team coaches who can access this assignment
     })
     .authorization((allow) => [
-      allow.owner(),
+      allow.ownersDefinedIn('coaches'),
       allow.authenticated().to(['read']),
     ]),
 
@@ -165,10 +159,10 @@ const schema = a.schema({
       gameSeconds: a.integer(),
       half: a.integer(),
       timestamp: a.datetime(),
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+      coaches: a.string().array().required(), // Team coaches who can access this substitution
     })
     .authorization((allow) => [
-      allow.owner(),
+      allow.ownersDefinedIn('coaches'),
       allow.authenticated().to(['read']),
     ]),
 
@@ -182,10 +176,10 @@ const schema = a.schema({
       position: a.belongsTo('FieldPosition', 'positionId'),
       startGameSeconds: a.integer().required(), // Game time (elapsed seconds) when player entered field
       endGameSeconds: a.integer(), // Game time when player left field (null if still playing)
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+      coaches: a.string().array().required(), // Team coaches who can access this record
     })
     .authorization((allow) => [
-      allow.owner(),
+      allow.ownersDefinedIn('coaches'),
       allow.authenticated().to(['read']),
     ]),
 
@@ -202,10 +196,10 @@ const schema = a.schema({
       assist: a.belongsTo('Player', 'assistId'),
       notes: a.string(), // Any additional notes about the goal
       timestamp: a.datetime().required(), // Real-world timestamp when goal was recorded
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+      coaches: a.string().array().required(), // Team coaches who can access this goal
     })
     .authorization((allow) => [
-      allow.owner(),
+      allow.ownersDefinedIn('coaches'),
       allow.authenticated().to(['read']),
     ]),
 
@@ -220,24 +214,12 @@ const schema = a.schema({
       half: a.integer().required(), // 1 or 2
       notes: a.string(), // The actual note text
       timestamp: a.datetime().required(), // Real-world timestamp when note was created
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+      coaches: a.string().array().required(), // Team coaches who can access this note
     })
     .authorization((allow) => [
-      allow.owner(),
+      allow.ownersDefinedIn('coaches'),
       allow.authenticated().to(['read']),
     ]),
-
-  TeamPermission: a
-    .model({
-      teamId: a.id().required(),
-      team: a.belongsTo('Team', 'teamId'),
-      userId: a.string().required(),
-      role: a.enum(['OWNER', 'COACH', 'READ_ONLY']),
-      grantedAt: a.datetime().required(),
-      grantedBy: a.string().required(), // userId who granted this permission
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
-    })
-    .authorization((allow) => [allow.owner()]),
 
   TeamInvitation: a
     .model({
@@ -250,10 +232,10 @@ const schema = a.schema({
       invitedAt: a.datetime().required(),
       expiresAt: a.datetime().required(),
       acceptedAt: a.datetime(),
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+      coaches: a.string().array().required(), // Team coaches who can manage invitations
     })
     .authorization((allow) => [
-      allow.owner(),
+      allow.ownersDefinedIn('coaches'),
       allow.authenticated().to(['read', 'update']), // Allow any authenticated user to read and accept/decline
     ]),
 });

@@ -5,11 +5,9 @@ export type Team = Schema["Team"]["type"];
 export type Player = Schema["Player"]["type"];
 export type TeamRoster = Schema["TeamRoster"]["type"];
 export type FieldPosition = Schema["FieldPosition"]["type"];
-export type TeamPermission = Schema["TeamPermission"]["type"];
 export type TeamInvitation = Schema["TeamInvitation"]["type"];
 
-// Permission and invitation enums
-export type PermissionRole = 'OWNER' | 'COACH' | 'READ_ONLY';
+// Invitation enums
 export type InvitationRole = 'OWNER' | 'COACH' | 'PARENT';
 export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED';
 
