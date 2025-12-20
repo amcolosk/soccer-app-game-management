@@ -1,6 +1,7 @@
 {
   "name": "accept-invitation",
   "version": "1.0.0",
+  "type": "module",
   "main": "handler.ts",
   "dependencies": {
     "aws-amplify": "^6.0.0"
