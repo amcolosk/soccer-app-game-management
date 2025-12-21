@@ -123,7 +123,7 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       // Select the player and assign jersey number
       const playerSelect = page.locator('select').first();
       await playerSelect.selectOption({ label: `${PLAYER_NAME.firstName} ${PLAYER_NAME.lastName}` });
-      await page.waitForTimeout(UI_TIMING.SHORT);
+      await page.waitForTimeout(UI_TIMING.QUICK);
       
       await fillInput(page, 'input[placeholder*="number"]', '10');
       

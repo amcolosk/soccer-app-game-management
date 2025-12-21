@@ -58,3 +58,6 @@
   - Forwards: Left Wing (LW), Right Wing (RW), Striker (ST), Center Forward (CF)
   - Allow coaches to quickly add standard positions or create custom ones
   - Consider adding formation templates (4-4-2, 4-3-3, 3-5-2, etc.)
+
+Additional Todos:
+- When changing a position in a formation, it resets the numbers, so all players associated with that formation lose their positions
