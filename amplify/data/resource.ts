@@ -1,4 +1,5 @@
 import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
+import { acceptInvitation } from "../functions/accept-invitation/resource"; // Import the function
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -248,7 +249,7 @@ const schema = a.schema({
     })
     .returns(a.ref('Team'))
     .authorization((allow) => [allow.authenticated()])
-    .handler(a.handler.function('acceptInvitation')),
+    .handler(a.handler.function(acceptInvitation)), // Pass the imported function object directly
 });
 
 export type Schema = ClientSchema<typeof schema>;
