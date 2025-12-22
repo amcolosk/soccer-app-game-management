@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { generateClient } from 'aws-amplify/data';
+import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
 import {
   sendTeamInvitation,
@@ -26,8 +27,10 @@ export function InvitationManagement({
   const [invitations, setInvitations] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [currentUserId, setCurrentUserId] = useState<string>('');
 
   useEffect(() => {
+    getCurrentUser().then(user => setCurrentUserId(user.userId)).catch(() => {});
     loadData();
   }, [resourceId, type]);
 
@@ -162,9 +165,11 @@ export function InvitationManagement({
 
       {coaches.length > 0 && (
         <div className="permissions-section">
-          <h4>Current Coaches ({coaches.length})</h4>
+          <h4>Current Coaches ({coaches.filter(id => id !== currentUserId).length})</h4>
           <div className="permissions-list">
-            {coaches.map((userId) => (
+            {coaches
+              .filter(userId => userId !== currentUserId)
+              .map((userId) => (
               <div key={userId} className="permission-item">
                 <div className="permission-info">
                   <span className="permission-user">{getCoachDisplay(userId)}</span>
