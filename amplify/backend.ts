@@ -42,3 +42,8 @@ teamInvitationTable.grantReadWriteData(backend.acceptInvitation.resources.lambda
 // Add table names as environment variables
 backend.acceptInvitation.addEnvironment('TEAM_TABLE', teamTable.tableName);
 backend.acceptInvitation.addEnvironment('TEAM_INVITATION_TABLE', teamInvitationTable.tableName);
+
+// Set APP_URL environment variable for sendInvitationEmail based on branch
+const branchName = process.env.AWS_BRANCH || 'local';
+const appUrl = branchName === 'main' ? 'https://coachteamtrack.com' : 'http://localhost:5173';
+backend.sendInvitationEmail.addEnvironment('APP_URL', appUrl);
