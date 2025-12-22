@@ -111,6 +111,13 @@ export function InvitationManagement({
     }
   }
 
+  const getCoachDisplay = (userId: string) => {
+    const acceptedInvite = invitations.find(
+      (inv) => inv.status === 'ACCEPTED' && inv.acceptedBy === userId
+    );
+    return acceptedInvite ? acceptedInvite.email : `User ID: ${userId}`;
+  };
+
   const pendingInvitations = invitations.filter((inv) => inv.status === 'PENDING');
 
   return (
@@ -160,7 +167,7 @@ export function InvitationManagement({
             {coaches.map((userId) => (
               <div key={userId} className="permission-item">
                 <div className="permission-info">
-                  <span className="permission-user">User ID: {userId}</span>
+                  <span className="permission-user">{getCoachDisplay(userId)}</span>
                 </div>
                 <button
                   onClick={() => handleRevokeAccess(userId)}

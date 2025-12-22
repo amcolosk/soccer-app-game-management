@@ -85,11 +85,12 @@ export const handler: Schema['acceptInvitation']['functionHandler'] = async (eve
   await docClient.send(new UpdateCommand({
     TableName: teamInvitationTable,
     Key: { id: invitationId },
-    UpdateExpression: 'SET #status = :status, acceptedAt = :acceptedAt, updatedAt = :updatedAt',
+    UpdateExpression: 'SET #status = :status, acceptedAt = :acceptedAt, acceptedBy = :acceptedBy, updatedAt = :updatedAt',
     ExpressionAttributeNames: { '#status': 'status' },
     ExpressionAttributeValues: {
       ':status': 'ACCEPTED',
       ':acceptedAt': new Date().toISOString(),
+      ':acceptedBy': userId,
       ':updatedAt': new Date().toISOString()
     }
   }));

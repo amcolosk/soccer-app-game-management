@@ -233,6 +233,7 @@ const schema = a.schema({
       invitedAt: a.datetime().required(),
       expiresAt: a.datetime().required(),
       acceptedAt: a.datetime(),
+      acceptedBy: a.string(), // User ID of the person who accepted
       coaches: a.string().array(), // Team coaches who can manage invitations
     })
     .authorization((allow) => [
