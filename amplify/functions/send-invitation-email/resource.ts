@@ -4,7 +4,7 @@ export const sendInvitationEmail = defineFunction({
   name: 'send-invitation-email',
   entry: './handler.ts',
   environment: {
-    FROM_EMAIL: 'amcolosk@gmail.com', // TODO: Update with your verified SES email
+    FROM_EMAIL: 'admin@coachteamtrack.org',
     APP_URL: process.env.APP_URL || 'http://localhost:5173'
   }
 });
