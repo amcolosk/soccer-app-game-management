@@ -1,6 +1,6 @@
 {
-  "name": "Soccer Game Management",
-  "short_name": "SoccerCoach",
+  "name": "Sports Game Management",
+  "short_name": "TeamTrack",
   "description": "Manage your soccer team, track play time, and record goals",
   "start_url": "/",
   "scope": "/",

@@ -195,7 +195,9 @@ export function UserProfile({ onSignOut }: UserProfileProps) {
         <h3>Account Information</h3>
         <div className="info-row">
           <label>Email Address</label>
-          <div className="info-value">{user?.signInDetails?.loginId || 'Not available'}</div>
+          <div className="info-value">
+            {user?.signInDetails?.loginId || (user as any)?.attributes?.email || user?.username || 'Not available'}
+          </div>
         </div>
       </div>
 

@@ -98,6 +98,11 @@ test.describe('User Profile', () => {
     await clickButton(page, 'Sign Out');
     await waitForPageLoad(page);
     
+    // Verify we're on Landing Page and click Log In
+    const loginButton = page.getByRole('button', { name: 'Log In' });
+    await expect(loginButton).toBeVisible();
+    await loginButton.click();
+    
     // Verify we're back at login
     await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
     
@@ -196,9 +201,8 @@ test.describe('User Profile', () => {
     await signOutButton.click();
     await waitForPageLoad(page);
     
-    // Should be redirected to login page
-    await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
-    await expect(page.locator('input[name="username"], input[type="email"]')).toBeVisible();
+    // Should be redirected to Landing Page
+    await expect(page.getByRole('button', { name: 'Log In' })).toBeVisible();
     
     console.log('✓ Sign out successful');
     
@@ -206,10 +210,10 @@ test.describe('User Profile', () => {
     await page.goto('/');
     await page.waitForTimeout(1000);
     
-    // Should still be on auth page or redirected to it
-    await expect(page.locator('input[name="username"], input[type="email"]')).toBeVisible();
+    // Should see Landing Page
+    await expect(page.getByRole('button', { name: 'Log In' })).toBeVisible();
     
-    console.log('✓ Protected routes require authentication');
+    console.log('✓ Protected routes require authentication (redirect to landing)');
   });
 
   test('should navigate between tabs while on profile', async ({ page }) => {

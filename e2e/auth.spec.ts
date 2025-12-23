@@ -22,6 +22,9 @@ test.describe('Authentication', () => {
     
     await page.goto('/');
     await waitForPageLoad(page);
+
+    // Click Log In on Landing Page
+    await clickButton(page, 'Log In');
     
     // Wait for auth UI to load
     await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
@@ -51,6 +54,9 @@ test.describe('Authentication', () => {
     
     await page.goto('/');
     await waitForPageLoad(page);
+
+    // Click Log In on Landing Page
+    await clickButton(page, 'Log In');
     
     // Wait for auth UI to load
     await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
@@ -78,6 +84,9 @@ test.describe('Authentication', () => {
     
     await page.goto('/');
     await waitForPageLoad(page);
+
+    // Click Log In on Landing Page
+    await clickButton(page, 'Log In');
     
     // Wait for auth UI
     await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });

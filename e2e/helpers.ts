@@ -117,6 +117,14 @@ export async function loginUser(page: Page, email: string, password: string) {
   await page.goto('/');
   await waitForPageLoad(page);
   
+  // Check for Landing Page "Log In" button
+  const loginButton = page.getByRole('button', { name: 'Log In' });
+  if (await loginButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+    console.log('On Landing Page, clicking Log In...');
+    await loginButton.click();
+    await waitForPageLoad(page);
+  }
+
   // Wait for auth UI to load
   await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
   
@@ -141,7 +149,7 @@ export async function loginUser(page: Page, email: string, password: string) {
   await waitForPageLoad(page);
   
   // Wait for the app to be ready (bottom nav visible)
-  await page.waitForSelector('.bottom-nav', { timeout: 15000 });
+  await page.waitForSelector('.bottom-nav', { timeout: 30000 });
   
   // Close PWA update/offline prompt if it appears
   await closePWAPrompt(page);

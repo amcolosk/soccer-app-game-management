@@ -25,8 +25,8 @@ export default defineConfig({
         type: 'module',
       },
       manifest: {
-        name: 'Soccer Game Management',
-        short_name: 'SoccerCoach',
+        name: 'Sports Game Management',
+        short_name: 'TeamTrack',
         description: 'Manage your soccer team, track game time, and record goals',
         theme_color: '#1a472a',
         background_color: '#ffffff',

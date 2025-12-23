@@ -380,14 +380,6 @@ export function Management() {
       return;
     }
 
-    // Players need to be associated with a team to get coaches array
-    // Use the first team in the list or prompt user to select
-    const team = teams.length > 0 ? teams[0] : null;
-    if (!team) {
-      alert('Please create a team first before adding players');
-      return;
-    }
-
     try {
       // Create the player with coaches array containing only the current user
       // This ensures the player is private to the creator initially

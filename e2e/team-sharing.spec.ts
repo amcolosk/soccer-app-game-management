@@ -198,9 +198,17 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       await page.goto(`/?invitationId=${invitationId}`);
       await page.waitForTimeout(UI_TIMING.STANDARD);
       
+      // Handle Landing Page if present
+      const loginButton = page.getByRole('button', { name: 'Log In' });
+      if (await loginButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+        console.log('On Landing Page, clicking Log In...');
+        await loginButton.click();
+        await waitForPageLoad(page);
+      }
+
       // Login as User 2 if not already logged in
       const usernameInput = page.locator('input[name="username"], input[type="email"]');
-      if (await usernameInput.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (await usernameInput.isVisible({ timeout: 5000 }).catch(() => false)) {
         await fillInput(page, 'input[name="username"], input[type="email"]', TEST_USERS.user2.email);
         await fillInput(page, 'input[name="password"], input[type="password"]', TEST_USERS.user2.password);
         await clickButton(page, 'Sign in');
