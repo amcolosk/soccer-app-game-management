@@ -68,8 +68,7 @@ const schema = a.schema({
       gameNotes: a.hasMany('GameNote', 'playerId'),
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'),
-      allow.authenticated().to(['read']),
+      allow.ownersDefinedIn('coaches'), // Only team coaches can access players
     ]),
 
   TeamRoster: a
@@ -84,8 +83,7 @@ const schema = a.schema({
       coaches: a.string().array(), // Team coaches who can access this roster entry
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'),
-      allow.authenticated().to(['read']),
+      allow.ownersDefinedIn('coaches'), // Only team coaches can access roster
     ]),
 
   FieldPosition: a
@@ -101,8 +99,7 @@ const schema = a.schema({
       playTimeRecords: a.hasMany('PlayTimeRecord', 'positionId'),
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'),
-      allow.authenticated().to(['read']),
+      allow.ownersDefinedIn('coaches'), // Only team coaches can access positions
     ]),
 
   Game: a
@@ -126,8 +123,7 @@ const schema = a.schema({
       gameNotes: a.hasMany('GameNote', 'gameId'),
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'),
-      allow.authenticated().to(['read']),
+      allow.ownersDefinedIn('coaches'), // Only team coaches can access games
     ]),
 
   LineupAssignment: a
@@ -142,8 +138,7 @@ const schema = a.schema({
       coaches: a.string().array(), // Team coaches who can access this assignment
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'),
-      allow.authenticated().to(['read']),
+      allow.ownersDefinedIn('coaches'), // Only team coaches can access lineups
     ]),
 
   Substitution: a
@@ -162,8 +157,7 @@ const schema = a.schema({
       coaches: a.string().array(), // Team coaches who can access this substitution
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'),
-      allow.authenticated().to(['read']),
+      allow.ownersDefinedIn('coaches'), // Only team coaches can access substitutions
     ]),
 
   PlayTimeRecord: a
@@ -179,8 +173,7 @@ const schema = a.schema({
       coaches: a.string().array(), // Team coaches who can access this record
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'),
-      allow.authenticated().to(['read']),
+      allow.ownersDefinedIn('coaches'), // Only team coaches can access play time records
     ]),
 
   Goal: a
@@ -199,8 +192,7 @@ const schema = a.schema({
       coaches: a.string().array(), // Team coaches who can access this goal
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'),
-      allow.authenticated().to(['read']),
+      allow.ownersDefinedIn('coaches'), // Only team coaches can access goals
     ]),
 
   GameNote: a
@@ -217,8 +209,7 @@ const schema = a.schema({
       coaches: a.string().array(), // Team coaches who can access this note
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'),
-      allow.authenticated().to(['read']),
+      allow.ownersDefinedIn('coaches'), // Only team coaches can access game notes
     ]),
 
   TeamInvitation: a
