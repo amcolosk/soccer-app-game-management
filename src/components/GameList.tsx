@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
+import { trackEvent, AnalyticsEvents } from "../utils/analytics";
 
 const client = generateClient<Schema>();
 
@@ -97,6 +98,8 @@ export function GameList({ teamId, onGameSelect }: GameListProps) {
 
       const result = await client.models.Game.create(gameData);
       console.log("Game created:", result);
+      
+      trackEvent(AnalyticsEvents.GAME_CREATED.category, AnalyticsEvents.GAME_CREATED.action);
       
       setOpponent("");
       setIsHome(true);

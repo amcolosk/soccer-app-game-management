@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
+import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import {
   sendTeamInvitation,
   revokeCoachAccess,
@@ -70,6 +71,7 @@ export function InvitationManagement({
 
     try {
       await sendTeamInvitation(resourceId, inviteEmail, inviteRole);
+      trackEvent(AnalyticsEvents.INVITATION_SENT.category, AnalyticsEvents.INVITATION_SENT.action);
       setMessage(`Invitation sent to ${inviteEmail}`);
       setInviteEmail('');
       await loadData();

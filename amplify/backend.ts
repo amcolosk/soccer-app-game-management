@@ -14,6 +14,16 @@ const backend = defineBackend({
   acceptInvitation,
 });
 
+// Add GA Measurement ID to outputs
+const gaMeasurementId = process.env.GA_MEASUREMENT_ID;
+if (gaMeasurementId) {
+  backend.addOutput({
+    custom: {
+      ga_measurement_id: gaMeasurementId,
+    },
+  });
+}
+
 // Grant the Lambda function permission to send emails via SES
 backend.sendInvitationEmail.resources.lambda.addToRolePolicy(
   new PolicyStatement({

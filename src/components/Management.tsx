@@ -4,6 +4,7 @@ import { getCurrentUser } from 'aws-amplify/auth';
 import { BugReport } from './BugReport';
 import { InvitationManagement } from './InvitationManagement';
 import type { Schema } from '../../amplify/data/resource';
+import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 
 const client = generateClient<Schema>();
 
@@ -143,6 +144,7 @@ export function Management() {
       setHalfLength('25');
       setSelectedFormation('');
       setIsCreatingTeam(false);
+      trackEvent(AnalyticsEvents.TEAM_CREATED.category, AnalyticsEvents.TEAM_CREATED.action);
     } catch (error) {
       console.error('Error creating team:', error);
       alert('Failed to create team');
@@ -397,6 +399,8 @@ export function Management() {
         lastName,
         coaches: coachesArray,
       });
+
+      trackEvent(AnalyticsEvents.PLAYER_ADDED.category, AnalyticsEvents.PLAYER_ADDED.action);
 
       setFirstName('');
       setLastName('');

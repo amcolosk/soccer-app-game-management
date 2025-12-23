@@ -9,6 +9,7 @@ import { Management } from "./components/Management";
 import InvitationAcceptance from "./components/InvitationAcceptance";
 import type { Team } from "./types";
 import type { Schema } from "../amplify/data/resource";
+import { trackPageView } from "./utils/analytics";
 import "./App.css";
 
 const client = generateClient<Schema>();
@@ -23,6 +24,15 @@ function App() {
   const [isRestoring, setIsRestoring] = useState(true);
   const [activeNav, setActiveNav] = useState<NavigationTab>('home');
   
+  // Track page views when navigation changes
+  useEffect(() => {
+    if (selectedGame) {
+      trackPageView('/game-management');
+    } else {
+      trackPageView(`/${activeNav}`);
+    }
+  }, [activeNav, selectedGame]);
+
   // Initialize invitation ID directly from URL
   const getInvitationIdFromUrl = () => {
     const urlParams = new URLSearchParams(window.location.search);

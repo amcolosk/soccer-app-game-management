@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
+import { trackEvent, AnalyticsEvents } from "../utils/analytics";
 import {
   calculatePlayerPlayTime,
   formatPlayTime,
@@ -298,6 +299,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
       setGameState({ ...gameState, status: 'in-progress' });
       setIsRunning(true);
+      trackEvent(AnalyticsEvents.GAME_STARTED.category, AnalyticsEvents.GAME_STARTED.action);
     } catch (error) {
       console.error("Error starting game:", error);
       alert("Failed to start game");
@@ -406,6 +408,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       // Update local state with the exact end time
       setGameState({ ...gameState, status: 'completed', elapsedSeconds: endGameTime });
       setCurrentTime(endGameTime);
+      trackEvent(AnalyticsEvents.GAME_COMPLETED.category, AnalyticsEvents.GAME_COMPLETED.action);
     } catch (error) {
       console.error("Error ending game:", error);
     }

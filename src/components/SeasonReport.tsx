@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
+import { trackEvent, AnalyticsEvents } from "../utils/analytics";
 import { sortRosterByNumber } from "../utils/playerUtils";
 import {
   calculatePlayerPlayTime,
@@ -72,6 +73,7 @@ export function TeamReport({ team }: TeamReportProps) {
 
   useEffect(() => {
     loadTeamData();
+    trackEvent(AnalyticsEvents.SEASON_REPORT_VIEWED.category, AnalyticsEvents.SEASON_REPORT_VIEWED.action);
     
     // Subscribe to PlayTimeRecord updates for reactive data
     const playTimeSub = client.models.PlayTimeRecord.observeQuery().subscribe({
