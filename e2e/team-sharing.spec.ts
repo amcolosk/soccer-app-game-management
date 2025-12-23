@@ -406,7 +406,7 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       await nameInput.clear();
       await fillInput(page, 'input[placeholder*="team name"]', updatedName);
       
-      await clickButton(page, /save|update/i);
+      await clickButton(page, 'Save');
       await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
       
       await expect(page.locator('.item-card').filter({ hasText: updatedName }).first()).toBeVisible();
