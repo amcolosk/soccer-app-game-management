@@ -116,6 +116,16 @@ export async function closePWAPrompt(page: Page) {
 export async function loginUser(page: Page, email: string, password: string) {
   await page.goto('/');
   await waitForPageLoad(page);
+
+  // Check if already logged in (bottom nav visible)
+  const bottomNav = page.locator('.bottom-nav');
+  if (await bottomNav.isVisible({ timeout: 2000 }).catch(() => false)) {
+    console.log('User already logged in, signing out...');
+    // Navigate to profile and sign out
+    await page.getByRole('button', { name: 'Profile' }).click();
+    await page.getByRole('button', { name: 'Sign Out' }).click();
+    await expect(page.getByRole('button', { name: 'Log In' })).toBeVisible({ timeout: 10000 });
+  }
   
   // Check for Landing Page "Log In" button
   const loginButton = page.getByRole('button', { name: 'Log In' });

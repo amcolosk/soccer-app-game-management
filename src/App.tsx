@@ -19,6 +19,10 @@ type NavigationTab = 'home' | 'reports' | 'manage' | 'profile';
 
 function App() {
   const { signOut } = useAuthenticator();
+  const handleSignOut = () => {
+    console.log('Sign out requested');
+    signOut();
+  };
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [isRestoring, setIsRestoring] = useState(true);
@@ -151,7 +155,7 @@ function App() {
       )}
 
       {activeNav === 'profile' && (
-        <UserProfile onSignOut={signOut} />
+        <UserProfile onSignOut={handleSignOut} />
       )}
 
       <nav className="bottom-nav">
