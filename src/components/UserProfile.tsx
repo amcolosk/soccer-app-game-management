@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthenticator } from '@aws-amplify/ui-react';
-import { updatePassword, deleteUser } from 'aws-amplify/auth';
+import { updatePassword, deleteUser, fetchUserAttributes } from 'aws-amplify/auth';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import {
@@ -30,10 +30,23 @@ export function UserProfile({ onSignOut }: UserProfileProps) {
   }>({ teamInvitations: [] });
   const [teams, setTeams] = useState<Team[]>([]);
   const [loadingInvitations, setLoadingInvitations] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
 
   useEffect(() => {
     loadPendingInvitations();
+    loadUserAttributes();
   }, []);
+
+  async function loadUserAttributes() {
+    try {
+      const attributes = await fetchUserAttributes();
+      if (attributes.email) {
+        setUserEmail(attributes.email);
+      }
+    } catch (error) {
+      console.error('Error fetching user attributes:', error);
+    }
+  }
 
   async function loadPendingInvitations() {
     setLoadingInvitations(true);
@@ -196,7 +209,7 @@ export function UserProfile({ onSignOut }: UserProfileProps) {
         <div className="info-row">
           <label>Email Address</label>
           <div className="info-value">
-            {user?.signInDetails?.loginId || (user as any)?.attributes?.email || user?.username || 'Not available'}
+            {userEmail || user?.signInDetails?.loginId || (user as any)?.attributes?.email || user?.username || 'Not available'}
           </div>
         </div>
       </div>

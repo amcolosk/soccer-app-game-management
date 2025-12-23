@@ -36,8 +36,13 @@ test.describe('Authentication', () => {
     // Submit
     await clickButton(page, 'Sign in');
 
-    // Click Skip Verification
-    await clickButton(page, 'Skip');
+    // Click Skip Verification if it appears
+    try {
+      await page.waitForSelector('button:has-text("Skip")', { timeout: 5000 });
+      await clickButton(page, 'Skip');
+    } catch (e) {
+      // Skip button may not appear if already verified
+    }
     
     // Wait for successful login - should see main app (Home page)
     await waitForPageLoad(page);
@@ -68,8 +73,13 @@ test.describe('Authentication', () => {
     // Submit
     await clickButton(page, 'Sign in');
 
-    // Click Skip Verification
-    await clickButton(page, 'Skip');
+    // Click Skip Verification if it appears
+    try {
+      await page.waitForSelector('button:has-text("Skip")', { timeout: 5000 });
+      await clickButton(page, 'Skip');
+    } catch (e) {
+      // Skip button may not appear if already verified
+    }
     
     // Wait for successful login - should see main app (Home page)
     await waitForPageLoad(page);
