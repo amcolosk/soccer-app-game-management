@@ -1,5 +1,6 @@
 import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
 import { acceptInvitation } from "../functions/accept-invitation/resource"; // Import the function
+import { getUserInvitations } from "../functions/get-user-invitations/resource"; // Import the function
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -228,8 +229,10 @@ const schema = a.schema({
       coaches: a.string().array(), // Team coaches who can manage invitations
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'),
-      allow.authenticated().to(['read', 'update']), // Allow any authenticated user to read and accept/decline
+      allow.ownersDefinedIn('coaches'), // Team coaches can manage all invitations
+    ])
+    .secondaryIndexes((index) => [
+      index('email').sortKeys(['status']).queryField('listInvitationsByEmail'),
     ]),
 
   // Custom mutation for accepting invitations with elevated permissions
@@ -242,6 +245,13 @@ const schema = a.schema({
     .returns(a.ref('Team'))
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(acceptInvitation)), // Pass the imported function object directly
+
+  // Custom query for getting current user's invitations
+  getUserInvitations: a
+    .query()
+    .returns(a.json())
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(getUserInvitations)),
 });
 
 export type Schema = ClientSchema<typeof schema>;

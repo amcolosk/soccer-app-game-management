@@ -33,18 +33,56 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
     }
 
     try {
-      // Load team invitation
-      const teamInvResponse = await client.models.TeamInvitation.get({
-        id: invitationId,
-      });
-
-      if (teamInvResponse.data) {
-        setInvitation(teamInvResponse.data);
-        setResourceName(teamInvResponse.data.teamName || 'Team');
+      console.log('Fetching invitations for user...');
+      // Load user's invitations and find the specific one
+      const result = await client.queries.getUserInvitations();
+      console.log('getUserInvitations raw result:', result);
+      
+      if (!result.data) {
+        console.log('No data in result');
+        setError('Invitation not found');
         setLoading(false);
         return;
       }
 
+      let invitations: any[] = [];
+      
+      // Handle both string (JSON) and object response
+      if (typeof result.data === 'string') {
+        try {
+          const parsed = JSON.parse(result.data);
+          console.log('Parsed JSON data:', parsed);
+          if (parsed.debug) {
+            console.log('DEBUG INFO FROM LAMBDA:', JSON.stringify(parsed.debug, null, 2));
+          }
+          invitations = parsed.teamInvitations || [];
+        } catch (e) {
+          console.error('Error parsing invitations JSON:', e);
+        }
+      } else {
+        // It's already an object
+        const data = result.data as any;
+        console.log('Data object:', data);
+        if (data.debug) {
+          console.log('DEBUG INFO FROM LAMBDA:', JSON.stringify(data.debug, null, 2));
+        }
+        invitations = data.teamInvitations || [];
+      }
+
+      console.log('All invitations:', invitations);
+      console.log('Looking for ID:', invitationId);
+
+      const foundInvitation = invitations.find((inv: any) => inv.id === invitationId);
+
+      if (foundInvitation) {
+        console.log('Found invitation:', foundInvitation);
+        setInvitation(foundInvitation);
+        setResourceName(foundInvitation.teamName || 'Team');
+        setLoading(false);
+        return;
+      }
+
+      console.log('Invitation not found in list');
       setError('Invitation not found');
       setLoading(false);
     } catch (error: any) {

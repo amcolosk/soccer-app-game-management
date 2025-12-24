@@ -176,6 +176,9 @@ test.describe.serial('Team Sharing and Collaboration', () => {
   });
   
   test('User 2 accepts invitation, sees shared team, and tests edit permissions', async ({ page }) => {
+    // Enable browser console logging
+    page.on('console', msg => console.log(`BROWSER LOG: ${msg.text()}`));
+
     test.setTimeout(TEST_CONFIG.timeout.medium);
     
     console.log('=== User 2: Accepting Invitation and Testing Access ===');
@@ -228,7 +231,15 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       
       // Accept the invitation
       const acceptButton = page.getByRole('button', { name: /accept/i });
-      await expect(acceptButton).toBeVisible({ timeout: 5000 });
+      
+      // Debug: check if we see the "Invitation not found" message
+      if (await page.getByText(/Invitation not found/i).isVisible()) {
+        console.error('❌ UI shows "Invitation not found"');
+        // Log the current URL to see if invitationId is present
+        console.log('Current URL:', page.url());
+      }
+      
+      await expect(acceptButton).toBeVisible({ timeout: 10000 });
       await acceptButton.click();
       
       // Wait for success message

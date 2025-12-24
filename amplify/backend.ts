@@ -6,12 +6,14 @@ import { auth } from './auth/resource';
 import { data } from './data/resource';
 import { sendInvitationEmail } from './functions/send-invitation-email/resource';
 import { acceptInvitation } from './functions/accept-invitation/resource';
+import { getUserInvitations } from './functions/get-user-invitations/resource';
 
 const backend = defineBackend({
   auth,
   data,
   sendInvitationEmail,
   acceptInvitation,
+  getUserInvitations,
 });
 
 // Add GA Measurement ID to outputs
@@ -52,6 +54,23 @@ teamInvitationTable.grantReadWriteData(backend.acceptInvitation.resources.lambda
 // Add table names as environment variables
 backend.acceptInvitation.addEnvironment('TEAM_TABLE', teamTable.tableName);
 backend.acceptInvitation.addEnvironment('TEAM_INVITATION_TABLE', teamInvitationTable.tableName);
+
+// Grant table access for getUserInvitations Lambda
+teamInvitationTable.grantReadData(backend.getUserInvitations.resources.lambda);
+backend.getUserInvitations.addEnvironment('TEAMINVITATION_TABLE_NAME', teamInvitationTable.tableName);
+
+// Grant Cognito access for getUserInvitations Lambda to fetch user email if missing in claims
+backend.getUserInvitations.addEnvironment(
+  'USER_POOL_ID',
+  backend.auth.resources.userPool.userPoolId
+);
+
+backend.getUserInvitations.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['cognito-idp:AdminGetUser'],
+    resources: [backend.auth.resources.userPool.userPoolArn],
+  })
+);
 
 // Set APP_URL environment variable for sendInvitationEmail based on branch
 const branchName = process.env.AWS_BRANCH || 'local';

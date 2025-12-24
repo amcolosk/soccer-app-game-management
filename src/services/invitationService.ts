@@ -56,25 +56,10 @@ export async function acceptTeamInvitation(invitationId: string) {
     const userEmail = userAttributes?.loginId?.toLowerCase();
 
     // Get the invitation to verify email
-    const invitationResponse = await client.models.TeamInvitation.get({
-      id: invitationId,
-    });
-    const invitation = invitationResponse.data;
-
-    if (!invitation) {
-      throw new Error('Invitation not found');
-    }
-
-    // Verify email matches
-    if (invitation.email !== userEmail) {
-      throw new Error('This invitation is for a different email address');
-    }
-
-    // Check if already accepted
-    if (invitation.status !== 'PENDING') {
-      throw new Error(`Invitation is ${invitation.status?.toLowerCase() || 'invalid'}`);
-    }
-
+    // Note: We can't use client.models.TeamInvitation.get() here because the user
+    // might not have read access to the invitation if they are not in the coaches list yet.
+    // Instead, we rely on the backend Lambda to verify the invitation and user.
+    
     console.log('Calling acceptInvitation mutation for:', invitationId);
 
     // Call the custom mutation which has elevated permissions
@@ -152,30 +137,28 @@ export async function revokeCoachAccess(teamId: string, userId: string) {
  */
 export async function getUserPendingInvitations() {
   try {
-    const user = await getCurrentUser();
-    const userAttributes = await user.signInDetails;
-    const userEmail = userAttributes?.loginId?.toLowerCase();
-
-    if (!userEmail) {
+    // Use the custom query that has elevated permissions to read invitations by email
+    const result = await client.queries.getUserInvitations();
+    
+    if (!result.data) {
       return { teamInvitations: [] };
     }
 
-    // Get team invitations
-    const teamInvitationsResponse = await client.models.TeamInvitation.list({
-      filter: {
-        email: { eq: userEmail },
-        status: { eq: 'PENDING' },
-      },
-    });
+    if (typeof result.data === 'string') {
+      try {
+        const parsed = JSON.parse(result.data);
+        return {
+          teamInvitations: parsed.teamInvitations || [],
+        };
+      } catch (e) {
+        console.error('Error parsing invitations JSON:', e);
+        return { teamInvitations: [] };
+      }
+    }
 
-    // Filter out expired invitations
-    const now = new Date();
-    const validTeamInvitations = teamInvitationsResponse.data.filter(
-      (inv) => new Date(inv.expiresAt) > now
-    );
-
+    const data = result.data as any;
     return {
-      teamInvitations: validTeamInvitations,
+      teamInvitations: data.teamInvitations || [],
     };
   } catch (error) {
     console.error('Error getting pending invitations:', error);

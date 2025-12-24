@@ -2,7 +2,7 @@
 
 ## Security Hardening (High Priority)
 - [x] **Schema Access Control**: Remove global read access (`allow.authenticated().to(['read'])`) from sensitive models (`Player`, `TeamRoster`, `Game`, `Goal`, `GameNote`, `Formation`) in `amplify/data/resource.ts`.
-- [ ] **Invitation Security**: Restrict `TeamInvitation` read access to sender only.
+- [x] **Invitation Security**: Restrict `TeamInvitation` read access to sender and team coaches only. Recipients use custom `getUserInvitations` query.
 - [ ] **Invitation Verification**: Update `acceptInvitation` Lambda to verify that the authenticated user's email (`identity.claims.email`) matches the invitation email.
 - [ ] **PII Logging**: Remove full event logging in `send-invitation-email` Lambda to prevent leaking emails to CloudWatch.
 
