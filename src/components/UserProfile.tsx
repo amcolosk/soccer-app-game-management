@@ -55,8 +55,8 @@ export function UserProfile({ onSignOut }: UserProfileProps) {
       setPendingInvitations(invitations);
 
       // Load team names for the invitations
-      const teamIds = invitations.teamInvitations.map((inv) => inv.teamId);
-      const teamPromises = teamIds.map((id) => client.models.Team.get({ id }));
+      const teamIds = invitations.teamInvitations.map((inv: any) => inv.teamId);
+      const teamPromises = teamIds.map((id: string) => client.models.Team.get({ id }));
       const teamResults = await Promise.all(teamPromises);
 
       setTeams(teamResults.map((r) => r.data).filter(t => t !== null) as Team[]);

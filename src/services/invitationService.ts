@@ -51,10 +51,6 @@ export async function sendTeamInvitation(
  */
 export async function acceptTeamInvitation(invitationId: string) {
   try {
-    const user = await getCurrentUser();
-    const userAttributes = await user.signInDetails;
-    const userEmail = userAttributes?.loginId?.toLowerCase();
-
     // Get the invitation to verify email
     // Note: We can't use client.models.TeamInvitation.get() here because the user
     // might not have read access to the invitation if they are not in the coaches list yet.
