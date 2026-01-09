@@ -339,7 +339,7 @@ export async function createTeam(
   // Select formation if provided
   if (formationName) {
     console.log(`  Selecting formation: ${formationName}...`);
-    const formationSelect = page.locator('select');
+    const formationSelect = page.getByLabel('Formation');
     await formationSelect.selectOption({ label: formationName });
     await page.waitForTimeout(UI_TIMING.STANDARD);
   }

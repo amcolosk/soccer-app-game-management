@@ -13,13 +13,13 @@ const schema = a.schema({
     .model({
       name: a.string().required(), // e.g., "4-3-3", "3-5-2"
       playerCount: a.integer().required(), // Number of field players in this formation
+      sport: a.string().default("Soccer"),
       positions: a.hasMany('FormationPosition', 'formationId'),
       teams: a.hasMany('Team', 'formationId'),
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+      coaches: a.string().array(), // Array of user IDs who can access this formation
     })
     .authorization((allow) => [
-      allow.owner(), // Full CRUD for formation owners
-      allow.authenticated().to(['read']), // All authenticated users can read formations
+      allow.ownersDefinedIn('coaches'), // Full access for coaches
     ]),
 
   FormationPosition: a
@@ -29,11 +29,10 @@ const schema = a.schema({
       positionName: a.string().required(), // e.g., "Left Forward", "Center Midfielder"
       abbreviation: a.string().required(), // e.g., "LF", "CM"
       sortOrder: a.integer(), // Display order for the position
-      owner: a.string().authorization((allow) => [allow.owner().to(['read', 'delete'])]),
+      coaches: a.string().array(), // Array of user IDs who can access this formation position
     })
     .authorization((allow) => [
-      allow.owner(), // Full CRUD for formation owners
-      allow.authenticated().to(['read']), // All authenticated users can read formation positions
+      allow.ownersDefinedIn('coaches'), // Full access for coaches
     ]),
 
   Team: a
@@ -44,6 +43,8 @@ const schema = a.schema({
       formation: a.belongsTo('Formation', 'formationId'),
       maxPlayersOnField: a.integer().required(),
       halfLengthMinutes: a.integer().default(30),
+      sport: a.string().default("Soccer"),
+      gameFormat: a.string().default("Halves"),
       roster: a.hasMany('TeamRoster', 'teamId'),
       positions: a.hasMany('FieldPosition', 'teamId'),
       games: a.hasMany('Game', 'teamId'),

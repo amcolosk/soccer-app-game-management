@@ -4,6 +4,7 @@ import { getCurrentUser } from 'aws-amplify/auth';
 import { BugReport } from './BugReport';
 import { InvitationManagement } from './InvitationManagement';
 import type { Schema } from '../../amplify/data/resource';
+import { FORMATION_TEMPLATES } from '../../amplify/data/formation-templates';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 
 const client = generateClient<Schema>();
@@ -36,6 +37,8 @@ export function Management() {
   const [maxPlayers, setMaxPlayers] = useState('7');
   const [halfLength, setHalfLength] = useState('25');
   const [selectedFormation, setSelectedFormation] = useState('');
+  const [sport, setSport] = useState('Soccer');
+  const [gameFormat, setGameFormat] = useState('Halves');
   const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
   const [isAddingRosterPlayer, setIsAddingRosterPlayer] = useState(false);
   const [editingRoster, setEditingRoster] = useState<TeamRoster | null>(null);
@@ -55,6 +58,7 @@ export function Management() {
   const [editingFormation, setEditingFormation] = useState<Formation | null>(null);
   const [formationName, setFormationName] = useState('');
   const [playerCount, setPlayerCount] = useState('');
+  const [formationSport, setFormationSport] = useState('Soccer');
   const [formationPositionsList, setFormationPositionsList] = useState<Array<{ positionName: string; abbreviation: string }>>([]);
 
   // Player form state
@@ -132,17 +136,56 @@ export function Management() {
     }
 
     try {
+      let formationIdToUse = selectedFormation;
+
+      // If a template is selected, create a new formation from it
+      if (selectedFormation.startsWith('template-')) {
+        const templateIndex = parseInt(selectedFormation.split('-')[1]);
+        const template = FORMATION_TEMPLATES[templateIndex];
+        
+        if (template) {
+          const newFormation = await client.models.Formation.create({
+            name: template.name,
+            playerCount: template.playerCount,
+            sport: 'Soccer', // Templates are currently only for Soccer
+            coaches: [currentUserId],
+          });
+
+          if (newFormation.data) {
+            formationIdToUse = newFormation.data.id;
+            
+            // Create positions for the new formation
+            for (let i = 0; i < template.positions.length; i++) {
+              const pos = template.positions[i];
+              await client.models.FormationPosition.create({
+                formationId: newFormation.data.id,
+                positionName: pos.name,
+                abbreviation: pos.abbr,
+                sortOrder: i + 1,
+                coaches: [currentUserId],
+              });
+            }
+          }
+        }
+      } else if (selectedFormation === '') {
+        formationIdToUse = '';
+      }
+
       await client.models.Team.create({
         name: teamName,
         coaches: [currentUserId], // Initialize with current user as the only coach
-        formationId: selectedFormation || undefined,
+        formationId: formationIdToUse || undefined,
         maxPlayersOnField: maxPlayersNum,
         halfLengthMinutes: halfLengthNum,
+        sport: sport,
+        gameFormat: gameFormat,
       });
       setTeamName('');
       setMaxPlayers('7');
       setHalfLength('25');
       setSelectedFormation('');
+      setSport('Soccer');
+      setGameFormat('Halves');
       setIsCreatingTeam(false);
       trackEvent(AnalyticsEvents.TEAM_CREATED.category, AnalyticsEvents.TEAM_CREATED.action);
     } catch (error) {
@@ -157,6 +200,8 @@ export function Management() {
     setMaxPlayers(team.maxPlayersOnField.toString());
     setHalfLength((team.halfLengthMinutes || 30).toString());
     setSelectedFormation(team.formationId || '');
+    setSport(team.sport || 'Soccer');
+    setGameFormat(team.gameFormat || 'Halves');
     setIsCreatingTeam(false);
   };
 
@@ -181,17 +226,56 @@ export function Management() {
     }
 
     try {
+      let formationIdToUse = selectedFormation;
+
+      // If a template is selected, create a new formation from it
+      if (selectedFormation.startsWith('template-')) {
+        const templateIndex = parseInt(selectedFormation.split('-')[1]);
+        const template = FORMATION_TEMPLATES[templateIndex];
+        
+        if (template) {
+          const newFormation = await client.models.Formation.create({
+            name: template.name,
+            playerCount: template.playerCount,
+            sport: 'Soccer', // Templates are currently only for Soccer
+            coaches: [currentUserId],
+          });
+
+          if (newFormation.data) {
+            formationIdToUse = newFormation.data.id;
+            
+            // Create positions for the new formation
+            for (let i = 0; i < template.positions.length; i++) {
+              const pos = template.positions[i];
+              await client.models.FormationPosition.create({
+                formationId: newFormation.data.id,
+                positionName: pos.name,
+                abbreviation: pos.abbr,
+                sortOrder: i + 1,
+                coaches: [currentUserId],
+              });
+            }
+          }
+        }
+      } else if (selectedFormation === '') {
+        formationIdToUse = '';
+      }
+
       await client.models.Team.update({
         id: editingTeam.id,
         name: teamName,
-        formationId: selectedFormation || undefined,
+        formationId: formationIdToUse || undefined,
         maxPlayersOnField: maxPlayersNum,
         halfLengthMinutes: halfLengthNum,
+        sport: sport,
+        gameFormat: gameFormat,
       });
       setTeamName('');
       setMaxPlayers('7');
       setHalfLength('25');
       setSelectedFormation('');
+      setSport('Soccer');
+      setGameFormat('Halves');
       setEditingTeam(null);
     } catch (error) {
       console.error('Error updating team:', error);
@@ -205,6 +289,8 @@ export function Management() {
     setMaxPlayers('7');
     setHalfLength('25');
     setSelectedFormation('');
+    setSport('Soccer');
+    setGameFormat('Halves');
   };
 
   const handleDeleteTeam = async (id: string) => {
@@ -457,10 +543,17 @@ export function Management() {
       return;
     }
 
+    if (!currentUserId) {
+      alert('User not authenticated');
+      return;
+    }
+
     try {
       const formation = await client.models.Formation.create({
         name: formationName,
         playerCount: count,
+        sport: formationSport,
+        coaches: [currentUserId],
       });
 
       if (formation.data) {
@@ -472,12 +565,14 @@ export function Management() {
             positionName: pos.positionName,
             abbreviation: pos.abbreviation,
             sortOrder: i + 1,
+            coaches: [currentUserId],
           });
         }
       }
 
       setFormationName('');
       setPlayerCount('');
+      setFormationSport('Soccer');
       setFormationPositionsList([]);
       setIsCreatingFormation(false);
     } catch (error) {
@@ -490,6 +585,7 @@ export function Management() {
     setEditingFormation(formation);
     setFormationName(formation.name);
     setPlayerCount(formation.playerCount.toString());
+    setFormationSport(formation.sport || 'Soccer');
     
     // Load existing positions for this formation
     const existingPositions = formationPositions
@@ -526,6 +622,7 @@ export function Management() {
         id: editingFormation.id,
         name: formationName,
         playerCount: count,
+        sport: formationSport,
       });
 
       // Delete all existing positions for this formation
@@ -542,11 +639,13 @@ export function Management() {
           positionName: pos.positionName,
           abbreviation: pos.abbreviation,
           sortOrder: i + 1,
+          coaches: editingFormation.coaches || [],
         });
       }
 
       setFormationName('');
       setPlayerCount('');
+      setFormationSport('Soccer');
       setFormationPositionsList([]);
       setEditingFormation(null);
     } catch (error) {
@@ -559,6 +658,7 @@ export function Management() {
     setEditingFormation(null);
     setFormationName('');
     setPlayerCount('');
+    setFormationSport('Soccer');
     setFormationPositionsList([]);
   };
 
@@ -653,9 +753,10 @@ export function Management() {
     setSwipeStartX(0);
   };
 
-  // Filter formations to only show those used by teams the user has access to OR owned by current user
+  // Filter formations to only show those where user is a coach OR used by teams the user has access to
   const accessibleFormations = formations.filter(formation => 
-    formation.owner === currentUserId || teams.some(team => team.formationId === formation.id)
+    formation.coaches?.includes(currentUserId) || 
+    teams.some(team => team.formationId === formation.id)
   );
 
   // Filter players to show those on rosters for accessible teams OR where user is a coach
@@ -668,6 +769,15 @@ export function Management() {
   const accessiblePlayers = players.filter(player => 
     player.coaches?.includes(currentUserId) || accessiblePlayerIds.has(player.id)
   );
+
+  // Filter templates based on max players on field
+  const getFilteredTemplates = () => {
+    const maxPlayersNum = parseInt(maxPlayers);
+    if (isNaN(maxPlayersNum) || maxPlayersNum < 1) {
+      return FORMATION_TEMPLATES;
+    }
+    return FORMATION_TEMPLATES.filter(template => template.playerCount === maxPlayersNum);
+  };
 
   return (
     <div className="management">
@@ -746,17 +856,45 @@ export function Management() {
                 />
               </label>
               <label>
+                Sport
+                <select
+                  value={sport}
+                  onChange={(e) => setSport(e.target.value)}
+                >
+                  <option value="Soccer">Soccer</option>
+                </select>
+              </label>
+              <label>
+                Game Format
+                <select
+                  value={gameFormat}
+                  onChange={(e) => setGameFormat(e.target.value)}
+                >
+                  <option value="Halves">Halves</option>
+                  <option value="Quarters">Quarters</option>
+                </select>
+              </label>
+              <label>
                 Formation
                 <select
                   value={selectedFormation}
                   onChange={(e) => setSelectedFormation(e.target.value)}
                 >
                   <option value="">Select formation (optional)</option>
-                  {accessibleFormations.map((formation) => (
-                    <option key={formation.id} value={formation.id}>
-                      {formation.name} ({formation.playerCount} players)
-                    </option>
-                  ))}
+                  <optgroup label="My Formations">
+                    {accessibleFormations.map((formation) => (
+                      <option key={formation.id} value={formation.id}>
+                        {formation.name} ({formation.playerCount} players)
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Standard Templates">
+                    {getFilteredTemplates().map((template, index) => (
+                      <option key={`template-${index}`} value={`template-${index}`}>
+                        {template.name} ({template.playerCount} players)
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </label>
               <div className="form-actions">
@@ -806,17 +944,45 @@ export function Management() {
                 />
               </label>
               <label>
+                Sport
+                <select
+                  value={sport}
+                  onChange={(e) => setSport(e.target.value)}
+                >
+                  <option value="Soccer">Soccer</option>
+                </select>
+              </label>
+              <label>
+                Game Format
+                <select
+                  value={gameFormat}
+                  onChange={(e) => setGameFormat(e.target.value)}
+                >
+                  <option value="Halves">Halves</option>
+                  <option value="Quarters">Quarters</option>
+                </select>
+              </label>
+              <label>
                 Formation
                 <select
                   value={selectedFormation}
                   onChange={(e) => setSelectedFormation(e.target.value)}
                 >
                   <option value="">Select formation (optional)</option>
-                  {accessibleFormations.map((formation) => (
-                    <option key={formation.id} value={formation.id}>
-                      {formation.name} ({formation.playerCount} players)
-                    </option>
-                  ))}
+                  <optgroup label="My Formations">
+                    {accessibleFormations.map((formation) => (
+                      <option key={formation.id} value={formation.id}>
+                        {formation.name} ({formation.playerCount} players)
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Standard Templates">
+                    {getFilteredTemplates().map((template, index) => (
+                      <option key={`template-${index}`} value={`template-${index}`}>
+                        {template.name} ({template.playerCount} players)
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </label>
               <div className="form-actions">
@@ -830,6 +996,8 @@ export function Management() {
                     setMaxPlayers('7');
                     setHalfLength('25');
                     setSelectedFormation('');
+                    setSport('Soccer');
+                    setGameFormat('Halves');
                   }}
                   className="btn-secondary"
                 >
@@ -1130,6 +1298,15 @@ export function Management() {
                 min="1"
               />
               <div className="form-group">
+                <label>Sport</label>
+                <select
+                  value={formationSport}
+                  onChange={(e) => setFormationSport(e.target.value)}
+                >
+                  <option value="Soccer">Soccer</option>
+                </select>
+              </div>
+              <div className="form-group">
                 <label>Positions</label>
                 {formationPositionsList.map((pos, index) => (
                   <div key={index} className="position-row">
@@ -1197,6 +1374,15 @@ export function Management() {
                 min="1"
               />
               <div className="form-group">
+                <label>Sport</label>
+                <select
+                  value={formationSport}
+                  onChange={(e) => setFormationSport(e.target.value)}
+                >
+                  <option value="Soccer">Soccer</option>
+                </select>
+              </div>
+              <div className="form-group">
                 <label>Positions</label>
                 {formationPositionsList.map((pos, index) => (
                   <div key={index} className="position-row">
@@ -1242,6 +1428,7 @@ export function Management() {
                     setIsCreatingFormation(false);
                     setFormationName('');
                     setPlayerCount('');
+                    setFormationSport('Soccer');
                     setFormationPositionsList([]);
                   }}
                   className="btn-secondary"
@@ -1280,7 +1467,7 @@ export function Management() {
                       <div className="item-info">
                         <h3>{formation.name}</h3>
                         <p className="item-meta">
-                          {formation.playerCount} players
+                          {formation.playerCount} players • {formation.sport || 'Soccer'}
                         </p>
                         {formationPositionList.length > 0 && (
                           <p className="item-meta" style={{ marginTop: '0.5rem' }}>
