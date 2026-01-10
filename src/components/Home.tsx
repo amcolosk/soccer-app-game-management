@@ -10,9 +10,10 @@ type Team = Schema['Team']['type'];
 
 interface HomeProps {
   onGameSelect: (game: Game, team: Team) => void;
+  onPlanGame?: (game: Game, team: Team) => void;
 }
 
-export function Home({ onGameSelect }: HomeProps) {
+export function Home({ onGameSelect, onPlanGame }: HomeProps) {
   const [games, setGames] = useState<Game[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [isCreatingGame, setIsCreatingGame] = useState(false);
@@ -187,6 +188,13 @@ export function Home({ onGameSelect }: HomeProps) {
     }
   };
 
+  const handlePlanClick = (game: Game) => {
+    const team = getTeam(game.teamId);
+    if (team && onPlanGame) {
+      onPlanGame(game, team);
+    }
+  };
+
   // Group games by status
   const inProgressGames = games.filter(g => {
     const status = g.status || 'scheduled';
@@ -304,18 +312,35 @@ export function Home({ onGameSelect }: HomeProps) {
               <div 
                 key={game.id} 
                 className="game-card"
-                onClick={() => handleGameClick(game)}
               >
-                <div className="game-status">
-                  {getStatusBadge(game.status)}
+                <div 
+                  className="game-card-content"
+                  onClick={() => handleGameClick(game)}
+                >
+                  <div className="game-status">
+                    {getStatusBadge(game.status)}
+                  </div>
+                  <div className="game-info">
+                    <h4>{team.name} vs {game.opponent}</h4>
+                    <p className="game-meta">
+                      {game.isHome ? '🏠 Home' : '✈️ Away'}
+                      {game.gameDate && ` • ${formatDate(game.gameDate)}`}
+                    </p>
+                  </div>
                 </div>
-                <div className="game-info">
-                  <h4>{team.name} vs {game.opponent}</h4>
-                  <p className="game-meta">
-                    {game.isHome ? '🏠 Home' : '✈️ Away'}
-                    {game.gameDate && ` • ${formatDate(game.gameDate)}`}
-                  </p>
-                </div>
+                {onPlanGame && (
+                  <div className="game-card-actions">
+                    <button
+                      className="plan-button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handlePlanClick(game);
+                      }}
+                    >
+                      📋 Plan Game
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}

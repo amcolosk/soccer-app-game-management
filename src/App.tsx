@@ -3,6 +3,7 @@ import { useAuthenticator } from '@aws-amplify/ui-react';
 import { generateClient } from "aws-amplify/data";
 import { Home } from "./components/Home";
 import { GameManagement } from "./components/GameManagement";
+import { GamePlanner } from "./components/GamePlanner";
 import { UserProfile } from "./components/UserProfile";
 import { TeamReport } from "./components/SeasonReport";
 import { Management } from "./components/Management";
@@ -25,6 +26,7 @@ function App() {
   };
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+  const [planningGame, setPlanningGame] = useState<Game | null>(null);
   const [isRestoring, setIsRestoring] = useState(true);
   const [activeNav, setActiveNav] = useState<NavigationTab>('home');
   
@@ -47,10 +49,18 @@ function App() {
   const handleGameSelect = (game: Game, team: Team) => {
     setSelectedGame(game);
     setSelectedTeam(team);
+    setPlanningGame(null);
+  };
+
+  const handlePlanGame = (game: Game, team: Team) => {
+    setPlanningGame(game);
+    setSelectedTeam(team);
+    setSelectedGame(null);
   };
 
   const handleBackToHome = () => {
     setSelectedGame(null);
+    setPlanningGame(null);
     setSelectedTeam(null);
     localStorage.removeItem('activeGame');
   };
@@ -128,13 +138,24 @@ function App() {
         </div>
       </header>
 
-      {activeNav === 'home' && !selectedGame && (
-        <Home onGameSelect={handleGameSelect} />
+      {activeNav === 'home' && !selectedGame && !planningGame && (
+        <Home 
+          onGameSelect={handleGameSelect}
+          onPlanGame={handlePlanGame}
+        />
       )}
 
-      {activeNav === 'home' && selectedGame && selectedTeam && (
+      {activeNav === 'home' && selectedGame && selectedTeam && !planningGame && (
         <GameManagement
           game={selectedGame}
+          team={selectedTeam}
+          onBack={handleBackToHome}
+        />
+      )}
+
+      {activeNav === 'home' && planningGame && selectedTeam && !selectedGame && (
+        <GamePlanner
+          game={planningGame}
           team={selectedTeam}
           onBack={handleBackToHome}
         />

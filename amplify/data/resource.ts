@@ -68,6 +68,7 @@ const schema = a.schema({
       goalsScored: a.hasMany('Goal', 'scorerId'),
       assists: a.hasMany('Goal', 'assistId'),
       gameNotes: a.hasMany('GameNote', 'playerId'),
+      playerAvailabilities: a.hasMany('PlayerAvailability', 'playerId'),
     })
     .authorization((allow) => [
       allow.ownersDefinedIn('coaches'), // Only team coaches can access players
@@ -123,9 +124,56 @@ const schema = a.schema({
       playTimeRecords: a.hasMany('PlayTimeRecord', 'gameId'),
       goals: a.hasMany('Goal', 'gameId'),
       gameNotes: a.hasMany('GameNote', 'gameId'),
+      playerAvailability: a.hasMany('PlayerAvailability', 'gameId'),
+      gamePlan: a.hasOne('GamePlan', 'gameId'),
     })
     .authorization((allow) => [
       allow.ownersDefinedIn('coaches'), // Only team coaches can access games
+    ]),
+
+  PlayerAvailability: a
+    .model({
+      gameId: a.id().required(),
+      game: a.belongsTo('Game', 'gameId'),
+      playerId: a.id().required(),
+      player: a.belongsTo('Player', 'playerId'),
+      status: a.string().required(), // 'available', 'absent', 'injured', 'late-arrival'
+      markedAt: a.datetime().required(), // When status was changed
+      notes: a.string(), // Optional notes about availability
+      coaches: a.string().array(), // Team coaches who can access this record
+    })
+    .authorization((allow) => [
+      allow.ownersDefinedIn('coaches'), // Only team coaches can access availability
+    ]),
+
+  GamePlan: a
+    .model({
+      gameId: a.id().required(),
+      game: a.belongsTo('Game', 'gameId'),
+      rotationIntervalMinutes: a.integer().required(), // e.g., 5, 10, 15
+      totalRotations: a.integer().required(), // Calculated based on half length
+      createdAt: a.datetime().required(),
+      updatedAt: a.datetime().required(),
+      coaches: a.string().array(), // Team coaches who can access this plan
+      plannedRotations: a.hasMany('PlannedRotation', 'gamePlanId'),
+    })
+    .authorization((allow) => [
+      allow.ownersDefinedIn('coaches'), // Only team coaches can access plans
+    ]),
+
+  PlannedRotation: a
+    .model({
+      gamePlanId: a.id().required(),
+      gamePlan: a.belongsTo('GamePlan', 'gamePlanId'),
+      rotationNumber: a.integer().required(), // 1, 2, 3, etc.
+      gameMinute: a.integer().required(), // When this rotation should occur (e.g., 5, 10, 15)
+      half: a.integer().required(), // 1 or 2
+      plannedSubstitutions: a.json().required(), // Array of {playerOutId, playerInId, positionId}
+      viewedAt: a.datetime(), // When coach last viewed this during game
+      coaches: a.string().array(), // Team coaches who can access this rotation
+    })
+    .authorization((allow) => [
+      allow.ownersDefinedIn('coaches'), // Only team coaches can access rotations
     ]),
 
   LineupAssignment: a

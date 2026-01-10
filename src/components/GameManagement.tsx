@@ -13,6 +13,7 @@ import {
 import { sortRosterByNumber } from "../utils/playerUtils";
 import { formatGameTimeDisplay, formatMinutesSeconds } from "../utils/gameTimeUtils";
 import { executeSubstitution, closeActivePlayTimeRecords } from "../services/substitutionService";
+import { updatePlayerAvailability, type PlannedSubstitution } from "../services/rotationPlannerService";
 import { PlayerSelect } from "./PlayerSelect";
 
 const client = generateClient<Schema>();
@@ -25,6 +26,9 @@ type LineupAssignment = Schema["LineupAssignment"]["type"];
 type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
 type Goal = Schema["Goal"]["type"];
 type GameNote = Schema["GameNote"]["type"];
+type GamePlan = Schema["GamePlan"]["type"];
+type PlannedRotation = Schema["PlannedRotation"]["type"];
+type PlayerAvailability = Schema["PlayerAvailability"]["type"];
 
 interface PlayerWithRoster extends Player {
   playerNumber?: number;
@@ -60,6 +64,15 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [noteType, setNoteType] = useState<'gold-star' | 'yellow-card' | 'red-card' | 'other'>('other');
   const [notePlayerId, setNotePlayerId] = useState("");
   const [noteText, setNoteText] = useState("");
+
+  // Game planner integration
+  const [gamePlan, setGamePlan] = useState<GamePlan | null>(null);
+  const [plannedRotations, setPlannedRotations] = useState<PlannedRotation[]>([]);
+  const [playerAvailabilities, setPlayerAvailabilities] = useState<PlayerAvailability[]>([]);
+  const [showAvailabilityCheck, setShowAvailabilityCheck] = useState(false);
+  const [showRotationModal, setShowRotationModal] = useState(false);
+  const [currentRotation, setCurrentRotation] = useState<PlannedRotation | null>(null);
+  const [showLateArrivalModal, setShowLateArrivalModal] = useState(false);
 
   // Substitution queue: array of {playerId, positionId}
   interface SubQueue {
@@ -215,6 +228,33 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       })),
     });
 
+    // Load game plan and rotations
+    const gamePlanSub = client.models.GamePlan.observeQuery({
+      filter: { gameId: { eq: game.id } },
+    }).subscribe({
+      next: (data) => {
+        if (data.items.length > 0) {
+          setGamePlan(data.items[0]);
+        }
+      },
+    });
+
+    const rotationSub = client.models.PlannedRotation.observeQuery().subscribe({
+      next: (data) => {
+        const gameRotations = data.items.filter(r => {
+          // Find the game plan for this game
+          return gamePlan && r.gamePlanId === gamePlan.id;
+        });
+        setPlannedRotations(gameRotations.sort((a, b) => a.rotationNumber - b.rotationNumber));
+      },
+    });
+
+    const availabilitySub = client.models.PlayerAvailability.observeQuery({
+      filter: { gameId: { eq: game.id } },
+    }).subscribe({
+      next: (data) => setPlayerAvailabilities([...data.items]),
+    });
+
     return () => {
       rosterSub.unsubscribe();
       if (positionSub) positionSub.unsubscribe();
@@ -222,8 +262,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       playTimeSub.unsubscribe();
       goalSub.unsubscribe();
       noteSub.unsubscribe();
+      gamePlanSub.unsubscribe();
+      rotationSub.unsubscribe();
+      availabilitySub.unsubscribe();
     };
-  }, [team.id, team.formationId, game.id]);
+  }, [team.id, team.formationId, game.id, gamePlan?.id]);
 
   // Timer effect
   useEffect(() => {
@@ -234,6 +277,25 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       interval = setInterval(() => {
         setCurrentTime(prev => {
           const newTime = prev + 1;
+          
+          // Check for upcoming rotations
+          if (gamePlan && plannedRotations.length > 0) {
+            const currentMinutes = Math.floor(newTime / 60);
+            const nextRotation = plannedRotations.find(r => {
+              const rotationMinute = r.gameMinute;
+              return r.half === gameState.currentHalf && 
+                     currentMinutes === rotationMinute - 1 && // 1 minute before
+                     !r.viewedAt; // Not yet viewed
+            });
+            
+            if (nextRotation) {
+              // Mark as viewed and show modal
+              client.models.PlannedRotation.update({
+                id: nextRotation.id,
+                viewedAt: new Date().toISOString(),
+              });
+            }
+          }
           
           // Auto-pause at halftime
           if (gameState.currentHalf === 1 && newTime >= halfLengthSeconds) {
@@ -272,7 +334,66 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     return currentTime;
   };
 
+  const getPlayerAvailability = (playerId: string): string => {
+    const availability = playerAvailabilities.find(a => a.playerId === playerId);
+    return availability?.status || 'available';
+  };
+
+  const getNextRotation = (): PlannedRotation | null => {
+    if (!gamePlan || plannedRotations.length === 0) return null;
+    
+    const currentMinutes = Math.floor(currentTime / 60);
+    return plannedRotations.find(r => {
+      return r.half === gameState.currentHalf && 
+             r.gameMinute > currentMinutes;
+    }) || null;
+  };
+
+  const handleMarkInjured = async (playerId: string) => {
+    try {
+      await updatePlayerAvailability(
+        game.id,
+        playerId,
+        'injured',
+        `Injured at ${formatGameTimeDisplay(currentTime, gameState.currentHalf || 1)}`,
+        team.coaches || []
+      );
+      
+      // Close active play time record
+      await closeActivePlayTimeRecords(playTimeRecords, currentTime, [playerId]);
+      
+      alert('Player marked as injured');
+    } catch (error) {
+      console.error('Error marking player injured:', error);
+      alert('Failed to mark player injured');
+    }
+  };
+
+  const handleLateArrival = async (playerId: string) => {
+    try {
+      await updatePlayerAvailability(
+        game.id,
+        playerId,
+        'available',
+        `Arrived late at ${formatGameTimeDisplay(currentTime, gameState.currentHalf || 1)}`,
+        team.coaches || []
+      );
+      
+      setShowLateArrivalModal(false);
+      alert('Player marked as available');
+    } catch (error) {
+      console.error('Error marking late arrival:', error);
+      alert('Failed to update player availability');
+    }
+  };
+
   const handleStartGame = async () => {
+    // Show availability check if there's a game plan
+    if (gamePlan && gameState.status === 'scheduled') {
+      setShowAvailabilityCheck(true);
+      return;
+    }
+
     try {
       const startTime = new Date().toISOString();
       
@@ -841,6 +962,48 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         </div>
       )}
 
+      {/* Next Rotation Countdown */}
+      {gameState.status === 'in-progress' && gamePlan && (
+        <>
+          {(() => {
+            const nextRotation = getNextRotation();
+            if (nextRotation) {
+              const currentMinutes = Math.floor(currentTime / 60);
+              const minutesUntil = nextRotation.gameMinute - currentMinutes;
+              
+              return (
+                <div className="rotation-countdown-banner">
+                  <div className="countdown-info">
+                    <span className="countdown-label">Next Rotation:</span>
+                    <span className="countdown-time">{minutesUntil} min</span>
+                    <span className="countdown-detail">at {nextRotation.gameMinute}'</span>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setCurrentRotation(nextRotation);
+                      setShowRotationModal(true);
+                    }}
+                    className="btn-view-rotation"
+                  >
+                    View Plan
+                  </button>
+                </div>
+              );
+            }
+            return null;
+          })()}
+          
+          <div className="planner-actions">
+            <button 
+              onClick={() => setShowLateArrivalModal(true)}
+              className="btn-secondary"
+            >
+              + Add Late Arrival
+            </button>
+          </div>
+        </>
+      )}
+
       {/* Substitution Queue */}
       {substitutionQueue.length > 0 && gameState.status === 'in-progress' && (
         <div className="sub-queue-section">
@@ -1042,13 +1205,29 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                               ✕
                             </button>
                           ) : (
-                            <button
-                              onClick={() => handleSubstitute(position)}
-                              className="btn-substitute"
-                              title="Make substitution"
-                            >
-                              ⇄
-                            </button>
+                            <div className="player-actions">
+                              <button
+                                onClick={() => handleSubstitute(position)}
+                                className="btn-substitute"
+                                title="Make substitution"
+                              >
+                                ⇄
+                              </button>
+                              {gamePlan && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (window.confirm(`Mark ${assignedPlayer.firstName} as injured?`)) {
+                                      handleMarkInjured(assignedPlayer.id);
+                                    }
+                                  }}
+                                  className="btn-mark-injured"
+                                  title="Mark player as injured"
+                                >
+                                  🩹
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                         {isCurrentlyPlaying(assignedPlayer.id) && (
@@ -1540,6 +1719,212 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           Delete Game
         </button>
       </div>
+
+      {/* Availability Check Modal */}
+      {showAvailabilityCheck && (
+        <div className="modal-overlay" onClick={() => setShowAvailabilityCheck(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>Player Availability Check</h3>
+            <p className="modal-subtitle">Confirm which players are present before starting the game</p>
+            
+            <div className="availability-check-list">
+              {players.map((player) => {
+                const status = getPlayerAvailability(player.id);
+                const statusColor = status === 'available' ? '#4caf50' : 
+                                  status === 'absent' ? '#f44336' : 
+                                  status === 'late-arrival' ? '#fdd835' : '#ff9800';
+                
+                return (
+                  <div key={player.id} className="availability-check-item">
+                    <div
+                      className="availability-indicator"
+                      style={{ backgroundColor: statusColor }}
+                    />
+                    <span className="player-name">
+                      #{player.playerNumber} {player.firstName} {player.lastName}
+                    </span>
+                    <select
+                      value={status}
+                      onChange={(e) => {
+                        updatePlayerAvailability(
+                          game.id,
+                          player.id,
+                          e.target.value as any,
+                          undefined,
+                          team.coaches || []
+                        );
+                      }}
+                      className="availability-select"
+                    >
+                      <option value="available">Present</option>
+                      <option value="absent">Absent</option>
+                      <option value="late-arrival">Expected Late</option>
+                    </select>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="form-actions">
+              <button
+                onClick={async () => {
+                  setShowAvailabilityCheck(false);
+                  // Actually start the game
+                  const startTime = new Date().toISOString();
+                  
+                  await client.models.Game.update({
+                    id: game.id,
+                    status: 'in-progress',
+                    lastStartTime: startTime,
+                  });
+
+                  const starterPromises = lineup
+                    .filter(l => l.isStarter)
+                    .map(l =>
+                      client.models.PlayTimeRecord.create({
+                        gameId: game.id,
+                        playerId: l.playerId,
+                        positionId: l.positionId,
+                        startGameSeconds: currentTime,
+                        coaches: team.coaches,
+                      })
+                    );
+
+                  await Promise.all(starterPromises);
+
+                  setGameState({ ...gameState, status: 'in-progress' });
+                  setIsRunning(true);
+                }}
+                className="btn-primary"
+              >
+                Start Game
+              </button>
+              <button
+                onClick={() => setShowAvailabilityCheck(false)}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rotation Modal */}
+      {showRotationModal && currentRotation && (
+        <div className="modal-overlay" onClick={() => setShowRotationModal(false)}>
+          <div className="modal-content rotation-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Planned Rotation - {currentRotation.gameMinute}'</h3>
+            <p className="modal-subtitle">
+              Suggested substitutions for this rotation. Plan remains as reference only.
+            </p>
+
+            <div className="planned-subs-list">
+              {(() => {
+                const subs: PlannedSubstitution[] = JSON.parse(currentRotation.plannedSubstitutions as string);
+                return subs.map((sub, idx) => {
+                  const playerOut = players.find(p => p.id === sub.playerOutId);
+                  const playerIn = players.find(p => p.id === sub.playerInId);
+                  const position = positions.find(p => p.id === sub.positionId);
+                  const outAvailability = getPlayerAvailability(sub.playerOutId);
+                  const inAvailability = getPlayerAvailability(sub.playerInId);
+
+                  const getAvailabilityBadge = (status: string) => {
+                    if (status === 'injured' || status === 'absent') {
+                      return <span className="availability-badge unavailable">⚠️ {status}</span>;
+                    }
+                    if (status === 'late-arrival') {
+                      return <span className="availability-badge late">⏰ late</span>;
+                    }
+                    return <span className="availability-badge available">✓</span>;
+                  };
+
+                  return (
+                    <div key={idx} className="planned-sub-item">
+                      <div className="sub-position-label">{position?.abbreviation}</div>
+                      <div className="sub-players">
+                        <div className="sub-player sub-out">
+                          <span className="player-number">#{playerOut?.playerNumber}</span>
+                          <span className="player-name">
+                            {playerOut?.firstName} {playerOut?.lastName}
+                          </span>
+                          {getAvailabilityBadge(outAvailability)}
+                        </div>
+                        <div className="sub-arrow">→</div>
+                        <div className="sub-player sub-in">
+                          <span className="player-number">#{playerIn?.playerNumber}</span>
+                          <span className="player-name">
+                            {playerIn?.firstName} {playerIn?.lastName}
+                          </span>
+                          {getAvailabilityBadge(inAvailability)}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            <div className="form-actions">
+              <button
+                onClick={() => setShowRotationModal(false)}
+                className="btn-primary"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Late Arrival Modal */}
+      {showLateArrivalModal && (
+        <div className="modal-overlay" onClick={() => setShowLateArrivalModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>Add Late Arrival</h3>
+            <p className="modal-subtitle">Select a player who has arrived</p>
+
+            <div className="late-arrival-list">
+              {players
+                .filter(p => {
+                  const status = getPlayerAvailability(p.id);
+                  return status === 'absent' || status === 'late-arrival';
+                })
+                .map((player) => (
+                  <button
+                    key={player.id}
+                    className="late-arrival-option"
+                    onClick={() => handleLateArrival(player.id)}
+                  >
+                    <span className="player-number">#{player.playerNumber}</span>
+                    <span className="player-name">
+                      {player.firstName} {player.lastName}
+                    </span>
+                    <span className="status-badge">
+                      {getPlayerAvailability(player.id)}
+                    </span>
+                  </button>
+                ))}
+            </div>
+
+            {players.filter(p => {
+              const status = getPlayerAvailability(p.id);
+              return status === 'absent' || status === 'late-arrival';
+            }).length === 0 && (
+              <p className="empty-state">No players marked as absent or late</p>
+            )}
+
+            <div className="form-actions">
+              <button
+                onClick={() => setShowLateArrivalModal(false)}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -6,14 +6,17 @@ import { trackEvent, AnalyticsEvents } from "../utils/analytics";
 const client = generateClient<Schema>();
 
 type Game = Schema["Game"]["type"];
+type GamePlan = Schema["GamePlan"]["type"];
 
 interface GameListProps {
   teamId: string;
   onGameSelect: (game: Game) => void;
+  onPlanGame?: (game: Game) => void;
 }
 
-export function GameList({ teamId, onGameSelect }: GameListProps) {
+export function GameList({ teamId, onGameSelect, onPlanGame }: GameListProps) {
   const [games, setGames] = useState<Game[]>([]);
+  const [gamePlans, setGamePlans] = useState<Map<string, GamePlan>>(new Map());
   const [isCreating, setIsCreating] = useState(false);
   const [opponent, setOpponent] = useState("");
   const [isHome, setIsHome] = useState(true);
@@ -67,7 +70,21 @@ export function GameList({ teamId, onGameSelect }: GameListProps) {
       },
     });
 
-    return () => subscription.unsubscribe();
+    // Load game plans
+    const planSubscription = client.models.GamePlan.observeQuery().subscribe({
+      next: (data) => {
+        const plansMap = new Map<string, GamePlan>();
+        data.items.forEach((plan) => {
+          plansMap.set(plan.gameId, plan);
+        });
+        setGamePlans(plansMap);
+      },
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      planSubscription.unsubscribe();
+    };
   }, [teamId]);
 
   const handleCreateGame = async () => {
@@ -140,27 +157,57 @@ export function GameList({ teamId, onGameSelect }: GameListProps) {
   };
 
   // Render a game card component
-  const renderGameCard = (game: Game) => (
-    <div
-      key={game.id}
-      className="game-card"
-      onClick={() => onGameSelect(game)}
-    >
-      <div className="game-header">
-        <div className="game-opponent">
-          <span className="vs-label">vs</span>
-          <h3>{game.opponent}</h3>
+  const renderGameCard = (game: Game) => {
+    const hasPlan = gamePlans.has(game.id);
+    const isScheduled = (game.status || 'scheduled') === 'scheduled';
+    
+    return (
+      <div
+        key={game.id}
+        className="game-card"
+      >
+        <div 
+          className="game-card-content"
+          onClick={() => onGameSelect(game)}
+        >
+          <div className="game-header">
+            <div className="game-opponent">
+              <span className="vs-label">vs</span>
+              <h3>{game.opponent}</h3>
+            </div>
+            <div className="game-badges">
+              {getStatusBadge(game.status)}
+              {hasPlan && (
+                <span className="status-badge status-planned">
+                  ✓ Planned
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="game-details">
+            <span className={`location-badge ${game.isHome ? 'home' : 'away'}`}>
+              {game.isHome ? '🏠 Home' : '✈️ Away'}
+            </span>
+            <span className="game-date">{formatDate(game.gameDate)}</span>
+          </div>
         </div>
-        {getStatusBadge(game.status)}
+        
+        {isScheduled && onPlanGame && (
+          <div className="game-card-actions">
+            <button
+              className="plan-button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPlanGame(game);
+              }}
+            >
+              📋 {hasPlan ? 'Edit Plan' : 'Plan Game'}
+            </button>
+          </div>
+        )}
       </div>
-      <div className="game-details">
-        <span className={`location-badge ${game.isHome ? 'home' : 'away'}`}>
-          {game.isHome ? '🏠 Home' : '✈️ Away'}
-        </span>
-        <span className="game-date">{formatDate(game.gameDate)}</span>
-      </div>
-    </div>
-  );
+    );
+  };
 
   // Group games by status
   const inProgressGames = games.filter(g => {
