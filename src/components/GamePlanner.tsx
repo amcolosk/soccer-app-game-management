@@ -10,6 +10,7 @@ import {
   type RotationPlanInput,
 } from "../services/rotationPlannerService";
 import { sortRosterByNumber } from "../utils/playerUtils";
+import { LineupBuilder } from "./LineupBuilder";
 
 const client = generateClient<Schema>();
 
@@ -44,7 +45,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const [selectedRotation, setSelectedRotation] = useState<number | null>(null);
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [previousGames, setPreviousGames] = useState<Game[]>([]);
-  const [draggedPlayer, setDraggedPlayer] = useState<PlayerWithRoster | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -109,23 +109,18 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         });
         setRotations([...rotationResult.data].sort((a, b) => a.rotationNumber - b.rotationNumber));
 
-        // Extract starting lineup from first rotation
-        if (rotationResult.data.length > 0) {
-          const firstRotation = rotationResult.data.sort((a, b) => a.rotationNumber - b.rotationNumber)[0];
-          const subs: PlannedSubstitution[] = JSON.parse(firstRotation.plannedSubstitutions as string);
-          
-          // Starting lineup is everyone NOT being subbed in at rotation 1
-          const subsInIds = new Set(subs.map(s => s.playerInId));
-          const lineup = new Map<string, string>();
-          
-          // Find who was on field before first rotation
-          subs.forEach(sub => {
-            if (!subsInIds.has(sub.playerOutId)) {
-              lineup.set(sub.positionId, sub.playerOutId);
-            }
-          });
-          
-          setStartingLineup(lineup);
+        // Load starting lineup from GamePlan
+        if (plan.startingLineup) {
+          try {
+            const lineupArray = JSON.parse(plan.startingLineup as string) as Array<{ positionId: string; playerId: string }>;
+            const lineup = new Map<string, string>();
+            lineupArray.forEach(({ positionId, playerId }) => {
+              lineup.set(positionId, playerId);
+            });
+            setStartingLineup(lineup);
+          } catch (error) {
+            console.error("Error parsing starting lineup:", error);
+          }
         }
       }
 
@@ -221,35 +216,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }
     
     setStartingLineup(newLineup);
-  };
-
-  const handleDragStart = (player: PlayerWithRoster) => {
-    setDraggedPlayer(player);
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
-
-  const handleDropOnPosition = (positionId: string) => {
-    if (draggedPlayer) {
-      handleLineupChange(positionId, draggedPlayer.id);
-      setDraggedPlayer(null);
-    }
-  };
-
-  const handleDropOnBench = () => {
-    if (draggedPlayer) {
-      // Remove from lineup if present
-      const newLineup = new Map(startingLineup);
-      for (const [pos, pid] of newLineup.entries()) {
-        if (pid === draggedPlayer.id) {
-          newLineup.delete(pos);
-        }
-      }
-      setStartingLineup(newLineup);
-      setDraggedPlayer(null);
-    }
   };
 
   const handleGeneratePlan = async () => {
@@ -472,76 +438,13 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     return (
       <div className="planner-section">
         <h3>Starting Lineup</h3>
-        <div className="starting-lineup-container">
-          <div className="position-lineup-grid">
-            {positions.map((position) => {
-              const assignedPlayerId = startingLineup.get(position.id);
-              const assignedPlayer = players.find((p) => p.id === assignedPlayerId);
-
-              return (
-                <div
-                  key={position.id}
-                  className="position-slot"
-                  onDragOver={handleDragOver}
-                  onDrop={() => handleDropOnPosition(position.id)}
-                >
-                  <div className="position-label">{position.abbreviation}</div>
-                  {assignedPlayer ? (
-                    <div className="assigned-player" draggable onDragStart={() => handleDragStart(assignedPlayer)}>
-                      <span className="player-number">#{assignedPlayer.playerNumber}</span>
-                      <span className="player-name-short">
-                        {assignedPlayer.firstName.charAt(0)}. {assignedPlayer.lastName}
-                      </span>
-                      <button
-                        className="remove-player"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleLineupChange(position.id, "");
-                        }}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ) : (
-                    <select
-                      className="player-select"
-                      value=""
-                      onChange={(e) => handleLineupChange(position.id, e.target.value)}
-                    >
-                      <option value="">Select player...</option>
-                      {availablePlayers.map((player) => (
-                        <option key={player.id} value={player.id}>
-                          #{player.playerNumber} {player.firstName} {player.lastName}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="bench-area" onDragOver={handleDragOver} onDrop={handleDropOnBench}>
-            <h4>Bench (Drag players here or to positions)</h4>
-            <div className="bench-players">
-              {availablePlayers
-                .filter((p) => !Array.from(startingLineup.values()).includes(p.id))
-                .map((player) => (
-                  <div
-                    key={player.id}
-                    className="bench-player"
-                    draggable
-                    onDragStart={() => handleDragStart(player)}
-                  >
-                    <span className="player-number">#{player.playerNumber}</span>
-                    <span className="player-name">
-                      {player.firstName} {player.lastName}
-                    </span>
-                  </div>
-                ))}
-            </div>
-          </div>
-        </div>
+        <LineupBuilder
+          positions={positions}
+          availablePlayers={availablePlayers}
+          lineup={startingLineup}
+          onLineupChange={handleLineupChange}
+          showPreferredPositions={true}
+        />
       </div>
     );
   };
@@ -561,7 +464,17 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       halfLengthMinutes * 2
     );
 
-    const rotationsPerHalf = Math.floor(halfLengthMinutes / rotationIntervalMinutes);
+    const rotationsPerHalf = Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1;
+
+    // Create timeline items with HT marker between halves
+    const timelineItems: Array<{ type: 'rotation' | 'halftime'; rotation?: PlannedRotation; minute?: number }> = [];
+    rotations.forEach((rotation, index) => {
+      // Add halftime marker before first rotation of second half
+      if (index === rotationsPerHalf) {
+        timelineItems.push({ type: 'halftime', minute: halfLengthMinutes });
+      }
+      timelineItems.push({ type: 'rotation', rotation });
+    });
 
     return (
       <div className="planner-section">
@@ -569,14 +482,23 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         <div className="timeline-container" ref={timelineRef}>
           <div className="timeline-header">
             <div className="timeline-labels">
-              {rotations.map((rotation) => {
-                const isHalftime = rotation.rotationNumber === rotationsPerHalf + 1;
+              {timelineItems.map((item, index) => {
+                if (item.type === 'halftime') {
+                  return (
+                    <div
+                      key={`ht-${index}`}
+                      className="timeline-marker halftime-marker"
+                    >
+                      HT
+                    </div>
+                  );
+                }
                 return (
                   <div
-                    key={rotation.id}
-                    className={`timeline-marker ${isHalftime ? "halftime-marker" : ""}`}
+                    key={item.rotation!.id}
+                    className="timeline-marker"
                   >
-                    {isHalftime ? "HT" : `${rotation.gameMinute}'`}
+                    {item.rotation!.gameMinute}'
                   </div>
                 );
               })}
@@ -584,7 +506,16 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           </div>
 
           <div className="timeline-rotations">
-            {rotations.map((rotation) => {
+            {timelineItems.map((item, index) => {
+              if (item.type === 'halftime') {
+                return (
+                  <div key={`ht-column-${index}`} className="rotation-column halftime-column">
+                    <div className="halftime-label">Halftime</div>
+                  </div>
+                );
+              }
+
+              const rotation = item.rotation!;
               const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
               const isExpanded = selectedRotation === rotation.rotationNumber;
 

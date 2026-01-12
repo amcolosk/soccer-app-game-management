@@ -183,10 +183,10 @@ function App() {
         <button 
           className={`nav-item ${activeNav === 'home' ? 'active' : ''}`}
           onClick={() => setActiveNav('home')}
-          aria-label="Home"
+          aria-label="Games"
         >
-          <span className="nav-icon">🏠</span>
-          <span className="nav-label">Home</span>
+          <span className="nav-icon">⚽</span>
+          <span className="nav-label">Games</span>
         </button>
         <button 
           className={`nav-item ${activeNav === 'reports' ? 'active' : ''}`}

@@ -15,6 +15,7 @@ import { formatGameTimeDisplay, formatMinutesSeconds } from "../utils/gameTimeUt
 import { executeSubstitution, closeActivePlayTimeRecords } from "../services/substitutionService";
 import { updatePlayerAvailability, type PlannedSubstitution } from "../services/rotationPlannerService";
 import { PlayerSelect } from "./PlayerSelect";
+import { LineupBuilder } from "./LineupBuilder";
 
 const client = generateClient<Schema>();
 
@@ -267,6 +268,46 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       availabilitySub.unsubscribe();
     };
   }, [team.id, team.formationId, game.id, gamePlan?.id]);
+
+  // Sync lineup from game plan when available
+  useEffect(() => {
+    const syncLineupFromGamePlan = async () => {
+      if (!gamePlan || gameState.status !== 'scheduled' || lineup.length > 0) {
+        return; // Only sync if game is scheduled and no lineup exists yet
+      }
+
+      if (!gamePlan.startingLineup) {
+        console.log('Game plan has no starting lineup data');
+        return;
+      }
+
+      try {
+        // Parse the starting lineup from the game plan
+        const startingLineup = JSON.parse(gamePlan.startingLineup as string) as Array<{
+          playerId: string;
+          positionId: string;
+        }>;
+
+        // Create LineupAssignment records for starters
+        const lineupPromises = startingLineup.map(({ playerId, positionId }) =>
+          client.models.LineupAssignment.create({
+            gameId: game.id,
+            playerId,
+            positionId,
+            isStarter: true,
+            coaches: team.coaches,
+          })
+        );
+
+        await Promise.all(lineupPromises);
+        console.log(`Synced ${startingLineup.length} starters from game plan`);
+      } catch (error) {
+        console.error('Error syncing lineup from game plan:', error);
+      }
+    };
+
+    syncLineupFromGamePlan();
+  }, [gamePlan, gameState.status, lineup.length, game.id, team.coaches]);
 
   // Timer effect
   useEffect(() => {
@@ -1174,6 +1215,46 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           <p className="empty-state">
             No positions defined. Go to the Positions tab to add field positions first.
           </p>
+        ) : gameState.status === 'scheduled' ? (
+          <LineupBuilder
+            positions={positions}
+            availablePlayers={players.filter(p => p.isActive)}
+            lineup={new Map(lineup.filter(l => l.positionId && l.playerId).map(l => [l.positionId as string, l.playerId]))}
+            onLineupChange={async (positionId, playerId) => {
+              // Find existing assignment for this position
+              const existing = lineup.find(l => l.positionId === positionId);
+              
+              if (playerId === '') {
+                // Remove player from position
+                if (existing) {
+                  await client.models.LineupAssignment.delete({ id: existing.id });
+                }
+              } else {
+                // Check if player is already assigned to another position
+                const playerExisting = lineup.find(l => l.playerId === playerId);
+                if (playerExisting) {
+                  await client.models.LineupAssignment.delete({ id: playerExisting.id });
+                }
+                
+                // Add or update assignment
+                if (existing) {
+                  await client.models.LineupAssignment.update({
+                    id: existing.id,
+                    playerId,
+                  });
+                } else {
+                  await client.models.LineupAssignment.create({
+                    gameId: game.id,
+                    playerId,
+                    positionId,
+                    isStarter: true,
+                    coaches: team.coaches,
+                  });
+                }
+              }
+            }}
+            showPreferredPositions={true}
+          />
         ) : (
           <>
             <div className="position-lineup-grid">
@@ -1250,41 +1331,45 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               })}
             </div>
 
-            <h3 style={{ marginTop: '2rem' }}>Available Players</h3>
-            <p className="lineup-hint">Click a player to assign them to a position</p>
+            {gameState.status !== 'scheduled' && (
+              <>
+                <h3 style={{ marginTop: '2rem' }}>Available Players</h3>
+                <p className="lineup-hint">Click a player to assign them to a position</p>
 
-            <div className="player-list">
-              {players.map((player) => {
-                const inLineup = isInLineup(player.id);
-                const assignedPosition = getPlayerPosition(player.id);
-                const playTime = getPlayerPlayTime(player.id);
-                const playing = isCurrentlyPlaying(player.id);
-                return (
-                  <div
-                    key={player.id}
-                    className={`player-card clickable ${inLineup ? 'in-lineup' : ''} ${playing ? 'currently-playing' : ''}`}
-                    onClick={() => handlePlayerClick(player)}
-                  >
-                    <div className="player-number">#{player.playerNumber}</div>
-                    <div className="player-info">
-                      <h3>{player.firstName} {player.lastName}</h3>
-                      {assignedPosition && (
-                        <p className="player-position">
-                          Playing: {assignedPosition.positionName}
-                        </p>
-                      )}
-                      {playTime !== '0:00' && (
-                        <p className="player-play-time">
-                          ⏱️ Time played: {playTime}
-                        </p>
-                      )}
-                    </div>
-                    {inLineup && <span className="checkmark">✓</span>}
-                    {playing && <span className="playing-badge">On Field</span>}
-                  </div>
-                );
-              })}
-            </div>
+                <div className="player-list">
+                  {players.map((player) => {
+                    const inLineup = isInLineup(player.id);
+                    const assignedPosition = getPlayerPosition(player.id);
+                    const playTime = getPlayerPlayTime(player.id);
+                    const playing = isCurrentlyPlaying(player.id);
+                    return (
+                      <div
+                        key={player.id}
+                        className={`player-card clickable ${inLineup ? 'in-lineup' : ''} ${playing ? 'currently-playing' : ''}`}
+                        onClick={() => handlePlayerClick(player)}
+                      >
+                        <div className="player-number">#{player.playerNumber}</div>
+                        <div className="player-info">
+                          <h3>{player.firstName} {player.lastName}</h3>
+                          {assignedPosition && (
+                            <p className="player-position">
+                              Playing: {assignedPosition.positionName}
+                            </p>
+                          )}
+                          {playTime !== '0:00' && (
+                            <p className="player-play-time">
+                              ⏱️ Time played: {playTime}
+                            </p>
+                          )}
+                        </div>
+                        {inLineup && <span className="checkmark">✓</span>}
+                        {playing && <span className="playing-badge">On Field</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </>
         )}
       </div>

@@ -148,8 +148,12 @@ export function Home({ onGameSelect, onPlanGame }: HomeProps) {
     if (!dateString) return '';
     const date = new Date(dateString);
     const now = new Date();
-    const diffMs = date.getTime() - now.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    // Compare calendar dates, not time differences
+    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const nowOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffMs = dateOnly.getTime() - nowOnly.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
 
     if (diffDays === 0) {
       return `Today at ${date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;

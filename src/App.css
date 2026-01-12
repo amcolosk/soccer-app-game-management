@@ -2468,7 +2468,6 @@
   left: 80px;
   z-index: 2;
   background: var(--card-background);
-  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
   transition: background 0.2s;
 }
 
@@ -2847,12 +2846,16 @@
   gap: 0.25rem;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .player-number {
   font-weight: bold;
   color: var(--text-secondary);
   font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .player-name {
@@ -2861,6 +2864,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .availability-legend {

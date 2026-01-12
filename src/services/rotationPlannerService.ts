@@ -52,7 +52,8 @@ export async function generateRotationPlan(input: RotationPlanInput): Promise<Ga
   } = input;
 
   // Calculate total rotations across both halves
-  const rotationsPerHalf = Math.floor(halfLengthMinutes / rotationIntervalMinutes);
+  // Subtract 1 because we don't rotate at halftime or end of game
+  const rotationsPerHalf = Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1;
   const totalRotations = rotationsPerHalf * 2;
 
   console.log(`Generating rotation plan: ${totalRotations} rotations (${rotationsPerHalf} per half)`);
@@ -62,6 +63,7 @@ export async function generateRotationPlan(input: RotationPlanInput): Promise<Ga
     gameId,
     rotationIntervalMinutes,
     totalRotations,
+    startingLineup: JSON.stringify(startingLineup),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     coaches,
@@ -92,9 +94,12 @@ export async function generateRotationPlan(input: RotationPlanInput): Promise<Ga
   const rotationPromises = rotationSchedule.map(async (rotation, index) => {
     const rotationNumber = index + 1;
     const half = rotationNumber <= rotationsPerHalf ? 1 : 2;
-    const gameMinute = half === 1 
-      ? rotationNumber * rotationIntervalMinutes
-      : ((rotationNumber - rotationsPerHalf) * rotationIntervalMinutes);
+    const gameMinute = calculateRotationMinute(
+      rotationNumber,
+      rotationsPerHalf,
+      rotationIntervalMinutes,
+      halfLengthMinutes
+    );
 
     return client.models.PlannedRotation.create({
       gamePlanId: gamePlan.id,
@@ -115,8 +120,35 @@ export async function generateRotationPlan(input: RotationPlanInput): Promise<Ga
 
 /**
  * Calculates fair rotation schedule ensuring equal play time
+ * Exported for testing purposes
  */
-function calculateFairRotations(
+/**
+ * Calculate the game minute for a rotation
+ * @param rotationNumber - The rotation number (1-indexed)
+ * @param rotationsPerHalf - Number of rotations per half
+ * @param rotationIntervalMinutes - Minutes between rotations
+ * @param halfLengthMinutes - Length of each half in minutes
+ * @returns The game minute when this rotation should occur
+ */
+export function calculateRotationMinute(
+  rotationNumber: number,
+  rotationsPerHalf: number,
+  rotationIntervalMinutes: number,
+  halfLengthMinutes: number
+): number {
+  const half = rotationNumber <= rotationsPerHalf ? 1 : 2;
+  
+  if (half === 1) {
+    // First half: rotation 1 at 10 min, rotation 2 at 20 min, etc.
+    return rotationNumber * rotationIntervalMinutes;
+  } else {
+    // Second half: add half length to the rotation time within second half
+    const rotationInSecondHalf = rotationNumber - rotationsPerHalf;
+    return halfLengthMinutes + (rotationInSecondHalf * rotationIntervalMinutes);
+  }
+}
+
+export function calculateFairRotations(
   availablePlayers: SimpleRoster[],
   startingLineup: Array<{ playerId: string; positionId: string }>,
   totalRotations: number,
