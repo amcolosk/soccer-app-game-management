@@ -751,16 +751,47 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
               </button>
             </div>
           </div>
+
+          {/* Substitutions List */}
+          {subs.length > 0 && (
+            <div style={{ marginBottom: '1rem' }}>
+              <h4 style={{ marginBottom: '0.5rem' }}>Planned Substitutions</h4>
+              <div className="planned-subs-list">
+                {subs.map((sub, idx) => {
+                  const playerOut = rotationPlayers.find(p => p.id === sub.playerOutId);
+                  const playerIn = rotationPlayers.find(p => p.id === sub.playerInId);
+                  const position = positions.find(p => p.id === sub.positionId);
+                  
+                  return (
+                    <div key={idx} className="planned-sub-item" style={{ background: '#fff9c4', border: '2px solid #fdd835' }}>
+                      <div className="sub-position-label">{position?.abbreviation}</div>
+                      <div className="sub-players">
+                        <div className="sub-player sub-out">
+                          <span className="player-number">#{playerOut?.playerNumber || 0}</span>
+                          <span className="player-name">
+                            {playerOut?.firstName} {playerOut?.lastName}
+                          </span>
+                        </div>
+                        <div className="sub-arrow">→</div>
+                        <div className="sub-player sub-in">
+                          <span className="player-number">#{playerIn?.playerNumber || 0}</span>
+                          <span className="player-name">
+                            {playerIn?.firstName} {playerIn?.lastName}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           
           <div className="rotation-lineup-custom">
             <div className="position-lineup-grid">
               {positions.map((position) => {
                 const assignedPlayerId = currentLineup.get(position.id);
                 const assignedPlayer = rotationPlayers.find((p) => p.id === assignedPlayerId);
-                
-                // Check if this position has a substitution
-                const sub = subs.find(s => s.positionId === position.id);
-                const isSubbingIn = sub && sub.playerInId === assignedPlayerId;
 
                 return (
                   <div key={position.id} className="position-slot">
@@ -775,14 +806,11 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                         })}
                         style={{ 
                           cursor: 'pointer', 
-                          border: isSubbingIn ? '3px solid #4caf50' : '2px solid var(--primary-green)',
-                          background: isSubbingIn ? '#e8f5e9' : 'white',
-                          fontWeight: isSubbingIn ? 'bold' : 'normal',
-                          color: 'black !important'
+                          border: '2px solid var(--primary-green)',
+                          background: 'white'
                         }}
                       >
-                        {isSubbingIn && <span style={{ marginRight: '0.25rem', color: '#4caf50' }}>▶</span>}
-                        <span className="player-number">#{assignedPlayer.playerNumber || 0}</span>
+                        <span style={{ fontSize: '0.85rem', opacity: 0.9, color: 'black' }}>#{assignedPlayer.playerNumber || 0}</span>
                         <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'black' }}>
                           {assignedPlayer.firstName.charAt(0)}. {assignedPlayer.lastName}
                         </span>
@@ -819,25 +847,14 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
               <div className="bench-players">
                 {rotationPlayers
                   .filter((p) => !Array.from(currentLineup.values()).includes(p.id))
-                  .map((player) => {
-                    // Check if this player was subbed out in this rotation
-                    const wasSubbedOut = subs.some(s => s.playerOutId === player.id);
-                    
-                    return (
-                      <div 
-                        key={player.id} 
-                        className="bench-player"
-                        style={{
-                          border: wasSubbedOut ? '2px solid #f44336' : '1px solid var(--border-color)',
-                          background: wasSubbedOut ? '#ffebee' : 'white',
-                          fontWeight: wasSubbedOut ? 'bold' : 'normal',
-                          color: 'black !important'
-                        }}
-                      >
-                        {wasSubbedOut && <span style={{ marginRight: '0.25rem', color: '#f44336' }}>◀</span>}
-                        <span className="player-number">#{player.playerNumber || 0}</span>
-                        <span className="player-name">
-                          {player.firstName} {player.lastName}
+                  .map((player) => (
+                    <div key={player.id} className="bench-player">
+                      <span className="player-number">#{player.playerNumber || 0}</span>
+                      <span className="player-name">
+                        {player.firstName} {player.lastName}
+                      </span>
+                    </div>
+                  ))}
                         </span>
                       </div>
                     );

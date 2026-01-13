@@ -3591,6 +3591,7 @@
 
 .sub-player .player-name {
   font-weight: 600;
+  background: transparent;
 }
 
 .sub-out {
