@@ -2,12 +2,10 @@ import { useEffect, useState, useRef } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import {
-  generateRotationPlan,
   calculatePlayTime,
   copyGamePlan,
   updatePlayerAvailability,
   type PlannedSubstitution,
-  type RotationPlanInput,
 } from "../services/rotationPlannerService";
 import { sortRosterByNumber } from "../utils/playerUtils";
 import { LineupBuilder } from "./LineupBuilder";
@@ -47,6 +45,11 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const [previousGames, setPreviousGames] = useState<Game[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [swapModalData, setSwapModalData] = useState<{
+    rotationNumber: number;
+    positionId: string;
+    currentPlayerId: string;
+  } | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
 
   const halfLengthMinutes = team.halfLengthMinutes || 30;
@@ -200,7 +203,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }
   };
 
-  const handleLineupChange = (positionId: string, playerId: string) => {
+  const handleLineupChange = async (positionId: string, playerId: string) => {
     const newLineup = new Map(startingLineup);
     
     if (playerId === "") {
@@ -216,9 +219,27 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }
     
     setStartingLineup(newLineup);
+
+    // Auto-save starting lineup to GamePlan if it exists
+    if (gamePlan) {
+      try {
+        const lineupArray = Array.from(newLineup.entries()).map(([positionId, playerId]) => ({
+          playerId,
+          positionId,
+        }));
+        
+        await client.models.GamePlan.update({
+          id: gamePlan.id,
+          startingLineup: JSON.stringify(lineupArray),
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error("Error auto-saving starting lineup:", error);
+      }
+    }
   };
 
-  const handleGeneratePlan = async () => {
+  const handleUpdatePlan = async () => {
     // Validate starting lineup
     if (startingLineup.size === 0) {
       alert("Please select a starting lineup first");
@@ -227,16 +248,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
     if (startingLineup.size > maxPlayersOnField) {
       alert(`Starting lineup cannot exceed ${maxPlayersOnField} players`);
-      return;
-    }
-
-    // Get available players only
-    const availablePlayers = players.filter(
-      (p) => getPlayerAvailability(p.id) === "available"
-    );
-
-    if (availablePlayers.length < startingLineup.size) {
-      alert("Not enough available players for starting lineup");
       return;
     }
 
@@ -256,41 +267,61 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         await client.models.GamePlan.delete({ id: gamePlan.id });
       }
 
-      // Prepare input - map to roster objects with required fields
-      const rosterData = availablePlayers.map((p) => ({
-        id: p.id,
-        teamId: team.id,
-        playerId: p.id,
-        playerNumber: p.playerNumber || 0,
-        preferredPositions: p.preferredPositions,
-      }));
-
       const lineupArray = Array.from(startingLineup.entries()).map(([positionId, playerId]) => ({
         playerId,
         positionId,
       }));
 
-      const input: RotationPlanInput = {
-        gameId: game.id,
-        teamId: team.id,
-        halfLengthMinutes,
-        maxPlayersOnField,
-        rotationIntervalMinutes,
-        availablePlayers: rosterData,
-        startingLineup: lineupArray,
-        coaches: team.coaches || [],
-      };
+      // Calculate total rotations
+      const rotationsPerHalf = Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1;
+      const totalRotations = rotationsPerHalf * 2;
 
-      // Generate plan
-      await generateRotationPlan(input);
+      // Create the game plan
+      const gamePlanResult = await client.models.GamePlan.create({
+        gameId: game.id,
+        rotationIntervalMinutes,
+        totalRotations,
+        startingLineup: JSON.stringify(lineupArray),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        coaches: team.coaches || [],
+      });
+
+      const newGamePlan = gamePlanResult.data;
+      if (!newGamePlan) {
+        throw new Error('Failed to create game plan');
+      }
+
+      // Create empty rotation slots
+      const rotationPromises = [];
+      for (let i = 1; i <= totalRotations; i++) {
+        const half = i <= rotationsPerHalf ? 1 : 2;
+        const rotationInHalf = i <= rotationsPerHalf ? i : i - rotationsPerHalf;
+        const gameMinute = half === 1 
+          ? rotationInHalf * rotationIntervalMinutes
+          : halfLengthMinutes + (rotationInHalf * rotationIntervalMinutes);
+
+        rotationPromises.push(
+          client.models.PlannedRotation.create({
+            gamePlanId: newGamePlan.id,
+            rotationNumber: i,
+            gameMinute,
+            half,
+            plannedSubstitutions: JSON.stringify([]),
+            coaches: team.coaches || [],
+          })
+        );
+      }
+
+      await Promise.all(rotationPromises);
       
       // Reload data
       await loadData();
       
-      alert("Rotation plan generated successfully!");
+      alert("Plan updated successfully! Now set up each rotation.");
     } catch (error) {
-      console.error("Error generating rotation plan:", error);
-      alert("Failed to generate rotation plan");
+      console.error("Error updating rotation plan:", error);
+      alert("Failed to update rotation plan");
     } finally {
       setIsGenerating(false);
     }
@@ -339,31 +370,120 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }, 100);
   };
 
-  const handleEditSubstitution = async (
-    rotationId: string,
-    oldSub: PlannedSubstitution,
-    newPlayerInId: string
+  const handleRotationLineupChange = async (
+    rotationNumber: number,
+    newLineup: Map<string, string>
   ) => {
-    const rotation = rotations.find((r) => r.id === rotationId);
+    const rotation = rotations.find((r) => r.rotationNumber === rotationNumber);
     if (!rotation) return;
 
-    const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
-    const updatedSubs = subs.map((s) =>
-      s.playerOutId === oldSub.playerOutId && s.positionId === oldSub.positionId
-        ? { ...s, playerInId: newPlayerInId }
-        : s
-    );
+    // Get previous lineup
+    const previousLineup = rotationNumber === 1 
+      ? startingLineup 
+      : getLineupAtRotation(rotationNumber - 1);
+
+    // Ensure all positions from previous lineup are accounted for in new lineup
+    // If a position is missing, keep the previous player
+    const completeNewLineup = new Map(previousLineup);
+    for (const [positionId, playerId] of newLineup.entries()) {
+      if (playerId) {
+        completeNewLineup.set(positionId, playerId);
+      }
+    }
+
+    // Calculate substitutions by comparing lineups
+    const subs: PlannedSubstitution[] = [];
+    for (const [positionId, newPlayerId] of completeNewLineup.entries()) {
+      const oldPlayerId = previousLineup.get(positionId);
+      if (oldPlayerId && newPlayerId && oldPlayerId !== newPlayerId) {
+        subs.push({
+          playerOutId: oldPlayerId,
+          playerInId: newPlayerId,
+          positionId,
+        });
+      }
+    }
 
     try {
       await client.models.PlannedRotation.update({
-        id: rotationId,
-        plannedSubstitutions: JSON.stringify(updatedSubs),
+        id: rotation.id,
+        plannedSubstitutions: JSON.stringify(subs),
       });
       await loadData();
     } catch (error) {
-      console.error("Error updating substitution:", error);
-      alert("Failed to update substitution");
+      console.error("Error updating rotation:", error);
+      alert("Failed to update rotation");
     }
+  };
+
+  const handleCopyFromPreviousRotation = async (rotationNumber: number) => {
+    const rotation = rotations.find((r) => r.rotationNumber === rotationNumber);
+    if (!rotation) return;
+
+    // Copy the lineup (no substitutions)
+    try {
+      await client.models.PlannedRotation.update({
+        id: rotation.id,
+        plannedSubstitutions: JSON.stringify([]),
+      });
+      await loadData();
+      
+      // Select this rotation to edit it
+      setSelectedRotation(rotationNumber);
+    } catch (error) {
+      console.error("Error copying rotation:", error);
+      alert("Failed to copy from previous rotation");
+    }
+  };
+
+  const handleSwapPlayer = async (newPlayerId: string) => {
+    if (!swapModalData) return;
+
+    const { rotationNumber, positionId } = swapModalData;
+    const currentLineup = getLineupAtRotation(rotationNumber);
+    const newLineup = new Map(currentLineup);
+
+    // Remove new player from their current position if they're already assigned
+    for (const [pos, pid] of newLineup.entries()) {
+      if (pid === newPlayerId && pos !== positionId) {
+        newLineup.delete(pos);
+      }
+    }
+
+    // Set the new player in the target position
+    newLineup.set(positionId, newPlayerId);
+
+    await handleRotationLineupChange(rotationNumber, newLineup);
+    setSwapModalData(null);
+  };
+
+  // Calculate lineup state at each rotation
+  const getLineupAtRotation = (rotationNumber: number): Map<string, string> => {
+    const lineup = new Map(startingLineup);
+    
+    // Apply all substitutions up to this rotation
+    for (let i = 0; i < rotations.length && rotations[i].rotationNumber <= rotationNumber; i++) {
+      const rotation = rotations[i];
+      const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
+      subs.forEach(sub => {
+        // First, remove playerIn from any other position they might be in
+        for (const [posId, pId] of lineup.entries()) {
+          if (pId === sub.playerInId) {
+            lineup.delete(posId);
+          }
+        }
+        
+        // Then find which position the playerOut is in and replace them
+        for (const [posId, pId] of lineup.entries()) {
+          if (pId === sub.playerOutId) {
+            lineup.set(posId, sub.playerInId);
+            break;
+          }
+        }
+      });
+    }
+    
+    return lineup;
   };
 
   const renderAvailabilityGrid = () => {
@@ -451,29 +571,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
     const rotationsPerHalf = gamePlan ? Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1 : 0;
 
-    // Calculate lineup state at each rotation
-    const getLineupAtRotation = (rotationNumber: number): Map<string, string> => {
-      const lineup = new Map(startingLineup);
-      
-      // Apply all substitutions up to this rotation
-      for (let i = 0; i < rotations.length && rotations[i].rotationNumber <= rotationNumber; i++) {
-        const rotation = rotations[i];
-        const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
-        subs.forEach(sub => {
-          // Find which position the playerOut is in
-          for (const [posId, pId] of lineup.entries()) {
-            if (pId === sub.playerOutId) {
-              lineup.set(posId, sub.playerInId);
-              break;
-            }
-          }
-        });
-      }
-      
-      return lineup;
-    };
-
-
     // Create timeline items with starting lineup first, then HT marker between halves
     const timelineItems: Array<{ type: 'starting' | 'rotation' | 'halftime'; rotation?: PlannedRotation; minute?: number }> = [];
     
@@ -516,28 +613,14 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         return (
           <div className="rotation-details-panel">
             <h4>Lineup at Halftime</h4>
-            <div className="rotation-lineup-grid">
-              {positions.map((position) => {
-                const playerId = halfTimeLineup.get(position.id);
-                const player = playerId ? players.find(p => p.id === playerId) : null;
-
-                return (
-                  <div key={position.id} className="lineup-position-card">
-                    <div className="position-header">{position.abbreviation}</div>
-                    <div className="player-content">
-                      {player ? (
-                        <>
-                          <span className="player-number">#{player.playerNumber}</span>
-                          <span className="player-name">{player.firstName} {player.lastName}</span>
-                        </>
-                      ) : (
-                        <span className="empty-position">-</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <LineupBuilder
+              positions={positions}
+              availablePlayers={availablePlayers}
+              lineup={halfTimeLineup}
+              onLineupChange={() => {}}
+              disabled={true}
+              showPreferredPositions={false}
+            />
           </div>
         );
       }
@@ -548,63 +631,89 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
       const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
       const currentLineup = getLineupAtRotation(rotation.rotationNumber);
-      const subsOutIds = new Set(subs.map(s => s.playerOutId));
-      const subsInIds = new Set(subs.map(s => s.playerInId));
 
       return (
         <div className="rotation-details-panel">
           <div className="panel-header">
             <h4>Rotation {rotation.rotationNumber} ({rotation.gameMinute}')</h4>
-            <span className="subs-count">{subs.length} Substitutions</span>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <span className="subs-count">{subs.length} Substitutions</span>
+              <button
+                onClick={() => handleCopyFromPreviousRotation(rotation.rotationNumber)}
+                className="secondary-button"
+                style={{ padding: '0.25rem 0.75rem', fontSize: '0.85rem' }}
+              >
+                Copy from Previous
+              </button>
+            </div>
           </div>
           
-          <div className="rotation-lineup-grid">
-            {positions.map((position) => {
-              const playerId = currentLineup.get(position.id);
-              const player = playerId ? players.find(p => p.id === playerId) : null;
-              const isSubbingOut = subsOutIds.has(playerId || '');
-              const isSubbingIn = subsInIds.has(playerId || '');
-              const sub = subs.find(s => s.positionId === position.id);
+          <div className="rotation-lineup-custom">
+            <div className="position-lineup-grid">
+              {positions.map((position) => {
+                const assignedPlayerId = currentLineup.get(position.id);
+                const assignedPlayer = availablePlayers.find((p) => p.id === assignedPlayerId);
 
-              return (
-                <div key={position.id} className={`lineup-position-card ${isSubbingOut ? 'subbing-out' : isSubbingIn ? 'subbing-in' : ''}`}>
-                  <div className="position-header">{position.abbreviation}</div>
-                  <div className="player-content">
-                    {player ? (
-                      <>
-                        <div className="player-main">
-                          {isSubbingOut && <span className="status-badge out">OUT</span>}
-                          {isSubbingIn && <span className="status-badge in">IN</span>}
-                          <span className="player-number">#{player.playerNumber}</span>
-                          <span className="player-name">{player.firstName} {player.lastName}</span>
-                        </div>
-                      </>
+                return (
+                  <div key={position.id} className="position-slot">
+                    <div className="position-label">{position.abbreviation}</div>
+                    {assignedPlayer ? (
+                      <button
+                        className="assigned-player clickable"
+                        onClick={() => setSwapModalData({
+                          rotationNumber: rotation.rotationNumber,
+                          positionId: position.id,
+                          currentPlayerId: assignedPlayer.id,
+                        })}
+                        style={{ cursor: 'pointer', border: '2px solid var(--primary-green)' }}
+                      >
+                        <span className="player-number">#{assignedPlayer.playerNumber || 0}</span>
+                        <span className="player-name-short">
+                          {assignedPlayer.firstName.charAt(0)}. {assignedPlayer.lastName}
+                        </span>
+                        <span style={{ marginLeft: 'auto', fontSize: '0.8rem' }}>🔄</span>
+                      </button>
                     ) : (
-                      <span className="empty-position">-</span>
-                    )}
-                    
-                    {sub && (
-                      <div className="sub-action">
-                        <span className="arrow">↓</span>
-                        <select
-                          value={sub.playerInId}
-                          onChange={(e) =>
-                            handleEditSubstitution(rotation.id, sub, e.target.value)
+                      <select
+                        className="player-select"
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            const newLineup = new Map(currentLineup);
+                            newLineup.set(position.id, e.target.value);
+                            handleRotationLineupChange(rotation.rotationNumber, newLineup);
                           }
-                          className="sub-select"
-                        >
-                          {availablePlayers.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              #{p.playerNumber} {p.firstName} {p.lastName}
+                        }}
+                      >
+                        <option value="">Select player...</option>
+                        {availablePlayers
+                          .filter((p) => !Array.from(currentLineup.values()).includes(p.id))
+                          .map((player) => (
+                            <option key={player.id} value={player.id}>
+                              #{player.playerNumber || 0} {player.firstName} {player.lastName}
                             </option>
                           ))}
-                        </select>
-                      </div>
+                      </select>
                     )}
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
+            <div className="bench-area">
+              <h4>Bench</h4>
+              <div className="bench-players">
+                {availablePlayers
+                  .filter((p) => !Array.from(currentLineup.values()).includes(p.id))
+                  .map((player) => (
+                    <div key={player.id} className="bench-player">
+                      <span className="player-number">#{player.playerNumber || 0}</span>
+                      <span className="player-name">
+                        {player.firstName} {player.lastName}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </div>
           </div>
         </div>
       );
@@ -758,11 +867,11 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
             </select>
           </label>
           <button
-            onClick={handleGeneratePlan}
+            onClick={handleUpdatePlan}
             className="primary-button"
             disabled={isGenerating || startingLineup.size === 0}
           >
-            {isGenerating ? "Generating..." : gamePlan ? "Regenerate Plan" : "Generate Plan"}
+            {isGenerating ? "Updating..." : "Update Plan"}
           </button>
         </div>
       </div>
@@ -809,6 +918,53 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           </div>
         </div>
       )}
+
+      {swapModalData && (() => {
+        const currentLineup = getLineupAtRotation(swapModalData.rotationNumber);
+        const currentPlayer = players.find((p: PlayerWithRoster) => p.id === swapModalData.currentPlayerId);
+        const position = positions.find((p: FormationPosition) => p.id === swapModalData.positionId);
+        const availablePlayers = players.filter(
+          (p: PlayerWithRoster) => getPlayerAvailability(p.id) === "available"
+        );
+        
+        return (
+          <div className="modal-overlay" onClick={() => setSwapModalData(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <h3>Swap Player</h3>
+              <p style={{ marginBottom: '1rem' }}>
+                <strong>{position?.abbreviation}</strong>: {currentPlayer?.firstName} {currentPlayer?.lastName} #{currentPlayer?.playerNumber}
+              </p>
+              <h4>Select replacement:</h4>
+              <div className="previous-games-list" style={{ maxHeight: '400px' }}>
+                {availablePlayers
+                  .filter((p: PlayerWithRoster) => p.id !== swapModalData.currentPlayerId)
+                  .map((player: PlayerWithRoster) => {
+                    const isOnField = Array.from(currentLineup.values()).includes(player.id);
+                    return (
+                      <button
+                        key={player.id}
+                        className="game-option"
+                        onClick={() => handleSwapPlayer(player.id)}
+                        style={{
+                          opacity: isOnField ? 0.6 : 1,
+                          background: isOnField ? '#fff3e0' : 'white',
+                        }}
+                      >
+                        <div className="game-info">
+                          <strong>#{player.playerNumber} {player.firstName} {player.lastName}</strong>
+                          {isOnField && <span style={{ color: '#ff9800', fontSize: '0.85rem' }}>Currently on field</span>}
+                        </div>
+                      </button>
+                    );
+                  })}
+              </div>
+              <button onClick={() => setSwapModalData(null)} className="secondary-button">
+                Cancel
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
