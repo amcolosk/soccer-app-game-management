@@ -453,8 +453,11 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     // Set the new player in the target position
     newLineup.set(positionId, newPlayerId);
 
-    await handleRotationLineupChange(rotationNumber, newLineup);
+    // Close modal first to prevent UI issues
     setSwapModalData(null);
+    
+    // Then save the changes
+    await handleRotationLineupChange(rotationNumber, newLineup);
   };
 
   // Calculate lineup state at each rotation
@@ -465,21 +468,32 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     for (let i = 0; i < rotations.length && rotations[i].rotationNumber <= rotationNumber; i++) {
       const rotation = rotations[i];
       const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
+      
       subs.forEach(sub => {
-        // First, remove playerIn from any other position they might be in
+        // Build a new lineup map to avoid modification during iteration issues
+        const newLineup = new Map<string, string>();
+        
+        // Copy all positions except those affected by this substitution
         for (const [posId, pId] of lineup.entries()) {
-          if (pId === sub.playerInId) {
-            lineup.delete(posId);
+          // Skip the position we're substituting from
+          if (posId === sub.positionId) {
+            continue;
           }
+          // Skip if this player is being moved (they might be going to a different position)
+          if (pId === sub.playerInId) {
+            continue;
+          }
+          newLineup.set(posId, pId);
         }
         
-        // Then find which position the playerOut is in and replace them
-        for (const [posId, pId] of lineup.entries()) {
-          if (pId === sub.playerOutId) {
-            lineup.set(posId, sub.playerInId);
-            break;
-          }
-        }
+        // Add the new player to their position
+        newLineup.set(sub.positionId, sub.playerInId);
+        
+        // Replace lineup with the new one
+        lineup.clear();
+        newLineup.forEach((playerId, positionId) => {
+          lineup.set(positionId, playerId);
+        });
       });
     }
     
@@ -565,8 +579,20 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       halfLengthMinutes * 2
     ) : new Map();
 
-    const availablePlayers = players.filter(
-      (p) => getPlayerAvailability(p.id) === "available"
+    // For starting lineup: exclude late-arrival and unavailable players
+    const startingLineupPlayers = players.filter(
+      (p) => {
+        const status = getPlayerAvailability(p.id);
+        return status === "available";
+      }
+    );
+
+    // For rotations and halftime: include late-arrival players
+    const rotationPlayers = players.filter(
+      (p) => {
+        const status = getPlayerAvailability(p.id);
+        return status === "available" || status === "late-arrival";
+      }
     );
 
     const rotationsPerHalf = gamePlan ? Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1 : 0;
@@ -596,7 +622,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
             <h4>Starting Lineup</h4>
             <LineupBuilder
               positions={positions}
-              availablePlayers={availablePlayers}
+              availablePlayers={startingLineupPlayers}
               lineup={startingLineup}
               onLineupChange={handleLineupChange}
               showPreferredPositions={true}
@@ -609,18 +635,96 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         const halfTimeLineup = rotations.length > 0 && rotationsPerHalf > 0 
           ? getLineupAtRotation(rotationsPerHalf)
           : new Map(startingLineup);
+        
+        // Get the first rotation of second half for making halftime changes
+        const secondHalfStartRotation = rotations.find(r => r.rotationNumber === rotationsPerHalf + 1);
 
         return (
           <div className="rotation-details-panel">
-            <h4>Lineup at Halftime</h4>
-            <LineupBuilder
-              positions={positions}
-              availablePlayers={availablePlayers}
-              lineup={halfTimeLineup}
-              onLineupChange={() => {}}
-              disabled={true}
-              showPreferredPositions={false}
-            />
+            <div className="panel-header">
+              <h4>Lineup at Halftime</h4>
+              {secondHalfStartRotation && (
+                <button
+                  onClick={() => handleCopyFromPreviousRotation(secondHalfStartRotation.rotationNumber)}
+                  className="secondary-button"
+                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.85rem' }}
+                >
+                  Copy from First Half
+                </button>
+              )}
+            </div>
+            
+            {secondHalfStartRotation ? (
+              <div className="rotation-lineup-custom">
+                <div className="position-lineup-grid">
+                  {positions.map((position) => {
+                    const assignedPlayerId = halfTimeLineup.get(position.id);
+                    const assignedPlayer = rotationPlayers.find((p) => p.id === assignedPlayerId);
+
+                    return (
+                      <div key={position.id} className="position-slot">
+                        <div className="position-label">{position.abbreviation}</div>
+                        {assignedPlayer ? (
+                          <button
+                            className="assigned-player clickable"
+                            onClick={() => setSwapModalData({
+                              rotationNumber: secondHalfStartRotation.rotationNumber,
+                              positionId: position.id,
+                              currentPlayerId: assignedPlayer.id,
+                            })}
+                            style={{ cursor: 'pointer', border: '2px solid #ff9800' }}
+                          >
+                            <span className="player-number">#{assignedPlayer.playerNumber || 0}</span>
+                            <span className="player-name-short">
+                              {assignedPlayer.firstName.charAt(0)}. {assignedPlayer.lastName}
+                            </span>
+                            <span style={{ marginLeft: 'auto', fontSize: '0.8rem' }}>🔄</span>
+                          </button>
+                        ) : (
+                          <select
+                            className="player-select"
+                            value=""
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                const newLineup = new Map(halfTimeLineup);
+                                newLineup.set(position.id, e.target.value);
+                                handleRotationLineupChange(secondHalfStartRotation.rotationNumber, newLineup);
+                              }
+                            }}
+                          >
+                            <option value="">Select player...</option>
+                            {rotationPlayers
+                              .filter((p) => !Array.from(halfTimeLineup.values()).includes(p.id))
+                              .map((player) => (
+                                <option key={player.id} value={player.id}>
+                                  #{player.playerNumber || 0} {player.firstName} {player.lastName}
+                                </option>
+                              ))}
+                          </select>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="bench-area">
+                  <h4>Bench</h4>
+                  <div className="bench-players">
+                    {rotationPlayers
+                      .filter((p) => !Array.from(halfTimeLineup.values()).includes(p.id))
+                      .map((player) => (
+                        <div key={player.id} className="bench-player">
+                          <span className="player-number">#{player.playerNumber || 0}</span>
+                          <span className="player-name">
+                            {player.firstName} {player.lastName}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p>Create rotations first by clicking "Update Plan"</p>
+            )}
           </div>
         );
       }
@@ -652,7 +756,11 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
             <div className="position-lineup-grid">
               {positions.map((position) => {
                 const assignedPlayerId = currentLineup.get(position.id);
-                const assignedPlayer = availablePlayers.find((p) => p.id === assignedPlayerId);
+                const assignedPlayer = rotationPlayers.find((p) => p.id === assignedPlayerId);
+                
+                // Check if this position has a substitution
+                const sub = subs.find(s => s.positionId === position.id);
+                const isSubbingIn = sub && sub.playerInId === assignedPlayerId;
 
                 return (
                   <div key={position.id} className="position-slot">
@@ -665,10 +773,17 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                           positionId: position.id,
                           currentPlayerId: assignedPlayer.id,
                         })}
-                        style={{ cursor: 'pointer', border: '2px solid var(--primary-green)' }}
+                        style={{ 
+                          cursor: 'pointer', 
+                          border: isSubbingIn ? '3px solid #4caf50' : '2px solid var(--primary-green)',
+                          background: isSubbingIn ? '#e8f5e9' : 'white',
+                          fontWeight: isSubbingIn ? 'bold' : 'normal',
+                          color: 'black !important'
+                        }}
                       >
+                        {isSubbingIn && <span style={{ marginRight: '0.25rem', color: '#4caf50' }}>▶</span>}
                         <span className="player-number">#{assignedPlayer.playerNumber || 0}</span>
-                        <span className="player-name-short">
+                        <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'black' }}>
                           {assignedPlayer.firstName.charAt(0)}. {assignedPlayer.lastName}
                         </span>
                         <span style={{ marginLeft: 'auto', fontSize: '0.8rem' }}>🔄</span>
@@ -686,7 +801,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                         }}
                       >
                         <option value="">Select player...</option>
-                        {availablePlayers
+                        {rotationPlayers
                           .filter((p) => !Array.from(currentLineup.values()).includes(p.id))
                           .map((player) => (
                             <option key={player.id} value={player.id}>
@@ -702,16 +817,31 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
             <div className="bench-area">
               <h4>Bench</h4>
               <div className="bench-players">
-                {availablePlayers
+                {rotationPlayers
                   .filter((p) => !Array.from(currentLineup.values()).includes(p.id))
-                  .map((player) => (
-                    <div key={player.id} className="bench-player">
-                      <span className="player-number">#{player.playerNumber || 0}</span>
-                      <span className="player-name">
-                        {player.firstName} {player.lastName}
-                      </span>
-                    </div>
-                  ))}
+                  .map((player) => {
+                    // Check if this player was subbed out in this rotation
+                    const wasSubbedOut = subs.some(s => s.playerOutId === player.id);
+                    
+                    return (
+                      <div 
+                        key={player.id} 
+                        className="bench-player"
+                        style={{
+                          border: wasSubbedOut ? '2px solid #f44336' : '1px solid var(--border-color)',
+                          background: wasSubbedOut ? '#ffebee' : 'white',
+                          fontWeight: wasSubbedOut ? 'bold' : 'normal',
+                          color: 'black !important'
+                        }}
+                      >
+                        {wasSubbedOut && <span style={{ marginRight: '0.25rem', color: '#f44336' }}>◀</span>}
+                        <span className="player-number">#{player.playerNumber || 0}</span>
+                        <span className="player-name">
+                          {player.firstName} {player.lastName}
+                        </span>
+                      </div>
+                    );
+                  })}
               </div>
             </div>
           </div>
@@ -923,8 +1053,12 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         const currentLineup = getLineupAtRotation(swapModalData.rotationNumber);
         const currentPlayer = players.find((p: PlayerWithRoster) => p.id === swapModalData.currentPlayerId);
         const position = positions.find((p: FormationPosition) => p.id === swapModalData.positionId);
+        // For swaps in rotations/halftime, include late-arrival players
         const availablePlayers = players.filter(
-          (p: PlayerWithRoster) => getPlayerAvailability(p.id) === "available"
+          (p: PlayerWithRoster) => {
+            const status = getPlayerAvailability(p.id);
+            return status === "available" || status === "late-arrival";
+          }
         );
         
         return (
