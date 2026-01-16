@@ -260,7 +260,7 @@ export function calculateFairRotations(
 export function calculatePlayTime(
   rotations: PlannedRotation[],
   startingLineup: Array<{ playerId: string; positionId: string }>,
-  rotationIntervalMinutes: number,
+  _rotationIntervalMinutes: number,
   totalGameMinutes: number
 ): Map<string, PlayerPlayTime> {
   const playTime = new Map<string, PlayerPlayTime>();
@@ -315,7 +315,7 @@ export function calculatePlayTime(
     });
   });
   
-  // Calculate total minutes
+  // Calculate total minutes based on actual game minutes
   allPlayerIds.forEach(playerId => {
     const pt = playTime.get(playerId)!;
     let minutes = 0;
@@ -323,12 +323,27 @@ export function calculatePlayTime(
     pt.rotations.forEach((rotation, index) => {
       if (rotation.onField) {
         const nextRotation = pt.rotations[index + 1];
+        
+        // Get the current rotation's game minute
+        const currentRotationObj = rotation.rotationNumber === 0 
+          ? null 
+          : sortedRotations.find(r => r.rotationNumber === rotation.rotationNumber);
+        const currentMinute = currentRotationObj?.gameMinute || 0;
+        
         if (nextRotation) {
-          minutes += rotationIntervalMinutes;
+          // Calculate time until next rotation
+          const nextRotationObj = sortedRotations.find(r => r.rotationNumber === nextRotation.rotationNumber);
+          const nextMinute = nextRotationObj?.gameMinute || 0;
+          
+          if (nextMinute > currentMinute) {
+            minutes += nextMinute - currentMinute;
+          } else if (rotation.rotationNumber === 0 && nextMinute > 0) {
+            // From start to first rotation
+            minutes += nextMinute;
+          }
         } else {
           // Last segment - play until end
-          const lastRotationMinute = sortedRotations[sortedRotations.length - 1]?.gameMinute || 0;
-          minutes += totalGameMinutes - lastRotationMinute;
+          minutes += totalGameMinutes - currentMinute;
         }
       }
     });

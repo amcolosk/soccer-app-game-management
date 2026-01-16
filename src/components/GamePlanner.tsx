@@ -855,10 +855,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                       </span>
                     </div>
                   ))}
-                        </span>
-                      </div>
-                    );
-                  })}
               </div>
             </div>
           </div>

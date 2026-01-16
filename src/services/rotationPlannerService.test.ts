@@ -185,6 +185,7 @@ describe('rotationPlannerService', () => {
         {
           id: 'rot1',
           rotationNumber: 1,
+          gameMinute: 10,
           plannedSubstitutions: JSON.stringify([
             { playerOutId: 'p1', playerInId: 'p7', positionId: 'pos1' },
           ]),
@@ -192,6 +193,7 @@ describe('rotationPlannerService', () => {
         {
           id: 'rot2',
           rotationNumber: 2,
+          gameMinute: 20,
           plannedSubstitutions: JSON.stringify([
             { playerOutId: 'p2', playerInId: 'p8', positionId: 'pos2' },
           ]),
@@ -234,6 +236,7 @@ describe('rotationPlannerService', () => {
         {
           id: 'rot1',
           rotationNumber: 1,
+          gameMinute: 10,
           plannedSubstitutions: JSON.stringify([
             { playerOutId: 'p6', playerInId: 'p7', positionId: 'pos6' },
           ]),
@@ -276,6 +279,7 @@ describe('rotationPlannerService', () => {
         {
           id: 'rot1',
           rotationNumber: 1,
+          gameMinute: 10,
           plannedSubstitutions: JSON.stringify([
             { playerOutId: 'p1', playerInId: 'p7', positionId: 'pos1' },
           ]),
