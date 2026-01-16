@@ -167,10 +167,6 @@ async function setupLineup(page: Page) {
   await gameCard.locator('.plan-button').click();
   await page.waitForTimeout(500);
   
-  // Click "Set Lineup" button
-  await clickButton(page, 'Set Lineup');
-  await page.waitForTimeout(500);
-  
   // Assign players to positions using drag-and-drop or select
   const startingPlayers = TEST_DATA.players.slice(0, 5);
   
@@ -195,7 +191,10 @@ async function openGamePlanner(page: Page) {
   console.log('Opening game planner...');
   
   // Check if we're already on the planner screen (setupLineup might have taken us there)
-  if (!(await page.getByText('Game Plan').isVisible())) {
+  // Use a locator that identifies the screen without strict mode violation
+  const isPlannerVisible = await page.getByRole('heading', { name: /Game Plan/ }).count() > 0;
+  
+  if (!isPlannerVisible) {
     // Click "Plan Game" button if not already there
     // This assumes we are on a page with the Plan Game button (like Dashboard)
     const planButton = page.getByRole('button', { name: 'Plan Game' });
@@ -206,7 +205,7 @@ async function openGamePlanner(page: Page) {
   }
   
   // Verify we're on the game planner screen
-  await expect(page.getByText(/Game Plan/i)).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole('heading', { name: /Game Plan/ }).first()).toBeVisible({ timeout: 5000 });
   console.log('✓ Game planner opened');
 }
 
@@ -217,7 +216,7 @@ async function checkPlayerAvailability(page: Page) {
   const availabilityButton = page.getByRole('button', { name: /Check Availability/i });
   if (await availabilityButton.isVisible()) {
     await availabilityButton.click();
-    await page.waitForTimeout(UI_TIMING.ACTION);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Set Late Arrival player as late
     const lateArrivalRow = page.locator('.availability-check-item', { 
@@ -227,12 +226,12 @@ async function checkPlayerAvailability(page: Page) {
     if (await lateArrivalRow.isVisible()) {
       const select = lateArrivalRow.locator('select');
       await select.selectOption('late-arrival');
-      await page.waitForTimeout(UI_TIMING.ACTION);
+      await page.waitForTimeout(UI_TIMING.STANDARD);
     }
     
     // Close modal
     await clickButton(page, 'Done');
-    await page.waitForTimeout(UI_TIMING.ACTION);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
   }
   
   console.log('✓ Player availability checked');
@@ -241,10 +240,21 @@ async function checkPlayerAvailability(page: Page) {
 async function createRotationPlan(page: Page) {
   console.log('Creating rotation plan...');
   
+  // Click Setup button if the interval input is not visible
+  // The setup panel might be collapsed
+  const intervalInput = page.locator('input[type="number"]').first(); // For rotation length
+  
+  if (!(await intervalInput.isVisible())) {
+    const setupButton = page.getByRole('button', { name: 'Setup' });
+    if (await setupButton.isVisible()) {
+      await setupButton.click();
+      await page.waitForTimeout(UI_TIMING.STANDARD);
+    }
+  }
+  
   // Fill in rotation interval
-  const intervalInput = page.locator('input[type="number"]').first();
   await intervalInput.fill('10');
-  await page.waitForTimeout(UI_TIMING.ACTION);
+  await page.waitForTimeout(UI_TIMING.STANDARD);
   
   // Click "Update Plan" button
   await clickButton(page, 'Update Plan');
@@ -279,7 +289,7 @@ async function planSubstitutions(page: Page) {
   // Click on first rotation
   const firstRotation = page.locator('.rotation-button').filter({ hasText: /subs/ }).first();
   await firstRotation.click();
-  await page.waitForTimeout(UI_TIMING.ACTION);
+  await page.waitForTimeout(UI_TIMING.STANDARD);
   
   // Verify rotation details panel is shown
   await expect(page.locator('.rotation-details-panel')).toBeVisible();
@@ -288,7 +298,7 @@ async function planSubstitutions(page: Page) {
   const fieldPlayer = page.locator('.assigned-player').first();
   if (await fieldPlayer.isVisible()) {
     await fieldPlayer.click();
-    await page.waitForTimeout(UI_TIMING.ACTION);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Swap modal should appear
     const swapModal = page.locator('.modal-overlay');
@@ -336,7 +346,7 @@ async function verifyPlayTimeReport(page: Page) {
   // Scroll to projected playtime section
   const playTimeSection = page.locator('.projected-playtime');
   await playTimeSection.scrollIntoViewIfNeeded();
-  await page.waitForTimeout(UI_TIMING.ACTION);
+  await page.waitForTimeout(UI_TIMING.STANDARD);
   
   // Verify section exists
   await expect(playTimeSection).toBeVisible();
@@ -372,7 +382,7 @@ async function testCopyFromPrevious(page: Page) {
   
   if (await secondRotation.isVisible()) {
     await secondRotation.click();
-    await page.waitForTimeout(UI_TIMING.ACTION);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Click "Copy from Previous" button
     const copyButton = page.getByRole('button', { name: /Copy from Previous/i });
