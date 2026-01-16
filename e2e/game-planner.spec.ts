@@ -78,10 +78,50 @@ async function createPlayers(page: Page) {
 async function addPlayersToRoster(page: Page) {
   console.log('Adding players to team roster...');
   
-  // Skip roster management for now - just verify we're ready to create a game
-  // The app may allow games without a full roster, or we can add this later
-  console.log('⚠ Skipping roster management - will test game planner with available players');
-  console.log(`✓ Continuing with ${TEST_DATA.players.length} players created`);
+  // Navigate to Teams tab
+  const teamsTab = page.locator('button.management-tab', { hasText: /Teams/ });
+  await teamsTab.click();
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  
+  // Find and expand the team card
+  const teamCard = page.locator('.item-card').filter({ hasText: TEST_DATA.team.name });
+  const expandButton = teamCard.locator('button[aria-label*="roster"]').first();
+  await expandButton.click();
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  
+  // Add each player to the roster
+  for (const player of TEST_DATA.players) {
+    await clickButton(page, '+ Add Player to Roster');
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+    
+    // Select player from dropdown
+    const playerOption = `${player.firstName} ${player.lastName}`;
+    await page.selectOption('select', { label: playerOption });
+    await page.waitForTimeout(UI_TIMING.QUICK);
+    
+    // Enter player number
+    await fillInput(page, 'input[placeholder*="Player Number"]', player.number);
+    
+    // Select preferred position if available
+    // Note: The UI might use full names like "Goalkeeper" or abbreviations like "GK"
+    // We try to match loosely
+    const positionCheckbox = page.locator('.checkbox-label', { hasText: player.position });
+    if (await positionCheckbox.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await positionCheckbox.locator('input[type="checkbox"]').check();
+      await page.waitForTimeout(UI_TIMING.QUICK);
+    }
+    
+    // Click the Add button in the form
+    const addButton = page.locator('.form-actions button.btn-primary', { hasText: 'Add' });
+    await addButton.click();
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    
+    // Verify player was added to roster
+    const rosterEntry = `#${player.number} ${player.firstName} ${player.lastName}`;
+    await expect(page.getByText(rosterEntry)).toBeVisible();
+  }
+  
+  console.log(`✓ Added ${TEST_DATA.players.length} players to team roster`);
 }
 
 async function createGame(page: Page) {
@@ -103,10 +143,7 @@ async function createGame(page: Page) {
   await teamSelect.selectOption({ label: TEST_DATA.team.name });
   await page.waitForTimeout(300);
   
-  // Wait for opponent input to be visible
-  await expect(page.locator('input[placeholder*="opponent"]')).toBeVisible({ timeout: 5000 });
-  
-  await fillInput(page, 'input[placeholder*="opponent"]', TEST_DATA.game.opponent);
+  await fillInput(page, 'input[placeholder*="Opponent Team Name *"]', TEST_DATA.game.opponent);
   await fillInput(page, 'input[type="datetime-local"]', TEST_DATA.game.date);
   
   const homeCheckbox = page.locator('input[type="checkbox"]');
@@ -124,9 +161,10 @@ async function createGame(page: Page) {
 async function setupLineup(page: Page) {
   console.log('Setting up lineup...');
   
-  // Find and click on the game card
+  // Find and click on the game card's Plan Game button
+  // The card itself clicks into the live game/details view, but we want the planner
   const gameCard = page.locator('.game-card', { hasText: TEST_DATA.game.opponent });
-  await gameCard.click();
+  await gameCard.locator('.plan-button').click();
   await page.waitForTimeout(500);
   
   // Click "Set Lineup" button
@@ -156,9 +194,16 @@ async function setupLineup(page: Page) {
 async function openGamePlanner(page: Page) {
   console.log('Opening game planner...');
   
-  // Click "Plan Game" button
-  await clickButton(page, 'Plan Game');
-  await page.waitForTimeout(1000);
+  // Check if we're already on the planner screen (setupLineup might have taken us there)
+  if (!(await page.getByText('Game Plan').isVisible())) {
+    // Click "Plan Game" button if not already there
+    // This assumes we are on a page with the Plan Game button (like Dashboard)
+    const planButton = page.getByRole('button', { name: 'Plan Game' });
+    if (await planButton.isVisible()) {
+      await planButton.click();
+      await page.waitForTimeout(1000);
+    }
+  }
   
   // Verify we're on the game planner screen
   await expect(page.getByText(/Game Plan/i)).toBeVisible({ timeout: 5000 });
