@@ -166,6 +166,11 @@ async function setupLineup(page: Page) {
   const gameCard = page.locator('.game-card', { hasText: TEST_DATA.game.opponent });
   await gameCard.locator('.plan-button').click();
   await page.waitForTimeout(500);
+
+  // Click "Setup" button in the timeline to open the lineup builder
+  // We need to click this to make the position slots visible
+  await clickButton(page, 'Setup');
+  await page.waitForTimeout(500);
   
   // Assign players to positions using drag-and-drop or select
   const startingPlayers = TEST_DATA.players.slice(0, 5);
@@ -179,7 +184,13 @@ async function setupLineup(page: Page) {
     if (await select.isVisible()) {
       // Use select dropdown
       const playerText = `#${player.number} ${player.firstName} ${player.lastName}`;
-      await select.selectOption({ label: new RegExp(playerText) });
+      // Find option value by text content since label matching needs exact string for selectOption({label: ...})
+      // or we can just pick the option that contains our text
+      const optionElement = select.locator('option').filter({ hasText: playerText }).first();
+      const value = await optionElement.getAttribute('value');
+      if (value) {
+        await select.selectOption(value);
+      }
     }
   }
   
@@ -240,20 +251,11 @@ async function checkPlayerAvailability(page: Page) {
 async function createRotationPlan(page: Page) {
   console.log('Creating rotation plan...');
   
-  // Click Setup button if the interval input is not visible
-  // The setup panel might be collapsed
-  const intervalInput = page.locator('input[type="number"]').first(); // For rotation length
-  
-  if (!(await intervalInput.isVisible())) {
-    const setupButton = page.getByRole('button', { name: 'Setup' });
-    if (await setupButton.isVisible()) {
-      await setupButton.click();
-      await page.waitForTimeout(UI_TIMING.STANDARD);
-    }
-  }
-  
-  // Fill in rotation interval
-  await intervalInput.fill('10');
+  // Select rotation interval (default is 10, but we set it explicitly)
+  // Logic matches src/components/GamePlanner.tsx structure
+  const intervalSelect = page.locator('.interval-selector select');
+  await expect(intervalSelect).toBeVisible();
+  await intervalSelect.selectOption('10');
   await page.waitForTimeout(UI_TIMING.STANDARD);
   
   // Click "Update Plan" button
@@ -385,7 +387,8 @@ async function testCopyFromPrevious(page: Page) {
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Click "Copy from Previous" button
-    const copyButton = page.getByRole('button', { name: /Copy from Previous/i });
+    // Scope to rotation details panel to avoid ambiguity with game-level copy button
+    const copyButton = page.locator('.rotation-details-panel').getByRole('button', { name: /Copy from Previous/i });
     if (await copyButton.isVisible()) {
       await copyButton.click();
       await page.waitForTimeout(UI_TIMING.NAVIGATION);
