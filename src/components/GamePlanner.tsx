@@ -57,44 +57,62 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
   useEffect(() => {
     loadData();
-  }, [game.id, team.id]);
+    
+    // Set up reactive subscription for roster and players (handles eventual consistency)
+    const rosterSub = client.models.TeamRoster.observeQuery({
+      filter: { teamId: { eq: team.id } },
+    }).subscribe({
+      next: async (rosterData) => {
+        const rosters = sortRosterByNumber([...rosterData.items]);
+        
+        // Load all players with observeQuery
+        const playerSub = client.models.Player.observeQuery().subscribe({
+          next: (playerData) => {
+            const allPlayers = playerData.items;
+            
+            // Merge roster with player data
+            const playersWithRoster: PlayerWithRoster[] = rosters
+              .map((roster) => {
+                const player = allPlayers.find((p) => p.id === roster.playerId);
+                if (!player) return null;
+                return {
+                  ...player,
+                  playerNumber: roster.playerNumber,
+                  preferredPositions: roster.preferredPositions || undefined,
+                };
+              })
+              .filter((p) => p !== null) as PlayerWithRoster[];
+            
+            console.log(`[GamePlanner] observeQuery updated: ${playersWithRoster.length} players with roster data`);
+            setPlayers(playersWithRoster);
+          },
+        });
+      },
+    });
+    
+    // Set up reactive subscription for positions (handles eventual consistency)
+    let positionSub: any;
+    if (team.formationId) {
+      positionSub = client.models.FormationPosition.observeQuery({
+        filter: { formationId: { eq: team.formationId } },
+      }).subscribe({
+        next: (data) => {
+          const sortedPositions = [...data.items].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+          console.log(`[GamePlanner] observeQuery updated: ${sortedPositions.length} positions for formation ${team.formationId}`);
+          setPositions(sortedPositions);
+        },
+      });
+    }
+    
+    return () => {
+      rosterSub.unsubscribe();
+      if (positionSub) positionSub.unsubscribe();
+    };
+  }, [game.id, team.id, team.formationId]);
 
   const loadData = async () => {
     try {
-      // Load team roster
-      const rosterResult = await client.models.TeamRoster.list({
-        filter: { teamId: { eq: team.id } },
-      });
-      const rosters = sortRosterByNumber([...rosterResult.data]);
-
-      // Load all players
-      const playerResult = await client.models.Player.list();
-      const allPlayers = playerResult.data;
-
-      // Merge roster with player data
-      const playersWithRoster: PlayerWithRoster[] = rosters
-        .map((roster) => {
-          const player = allPlayers.find((p) => p.id === roster.playerId);
-          if (!player) return null;
-          return {
-            ...player,
-            playerNumber: roster.playerNumber,
-            preferredPositions: roster.preferredPositions || undefined,
-          };
-        })
-        .filter((p) => p !== null) as PlayerWithRoster[];
-
-      setPlayers(playersWithRoster);
-
-      // Load formation positions
-      if (team.formationId) {
-        const positionResult = await client.models.FormationPosition.list({
-          filter: { formationId: { eq: team.formationId } },
-        });
-        setPositions(
-          [...positionResult.data].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
-        );
-      }
+      // Player and position loading now handled by observeQuery subscriptions above
 
       // Load game plan
       const gamePlanResult = await client.models.GamePlan.list({
@@ -255,45 +273,61 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     setValidationErrors([]);
 
     try {
-      // Delete existing plan if any
-      if (gamePlan) {
-        // Delete rotations first
-        const deleteRotationPromises = rotations.map((r) =>
-          client.models.PlannedRotation.delete({ id: r.id })
-        );
-        await Promise.all(deleteRotationPromises);
-        
-        // Delete plan
-        await client.models.GamePlan.delete({ id: gamePlan.id });
-      }
-
       const lineupArray = Array.from(startingLineup.entries()).map(([positionId, playerId]) => ({
         playerId,
         positionId,
       }));
 
       // Calculate total rotations
-      const rotationsPerHalf = Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1;
+      const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
       const totalRotations = rotationsPerHalf * 2;
+      
+      let currentPlan = gamePlan;
 
-      // Create the game plan
-      const gamePlanResult = await client.models.GamePlan.create({
-        gameId: game.id,
-        rotationIntervalMinutes,
-        totalRotations,
-        startingLineup: JSON.stringify(lineupArray),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        coaches: team.coaches || [],
-      });
-
-      const newGamePlan = gamePlanResult.data;
-      if (!newGamePlan) {
-        throw new Error('Failed to create game plan');
+      // Create or update plan
+      if (!currentPlan) {
+        const gamePlanResult = await client.models.GamePlan.create({
+          gameId: game.id,
+          rotationIntervalMinutes,
+          totalRotations,
+          startingLineup: JSON.stringify(lineupArray),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          coaches: team.coaches || [],
+        });
+        currentPlan = gamePlanResult.data;
+      } else {
+         const gamePlanResult = await client.models.GamePlan.update({
+          id: currentPlan.id,
+          rotationIntervalMinutes,
+          totalRotations,
+          startingLineup: JSON.stringify(lineupArray),
+          updatedAt: new Date().toISOString(),
+        });
+        currentPlan = gamePlanResult.data;
       }
 
-      // Create empty rotation slots
-      const rotationPromises = [];
+      if (!currentPlan) {
+        throw new Error('Failed to create/update game plan');
+      }
+
+      // Handle rotations (Smart Update)
+      // Get existing rotations to determine what to keep/update/delete
+      // Note: we use the state 'rotations' which should be current, 
+      // but to be safe against stale state during rapid updates, we could re-fetch,
+      // but 'rotations' state is updated via loadData().
+      
+      const existingRotationsMap = new Map(rotations.map(r => [r.rotationNumber, r]));
+      const operations = [];
+
+      // 1. Delete rotations that are beyond the new total
+      for (const rot of rotations) {
+        if (rot.rotationNumber > totalRotations) {
+          operations.push(client.models.PlannedRotation.delete({ id: rot.id }));
+        }
+      }
+
+      // 2. Create or Update rotations
       for (let i = 1; i <= totalRotations; i++) {
         const half = i <= rotationsPerHalf ? 1 : 2;
         const rotationInHalf = i <= rotationsPerHalf ? i : i - rotationsPerHalf;
@@ -301,24 +335,36 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           ? rotationInHalf * rotationIntervalMinutes
           : halfLengthMinutes + (rotationInHalf * rotationIntervalMinutes);
 
-        rotationPromises.push(
-          client.models.PlannedRotation.create({
-            gamePlanId: newGamePlan.id,
+        const existingRotation = existingRotationsMap.get(i);
+
+        if (existingRotation) {
+          // Update gameMinute if it changed due to interval change
+          // We preserve plannedSubstitutions!
+          if (existingRotation.gameMinute !== gameMinute) {
+            operations.push(client.models.PlannedRotation.update({
+              id: existingRotation.id,
+              gameMinute,
+            }));
+          }
+        } else {
+          // Create new rotation
+          operations.push(client.models.PlannedRotation.create({
+            gamePlanId: currentPlan.id,
             rotationNumber: i,
             gameMinute,
             half,
             plannedSubstitutions: JSON.stringify([]),
             coaches: team.coaches || [],
-          })
-        );
+          }));
+        }
       }
 
-      await Promise.all(rotationPromises);
+      await Promise.all(operations);
       
       // Reload data
       await loadData();
       
-      alert("Plan updated successfully! Now set up each rotation.");
+      alert(gamePlan ? "Plan updated successfully!" : "Plan created successfully! Now set up each rotation.");
     } catch (error) {
       console.error("Error updating rotation plan:", error);
       alert("Failed to update rotation plan");
@@ -439,19 +485,27 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const handleSwapPlayer = async (newPlayerId: string) => {
     if (!swapModalData) return;
 
-    const { rotationNumber, positionId } = swapModalData;
+    const { rotationNumber, positionId, currentPlayerId } = swapModalData;
     const currentLineup = getLineupAtRotation(rotationNumber);
     const newLineup = new Map(currentLineup);
 
-    // Remove new player from their current position if they're already assigned
-    for (const [pos, pid] of newLineup.entries()) {
-      if (pid === newPlayerId && pos !== positionId) {
-        newLineup.delete(pos);
+    // Find if the new player is already in the lineup
+    let oldPositionOfNewPlayer: string | undefined;
+    for (const [pos, pid] of currentLineup.entries()) {
+      if (pid === newPlayerId) {
+        oldPositionOfNewPlayer = pos;
+        break;
       }
     }
 
-    // Set the new player in the target position
-    newLineup.set(positionId, newPlayerId);
+    if (oldPositionOfNewPlayer) {
+      // Swap: put new player at target position, and put current player at new player's old position
+      newLineup.set(positionId, newPlayerId);
+      newLineup.set(oldPositionOfNewPlayer, currentPlayerId);
+    } else {
+      // Simple substitution: new player from bench replaces current player
+      newLineup.set(positionId, newPlayerId);
+    }
 
     // Close modal first to prevent UI issues
     setSwapModalData(null);
@@ -470,28 +524,23 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
       
       subs.forEach(sub => {
-        // Build a new lineup map to avoid modification during iteration issues
-        const newLineup = new Map<string, string>();
-        
-        // Copy all positions except those affected by this substitution
+        // Simply swap the player at the position with the new player
+        // Remove the new player from wherever they might be
+        const tempLineup = new Map<string, string>();
         for (const [posId, pId] of lineup.entries()) {
-          // Skip the position we're substituting from
-          if (posId === sub.positionId) {
+          if (pId === sub.playerInId && posId !== sub.positionId) {
+            // Skip this player - they're moving to sub.positionId
             continue;
           }
-          // Skip if this player is being moved (they might be going to a different position)
-          if (pId === sub.playerInId) {
-            continue;
-          }
-          newLineup.set(posId, pId);
+          tempLineup.set(posId, pId);
         }
         
-        // Add the new player to their position
-        newLineup.set(sub.positionId, sub.playerInId);
+        // Set the new player at the target position (replaces whoever was there)
+        tempLineup.set(sub.positionId, sub.playerInId);
         
-        // Replace lineup with the new one
+        // Update lineup
         lineup.clear();
-        newLineup.forEach((playerId, positionId) => {
+        tempLineup.forEach((playerId, positionId) => {
           lineup.set(positionId, playerId);
         });
       });
@@ -869,11 +918,21 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           <div className="timeline-header">
             <div className="timeline-labels">
               {timelineItems.map((item, index) => {
+                const isSelected = item.type === 'starting' 
+                  ? selectedRotation === 'starting'
+                  : item.type === 'halftime'
+                    ? selectedRotation === 'halftime'
+                    : selectedRotation === item.rotation?.rotationNumber;
+
+                const activeClass = isSelected ? 'active' : '';
+
                 if (item.type === 'starting') {
                   return (
                     <div
                       key="starting"
-                      className="timeline-marker starting-marker"
+                      className={`timeline-marker starting-marker clickable ${activeClass}`}
+                      onClick={() => handleRotationClick('starting')}
+                      style={{ cursor: 'pointer' }}
                     >
                       Start
                     </div>
@@ -883,7 +942,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                   return (
                     <div
                       key={`ht-${index}`}
-                      className="timeline-marker halftime-marker"
+                      className={`timeline-marker halftime-marker clickable ${activeClass}`}
+                      onClick={() => handleRotationClick('halftime')}
+                      style={{ cursor: 'pointer' }}
                     >
                       HT
                     </div>
@@ -892,7 +953,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                 return (
                   <div
                     key={item.rotation!.id}
-                    className="timeline-marker"
+                    className={`timeline-marker clickable ${activeClass}`}
+                    onClick={() => handleRotationClick(item.rotation!.rotationNumber)}
+                    style={{ cursor: 'pointer' }}
                   >
                     {item.rotation!.gameMinute}'
                   </div>
@@ -1002,7 +1065,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
             <select
               value={rotationIntervalMinutes}
               onChange={(e) => setRotationIntervalMinutes(Number(e.target.value))}
-              disabled={!!gamePlan}
             >
               <option value={5}>5 min</option>
               <option value={10}>10 min</option>
@@ -1014,7 +1076,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
             className="primary-button"
             disabled={isGenerating || startingLineup.size === 0}
           >
-            {isGenerating ? "Updating..." : "Update Plan"}
+            {isGenerating ? "Updating..." : (gamePlan ? "Update Plan" : "Create Plan")}
           </button>
         </div>
       </div>

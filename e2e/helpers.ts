@@ -396,6 +396,12 @@ export async function createFormation(
   
   // Verify formation was created
   await expect(page.getByText(formationData.name)).toBeVisible();
+  
+  // Extended wait to ensure positions propagate to DynamoDB replicas
+  // Formation positions are written asynchronously and may not be immediately
+  // visible on eventually consistent reads
+  await page.waitForTimeout(3000);
+  
   console.log(`✓ Formation created: ${formationData.name}`);
 }
 
