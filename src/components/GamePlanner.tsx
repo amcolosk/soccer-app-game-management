@@ -708,7 +708,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                           >
                             <span className="player-number">#{assignedPlayer.playerNumber || 0}</span>
                             <span className="player-name-short">
-                              {assignedPlayer.firstName.charAt(0)}. {assignedPlayer.lastName}
+                              {assignedPlayer.firstName} {assignedPlayer.lastName.charAt(0)}.
                             </span>
                             <span style={{ marginLeft: 'auto', fontSize: '0.8rem' }}>🔄</span>
                           </button>
@@ -844,7 +844,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                       >
                         <span style={{ fontSize: '0.85rem', opacity: 0.9, color: 'black' }}>#{assignedPlayer.playerNumber || 0}</span>
                         <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'black' }}>
-                          {assignedPlayer.firstName.charAt(0)}. {assignedPlayer.lastName}
+                          {assignedPlayer.firstName} {assignedPlayer.lastName.charAt(0)}.
                         </span>
                         <span style={{ marginLeft: 'auto', fontSize: '0.8rem' }}>🔄</span>
                       </button>
@@ -1016,7 +1016,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                 return (
                   <div key={playerId} className="playtime-bar-container">
                     <div className="playtime-label">
-                      #{player.playerNumber} {player.firstName?.charAt(0)}. {player.lastName}
+                      #{player.playerNumber} {player.firstName} {player.lastName?.charAt(0)}.
                     </div>
                     <div className="playtime-bar-wrapper">
                       <div className="playtime-bar" style={{ width: `${percentage}%` }}>

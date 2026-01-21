@@ -507,32 +507,32 @@ async function verifyPlayTimeReport(page: Page) {
   // Rotation 2 (20-30 min): Late Arrival in for P2, so Late, P3, P4, P5, P6
   // Rotation 3 (30-40 min): Same as Rotation 2 (no more changes)
   
-  // Expected times:
+  // Expected times (using format "#N FirstName L." as displayed in UI)
   const expectedPlayTimes: Record<string, { min: number; max: number }> = {
-    'Player One': { min: 9, max: 11 },    // 10 minutes (0-10)
-    'Player Two': { min: 29, max: 31 },   // 30 minutes (0-10, 10-20)
-    'Player Three': { min: 39, max: 41 }, // 40 minutes (entire game)
-    'Player Four': { min: 39, max: 41 },  // 40 minutes (entire game)
-    'Player Five': { min: 39, max: 41 },  // 40 minutes (entire game)
-    'Player Six': { min: 29, max: 31 },   // 30 minutes (10-40)
-    'Late Arrival': { min: 9, max: 11 }, // 10 minutes (20-40)
+    '#1 Player O.': { min: 9, max: 11 },    // Player One: 10 minutes (0-10)
+    '#2 Player T.': { min: 29, max: 31 },   // Player Two: 30 minutes (0-10, 10-20)
+    '#3 Player T.': { min: 39, max: 41 },   // Player Three: 40 minutes (entire game)
+    '#4 Player F.': { min: 39, max: 41 },   // Player Four: 40 minutes (entire game)
+    '#5 Player F.': { min: 39, max: 41 },   // Player Five: 40 minutes (entire game)
+    '#6 Player S.': { min: 29, max: 31 },   // Player Six: 30 minutes (10-40)
+    '#7 Late A.': { min: 9, max: 11 },      // Late Arrival: 10 minutes (20-40)
   };
   
   for (const [playerName, expectedTime] of Object.entries(expectedPlayTimes)) {
-    const playerBar = page.locator('.playtime-item', { hasText: playerName });
+    const playerBar = page.locator('.playtime-bar-container', { hasText: playerName });
     
-    if (await playerBar.isVisible()) {
-      const timeText = await playerBar.locator('.playtime-label').textContent();
-      const minutes = parseInt(timeText?.match(/(\d+)\s*min/)?.[1] || '0');
-      
-      console.log(`${playerName}: ${minutes} min (expected: ${expectedTime.min}-${expectedTime.max} min)`);
-      
-      // Verify time is within expected range
-      expect(minutes).toBeGreaterThanOrEqual(expectedTime.min);
-      expect(minutes).toBeLessThanOrEqual(expectedTime.max);
-    } else {
-      console.log(`⚠ ${playerName}: Not found in play time report`);
-    }
+    // Player must be found in the report
+    await expect(playerBar).toBeVisible({ timeout: 5000 });
+    
+    // Get time from the .playtime-bar element, not .playtime-label
+    const timeText = await playerBar.locator('.playtime-bar').textContent();
+    const minutes = parseInt(timeText?.match(/(\d+)\s*min/)?.[1] || '0');
+    
+    console.log(`${playerName}: ${minutes} min (expected: ${expectedTime.min}-${expectedTime.max} min)`);
+    
+    // Verify time is within expected range
+    expect(minutes).toBeGreaterThanOrEqual(expectedTime.min);
+    expect(minutes).toBeLessThanOrEqual(expectedTime.max);
   }
   
   console.log('--- End Projected Play Time ---\n');
