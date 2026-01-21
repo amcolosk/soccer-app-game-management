@@ -10,19 +10,17 @@ import {
 import {
   isPlayerInLineup,
 } from "../utils/lineupUtils";
-import { sortRosterByNumber } from "../utils/playerUtils";
 import { formatGameTimeDisplay, formatMinutesSeconds } from "../utils/gameTimeUtils";
 import { executeSubstitution, closeActivePlayTimeRecords } from "../services/substitutionService";
 import { updatePlayerAvailability, type PlannedSubstitution } from "../services/rotationPlannerService";
 import { PlayerSelect } from "./PlayerSelect";
 import { LineupBuilder } from "./LineupBuilder";
+import { useTeamData, type PlayerWithRoster as PlayerWithRosterBase } from "../hooks/useTeamData";
 
 const client = generateClient<Schema>();
 
 type Game = Schema["Game"]["type"];
 type Team = Schema["Team"]["type"];
-type Player = Schema["Player"]["type"];
-type FormationPosition = Schema["FormationPosition"]["type"];
 type LineupAssignment = Schema["LineupAssignment"]["type"];
 type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
 type Goal = Schema["Goal"]["type"];
@@ -31,10 +29,8 @@ type GamePlan = Schema["GamePlan"]["type"];
 type PlannedRotation = Schema["PlannedRotation"]["type"];
 type PlayerAvailability = Schema["PlayerAvailability"]["type"];
 
-interface PlayerWithRoster extends Player {
-  playerNumber?: number;
-  preferredPosition?: string;
-}
+// Use hook's PlayerWithRoster type (same structure)
+type PlayerWithRoster = PlayerWithRosterBase;
 
 interface GameManagementProps {
   game: Game;
@@ -43,8 +39,9 @@ interface GameManagementProps {
 }
 
 export function GameManagement({ game, team, onBack }: GameManagementProps) {
-  const [players, setPlayers] = useState<PlayerWithRoster[]>([]);
-  const [positions, setPositions] = useState<FormationPosition[]>([]);
+  // Load team roster and formation positions with real-time updates
+  const { players, positions } = useTeamData(team.id, team.formationId);
+  
   const [lineup, setLineup] = useState<LineupAssignment[]>([]);
   const [playTimeRecords, setPlayTimeRecords] = useState<PlayTimeRecord[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -159,41 +156,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   }, [game.id, isRunning]);
 
   useEffect(() => {
-    // Load rosters for this team and merge with player data
-    const rosterSub = client.models.TeamRoster.observeQuery({
-      filter: { teamId: { eq: team.id } },
-    }).subscribe({
-      next: async (rosterData) => {
-        const rosters = sortRosterByNumber([...rosterData.items]);
-        
-        // Load all players
-        const playerResponse = await client.models.Player.list();
-        const allPlayers = playerResponse.data;
-        
-        // Merge roster data with player data
-        const playersWithRoster: PlayerWithRoster[] = rosters.map(roster => {
-          const player = allPlayers.find(p => p.id === roster.playerId);
-          if (!player) return null;
-          return {
-            ...player,
-            playerNumber: roster.playerNumber,
-            preferredPosition: roster.preferredPositions || undefined,
-          };
-        }).filter(p => p !== null) as PlayerWithRoster[];
-        
-        setPlayers(playersWithRoster);
-      },
-    });
-
-    // Load positions from team's formation
-    let positionSub: any;
-    if (team.formationId) {
-      positionSub = client.models.FormationPosition.observeQuery({
-        filter: { formationId: { eq: team.formationId } },
-      }).subscribe({
-        next: (data) => setPositions([...data.items].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))),
-      });
-    }
+    // Player and position loading now handled by useTeamData hook
 
     // Load lineup
     const lineupSub = client.models.LineupAssignment.observeQuery({
@@ -257,8 +220,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     });
 
     return () => {
-      rosterSub.unsubscribe();
-      if (positionSub) positionSub.unsubscribe();
       lineupSub.unsubscribe();
       playTimeSub.unsubscribe();
       goalSub.unsubscribe();

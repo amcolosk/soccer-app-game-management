@@ -7,22 +7,19 @@ import {
   updatePlayerAvailability,
   type PlannedSubstitution,
 } from "../services/rotationPlannerService";
-import { sortRosterByNumber } from "../utils/playerUtils";
 import { LineupBuilder } from "./LineupBuilder";
+import { useTeamData, type PlayerWithRoster as PlayerWithRosterBase } from "../hooks/useTeamData";
 
 const client = generateClient<Schema>();
 
 type Game = Schema["Game"]["type"];
 type Team = Schema["Team"]["type"];
-type Player = Schema["Player"]["type"];
-type FormationPosition = Schema["FormationPosition"]["type"];
 type GamePlan = Schema["GamePlan"]["type"];
 type PlannedRotation = Schema["PlannedRotation"]["type"];
 type PlayerAvailability = Schema["PlayerAvailability"]["type"];
 
-interface PlayerWithRoster extends Player {
-  playerNumber?: number;
-  preferredPositions?: string;
+// Extend the base PlayerWithRoster from the hook with availability
+interface PlayerWithRoster extends PlayerWithRosterBase {
   availability?: PlayerAvailability;
 }
 
@@ -33,8 +30,11 @@ interface GamePlannerProps {
 }
 
 export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
+  // Load team roster and formation positions with real-time updates
+  const { players: basePlayersData, positions } = useTeamData(team.id, team.formationId);
+  
+  // Extend players with availability data
   const [players, setPlayers] = useState<PlayerWithRoster[]>([]);
-  const [positions, setPositions] = useState<FormationPosition[]>([]);
   const [gamePlan, setGamePlan] = useState<GamePlan | null>(null);
   const [rotations, setRotations] = useState<PlannedRotation[]>([]);
   const [availabilities, setAvailabilities] = useState<PlayerAvailability[]>([]);
@@ -55,64 +55,22 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const halfLengthMinutes = team.halfLengthMinutes || 30;
   const maxPlayersOnField = team.maxPlayersOnField || 11;
 
+  // Merge base player data with availability when either changes
+  useEffect(() => {
+    const playersWithAvailability = basePlayersData.map(player => {
+      const availability = availabilities.find(a => a.playerId === player.id);
+      return { ...player, availability };
+    });
+    setPlayers(playersWithAvailability);
+  }, [basePlayersData, availabilities]);
+
   useEffect(() => {
     loadData();
-    
-    // Set up reactive subscription for roster and players (handles eventual consistency)
-    const rosterSub = client.models.TeamRoster.observeQuery({
-      filter: { teamId: { eq: team.id } },
-    }).subscribe({
-      next: async (rosterData) => {
-        const rosters = sortRosterByNumber([...rosterData.items]);
-        
-        // Load all players with observeQuery
-        const playerSub = client.models.Player.observeQuery().subscribe({
-          next: (playerData) => {
-            const allPlayers = playerData.items;
-            
-            // Merge roster with player data
-            const playersWithRoster: PlayerWithRoster[] = rosters
-              .map((roster) => {
-                const player = allPlayers.find((p) => p.id === roster.playerId);
-                if (!player) return null;
-                return {
-                  ...player,
-                  playerNumber: roster.playerNumber,
-                  preferredPositions: roster.preferredPositions || undefined,
-                };
-              })
-              .filter((p) => p !== null) as PlayerWithRoster[];
-            
-            console.log(`[GamePlanner] observeQuery updated: ${playersWithRoster.length} players with roster data`);
-            setPlayers(playersWithRoster);
-          },
-        });
-      },
-    });
-    
-    // Set up reactive subscription for positions (handles eventual consistency)
-    let positionSub: any;
-    if (team.formationId) {
-      positionSub = client.models.FormationPosition.observeQuery({
-        filter: { formationId: { eq: team.formationId } },
-      }).subscribe({
-        next: (data) => {
-          const sortedPositions = [...data.items].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
-          console.log(`[GamePlanner] observeQuery updated: ${sortedPositions.length} positions for formation ${team.formationId}`);
-          setPositions(sortedPositions);
-        },
-      });
-    }
-    
-    return () => {
-      rosterSub.unsubscribe();
-      if (positionSub) positionSub.unsubscribe();
-    };
-  }, [game.id, team.id, team.formationId]);
+  }, [game.id, team.id]);
 
   const loadData = async () => {
     try {
-      // Player and position loading now handled by observeQuery subscriptions above
+      // Player and position loading now handled by useTeamData hook
 
       // Load game plan
       const gamePlanResult = await client.models.GamePlan.list({
