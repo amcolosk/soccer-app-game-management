@@ -21,6 +21,8 @@ const client = generateClient<Schema>();
 
 type Game = Schema["Game"]["type"];
 type Team = Schema["Team"]["type"];
+type Player = Schema["Player"]["type"];
+type FormationPosition = Schema["FormationPosition"]["type"];
 type LineupAssignment = Schema["LineupAssignment"]["type"];
 type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
 type Goal = Schema["Goal"]["type"];
@@ -1419,8 +1421,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                       
                       // Separate recommended players (those with this position as preferred)
                       const recommendedPlayers = availablePlayers.filter(p => {
-                        if (!p.preferredPosition) return false;
-                        const preferredPositions = p.preferredPosition.split(', ');
+                        if (!p.preferredPositions) return false;
+                        const preferredPositions = p.preferredPositions.split(', ');
                         // Check if the position ID, name, or abbreviation is in their preferred positions
                         return preferredPositions.some((pref: string) => 
                           pref === substitutionPosition.id || 

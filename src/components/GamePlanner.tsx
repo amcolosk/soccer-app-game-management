@@ -14,6 +14,7 @@ const client = generateClient<Schema>();
 
 type Game = Schema["Game"]["type"];
 type Team = Schema["Team"]["type"];
+type FormationPosition = Schema["FormationPosition"]["type"];
 type GamePlan = Schema["GamePlan"]["type"];
 type PlannedRotation = Schema["PlannedRotation"]["type"];
 type PlayerAvailability = Schema["PlayerAvailability"]["type"];
@@ -32,6 +33,9 @@ interface GamePlannerProps {
 export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   // Load team roster and formation positions with real-time updates
   const { players: basePlayersData, positions } = useTeamData(team.id, team.formationId);
+  
+  // Use a ref to store the current gamePlanId for use in subscriptions
+  const gamePlanIdRef = useRef<string | null>(null);
   
   // Extend players with availability data
   const [players, setPlayers] = useState<PlayerWithRoster[]>([]);
@@ -65,50 +69,73 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   }, [basePlayersData, availabilities]);
 
   useEffect(() => {
-    loadData();
-  }, [game.id, team.id]);
+    // Set up reactive subscriptions for game plan data (handles eventual consistency)
+    const gamePlanSub = client.models.GamePlan.observeQuery({
+      filter: { gameId: { eq: game.id } },
+    }).subscribe({
+      next: (data) => {
+        if (data.items.length > 0) {
+          const plan = data.items[0];
+          setGamePlan(plan);
+          gamePlanIdRef.current = plan.id; // Update ref for use in other subscriptions
+          setRotationIntervalMinutes(plan.rotationIntervalMinutes);
 
-  const loadData = async () => {
-    try {
-      // Player and position loading now handled by useTeamData hook
-
-      // Load game plan
-      const gamePlanResult = await client.models.GamePlan.list({
-        filter: { gameId: { eq: game.id } },
-      });
-
-      if (gamePlanResult.data.length > 0) {
-        const plan = gamePlanResult.data[0];
-        setGamePlan(plan);
-        setRotationIntervalMinutes(plan.rotationIntervalMinutes);
-
-        // Load rotations
-        const rotationResult = await client.models.PlannedRotation.list({
-          filter: { gamePlanId: { eq: plan.id } },
-        });
-        setRotations([...rotationResult.data].sort((a, b) => a.rotationNumber - b.rotationNumber));
-
-        // Load starting lineup from GamePlan
-        if (plan.startingLineup) {
-          try {
-            const lineupArray = JSON.parse(plan.startingLineup as string) as Array<{ positionId: string; playerId: string }>;
-            const lineup = new Map<string, string>();
-            lineupArray.forEach(({ positionId, playerId }) => {
-              lineup.set(positionId, playerId);
-            });
-            setStartingLineup(lineup);
-          } catch (error) {
-            console.error("Error parsing starting lineup:", error);
+          // Load starting lineup from GamePlan
+          if (plan.startingLineup) {
+            try {
+              const lineupArray = JSON.parse(plan.startingLineup as string) as Array<{ positionId: string; playerId: string }>;
+              const lineup = new Map<string, string>();
+              lineupArray.forEach(({ positionId, playerId }) => {
+                lineup.set(positionId, playerId);
+              });
+              setStartingLineup(lineup);
+            } catch (error) {
+              console.error("Error parsing starting lineup:", error);
+            }
           }
+        } else {
+          setGamePlan(null);
+          gamePlanIdRef.current = null;
+          setStartingLineup(new Map());
         }
-      }
+      },
+    });
 
-      // Load player availability
-      const availabilityResult = await client.models.PlayerAvailability.list({
-        filter: { gameId: { eq: game.id } },
-      });
-      setAvailabilities([...availabilityResult.data]);
+    // Set up reactive subscription for planned rotations
+    // We use observeQuery without filter to get all rotations the user has access to
+    // NOTE: We can't use gamePlan state directly here due to closure issues - it would be stale
+    const rotationSub = client.models.PlannedRotation.observeQuery().subscribe({
+      next: (data) => {
+        // Filter to only rotations for the current game plan using the ref
+        const currentPlanId = gamePlanIdRef.current;
+        const currentPlanRotations = currentPlanId 
+          ? data.items.filter(r => r.gamePlanId === currentPlanId)
+          : [];
+        setRotations([...currentPlanRotations].sort((a, b) => a.rotationNumber - b.rotationNumber));
+      },
+    });
 
+    // Set up reactive subscription for player availability
+    const availabilitySub = client.models.PlayerAvailability.observeQuery({
+      filter: { gameId: { eq: game.id } },
+    }).subscribe({
+      next: (data) => {
+        setAvailabilities([...data.items]);
+      },
+    });
+
+    // Load previous games once (doesn't need real-time updates)
+    loadPreviousGames();
+
+    return () => {
+      gamePlanSub.unsubscribe();
+      rotationSub.unsubscribe();
+      availabilitySub.unsubscribe();
+    };
+  }, [game.id, team.id, gamePlan?.id]);
+
+  const loadPreviousGames = async () => {
+    try {
       // Load previous games for copy feature
       const previousGamesResult = await client.models.Game.list({
         filter: {
@@ -144,8 +171,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         })
       );
     } catch (error) {
-      console.error("Error loading game planner data:", error);
-      alert("Failed to load game planner data");
+      console.error("Error loading previous games:", error);
     }
   };
 
@@ -172,7 +198,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         undefined,
         team.coaches || []
       );
-      await loadData();
+      // Data will update automatically via observeQuery subscription
     } catch (error) {
       console.error("Error updating availability:", error);
       alert("Failed to update player availability");
@@ -319,8 +345,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
       await Promise.all(operations);
       
-      // Reload data
-      await loadData();
+      // Data will update automatically via observeQuery subscriptions
       
       alert(gamePlan ? "Plan updated successfully!" : "Plan created successfully! Now set up each rotation.");
     } catch (error) {
@@ -346,7 +371,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       }
 
       await copyGamePlan(sourceGameId, game.id, team.coaches || []);
-      await loadData();
+      // Data will update automatically via observeQuery subscriptions
       
       alert("Plan copied successfully!");
     } catch (error) {
@@ -413,7 +438,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         id: rotation.id,
         plannedSubstitutions: JSON.stringify(subs),
       });
-      await loadData();
+      // Data will update automatically via observeQuery subscriptions
     } catch (error) {
       console.error("Error updating rotation:", error);
       alert("Failed to update rotation");
@@ -430,7 +455,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         id: rotation.id,
         plannedSubstitutions: JSON.stringify([]),
       });
-      await loadData();
+      // Data will update automatically via observeQuery subscriptions
       
       // Select this rotation to edit it
       setSelectedRotation(rotationNumber);
