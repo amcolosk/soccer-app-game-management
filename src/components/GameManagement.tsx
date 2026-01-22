@@ -437,14 +437,24 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       await client.models.Game.update({
         id: game.id,
         elapsedSeconds: currentTime,
+        lastStartTime: null, // Clear lastStartTime to prevent auto-resume from observeQuery
       });
     } catch (error) {
       console.error("Error pausing game:", error);
     }
   };
 
-  const handleResumeTimer = () => {
+  const handleResumeTimer = async () => {
     setIsRunning(true);
+    try {
+      await client.models.Game.update({
+        id: game.id,
+        lastStartTime: new Date().toISOString(),
+        elapsedSeconds: currentTime,
+      });
+    } catch (error) {
+      console.error("Error resuming game:", error);
+    }
   };
 
   const handleHalftime = async () => {
@@ -1807,6 +1817,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                       <option value="available">Present</option>
                       <option value="absent">Absent</option>
                       <option value="late-arrival">Expected Late</option>
+                      <option value="injured">Injured</option>
                     </select>
                   </div>
                 );
