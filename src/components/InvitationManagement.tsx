@@ -32,22 +32,37 @@ export function InvitationManagement({
 
   useEffect(() => {
     getCurrentUser().then(user => setCurrentUserId(user.userId)).catch(() => {});
-    loadData();
+    
+    // Load team coaches (one-time fetch, team changes are rare)
+    client.models.Team.get({ id: resourceId }).then(teamResponse => {
+      setCoaches(teamResponse.data?.coaches || []);
+    }).catch(error => {
+      console.error('Error loading team:', error);
+    });
+
+    // Subscribe to invitations for real-time updates
+    const invitationSub = client.models.TeamInvitation.observeQuery({
+      filter: { teamId: { eq: resourceId } },
+    }).subscribe({
+      next: (data) => {
+        setInvitations([...data.items]);
+      },
+      error: (error) => {
+        console.error('Error observing invitations:', error);
+      },
+    });
+
+    return () => {
+      invitationSub.unsubscribe();
+    };
   }, [resourceId, type]);
 
-  async function loadData() {
+  async function refreshCoaches() {
     try {
-      // Load team coaches
       const teamResponse = await client.models.Team.get({ id: resourceId });
       setCoaches(teamResponse.data?.coaches || []);
-
-      // Load team invitations
-      const invsResponse = await client.models.TeamInvitation.list({
-        filter: { teamId: { eq: resourceId } },
-      });
-      setInvitations(invsResponse.data || []);
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('Error refreshing coaches:', error);
     }
   }
 
@@ -74,7 +89,7 @@ export function InvitationManagement({
       trackEvent(AnalyticsEvents.INVITATION_SENT.category, AnalyticsEvents.INVITATION_SENT.action);
       setMessage(`Invitation sent to ${inviteEmail}`);
       setInviteEmail('');
-      await loadData();
+      // Invitations update automatically via observeQuery
     } catch (error: any) {
       setMessage(`Error: ${error.message || 'Failed to send invitation'}`);
     } finally {
@@ -91,7 +106,7 @@ export function InvitationManagement({
     try {
       await revokeCoachAccess(resourceId, userId);
       setMessage('Coach access revoked successfully');
-      await loadData();
+      await refreshCoaches(); // Refresh coaches list after revoking
     } catch (error: any) {
       setMessage(`Error: ${error.message || 'Failed to revoke access'}`);
     } finally {
@@ -108,7 +123,7 @@ export function InvitationManagement({
     try {
       await client.models.TeamInvitation.delete({ id: invitationId });
       setMessage('Invitation cancelled');
-      await loadData();
+      // Invitations update automatically via observeQuery
     } catch (error: any) {
       setMessage(`Error: ${error.message || 'Failed to cancel invitation'}`);
     } finally {

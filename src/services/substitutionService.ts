@@ -103,7 +103,7 @@ export async function executeSubstitution(
     gameId: gameId,
     playerId: newPlayerId,
     positionId: positionId,
-    isStarter: false,
+    isStarter: true, // Player is now on the field
     coaches: coaches, // Copy coaches array from team
   });
 

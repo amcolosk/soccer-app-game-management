@@ -72,9 +72,26 @@ export function TeamReport({ team }: TeamReportProps) {
   const [teamRosters, setTeamRosters] = useState<TeamRoster[]>([]);
 
   useEffect(() => {
-    loadTeamData();
     trackEvent(AnalyticsEvents.SEASON_REPORT_VIEWED.category, AnalyticsEvents.SEASON_REPORT_VIEWED.action);
     
+    // Subscribe to team rosters
+    const rosterSub = client.models.TeamRoster.observeQuery({
+      filter: { teamId: { eq: team.id } },
+    }).subscribe({
+      next: (data) => {
+        setTeamRosters([...data.items]);
+        console.log(`[TeamReport] Rosters updated: ${data.items.length} rosters`);
+      },
+    });
+
+    // Subscribe to all players (observeQuery handles pagination)
+    const playerSub = client.models.Player.observeQuery().subscribe({
+      next: (data) => {
+        setPlayers([...data.items]);
+        console.log(`[TeamReport] Players updated: ${data.items.length} players`);
+      },
+    });
+
     // Subscribe to PlayTimeRecord updates for reactive data
     const playTimeSub = client.models.PlayTimeRecord.observeQuery().subscribe({
       next: (data) => {
@@ -83,8 +100,49 @@ export function TeamReport({ team }: TeamReportProps) {
       },
     });
 
+    // Subscribe to all goals
+    const goalsSub = client.models.Goal.observeQuery().subscribe({
+      next: (data) => {
+        setAllGoals([...data.items]);
+        console.log(`[TeamReport] Goals updated: ${data.items.length} goals`);
+      },
+    });
+
+    // Subscribe to all game notes
+    const notesSub = client.models.GameNote.observeQuery().subscribe({
+      next: (data) => {
+        setAllNotes([...data.items]);
+        console.log(`[TeamReport] Notes updated: ${data.items.length} notes`);
+      },
+    });
+
+    // Subscribe to games for this team
+    const gamesSub = client.models.Game.observeQuery({
+      filter: { teamId: { eq: team.id } },
+    }).subscribe({
+      next: (data) => {
+        setAllGames([...data.items]);
+        console.log(`[TeamReport] Games updated: ${data.items.length} games`);
+      },
+    });
+
+    // Subscribe to ALL positions (not just current formation) to handle historical data
+    const positionsSub = client.models.FormationPosition.observeQuery().subscribe({
+      next: (data) => {
+        setAllPositions([...data.items]);
+        console.log(`[TeamReport] Positions updated: ${data.items.length} positions`);
+        setLoading(false);
+      },
+    });
+
     return () => {
+      rosterSub.unsubscribe();
+      playerSub.unsubscribe();
       playTimeSub.unsubscribe();
+      goalsSub.unsubscribe();
+      notesSub.unsubscribe();
+      gamesSub.unsubscribe();
+      positionsSub.unsubscribe();
     };
   }, [team.id]);
 
@@ -156,57 +214,6 @@ export function TeamReport({ team }: TeamReportProps) {
     stats.sort((a, b) => (rosterOrderMap.get(a.roster.id) || 0) - (rosterOrderMap.get(b.roster.id) || 0));
 
     setPlayerStats(stats);
-  };
-
-  const loadTeamData = async () => {
-    setLoading(true);
-    try {
-      // Load all rosters for this team
-      const rostersResponse = await client.models.TeamRoster.list({
-        filter: { teamId: { eq: team.id } },
-      });
-      setTeamRosters(rostersResponse.data);
-
-      // Load all players
-      const playersResponse = await client.models.Player.list();
-      const playersList = playersResponse.data;
-      setPlayers(playersList);
-
-      // Load all goals for this team
-      const goalsResponse = await client.models.Goal.list();
-      const goals = goalsResponse.data;
-      setAllGoals(goals);
-
-      // Load all game notes for this team
-      const notesResponse = await client.models.GameNote.list();
-      const notes = notesResponse.data;
-      setAllNotes(notes);
-
-      // PlayTimeRecords are loaded via observeQuery subscription above
-
-      // Get all games for this team to filter by
-      const gamesResponse = await client.models.Game.list({
-        filter: { teamId: { eq: team.id } },
-      });
-      const games = gamesResponse.data;
-      setAllGames(games);
-
-      // Load all positions from team's formation
-      let formationPositions: FormationPosition[] = [];
-      if (team.formationId) {
-        const positionsResponse = await client.models.FormationPosition.list({
-          filter: { formationId: { eq: team.formationId } },
-        });
-        formationPositions = positionsResponse.data;
-      }
-      setAllPositions(formationPositions);
-
-      setLoading(false);
-    } catch (error) {
-      console.error("Error loading season data:", error);
-      alert("Failed to load season report");
-      setLoading(false);
-    }
   };
 
   const loadPlayerDetails = async (player: Player) => {

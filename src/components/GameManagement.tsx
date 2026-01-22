@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import { trackEvent, AnalyticsEvents } from "../utils/analytics";
@@ -93,6 +93,9 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
   const [substitutionQueue, setSubstitutionQueue] = useState<SubQueue[]>([]);
 
+  // Ref to track manual pause - prevents race condition with observeQuery auto-resume
+  const manuallyPausedRef = useRef(false);
+
   const halfLengthSeconds = (team.halfLengthMinutes || 30) * 60;
 
   // Store active game info for persistence across refreshes
@@ -135,8 +138,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             return;
           }
           
-          // Auto-resume timer if game was in progress
-          if (updatedGame.status === 'in-progress' && updatedGame.lastStartTime) {
+          // Auto-resume timer if game was in progress (but not if user manually paused)
+          if (updatedGame.status === 'in-progress' && updatedGame.lastStartTime && !manuallyPausedRef.current) {
             const lastStart = new Date(updatedGame.lastStartTime).getTime();
             const now = Date.now();
             const additionalSeconds = Math.floor((now - lastStart) / 1000);
@@ -440,6 +443,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const handlePauseTimer = async () => {
+    manuallyPausedRef.current = true; // Prevent observeQuery from auto-resuming
     setIsRunning(false);
     try {
       await client.models.Game.update({
@@ -447,8 +451,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         elapsedSeconds: currentTime,
         lastStartTime: null, // Clear lastStartTime to prevent auto-resume from observeQuery
       });
+      // Clear the manual pause flag after DB update completes
+      manuallyPausedRef.current = false;
     } catch (error) {
       console.error("Error pausing game:", error);
+      manuallyPausedRef.current = false;
     }
   };
 
@@ -912,7 +919,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }
   };
 
-  const startersCount = lineup.filter(l => l.isStarter).length;
+  // Count positions that have starters assigned (unique positions only)
+  const startersCount = positions.filter(pos => 
+    lineup.some(l => l.positionId === pos.id && l.isStarter)
+  ).length;
 
   return (
     <div className="game-management">
@@ -1904,6 +1914,14 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                   const outAvailability = getPlayerAvailability(sub.playerOutId);
                   const inAvailability = getPlayerAvailability(sub.playerInId);
 
+                  // Check if this substitution is already queued
+                  const isQueued = substitutionQueue.some(
+                    q => q.playerId === sub.playerInId && q.positionId === sub.positionId
+                  );
+
+                  // Check if player coming in is available
+                  const canQueue = inAvailability === 'available' && !isQueued;
+
                   const getAvailabilityBadge = (status: string) => {
                     if (status === 'injured' || status === 'absent') {
                       return <span className="availability-badge unavailable">⚠️ {status}</span>;
@@ -1934,6 +1952,18 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                           {getAvailabilityBadge(inAvailability)}
                         </div>
                       </div>
+                      <button
+                        onClick={() => {
+                          if (canQueue) {
+                            handleQueueSubstitution(sub.playerInId, sub.positionId);
+                          }
+                        }}
+                        className={`btn-queue-sub ${isQueued ? 'queued' : ''}`}
+                        disabled={!canQueue}
+                        title={isQueued ? 'Already queued' : (canQueue ? 'Add to substitution queue' : 'Player not available')}
+                      >
+                        {isQueued ? '✓ Queued' : '+ Queue'}
+                      </button>
                     </div>
                   );
                 });
