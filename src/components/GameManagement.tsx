@@ -408,17 +408,25 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       });
 
       // Create play time records for all starters using game time
-      const starterPromises = lineup
+      // Only create if they don't already have an active record (no endGameSeconds)
+      const startersWithoutActiveRecords = lineup
         .filter(l => l.isStarter)
-        .map(l =>
-          client.models.PlayTimeRecord.create({
-            gameId: game.id,
-            playerId: l.playerId,
-            positionId: l.positionId,
-            startGameSeconds: currentTime,
-            coaches: team.coaches, // Copy coaches array from team
-          })
-        );
+        .filter(l => {
+          const hasActiveRecord = playTimeRecords.some(
+            r => r.playerId === l.playerId && r.endGameSeconds === null
+          );
+          return !hasActiveRecord;
+        });
+
+      const starterPromises = startersWithoutActiveRecords.map(l =>
+        client.models.PlayTimeRecord.create({
+          gameId: game.id,
+          playerId: l.playerId,
+          positionId: l.positionId,
+          startGameSeconds: currentTime,
+          coaches: team.coaches, // Copy coaches array from team
+        })
+      );
 
       await Promise.all(starterPromises);
 
@@ -1837,17 +1845,25 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                     lastStartTime: startTime,
                   });
 
-                  const starterPromises = lineup
+                  // Only create records for starters who don't already have an active record
+                  const startersWithoutActiveRecords = lineup
                     .filter(l => l.isStarter)
-                    .map(l =>
-                      client.models.PlayTimeRecord.create({
-                        gameId: game.id,
-                        playerId: l.playerId,
-                        positionId: l.positionId,
-                        startGameSeconds: currentTime,
-                        coaches: team.coaches,
-                      })
-                    );
+                    .filter(l => {
+                      const hasActiveRecord = playTimeRecords.some(
+                        r => r.playerId === l.playerId && r.endGameSeconds === null
+                      );
+                      return !hasActiveRecord;
+                    });
+
+                  const starterPromises = startersWithoutActiveRecords.map(l =>
+                    client.models.PlayTimeRecord.create({
+                      gameId: game.id,
+                      playerId: l.playerId,
+                      positionId: l.positionId,
+                      startGameSeconds: currentTime,
+                      coaches: team.coaches,
+                    })
+                  );
 
                   await Promise.all(starterPromises);
 
