@@ -5,7 +5,6 @@ import { getCurrentUser } from 'aws-amplify/auth';
 const client = generateClient<Schema>();
 
 export type InvitationRole = 'OWNER' | 'COACH' | 'PARENT';
-export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED';
 
 /**
  * Send an invitation to join a team

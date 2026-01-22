@@ -8,13 +8,13 @@ import { UserProfile } from "./components/UserProfile";
 import { TeamReport } from "./components/SeasonReport";
 import { Management } from "./components/Management";
 import InvitationAcceptance from "./components/InvitationAcceptance";
-import type { Team } from "./types";
 import type { Schema } from "../amplify/data/resource";
 import { trackPageView } from "./utils/analytics";
 import "./App.css";
 
 const client = generateClient<Schema>();
 
+type Team = Schema['Team']['type'];
 type Game = Schema['Game']['type'];
 type NavigationTab = 'home' | 'reports' | 'manage' | 'profile';
 

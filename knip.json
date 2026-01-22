@@ -1,0 +1,23 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "entry": [
+    "src/main.tsx",
+    "amplify/**/*.ts"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}",
+    "amplify/**/*.ts"
+  ],
+  "ignore": [
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "e2e/**/*",
+    "dist/**/*",
+    "dev-dist/**/*",
+    "amplify/.amplify/**/*"
+  ],
+  "ignoreDependencies": [
+    "aws-lambda",
+    "@aws-sdk/client-cognito-identity-provider"
+  ]
+}
