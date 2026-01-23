@@ -95,6 +95,9 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
   // Ref to track manual pause - prevents race condition with observeQuery auto-resume
   const manuallyPausedRef = useRef(false);
+  
+  // Ref to track if lineup sync is in progress - prevents duplicate creation
+  const lineupSyncInProgressRef = useRef(false);
 
   const halfLengthSeconds = (team.halfLengthMinutes || 30) * 60;
 
@@ -198,23 +201,35 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     });
 
     // Load game plan and rotations
+    let currentGamePlanId: string | null = null;
+    
     const gamePlanSub = client.models.GamePlan.observeQuery({
       filter: { gameId: { eq: game.id } },
     }).subscribe({
       next: (data) => {
         if (data.items.length > 0) {
-          setGamePlan(data.items[0]);
+          const plan = data.items[0];
+          setGamePlan(plan);
+          currentGamePlanId = plan.id;
+          
+          // Load rotations for this game plan
+          client.models.PlannedRotation.list({
+            filter: { gamePlanId: { eq: plan.id } },
+          }).then(({ data: rotations }) => {
+            if (rotations) {
+              setPlannedRotations(rotations.sort((a, b) => a.rotationNumber - b.rotationNumber));
+            }
+          });
         }
       },
     });
 
     const rotationSub = client.models.PlannedRotation.observeQuery().subscribe({
       next: (data) => {
-        const gameRotations = data.items.filter(r => {
-          // Find the game plan for this game
-          return gamePlan && r.gamePlanId === gamePlan.id;
-        });
-        setPlannedRotations(gameRotations.sort((a, b) => a.rotationNumber - b.rotationNumber));
+        if (currentGamePlanId) {
+          const gameRotations = data.items.filter(r => r.gamePlanId === currentGamePlanId);
+          setPlannedRotations(gameRotations.sort((a, b) => a.rotationNumber - b.rotationNumber));
+        }
       },
     });
 
@@ -238,16 +253,40 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   // Sync lineup from game plan when available
   useEffect(() => {
     const syncLineupFromGamePlan = async () => {
-      if (!gamePlan || gameState.status !== 'scheduled' || lineup.length > 0) {
-        return; // Only sync if game is scheduled and no lineup exists yet
+      if (!gamePlan || gameState.status !== 'scheduled') {
+        return; // Only sync if game is scheduled
       }
 
       if (!gamePlan.startingLineup) {
         console.log('Game plan has no starting lineup data');
         return;
       }
+      
+      // Prevent concurrent execution using ref
+      if (lineupSyncInProgressRef.current) {
+        console.log('Lineup sync already in progress, skipping');
+        return;
+      }
+      lineupSyncInProgressRef.current = true;
 
       try {
+        // Check local state first (fast path - avoids DB query if data already loaded)
+        if (lineup.length > 0) {
+          console.log(`Lineup already exists locally with ${lineup.length} assignments, skipping sync`);
+          return;
+        }
+        
+        // Query the database to double-check for existing assignments
+        // This handles the race condition where subscription hasn't loaded yet
+        const existingAssignments = await client.models.LineupAssignment.list({
+          filter: { gameId: { eq: game.id } },
+        });
+        
+        if (existingAssignments.data.length > 0) {
+          console.log(`Lineup already exists in DB with ${existingAssignments.data.length} assignments, skipping sync`);
+          return;
+        }
+
         // Parse the starting lineup from the game plan
         const startingLineup = JSON.parse(gamePlan.startingLineup as string) as Array<{
           playerId: string;
@@ -269,11 +308,13 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         console.log(`Synced ${startingLineup.length} starters from game plan`);
       } catch (error) {
         console.error('Error syncing lineup from game plan:', error);
+      } finally {
+        lineupSyncInProgressRef.current = false;
       }
     };
 
     syncLineupFromGamePlan();
-  }, [gamePlan, gameState.status, lineup.length, game.id, team.coaches]);
+  }, [gamePlan, gameState.status, game.id, team.coaches, lineup.length]);
 
   // Timer effect
   useEffect(() => {
@@ -350,9 +391,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     if (!gamePlan || plannedRotations.length === 0) return null;
     
     const currentMinutes = Math.floor(currentTime / 60);
+    // Show rotations that are coming up OR recently due (within 2 minutes past)
+    // This gives coaches time to execute rotations even if slightly late
     return plannedRotations.find(r => {
       return r.half === gameState.currentHalf && 
-             r.gameMinute > currentMinutes;
+             r.gameMinute >= currentMinutes - 2;
     }) || null;
   };
 

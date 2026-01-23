@@ -155,6 +155,31 @@ export function TeamReport({ team }: TeamReportProps) {
 
   const calculateStats = () => {
     const teamGameIds = new Set(allGames.map(g => g.id));
+    
+    // DEBUG: Log all games and their IDs
+    console.log(`[TeamReport DEBUG] Team games (${allGames.length}):`, 
+      allGames.map(g => ({ id: g.id, opponent: g.opponent, status: g.status }))
+    );
+    
+    // DEBUG: Log ALL PlayTimeRecords for this team's games
+    const teamPlayTimeRecords = allPlayTimeRecords.filter(r => teamGameIds.has(r.gameId));
+    console.log(`[TeamReport DEBUG] All PlayTimeRecords for team games (${teamPlayTimeRecords.length} records):`,
+      teamPlayTimeRecords.map(r => ({
+        id: r.id,
+        gameId: r.gameId,
+        playerId: r.playerId,
+        start: r.startGameSeconds,
+        end: r.endGameSeconds,
+        duration: r.endGameSeconds != null ? r.endGameSeconds - r.startGameSeconds : 'active'
+      }))
+    );
+    
+    // DEBUG: Group records by game to see distribution
+    const recordsByGame = new Map<string, number>();
+    teamPlayTimeRecords.forEach(r => {
+      recordsByGame.set(r.gameId, (recordsByGame.get(r.gameId) || 0) + 1);
+    });
+    console.log(`[TeamReport DEBUG] Records per game:`, Object.fromEntries(recordsByGame));
 
     const stats: PlayerStats[] = teamRosters.map((roster) => {
       const player = players.find(p => p.id === roster.playerId);
@@ -189,7 +214,22 @@ export function TeamReport({ team }: TeamReportProps) {
               : 'incomplete'
           }))
         );
-        console.log(`[TeamReport - Stats] Total play time: ${totalPlayTimeSeconds}s = ${formatPlayTime(totalPlayTimeSeconds, 'long')}`, );
+        console.log(`[TeamReport - Stats] Diana Total play time: ${totalPlayTimeSeconds}s = ${formatPlayTime(totalPlayTimeSeconds, 'long')}`);
+      }
+      
+      // Debug: Log play time calculation for Hannah Harris
+      if (player.firstName === 'Hannah' && player.lastName === 'Harris') {
+        console.log(`[TeamReport - Stats] Hannah Harris play time records (${playerPlayTime.length} records):`,
+          playerPlayTime.map(r => ({
+            gameId: r.gameId,
+            startGameSeconds: r.startGameSeconds,
+            endGameSeconds: r.endGameSeconds,
+            duration: r.endGameSeconds !== null && r.endGameSeconds !== undefined 
+              ? r.endGameSeconds - r.startGameSeconds 
+              : 'incomplete'
+          }))
+        );
+        console.log(`[TeamReport - Stats] Hannah Total play time: ${totalPlayTimeSeconds}s = ${formatPlayTime(totalPlayTimeSeconds, 'long')}`);
       }
 
       // Use shared utility to count games played

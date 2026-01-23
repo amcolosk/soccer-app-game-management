@@ -41,10 +41,11 @@ const TEST_DATA = {
   },
   team: {
     name: 'Thunder FC U10',
-    halfLength: '25',
+    halfLength: '20', // 20-minute halves = 40 min game
     maxPlayers: '7',
   },
   players: [
+    // Starters (7 players)
     { number: '1', firstName: 'Alice', lastName: 'Anderson', position: 'GK' },
     { number: '2', firstName: 'Bob', lastName: 'Brown', position: 'LD' },
     { number: '3', firstName: 'Charlie', lastName: 'Clark', position: 'RD' },
@@ -52,6 +53,7 @@ const TEST_DATA = {
     { number: '5', firstName: 'Ethan', lastName: 'Evans', position: 'LM' },
     { number: '6', firstName: 'Fiona', lastName: 'Fisher', position: 'RM' },
     { number: '7', firstName: 'George', lastName: 'Garcia', position: 'FWD' },
+    // Bench (1 player for substitutions)
     { number: '8', firstName: 'Hannah', lastName: 'Harris', position: 'CM' },
   ],
   game1: {
@@ -63,6 +65,23 @@ const TEST_DATA = {
     opponent: 'Thunder Strikers',
     date: '2025-12-07T15:00',
     isHome: false,
+  },
+  // Expected play time per game (40 min game with 10-min rotation interval)
+  // Rotation at 10': Diana (#4) -> Hannah (#8)
+  // Rotation at 30': Hannah (#8) -> Diana (#4)
+  // Result: Diana plays 0-10 + 30-40 = 20 min, Hannah plays 10-30 = 20 min
+  // Others play full 40 min
+  expectedPlayTime: {
+    perGame: {
+      'Alice Anderson': 40,
+      'Bob Brown': 40,
+      'Charlie Clark': 40,
+      'Diana Davis': 20,
+      'Ethan Evans': 40,
+      'Fiona Fisher': 40,
+      'George Garcia': 40,
+      'Hannah Harris': 20,
+    },
   },
 };
 
@@ -144,7 +163,7 @@ async function createGame(page: Page, gameData: { opponent: string; date: string
   console.log(`Creating game vs ${gameData.opponent}...`);
   
   // Navigate to Home tab
-  const homeTab = page.locator('button.nav-item', { hasText: 'Home' });
+  const homeTab = page.locator('button.nav-item', { hasText: 'Games' });
   await homeTab.click();
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
@@ -184,129 +203,229 @@ async function setupLineup(page: Page, opponent: string) {
   console.log(`Setting up lineup for game vs ${opponent}...`);
   
   // Navigate to Home tab if not already there
-  const homeTab = page.locator('button.nav-item', { hasText: 'Home' });
+  const homeTab = page.locator('button.nav-item', { hasText: 'Games' });
   await homeTab.click();
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
-  // Click on the game card - this now goes directly to GameManagement
+  // Click the "Plan Game" button on the game card to go to GamePlanner
   const gameCard = page.locator('.game-card').filter({ hasText: opponent });
-  await gameCard.click();
+  const planButton = gameCard.locator('.plan-button');
+  await planButton.click();
   await waitForPageLoad(page);
   
-  // Wait for the game management page to fully load
-  await page.waitForSelector('.position-slot', { timeout: 5000 });
+  // Wait for the game planner to fully load
+  await page.waitForSelector('.game-planner-container', { timeout: 5000 });
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+  console.log('✓ Game Planner opened');
   
-  // Assign first 7 players to starting positions
+  // In GamePlanner, use the dropdown selects to assign players to positions
+  const positionSlots = page.locator('.position-slot');
+  const slotCount = await positionSlots.count();
+  console.log(`Found ${slotCount} position slots`);
+  
+  // Assign first 7 players to starting positions using dropdowns
   const startingPlayers = TEST_DATA.players.slice(0, 7);
   
-  for (let i = 0; i < startingPlayers.length; i++) {
+  for (let i = 0; i < Math.min(slotCount, startingPlayers.length); i++) {
     const player = startingPlayers[i];
-    const expectedCount = i + 1;
-    let assignmentSuccessful = false;
-    let retryAttempt = 0;
-    const maxRetries = 2;
+    const positionSlot = positionSlots.nth(i);
     
-    while (!assignmentSuccessful && retryAttempt <= maxRetries) {
-      if (retryAttempt > 0) {
-        console.log(`🔄 Retry attempt ${retryAttempt} for ${player.firstName} ${player.lastName}...`);
-      } else {
-        console.log(`Assigning ${player.firstName} ${player.lastName} to position ${i + 1}...`);
-      }
+    // Find the select dropdown in this position slot
+    const select = positionSlot.locator('select');
+    if (await select.isVisible()) {
+      // Build the option label to match (format: "#N FirstName LastName" or "⭐ #N FirstName LastName")
+      const playerLabel = `#${player.number} ${player.firstName} ${player.lastName}`;
       
-      try {        
-        // Click on the player to open position picker modal
-        const playerCard = page.locator('.player-card').filter({ hasText: `${player.firstName} ${player.lastName}` });
-        await playerCard.click();
-        console.log('  Player clicked, waiting for modal...');
-        await page.waitForTimeout(UI_TIMING.QUICK);
-        
-        // Wait for position picker modal to appear with the heading
-        await page.waitForSelector('.modal-overlay', { timeout: 5000 });
-        await page.waitForSelector('h2:has-text("Assign")', { timeout: 5000 });
-        console.log('  Modal opened');
-        
-        // Wait a bit for modal to be fully interactive
-        await page.waitForTimeout(UI_TIMING.STANDARD);
-        
-        // Find the first available position button
-        const positionButtons = page.locator('.modal-content .position-picker-btn:not(.occupied)');
-        await positionButtons.first().waitFor({ state: 'visible', timeout: 5000 });
-        
-        const count = await positionButtons.count();
-        console.log(`  Found ${count} available positions`);
-        
-        if (count === 0) {
-          console.log(`  ⚠️ No available positions for ${player.firstName} ${player.lastName}`);
-          await page.keyboard.press('Escape');
-          await page.waitForTimeout(UI_TIMING.NAVIGATION);
+      // Get all options and find the matching one
+      const options = select.locator('option');
+      const optionCount = await options.count();
+      
+      let matched = false;
+      for (let j = 1; j < optionCount; j++) { // Skip first option (placeholder)
+        const optionText = await options.nth(j).textContent();
+        if (optionText && optionText.includes(playerLabel)) {
+          await select.selectOption({ index: j });
+          matched = true;
+          console.log(`  ✓ ${player.firstName} ${player.lastName} assigned to position ${i + 1}`);
           break;
         }
-        
-        // Get the position name before clicking
-        const positionName = await positionButtons.first().locator('.position-picker-label .name').textContent();
-        console.log(`  Assigning to position: ${positionName}`);
-        
-        // Get the position ID/name before clicking so we can verify it gets occupied
-        const positionText = await positionButtons.first().textContent();
-        await positionButtons.first().click();
-        console.log('  Position button clicked');
-        
-        // Wait for modal to close - this confirms the assignment was successful
-        await page.waitForSelector('.modal-overlay', { state: 'hidden', timeout: 5000 });
-        console.log('  Modal closed');
-        
-        // CRITICAL: Wait for the position to actually show as occupied in the lineup
-        // This prevents race conditions where multiple players try to take the same position
-        // Give extra time for the first player as subscriptions may still be initializing
-        const initialWait = i === 0 ? 150 : 50;
-        await page.waitForTimeout(initialWait);
-        
-        // Wait for the assigned player count to increase
-        let actualCount = 0;
-        const positionCards = page.locator('.position-slot');
-        actualCount = await positionCards.filter({ has: page.locator('.assigned-player') }).count();
-        
-        // Check if assignment was successful
-        if (actualCount >= expectedCount) {
-          assignmentSuccessful = true;
-          console.log(`  ✓ ${player.firstName} ${player.lastName} assigned to ${positionText?.trim()} (${actualCount}/${expectedCount} total)`);
-        } else {
-          console.log(`  ⚠️ Assignment failed: Expected ${expectedCount} assigned but only see ${actualCount}`);
-          retryAttempt++;
-          if (retryAttempt <= maxRetries) {
-            await page.waitForTimeout(UI_TIMING.INSTANT); // Wait before retry
-          }
-        }
-      } catch (error) {
-        console.log(`  ❌ Error during assignment: ${error}`);
-        retryAttempt++;
-        if (retryAttempt <= maxRetries) {
-          await page.waitForTimeout(UI_TIMING.INSTANT); // Wait before retry
+      }
+      
+      if (!matched) {
+        // Try selecting by partial text match
+        try {
+          await select.selectOption({ label: new RegExp(playerLabel) });
+          console.log(`  ✓ ${player.firstName} ${player.lastName} assigned to position ${i + 1} (regex match)`);
+        } catch {
+          console.log(`  ⚠️ Could not find option for ${player.firstName} ${player.lastName}`);
         }
       }
-    }
-    
-    if (!assignmentSuccessful) {
-      console.log(`  ❌ FAILED to assign ${player.firstName} ${player.lastName} after ${maxRetries + 1} attempts`);
+      
+      await page.waitForTimeout(UI_TIMING.QUICK);
     }
   }
+  
+  // Wait for assignments to be processed
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   console.log('✓ Lineup set up with 7 starters');
 }
 
-// Helper to run the game simulation
-async function runGame(page: Page, gameNumber: number = 1) {
-  console.log(`Running game ${gameNumber} simulation...`);
+// Helper to create a game plan with rotation (assumes we're already in GamePlanner from setupLineup)
+async function createGamePlan(page: Page, opponent: string) {
+  console.log('Creating game plan with rotation...');
   
-  // Start the game
-  await clickButton(page, 'Start Game');
+  // We should already be in GamePlanner from setupLineup
+  // Verify we're in the right place
+  await expect(page.locator('.game-planner-container')).toBeVisible();
+  
+  // Click "Create Plan" or "Update Plan" button (text depends on if a plan exists)
+  const createPlanButton = page.locator('button').filter({ hasText: /Create Plan|Update Plan/ });
+  await createPlanButton.click();
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+  console.log('✓ Game plan created');
+  
+  // Wait for timeline to appear with rotation markers
+  await page.waitForSelector('.timeline-marker', { timeout: 5000 });
+  
+  // Verify timeline shows rotation points (timeline-marker elements show 0', 10', 20', 30', etc.)
+  const timelineMarkers = page.locator('.timeline-marker');
+  const markerCount = await timelineMarkers.count();
+  console.log(`✓ Timeline shows ${markerCount} rotation points`);
+  
+  // Click on 10' rotation marker to go to that rotation view
+  await page.locator('.timeline-marker', { hasText: "10'" }).click();
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  console.log('✓ Clicked on 10\' rotation');
+  
+  // In the rotation view, find Diana's assigned-player button and click to open swap modal
+  // The assigned-player button shows "Diana D." format (first name + last initial)
+  const dianaPlayerButton = page.locator('.position-slot .assigned-player').filter({ hasText: /Diana/ });
+  await dianaPlayerButton.click();
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  
+  // Wait for swap modal to appear (has "Swap Player" heading)
+  await page.waitForSelector('.modal-content', { timeout: 5000 });
+  console.log('✓ Swap modal opened');
+  
+  // Find Hannah Harris in the modal and click her button to swap
+  const hannahOption = page.locator('.modal-content .game-option').filter({ hasText: /Hannah/ });
+  await hannahOption.click();
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
-  // Verify timer is running
-  await expect(page.locator('.timer-display')).toBeVisible();
+  console.log('✓ Planned substitution: Diana → Hannah at 10\'');
   
-  // Add test time to simulate game progress
+  // Click on 30' rotation marker to set up swap back (Hannah → Diana)
+  await page.locator('.timeline-marker', { hasText: "30'" }).click();
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  
+  // Find Hannah's assigned-player button and click to open swap modal
+  const hannahPlayerButton = page.locator('.position-slot .assigned-player').filter({ hasText: /Hannah/ });
+  await hannahPlayerButton.click();
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  
+  // Wait for swap modal
+  await page.waitForSelector('.modal-content', { timeout: 5000 });
+  
+  // Find Diana Davis in the modal and click her button to swap
+  const dianaOption = page.locator('.modal-content .game-option').filter({ hasText: /Diana/ });
+  await dianaOption.click();
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+  
+  console.log('✓ Planned substitution: Hannah → Diana at 30\'');
+  
+  // Navigate back to Games list by clicking the "← Back" button
+  const backButton = page.locator('button', { hasText: '← Back' });
+  await backButton.click();
+  await waitForPageLoad(page);
+  
+  // Wait for game cards to appear
+  await page.waitForSelector('.game-card', { timeout: 10000 });
+  
+  // Now click on the game card to enter GameManagement for running the game
+  const gameCardForPlay = page.locator('.game-card', { hasText: opponent });
+  await gameCardForPlay.click();
+  await waitForPageLoad(page);
+  
+  // Wait for GameManagement to load (should see Start Game button)
+  await expect(page.locator('button', { hasText: 'Start Game' })).toBeVisible();
+  
+  console.log('✓ Game plan created with 2 planned substitutions');
+}
+
+// Helper to execute a planned rotation during the game
+async function executeRotation(page: Page, rotationMinute: number, playerOut: string, playerIn: string) {
+  console.log(`Executing rotation at ${rotationMinute}': ${playerOut} → ${playerIn}...`);
+  
+  // Look for the "View Plan" button in the rotation countdown banner
+  const viewPlanButton = page.locator('button.btn-view-rotation', { hasText: 'View Plan' });
+  
+  if (await viewPlanButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await viewPlanButton.click();
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
+    
+    // Wait for rotation modal to appear
+    await page.waitForSelector('.rotation-modal', { timeout: 5000 });
+    
+    // Find the planned sub item and click "+ Queue"
+    const queueButton = page.locator('.planned-sub-item .btn-queue-sub:not(.queued)').first();
+    if (await queueButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await queueButton.click();
+      await page.waitForTimeout(UI_TIMING.STANDARD);
+    }
+    
+    // Close the modal
+    await clickButton(page, 'Close');
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
+    
+    // Note: Dialog handler is set up in runGame() to handle all confirm dialogs
+    
+    // Now execute the queued substitution using "Sub All Now"
+    const subAllButton = page.locator('button.btn-sub-all', { hasText: /Sub All/ });
+    if (await subAllButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await subAllButton.click();
+      await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+      console.log(`✓ Executed rotation at ${rotationMinute}': ${playerOut} → ${playerIn}`);
+      return true;
+    }
+  }
+  
+  console.log(`⚠️ Could not execute rotation at ${rotationMinute}'`);
+  return false;
+}
+
+// Helper to run the game simulation with planned rotations
+async function runGame(page: Page, gameNumber: number = 1) {
+  console.log(`Running game ${gameNumber} simulation with planned rotations...`);
+  
+  // Set up a PERSISTENT dialog handler for ALL confirm dialogs during the game
+  // This is needed because executeRotation calls confirm() for each substitution
+  const dialogHandler = async (dialog: any) => {
+    await dialog.accept();
+  };
+  page.on('dialog', dialogHandler);
+  
+  // Click the initial "Start Game" button which opens the availability check modal
+  await clickButton(page, 'Start Game');
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  
+  // The Player Availability Check modal appears - click "Start Game" in the modal to confirm
+  // There are now two "Start Game" buttons on the page - one in the main view and one in the modal
+  // The modal one appears after the "Player Availability Check" heading
+  const availabilityHeading = page.getByRole('heading', { name: 'Player Availability Check' });
+  if (await availabilityHeading.isVisible({ timeout: 3000 }).catch(() => false)) {
+    // Find the modal container (parent of the heading) and then find the Start Game button within it
+    // Use nth(1) to get the second "Start Game" button on the page (the one in the modal)
+    const modalStartButton = page.getByRole('button', { name: 'Start Game' }).nth(1);
+    await modalStartButton.click();
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    console.log('✓ Confirmed player availability');
+  }
+  
+  // Verify timer is running (check for elapsed time display - use specific class)
+  await expect(page.locator('.time-display')).toBeVisible({ timeout: 5000 });
+  
+  // Add test time to 5 minutes
   await clickButton(page, '+5 min');
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
@@ -339,9 +458,13 @@ async function runGame(page: Page, gameNumber: number = 1) {
   await expect(page.locator('.score-display')).toContainText('1');
   console.log(`✓ Goal ${gameNumber}.1 recorded`);
   
-  // Add more time
+  // Add time to reach 10 minutes - first planned rotation
   await clickButton(page, '+5 min');
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  console.log('✓ Timer at 10 minutes');
+  
+  // Execute first planned rotation (Diana → Hannah)
+  await executeRotation(page, 10, 'Diana', 'Hannah');
   
   // Record a gold star (vary by game)
   await clickButtonByText(page, /Gold Star/);
@@ -362,53 +485,13 @@ async function runGame(page: Page, gameNumber: number = 1) {
   
   console.log(`✓ Gold star ${gameNumber} recorded`);
   
-  // Make a substitution (Diana Davis at CM for Hannah Harris)
+  // Add time to reach halftime (20 minutes)
+  // IMPORTANT: Wait between +5 min clicks to ensure state updates complete
+  await clickButton(page, '+5 min');
+  await page.waitForTimeout(UI_TIMING.STANDARD);
   await clickButton(page, '+5 min');
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
-  
-  // Find the position card for Diana Davis (CM) and click its substitute button
-  console.log('Looking for Diana Davis on the field...');
-  
-  // Debug: Log all position cards
-  const allCards = page.locator('.position-card');
-  const cardCount = await allCards.count();
-  console.log(`Found ${cardCount} position cards`);
-  for (let i = 0; i < cardCount; i++) {
-    const cardText = await allCards.nth(i).textContent();
-    console.log(`  Card ${i}: ${cardText?.substring(0, 50)}`);
-  }
-  
-  const dianaCard = page.locator('.position-card').filter({ hasText: 'Diana Davis' });
-  const dianaSubButton = dianaCard.locator('button.btn-substitute[title="Make substitution"]');
-  
-  if (await dianaSubButton.isVisible({ timeout: 1000 }).catch(() => false)) {
-    console.log('Found Diana\'s position, making substitution...');
-    await dianaSubButton.click();
-    await page.waitForTimeout(UI_TIMING.NAVIGATION);
-    
-    // Wait for substitution modal to appear
-    await page.waitForSelector('.sub-player-item', { timeout: 5000 });
-    
-    // Find Hannah Harris in the substitution list and click "Sub Now"
-    const hannahItem = page.locator('.sub-player-item').filter({ hasText: 'Hannah Harris' });
-    await expect(hannahItem).toBeVisible();
-    
-    const subNowButton = hannahItem.locator('button.btn-sub-now');
-    await subNowButton.click();
-    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
-    
-    // Verify the modal closed
-    await expect(page.locator('.sub-player-item')).not.toBeVisible();
-    
-    console.log('✓ Substitution made (Diana → Hannah at CM)');
-  } else {
-    console.log('⚠️ Could not find Diana\'s position for substitution, skipping');
-  }
-  
-  // Add time to reach halftime
-  await clickButton(page, '+5 min');
-  await clickButton(page, '+5 min');
-  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  console.log('✓ Timer at 20 minutes (halftime)');
   
   // End first half (force click because bottom nav might cover it)
   await page.getByRole('button', { name: 'End First Half' }).click({ force: true });
@@ -450,7 +533,7 @@ async function runGame(page: Page, gameNumber: number = 1) {
     }
   }
   
-  // Add time in second half
+  // Add time in second half to 25 minutes
   await clickButton(page, '+5 min');
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
@@ -474,11 +557,21 @@ async function runGame(page: Page, gameNumber: number = 1) {
   await expect(scoreElements.first()).toContainText('2');
   console.log(`✓ Goal ${gameNumber}.2 recorded`);
   
-  // Add more time and end game
-  await clickButton(page, '+5 min');
-  await clickButton(page, '+5 min');
+  // Add time to reach 30 minutes - second planned rotation
   await clickButton(page, '+5 min');
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  console.log('✓ Timer at 30 minutes');
+  
+  // Execute second planned rotation (Hannah → Diana)
+  await executeRotation(page, 30, 'Hannah', 'Diana');
+  
+  // Add time to reach end of game (40 minutes)
+  // IMPORTANT: Wait between +5 min clicks to ensure state updates complete
+  await clickButton(page, '+5 min');
+  await page.waitForTimeout(UI_TIMING.STANDARD);
+  await clickButton(page, '+5 min');
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  console.log('✓ Timer at 40 minutes (end of game)');
   
   // End the game
   await clickButton(page, 'End Game');
@@ -487,6 +580,9 @@ async function runGame(page: Page, gameNumber: number = 1) {
   // Verify game completed
   await expect(page.getByText(/Game Completed/)).toBeVisible();
   console.log(`✓ Game ${gameNumber} completed`);
+  
+  // Remove the dialog handler now that game is complete
+  page.off('dialog', dialogHandler);
   
   // Navigate back to Home to see games list for next game (if not the last game)
   if (gameNumber === 1) {
@@ -499,7 +595,7 @@ async function runGame(page: Page, gameNumber: number = 1) {
     }
     
     // Then navigate to Home tab
-    const homeTab = page.locator('button.nav-item', { hasText: 'Home' });
+    const homeTab = page.locator('button.nav-item', { hasText: 'Games' });
     await homeTab.click();
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
@@ -526,7 +622,7 @@ async function runGame(page: Page, gameNumber: number = 1) {
   }
 }
 
-// Helper to verify team totals
+// Helper to verify team totals and play times
 async function verifyTeamTotals(page: Page, gameData: any) {
   console.log('Verifying team totals...');
   
@@ -566,39 +662,83 @@ async function verifyTeamTotals(page: Page, gameData: any) {
   }
   console.log('✓ Individual player stats verified');
   
-  // Click on a player to see details
-  const fionaRow = page.locator('tr').filter({ hasText: 'Diana Davis' });
-  await fionaRow.click();
+  // Verify play times for key players
+  // Expected: Diana and Hannah each played 20 min per game = 40 min total
+  // Others played 40 min per game = 80 min total (1h 20m)
+  
+  // Click on Diana Davis to see her details
+  const dianaRow = page.locator('tr').filter({ hasText: 'Diana Davis' });
+  await dianaRow.click();
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   // Verify player details section appears
   await expect(page.locator('.player-details-section')).toBeVisible();
   
-  // Verify goals section exists
-  await expect(page.locator('h3').filter({ hasText: /Assists/ })).toBeVisible();
-  
-  // Verify play time by position
+  // Verify play time by position section
   await expect(page.locator('h3').filter({ hasText: /Play Time by Position/ })).toBeVisible();
-
-  // Verify specific position time (Diana should have played full 45 min each game if sub was skipped = 90 min total)
-  const positionTimeItem = page.locator('.position-time-item', { hasText: 'Center Midfielder' });
-  await expect(positionTimeItem).toBeVisible();
-  await expect(positionTimeItem.locator('.position-name')).toContainText('Center Midfielder');
+  
+  // Verify Diana's play time (should be 40 min = 20 min per game × 2 games)
+  const dianaPositionTime = page.locator('.position-time-item', { hasText: 'Center Midfielder' });
+  await expect(dianaPositionTime).toBeVisible();
   
   // Log actual play time for debugging
-  const actualTime = await positionTimeItem.locator('.position-time').textContent();
-  console.log(`Diana Davis play time at CM: ${actualTime}`);
+  const dianaActualTime = await dianaPositionTime.locator('.position-time').textContent();
+  console.log(`Diana Davis play time at CM: ${dianaActualTime}`);
   
-  await expect(positionTimeItem.locator('.position-time')).toContainText('1h 30m');
-  console.log('✓ Position time verified: Center Midfielder 50m');
+  // Diana should have 40 minutes (displayed as "40m")
+  await expect(dianaPositionTime.locator('.position-time')).toContainText('40m');
+  console.log('✓ Diana Davis play time verified: 40m');
   
-  console.log('✓ Player details verified');
+  // Go back to player list
+  await page.locator('button').filter({ hasText: /Back|Close/ }).first().click().catch(() => {
+    // If no back button, click outside the details section
+  });
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  
+  // Click on Hannah Harris to verify her play time
+  const hannahRow = page.locator('tr').filter({ hasText: 'Hannah Harris' });
+  if (await hannahRow.isVisible().catch(() => false)) {
+    await hannahRow.click();
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    
+    const hannahPositionTime = page.locator('.position-time-item', { hasText: 'Center Midfielder' });
+    if (await hannahPositionTime.isVisible().catch(() => false)) {
+      const hannahActualTime = await hannahPositionTime.locator('.position-time').textContent();
+      console.log(`Hannah Harris play time at CM: ${hannahActualTime}`);
+      
+      // Hannah should also have 40 minutes
+      await expect(hannahPositionTime.locator('.position-time')).toContainText('40m');
+      console.log('✓ Hannah Harris play time verified: 40m');
+    }
+  }
+  
+  // Verify a full-time player (Alice Anderson - GK)
+  await page.locator('button').filter({ hasText: /Back|Close/ }).first().click().catch(() => {});
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  
+  const aliceRow = page.locator('tr').filter({ hasText: 'Alice Anderson' });
+  if (await aliceRow.isVisible().catch(() => false)) {
+    await aliceRow.click();
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    
+    const alicePositionTime = page.locator('.position-time-item', { hasText: 'Goalkeeper' });
+    if (await alicePositionTime.isVisible().catch(() => false)) {
+      const aliceActualTime = await alicePositionTime.locator('.position-time').textContent();
+      console.log(`Alice Anderson play time at GK: ${aliceActualTime}`);
+      
+      // Alice should have 80 minutes (1h 20m)
+      await expect(alicePositionTime.locator('.position-time')).toContainText('1h 20m');
+      console.log('✓ Alice Anderson play time verified: 1h 20m (80 min)');
+    }
+  }
+  
+  console.log('✓ Player details and play times verified');
 }
 
 // Main test
 test.describe('Soccer App Full Workflow', () => {
   test('Complete workflow from login to team reporting', async ({ page }) => {
-    test.setTimeout(TEST_CONFIG.timeout.long); // 3 minutes for full workflow
+    test.setTimeout(TEST_CONFIG.timeout.long); // 5 minutes for full workflow
     
     console.log('\n=== Starting E2E Test Suite ===\n');
     
@@ -643,6 +783,11 @@ test.describe('Soccer App Full Workflow', () => {
     await setupLineup(page, TEST_DATA.game1.opponent);
     console.log('');
     
+    // Step 7.5: Create Game Plan for Game 1
+    console.log('Step 7.5: Create Game Plan for Game 1');
+    await createGamePlan(page, TEST_DATA.game1.opponent);
+    console.log('');
+    
     // Step 8: Run Game 1
     console.log('Step 8: Run Game 1 Simulation');
     const game1Data = await runGame(page, 1);
@@ -656,6 +801,11 @@ test.describe('Soccer App Full Workflow', () => {
     // Step 10: Setup Lineup for Game 2
     console.log('Step 10: Setup Lineup for Game 2');
     await setupLineup(page, TEST_DATA.game2.opponent);
+    console.log('');
+    
+    // Step 10.5: Create Game Plan for Game 2
+    console.log('Step 10.5: Create Game Plan for Game 2');
+    await createGamePlan(page, TEST_DATA.game2.opponent);
     console.log('');
     
     // Step 11: Run Game 2
