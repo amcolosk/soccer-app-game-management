@@ -175,6 +175,13 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }
   };
 
+  // Auto-select 'starting' when there's no game plan yet to show setup immediately
+  useEffect(() => {
+    if (gamePlan === null && selectedRotation === null) {
+      setSelectedRotation('starting');
+    }
+  }, [gamePlan, selectedRotation]);
+
   const getPlayerAvailability = (playerId: string): string => {
     const availability = availabilities.find((a) => a.playerId === playerId);
     return availability?.status || "available";
@@ -243,11 +250,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
   const handleUpdatePlan = async () => {
     // Validate starting lineup
-    if (startingLineup.size === 0) {
-      alert("Please select a starting lineup first");
-      return;
-    }
-
     if (startingLineup.size > maxPlayersOnField) {
       alert(`Starting lineup cannot exceed ${maxPlayersOnField} players`);
       return;
@@ -629,13 +631,13 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
     const rotationsPerHalf = gamePlan ? Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1 : 0;
 
-    // Create timeline items with starting lineup first, then HT marker between halves
+    // Create timeline items with starting lineup first, then rotations and HT marker between halves
     const timelineItems: Array<{ type: 'starting' | 'rotation' | 'halftime'; rotation?: PlannedRotation; minute?: number }> = [];
     
-    // Add starting lineup as first item
-    timelineItems.push({ type: 'starting' });
-    
     if (gamePlan && rotations.length > 0) {
+      // Add starting lineup as first item
+      timelineItems.push({ type: 'starting', minute: 0 });
+      
       rotations.forEach((rotation, index) => {
         // Add halftime marker before first rotation of second half
         if (index === rotationsPerHalf) {
@@ -651,7 +653,29 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       if (selectedRotation === 'starting') {
         return (
           <div className="rotation-details-panel">
-            <h4>Starting Lineup</h4>
+            <div className="panel-header">
+              <h4>Starting Lineup</h4>
+              <div className="setup-controls">
+                <label className="interval-selector">
+                  Rotation every:
+                  <select
+                    value={rotationIntervalMinutes}
+                    onChange={(e) => setRotationIntervalMinutes(Number(e.target.value))}
+                  >
+                    <option value={5}>5 min</option>
+                    <option value={10}>10 min</option>
+                    <option value={15}>15 min</option>
+                  </select>
+                </label>
+                <button
+                  onClick={handleUpdatePlan}
+                  className="primary-button"
+                  disabled={isGenerating}
+                >
+                  {isGenerating ? "Updating..." : (gamePlan ? "Update Plan" : "Create Plan")}
+                </button>
+              </div>
+            </div>
             <LineupBuilder
               positions={positions}
               availablePlayers={startingLineupPlayers}
@@ -897,11 +921,12 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     return (
       <div className="planner-section">
         <h3>Game Plan</h3>
+        {timelineItems.length > 0 && (
         <div className="timeline-container" ref={timelineRef}>
           <div className="timeline-header">
             <div className="timeline-labels">
               {timelineItems.map((item, index) => {
-                const isSelected = item.type === 'starting' 
+                const isSelected = item.type === 'starting'
                   ? selectedRotation === 'starting'
                   : item.type === 'halftime'
                     ? selectedRotation === 'halftime'
@@ -913,11 +938,11 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                   return (
                     <div
                       key="starting"
-                      className={`timeline-marker starting-marker clickable ${activeClass}`}
+                      className={`timeline-marker clickable ${activeClass}`}
                       onClick={() => handleRotationClick('starting')}
                       style={{ cursor: 'pointer' }}
                     >
-                      Start
+                      0'
                     </div>
                   );
                 }
@@ -949,7 +974,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
           <div className="timeline-rotations">
             {timelineItems.map((item, index) => {
-              const isSelected = item.type === 'starting' 
+              const isSelected = item.type === 'starting'
                 ? selectedRotation === 'starting'
                 : item.type === 'halftime'
                   ? selectedRotation === 'halftime'
@@ -964,7 +989,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                       className={`rotation-button ${activeClass}`}
                       onClick={() => handleRotationClick('starting')}
                     >
-                      Setup
+                      Lineup
                     </button>
                   </div>
                 );
@@ -999,33 +1024,38 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
             })}
           </div>
         </div>
+        )}
 
         {renderSelectedDetails()}
 
         <div className="projected-playtime">
           <h4>Projected Play Time</h4>
           <div className="playtime-bars">
-            {Array.from(playTimeData.entries())
-              .sort((a, b) => b[1].totalMinutes - a[1].totalMinutes)
-              .map(([playerId, data]) => {
-                const player = players.find((p) => p.id === playerId);
-                if (!player) return null;
+            {rotationPlayers
+              .map((player) => {
+                const data = playTimeData.get(player.id);
+                const totalMinutes = data?.totalMinutes || 0;
+                const percentage = (totalMinutes / (halfLengthMinutes * 2)) * 100;
 
-                const percentage = (data.totalMinutes / (halfLengthMinutes * 2)) * 100;
-
-                return (
-                  <div key={playerId} className="playtime-bar-container">
-                    <div className="playtime-label">
-                      #{player.playerNumber} {player.firstName} {player.lastName?.charAt(0)}.
-                    </div>
-                    <div className="playtime-bar-wrapper">
-                      <div className="playtime-bar" style={{ width: `${percentage}%` }}>
-                        {data.totalMinutes}min
-                      </div>
+                return {
+                  player,
+                  totalMinutes,
+                  percentage,
+                };
+              })
+              .sort((a, b) => b.totalMinutes - a.totalMinutes)
+              .map(({ player, totalMinutes, percentage }) => (
+                <div key={player.id} className="playtime-bar-container">
+                  <div className="playtime-label">
+                    #{player.playerNumber} {player.firstName} {player.lastName?.charAt(0)}.
+                  </div>
+                  <div className="playtime-bar-wrapper">
+                    <div className="playtime-bar" style={{ width: `${percentage}%` }}>
+                      {totalMinutes}min
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              ))}
           </div>
         </div>
       </div>
@@ -1042,24 +1072,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         <div className="planner-actions">
           <button onClick={() => setShowCopyModal(true)} className="secondary-button">
             Copy from Previous
-          </button>
-          <label className="interval-selector">
-            Rotation every:
-            <select
-              value={rotationIntervalMinutes}
-              onChange={(e) => setRotationIntervalMinutes(Number(e.target.value))}
-            >
-              <option value={5}>5 min</option>
-              <option value={10}>10 min</option>
-              <option value={15}>15 min</option>
-            </select>
-          </label>
-          <button
-            onClick={handleUpdatePlan}
-            className="primary-button"
-            disabled={isGenerating || startingLineup.size === 0}
-          >
-            {isGenerating ? "Updating..." : (gamePlan ? "Update Plan" : "Create Plan")}
           </button>
         </div>
       </div>
@@ -1108,7 +1120,8 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       )}
 
       {swapModalData && (() => {
-        const currentLineup = getLineupAtRotation(swapModalData.rotationNumber);
+        // Get lineup BEFORE this rotation's subs are applied (to know who's on field)
+        const currentLineup = getLineupAtRotation(swapModalData.rotationNumber - 1);
         const currentPlayer = players.find((p: PlayerWithRoster) => p.id === swapModalData.currentPlayerId);
         const position = positions.find((p: FormationPosition) => p.id === swapModalData.positionId);
         // For swaps in rotations/halftime, include late-arrival players

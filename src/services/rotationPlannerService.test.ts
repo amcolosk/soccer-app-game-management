@@ -303,6 +303,221 @@ describe('rotationPlannerService', () => {
       // p1 plays until rotation 1 at 10 minutes
       expect(p1Time?.totalMinutes).toBe(10);
     });
+
+    it('should handle empty rotations array', () => {
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+      ];
+
+      const playTimeMap = calculatePlayTime(
+        [],
+        startingLineup,
+        10,
+        60
+      );
+
+      // Starters should play the full game
+      expect(playTimeMap.get('p1')?.totalMinutes).toBe(60);
+      expect(playTimeMap.get('p2')?.totalMinutes).toBe(60);
+    });
+
+    it('should handle empty starting lineup', () => {
+      const rotations = [
+        {
+          id: 'rot1',
+          rotationNumber: 1,
+          gameMinute: 10,
+          plannedSubstitutions: JSON.stringify([]),
+        },
+      ];
+
+      const playTimeMap = calculatePlayTime(
+        rotations as any,
+        [],
+        10,
+        60
+      );
+
+      // No players, so map should be empty
+      expect(playTimeMap.size).toBe(0);
+    });
+
+    it('should handle player subbed in then out later', () => {
+      const rotations = [
+        {
+          id: 'rot1',
+          rotationNumber: 1,
+          gameMinute: 10,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p1', playerInId: 'p7', positionId: 'pos1' },
+          ]),
+        },
+        {
+          id: 'rot2',
+          rotationNumber: 2,
+          gameMinute: 20,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p7', playerInId: 'p8', positionId: 'pos1' },
+          ]),
+        },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+      ];
+
+      const playTimeMap = calculatePlayTime(
+        rotations as any,
+        startingLineup,
+        10,
+        60
+      );
+
+      // p1 plays 0-10 = 10 minutes
+      expect(playTimeMap.get('p1')?.totalMinutes).toBe(10);
+      // p7 plays 10-20 = 10 minutes
+      expect(playTimeMap.get('p7')?.totalMinutes).toBe(10);
+      // p8 plays 20-60 = 40 minutes
+      expect(playTimeMap.get('p8')?.totalMinutes).toBe(40);
+    });
+
+    it('should handle player subbed out and back in later', () => {
+      const rotations = [
+        {
+          id: 'rot1',
+          rotationNumber: 1,
+          gameMinute: 10,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p1', playerInId: 'p7', positionId: 'pos1' },
+          ]),
+        },
+        {
+          id: 'rot2',
+          rotationNumber: 2,
+          gameMinute: 30,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p7', playerInId: 'p1', positionId: 'pos1' },
+          ]),
+        },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+      ];
+
+      const playTimeMap = calculatePlayTime(
+        rotations as any,
+        startingLineup,
+        10,
+        60
+      );
+
+      // p1 plays 0-10 (10 min) + 30-60 (30 min) = 40 minutes
+      expect(playTimeMap.get('p1')?.totalMinutes).toBe(40);
+      // p7 plays 10-30 = 20 minutes
+      expect(playTimeMap.get('p7')?.totalMinutes).toBe(20);
+    });
+
+    it('should handle multiple substitutions in same rotation', () => {
+      const rotations = [
+        {
+          id: 'rot1',
+          rotationNumber: 1,
+          gameMinute: 20,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p1', playerInId: 'p5', positionId: 'pos1' },
+            { playerOutId: 'p2', playerInId: 'p6', positionId: 'pos2' },
+            { playerOutId: 'p3', playerInId: 'p7', positionId: 'pos3' },
+          ]),
+        },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+        { playerId: 'p4', positionId: 'pos4' },
+      ];
+
+      const playTimeMap = calculatePlayTime(
+        rotations as any,
+        startingLineup,
+        10,
+        60
+      );
+
+      // p1, p2, p3 play 0-20 = 20 minutes each
+      expect(playTimeMap.get('p1')?.totalMinutes).toBe(20);
+      expect(playTimeMap.get('p2')?.totalMinutes).toBe(20);
+      expect(playTimeMap.get('p3')?.totalMinutes).toBe(20);
+      // p4 never gets subbed, plays full game = 60 minutes
+      expect(playTimeMap.get('p4')?.totalMinutes).toBe(60);
+      // p5, p6, p7 play 20-60 = 40 minutes each
+      expect(playTimeMap.get('p5')?.totalMinutes).toBe(40);
+      expect(playTimeMap.get('p6')?.totalMinutes).toBe(40);
+      expect(playTimeMap.get('p7')?.totalMinutes).toBe(40);
+    });
+
+    it('should handle halftime swap scenario', () => {
+      // Simulate first half rotation, halftime swap, second half rotation
+      const rotations = [
+        {
+          id: 'rot1',
+          rotationNumber: 1,
+          gameMinute: 10,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p1', playerInId: 'p5', positionId: 'pos1' },
+          ]),
+        },
+        {
+          id: 'rot2',
+          rotationNumber: 2,
+          gameMinute: 20, // halftime - swap many players
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p2', playerInId: 'p6', positionId: 'pos2' },
+            { playerOutId: 'p3', playerInId: 'p7', positionId: 'pos3' },
+          ]),
+        },
+        {
+          id: 'rot3',
+          rotationNumber: 3,
+          gameMinute: 30,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p5', playerInId: 'p1', positionId: 'pos1' },
+          ]),
+        },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+        { playerId: 'p4', positionId: 'pos4' },
+      ];
+
+      const playTimeMap = calculatePlayTime(
+        rotations as any,
+        startingLineup,
+        10,
+        40 // 20 min halves
+      );
+
+      // p1: 0-10 (10 min) + 30-40 (10 min) = 20 min
+      expect(playTimeMap.get('p1')?.totalMinutes).toBe(20);
+      // p2: 0-20 = 20 min
+      expect(playTimeMap.get('p2')?.totalMinutes).toBe(20);
+      // p3: 0-20 = 20 min
+      expect(playTimeMap.get('p3')?.totalMinutes).toBe(20);
+      // p4: never subbed = 40 min
+      expect(playTimeMap.get('p4')?.totalMinutes).toBe(40);
+      // p5: 10-30 = 20 min
+      expect(playTimeMap.get('p5')?.totalMinutes).toBe(20);
+      // p6: 20-40 = 20 min
+      expect(playTimeMap.get('p6')?.totalMinutes).toBe(20);
+      // p7: 20-40 = 20 min
+      expect(playTimeMap.get('p7')?.totalMinutes).toBe(20);
+    });
   });
 
   describe('validateRotationPlan', () => {
