@@ -1213,6 +1213,49 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                 <h3>⏸️ Halftime</h3>
                 <p>Adjust your lineup below if needed, then start the second half</p>
               </div>
+
+              {/* Show planned halftime substitutions */}
+              {(() => {
+                // The halftime rotation is the first rotation of the second half
+                const halftimeRotation = plannedRotations.find(r => r.half === 2);
+                if (!halftimeRotation) return null;
+                const subs: PlannedSubstitution[] = JSON.parse(halftimeRotation.plannedSubstitutions as string);
+                if (subs.length === 0) return null;
+                return (
+                  <div className="halftime-planned-subs">
+                    <h4>🔄 Planned Substitutions</h4>
+                    <div className="planned-subs-list">
+                      {subs.map((sub, idx) => {
+                        const playerOut = players.find(p => p.id === sub.playerOutId);
+                        const playerIn = players.find(p => p.id === sub.playerInId);
+                        const position = positions.find(p => p.id === sub.positionId);
+
+                        return (
+                          <div key={idx} className="planned-sub-item" style={{ background: '#fff9c4', border: '2px solid #fdd835' }}>
+                            <div className="sub-position-label">{position?.abbreviation}</div>
+                            <div className="sub-players">
+                              <div className="sub-player sub-out">
+                                <span className="player-number">#{playerOut?.playerNumber}</span>
+                                <span className="player-name">
+                                  {playerOut?.firstName} {playerOut?.lastName}
+                                </span>
+                              </div>
+                              <div className="sub-arrow">→</div>
+                              <div className="sub-player sub-in">
+                                <span className="player-number">#{playerIn?.playerNumber}</span>
+                                <span className="player-name">
+                                  {playerIn?.firstName} {playerIn?.lastName}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
               <button onClick={handleStartSecondHalf} className="btn-primary btn-large">
                 Start Second Half
               </button>

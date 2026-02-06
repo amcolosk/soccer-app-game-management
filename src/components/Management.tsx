@@ -140,14 +140,14 @@ export function Management() {
 
       // If a template is selected, create a new formation from it
       if (selectedFormation.startsWith('template-')) {
-        const templateIndex = parseInt(selectedFormation.split('-')[1]);
+        const templateIndex = parseInt(selectedFormation.replace('template-', ''));
         const template = FORMATION_TEMPLATES[templateIndex];
         
         if (template) {
           const newFormation = await client.models.Formation.create({
             name: template.name,
             playerCount: template.playerCount,
-            sport: 'Soccer', // Templates are currently only for Soccer
+            sport: 'Soccer',
             coaches: [currentUserId],
           });
 
@@ -230,14 +230,14 @@ export function Management() {
 
       // If a template is selected, create a new formation from it
       if (selectedFormation.startsWith('template-')) {
-        const templateIndex = parseInt(selectedFormation.split('-')[1]);
+        const templateIndex = parseInt(selectedFormation.replace('template-', ''));
         const template = FORMATION_TEMPLATES[templateIndex];
         
         if (template) {
           const newFormation = await client.models.Formation.create({
             name: template.name,
             playerCount: template.playerCount,
-            sport: 'Soccer', // Templates are currently only for Soccer
+            sport: 'Soccer',
             coaches: [currentUserId],
           });
 
@@ -770,13 +770,14 @@ export function Management() {
     player.coaches?.includes(currentUserId) || accessiblePlayerIds.has(player.id)
   );
 
-  // Filter templates based on max players on field
+  // Filter templates based on max players on field, preserving global index
   const getFilteredTemplates = () => {
     const maxPlayersNum = parseInt(maxPlayers);
+    const indexed = FORMATION_TEMPLATES.map((template, globalIndex) => ({ ...template, globalIndex }));
     if (isNaN(maxPlayersNum) || maxPlayersNum < 1) {
-      return FORMATION_TEMPLATES;
+      return indexed;
     }
-    return FORMATION_TEMPLATES.filter(template => template.playerCount === maxPlayersNum);
+    return indexed.filter(template => template.playerCount === maxPlayersNum);
   };
 
   return (
@@ -889,8 +890,8 @@ export function Management() {
                     ))}
                   </optgroup>
                   <optgroup label="Standard Templates">
-                    {getFilteredTemplates().map((template, index) => (
-                      <option key={`template-${index}`} value={`template-${index}`}>
+                    {getFilteredTemplates().map((template) => (
+                      <option key={`template-${template.globalIndex}`} value={`template-${template.globalIndex}`}>
                         {template.name} ({template.playerCount} players)
                       </option>
                     ))}
@@ -977,8 +978,8 @@ export function Management() {
                     ))}
                   </optgroup>
                   <optgroup label="Standard Templates">
-                    {getFilteredTemplates().map((template, index) => (
-                      <option key={`template-${index}`} value={`template-${index}`}>
+                    {getFilteredTemplates().map((template) => (
+                      <option key={`template-${template.globalIndex}`} value={`template-${template.globalIndex}`}>
                         {template.name} ({template.playerCount} players)
                       </option>
                     ))}
