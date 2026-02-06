@@ -414,13 +414,14 @@ async function planSubstitutions(page: Page) {
     }
   }
   
-  // Substitution 2: In second rotation (after halftime), sub Late Arrival for Player 2
-  console.log('  Rotation 2: Substituting Late Arrival for Player 2...');
-  const rotations = page.locator('.rotation-button').filter({ hasText: /subs/ });
-  const rotationCount = await rotations.count();
+  // Substitution 2: At halftime, sub Late Arrival for Player 2
+  // The halftime rotation is managed via the HT panel, not as a separate rotation button
+  console.log('  Halftime: Substituting Late Arrival for Player 2...');
+  const halftimeButton = page.locator('.rotation-button').filter({ hasText: /Halftime/ });
+  const hasHalftime = await halftimeButton.count() > 0;
   
-  if (rotationCount > 1) {
-    await rotations.nth(1).click();
+  if (hasHalftime) {
+    await halftimeButton.click();
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Find Player 2 on the field and click to swap
@@ -500,22 +501,20 @@ async function verifyPlayTimeReport(page: Page) {
   console.log('\n--- Projected Play Time ---');
   
   // Expected play times based on rotation plan:
-  // Game is 40 minutes (20 min per half), rotation every 10 minutes = 4 rotations total
+  // Game is 40 minutes (20 min per half), rotation every 10 minutes = 2 rotations total
   // Starting lineup: P1, P2, P3, P4, P5 (0-10 min)
   // Rotation 1 (10-20 min): P6 in for P1, so P2, P3, P4, P5, P6
-  // Halftime (20 min)
-  // Rotation 2 (20-30 min): Late Arrival in for P2, so Late, P3, P4, P5, P6
-  // Rotation 3 (30-40 min): Same as Rotation 2 (no more changes)
+  // Halftime rotation (20-40 min): Late Arrival in for P2, so Late, P3, P4, P5, P6
   
   // Expected times (using format "#N FirstName L." as displayed in UI)
   const expectedPlayTimes: Record<string, { min: number; max: number }> = {
     '#1 Player O.': { min: 9, max: 11 },    // Player One: 10 minutes (0-10)
-    '#2 Player T.': { min: 29, max: 31 },   // Player Two: 30 minutes (0-10, 10-20)
+    '#2 Player T.': { min: 19, max: 21 },   // Player Two: 20 minutes (0-20, subbed out at halftime)
     '#3 Player T.': { min: 39, max: 41 },   // Player Three: 40 minutes (entire game)
     '#4 Player F.': { min: 39, max: 41 },   // Player Four: 40 minutes (entire game)
     '#5 Player F.': { min: 39, max: 41 },   // Player Five: 40 minutes (entire game)
     '#6 Player S.': { min: 29, max: 31 },   // Player Six: 30 minutes (10-40)
-    '#7 Late A.': { min: 9, max: 11 },      // Late Arrival: 10 minutes (20-40)
+    '#7 Late A.': { min: 19, max: 21 },     // Late Arrival: 20 minutes (20-40, subbed in at halftime)
   };
   
   for (const [playerName, expectedTime] of Object.entries(expectedPlayTimes)) {

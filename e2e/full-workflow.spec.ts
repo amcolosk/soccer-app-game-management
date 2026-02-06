@@ -315,8 +315,9 @@ async function createGamePlan(page: Page, opponent: string) {
   
   console.log('✓ Planned substitution: Diana → Hannah at 10\'');
   
-  // Click on 30' rotation marker to set up swap back (Hannah → Diana)
-  await page.locator('.timeline-marker', { hasText: "30'" }).click();
+  // Click on HT (halftime) marker to set up swap back (Hannah → Diana)
+  // The halftime rotation is only accessible via the HT marker, not as a separate rotation
+  await page.locator('.halftime-marker').click();
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // Find Hannah's assigned-player button and click to open swap modal

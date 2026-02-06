@@ -266,7 +266,8 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
       // Calculate total rotations
       const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
-      const totalRotations = rotationsPerHalf * 2;
+      // +1 for the halftime rotation itself (which sits at the half boundary)
+      const totalRotations = rotationsPerHalf * 2 + 1;
       
       let currentPlan = gamePlan;
 
@@ -316,10 +317,16 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       // 2. Create or Update rotations
       for (let i = 1; i <= totalRotations; i++) {
         const half = i <= rotationsPerHalf ? 1 : 2;
-        const rotationInHalf = i <= rotationsPerHalf ? i : i - rotationsPerHalf;
-        const gameMinute = half === 1 
-          ? rotationInHalf * rotationIntervalMinutes
-          : halfLengthMinutes + (rotationInHalf * rotationIntervalMinutes);
+        let gameMinute: number;
+        if (half === 1) {
+          gameMinute = i * rotationIntervalMinutes;
+        } else {
+          // Second-half rotations: the first one (i === rotationsPerHalf+1) is the
+          // halftime rotation at the half boundary, then each subsequent one adds
+          // another interval.
+          const secondHalfIndex = i - rotationsPerHalf - 1; // 0-based: 0 = halftime
+          gameMinute = halfLengthMinutes + secondHalfIndex * rotationIntervalMinutes;
+        }
 
         const existingRotation = existingRotationsMap.get(i);
 
@@ -401,6 +408,89 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }, 100);
   };
 
+  /**
+   * After modifying rotation N, recalculate substitutions for all rotations after N.
+   * Each downstream rotation's *intended* absolute lineup is preserved by snapshotting
+   * what it resolved to under the OLD subs, then re-diffing against the new predecessor.
+   * @param changedRotationNumber - the rotation that was just modified
+   * @param subsOverrides - map of rotationNumber -> new subs JSON for rotations that have already been updated (including the changed one)
+   */
+  const recalculateDownstreamRotations = async (
+    changedRotationNumber: number,
+    subsOverrides: Map<number, string>
+  ) => {
+    // Helper: compute lineup at a given rotation using current state + overrides
+    const getLineupWith = (targetRotNum: number, overrides: Map<number, string>): Map<string, string> => {
+      const lineup = new Map(startingLineup);
+      for (let i = 0; i < rotations.length && rotations[i].rotationNumber <= targetRotNum; i++) {
+        const rot = rotations[i];
+        const subsJson = overrides.has(rot.rotationNumber)
+          ? overrides.get(rot.rotationNumber)!
+          : (rot.plannedSubstitutions as string);
+        const subs: PlannedSubstitution[] = JSON.parse(subsJson);
+        subs.forEach(sub => {
+          const tempLineup = new Map<string, string>();
+          for (const [posId, pId] of lineup.entries()) {
+            if (pId === sub.playerInId && posId !== sub.positionId) continue;
+            tempLineup.set(posId, pId);
+          }
+          tempLineup.set(sub.positionId, sub.playerInId);
+          lineup.clear();
+          tempLineup.forEach((pid, posId) => lineup.set(posId, pid));
+        });
+      }
+      return lineup;
+    };
+
+    // Snapshot the intended absolute lineup at each downstream rotation using the OLD subs
+    const downstreamRotations = rotations.filter(r => r.rotationNumber > changedRotationNumber);
+    const intendedLineups = new Map<number, Map<string, string>>();
+    for (const rot of downstreamRotations) {
+      // Use original (un-overridden) subs to compute what the coach originally intended
+      intendedLineups.set(rot.rotationNumber, getLineupWith(rot.rotationNumber, new Map()));
+    }
+
+    // Now walk downstream rotations, re-diff each against its new predecessor
+    const updatedOverrides = new Map(subsOverrides);
+    const updateOps = [];
+
+    for (const rot of downstreamRotations) {
+      const newPrevLineup = getLineupWith(rot.rotationNumber - 1, updatedOverrides);
+      const intendedLineup = intendedLineups.get(rot.rotationNumber)!;
+
+      // Diff: for each position where the intended lineup differs from the new previous lineup
+      const newSubs: PlannedSubstitution[] = [];
+      for (const [positionId, intendedPlayerId] of intendedLineup.entries()) {
+        const prevPlayerId = newPrevLineup.get(positionId);
+        if (prevPlayerId && intendedPlayerId && prevPlayerId !== intendedPlayerId) {
+          newSubs.push({
+            playerOutId: prevPlayerId,
+            playerInId: intendedPlayerId,
+            positionId,
+          });
+        }
+      }
+
+      const newSubsJson = JSON.stringify(newSubs);
+      updatedOverrides.set(rot.rotationNumber, newSubsJson);
+
+      // Only update if subs actually changed
+      const oldSubsJson = rot.plannedSubstitutions as string;
+      if (newSubsJson !== oldSubsJson) {
+        updateOps.push(
+          client.models.PlannedRotation.update({
+            id: rot.id,
+            plannedSubstitutions: newSubsJson,
+          })
+        );
+      }
+    }
+
+    if (updateOps.length > 0) {
+      await Promise.all(updateOps);
+    }
+  };
+
   const handleRotationLineupChange = async (
     rotationNumber: number,
     newLineup: Map<string, string>
@@ -436,10 +526,17 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }
 
     try {
+      const subsJson = JSON.stringify(subs);
       await client.models.PlannedRotation.update({
         id: rotation.id,
-        plannedSubstitutions: JSON.stringify(subs),
+        plannedSubstitutions: subsJson,
       });
+
+      // Recalculate downstream rotations so their subs stay consistent
+      await recalculateDownstreamRotations(
+        rotationNumber,
+        new Map([[rotationNumber, subsJson]])
+      );
       // Data will update automatically via observeQuery subscriptions
     } catch (error) {
       console.error("Error updating rotation:", error);
@@ -453,10 +550,17 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
     // Copy the lineup (no substitutions)
     try {
+      const emptySubsJson = JSON.stringify([]);
       await client.models.PlannedRotation.update({
         id: rotation.id,
-        plannedSubstitutions: JSON.stringify([]),
+        plannedSubstitutions: emptySubsJson,
       });
+
+      // Recalculate downstream rotations so their subs stay consistent
+      await recalculateDownstreamRotations(
+        rotationNumber,
+        new Map([[rotationNumber, emptySubsJson]])
+      );
       // Data will update automatically via observeQuery subscriptions
       
       // Select this rotation to edit it
@@ -474,7 +578,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     const currentLineup = getLineupAtRotation(rotationNumber);
     const newLineup = new Map(currentLineup);
 
-    // Find if the new player is already in the lineup
+    // Find if the new player is already in the lineup (on field)
     let oldPositionOfNewPlayer: string | undefined;
     for (const [pos, pid] of currentLineup.entries()) {
       if (pid === newPlayerId) {
@@ -631,18 +735,17 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
     const rotationsPerHalf = gamePlan ? Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1 : 0;
 
-    // Create timeline items with starting lineup first, then rotations and HT marker between halves
-    const timelineItems: Array<{ type: 'starting' | 'rotation' | 'halftime'; rotation?: PlannedRotation; minute?: number }> = [];
+    // Create timeline items with starting lineup first, then all rotations.
+    // The halftime rotation is displayed as "HT" in the timeline but is still a rotation item.
+    const timelineItems: Array<{ type: 'starting' | 'rotation'; rotation?: PlannedRotation; minute?: number }> = [];
     
+    // Identify the halftime rotation: the first rotation in the second half.
+    const halftimeRotationNumber = rotations.find(r => r.half === 2)?.rotationNumber
+      ?? (rotationsPerHalf > 0 ? rotationsPerHalf + 1 : undefined);
+
     if (gamePlan && rotations.length > 0) {
-      // Add starting lineup as first item
       timelineItems.push({ type: 'starting', minute: 0 });
-      
-      rotations.forEach((rotation, index) => {
-        // Add halftime marker before first rotation of second half
-        if (index === rotationsPerHalf) {
-          timelineItems.push({ type: 'halftime', minute: halfLengthMinutes });
-        }
+      rotations.forEach((rotation) => {
         timelineItems.push({ type: 'rotation', rotation });
       });
     }
@@ -688,12 +791,20 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       }
 
       if (selectedRotation === 'halftime') {
-        const halfTimeLineup = rotations.length > 0 && rotationsPerHalf > 0 
-          ? getLineupAtRotation(rotationsPerHalf)
-          : new Map(startingLineup);
-        
-        // Get the first rotation of second half for making halftime changes
-        const secondHalfStartRotation = rotations.find(r => r.rotationNumber === rotationsPerHalf + 1);
+        // Get the halftime rotation (first rotation of second half)
+        const secondHalfStartRotation = halftimeRotationNumber
+          ? rotations.find(r => r.rotationNumber === halftimeRotationNumber)
+          : undefined;
+
+        // Show the lineup AFTER the halftime rotation's subs are applied,
+        // consistent with how regular rotations display their result lineup.
+        // This ensures handleSwapPlayer (which uses getLineupAtRotation(rotationNumber))
+        // starts from the same lineup the user sees.
+        const halfTimeLineup = secondHalfStartRotation
+          ? getLineupAtRotation(secondHalfStartRotation.rotationNumber)
+          : (rotations.length > 0
+              ? getLineupAtRotation(rotations[rotations.length - 1].rotationNumber)
+              : new Map(startingLineup));
 
         return (
           <div className="rotation-details-panel">
@@ -783,6 +894,13 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
             )}
           </div>
         );
+      }
+
+      // If the user somehow selects the halftime rotation as a number,
+      // redirect to the halftime panel to keep edits consistent.
+      if (selectedRotation === halftimeRotationNumber) {
+        setSelectedRotation('halftime');
+        return null;
       }
 
       // Rotation logic
@@ -925,10 +1043,11 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         <div className="timeline-container" ref={timelineRef}>
           <div className="timeline-header">
             <div className="timeline-labels">
-              {timelineItems.map((item, index) => {
+              {timelineItems.map((item) => {
+                const isHalftime = item.type === 'rotation' && item.rotation?.rotationNumber === halftimeRotationNumber;
                 const isSelected = item.type === 'starting'
                   ? selectedRotation === 'starting'
-                  : item.type === 'halftime'
+                  : isHalftime
                     ? selectedRotation === 'halftime'
                     : selectedRotation === item.rotation?.rotationNumber;
 
@@ -946,10 +1065,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                     </div>
                   );
                 }
-                if (item.type === 'halftime') {
+                if (isHalftime) {
                   return (
                     <div
-                      key={`ht-${index}`}
+                      key={item.rotation!.id}
                       className={`timeline-marker halftime-marker clickable ${activeClass}`}
                       onClick={() => handleRotationClick('halftime')}
                       style={{ cursor: 'pointer' }}
@@ -973,10 +1092,11 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           </div>
 
           <div className="timeline-rotations">
-            {timelineItems.map((item, index) => {
+            {timelineItems.map((item) => {
+              const isHalftime = item.type === 'rotation' && item.rotation?.rotationNumber === halftimeRotationNumber;
               const isSelected = item.type === 'starting'
                 ? selectedRotation === 'starting'
-                : item.type === 'halftime'
+                : isHalftime
                   ? selectedRotation === 'halftime'
                   : selectedRotation === item.rotation!.rotationNumber;
 
@@ -995,14 +1115,16 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                 );
               }
 
-              if (item.type === 'halftime') {
+              if (isHalftime) {
+                const rotation = item.rotation!;
+                const subsCount = JSON.parse(rotation.plannedSubstitutions as string).length;
                 return (
-                  <div key={`ht-column-${index}`} className="rotation-column halftime-column">
+                  <div key={rotation.id} className="rotation-column halftime-column">
                     <button
                       className={`rotation-button ${activeClass}`}
                       onClick={() => handleRotationClick('halftime')}
                     >
-                      Halftime
+                      {subsCount > 0 ? `${subsCount} subs` : 'Halftime'}
                     </button>
                   </div>
                 );

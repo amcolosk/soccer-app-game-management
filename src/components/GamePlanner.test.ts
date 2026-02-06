@@ -322,4 +322,240 @@ describe('GamePlanner Lineup Logic', () => {
       expect(lineupAtRot1.get('pos5')).toBe('E');
     });
   });
+
+  describe('Downstream Rotation Cascade (Copy from Previous fix)', () => {
+    /**
+     * Simulates recalculateDownstreamRotations from GamePlanner.tsx.
+     * Given that rotation `changedRotNum` has new subs (in subsOverrides),
+     * recompute subs for all rotations after it so that each downstream
+     * rotation's intended absolute lineup is preserved.
+     */
+    function recalculateDownstreamRotations(
+      startingLineup: Map<string, string>,
+      rotations: Array<{ rotationNumber: number; plannedSubstitutions: PlannedSubstitution[] }>,
+      changedRotationNumber: number,
+      subsOverrides: Map<number, PlannedSubstitution[]>
+    ): Array<{ rotationNumber: number; plannedSubstitutions: PlannedSubstitution[] }> {
+      // Helper to compute lineup at a rotation using overrides for some rotations
+      const getLineupWith = (
+        targetRotNum: number,
+        overrides: Map<number, PlannedSubstitution[]>
+      ): Map<string, string> => {
+        const lineup = new Map(startingLineup);
+        for (let i = 0; i < rotations.length && rotations[i].rotationNumber <= targetRotNum; i++) {
+          const rot = rotations[i];
+          const subs = overrides.has(rot.rotationNumber)
+            ? overrides.get(rot.rotationNumber)!
+            : rot.plannedSubstitutions;
+          subs.forEach(sub => {
+            const tempLineup = new Map<string, string>();
+            for (const [posId, pId] of lineup.entries()) {
+              if (pId === sub.playerInId && posId !== sub.positionId) continue;
+              tempLineup.set(posId, pId);
+            }
+            tempLineup.set(sub.positionId, sub.playerInId);
+            lineup.clear();
+            tempLineup.forEach((pid, posId) => lineup.set(posId, pid));
+          });
+        }
+        return lineup;
+      };
+
+      // Snapshot intended absolute lineups using the OLD subs
+      const downstreamRotations = rotations.filter(r => r.rotationNumber > changedRotationNumber);
+      const intendedLineups = new Map<number, Map<string, string>>();
+      for (const rot of downstreamRotations) {
+        intendedLineups.set(rot.rotationNumber, getLineupWith(rot.rotationNumber, new Map()));
+      }
+
+      // Walk downstream, re-diff each against its new predecessor
+      const updatedOverrides = new Map(subsOverrides);
+      const result = rotations.map(r => ({ ...r }));
+
+      // Apply initial overrides to the result array
+      for (const [rotNum, subs] of subsOverrides.entries()) {
+        const idx = result.findIndex(r => r.rotationNumber === rotNum);
+        if (idx >= 0) result[idx].plannedSubstitutions = subs;
+      }
+
+      for (const rot of downstreamRotations) {
+        const newPrevLineup = getLineupWith(rot.rotationNumber - 1, updatedOverrides);
+        const intendedLineup = intendedLineups.get(rot.rotationNumber)!;
+
+        const newSubs: PlannedSubstitution[] = [];
+        for (const [positionId, intendedPlayerId] of intendedLineup.entries()) {
+          const prevPlayerId = newPrevLineup.get(positionId);
+          if (prevPlayerId && intendedPlayerId && prevPlayerId !== intendedPlayerId) {
+            newSubs.push({
+              playerOutId: prevPlayerId,
+              playerInId: intendedPlayerId,
+              positionId,
+            });
+          }
+        }
+
+        updatedOverrides.set(rot.rotationNumber, newSubs);
+        const idx = result.findIndex(r => r.rotationNumber === rot.rotationNumber);
+        if (idx >= 0) result[idx].plannedSubstitutions = newSubs;
+      }
+
+      return result;
+    }
+
+    it('should preserve downstream intended lineups after copy from previous', () => {
+      // Starting: A=pos1, B=pos2, C=pos3; D and E on bench
+      const startingLineup = new Map([
+        ['pos1', 'A'],
+        ['pos2', 'B'],
+        ['pos3', 'C'],
+      ]);
+
+      // Rot1: sub A -> D at pos1   => lineup: D, B, C
+      // Rot2: sub B -> E at pos2   => lineup: D, E, C
+      // Rot3: sub D -> A at pos1   => lineup: A, E, C
+      const rotations = [
+        { rotationNumber: 1, plannedSubstitutions: [{ playerOutId: 'A', playerInId: 'D', positionId: 'pos1' }] },
+        { rotationNumber: 2, plannedSubstitutions: [{ playerOutId: 'B', playerInId: 'E', positionId: 'pos2' }] },
+        { rotationNumber: 3, plannedSubstitutions: [{ playerOutId: 'D', playerInId: 'A', positionId: 'pos1' }] },
+      ];
+
+      // "Copy from previous" on Rot2 => clear its subs
+      // Without cascade: Rot3 says "sub D out of pos1" but after copy, pos1 still has D (Rot1 put D there)
+      //   so it accidentally still works here BUT let's test the general case.
+      // After cascade: Rot2 lineup should still be D, B, C (from Rot1, no change).
+      //   Rot3 intended lineup was A, E, C. New prev (Rot2) is D, B, C.
+      //   Diff: pos1: D->A, pos2: B->E => two subs.
+
+      const updated = recalculateDownstreamRotations(
+        startingLineup,
+        rotations,
+        2,
+        new Map([[2, []]]) // Rot2 cleared
+      );
+
+      // Verify Rot2 was cleared
+      expect(updated[1].plannedSubstitutions).toEqual([]);
+
+      // Verify Rot3 was recalculated to preserve its intended lineup (A, E, C)
+      const rot3Subs = updated[2].plannedSubstitutions;
+      expect(rot3Subs).toHaveLength(2);
+
+      const rot3SubMap = new Map(rot3Subs.map(s => [s.positionId, s]));
+      // pos1: D -> A
+      expect(rot3SubMap.get('pos1')?.playerOutId).toBe('D');
+      expect(rot3SubMap.get('pos1')?.playerInId).toBe('A');
+      // pos2: B -> E
+      expect(rot3SubMap.get('pos2')?.playerOutId).toBe('B');
+      expect(rot3SubMap.get('pos2')?.playerInId).toBe('E');
+
+      // Verify final lineup at Rot3 is preserved
+      const finalLineup = getLineupAtRotation(startingLineup, updated, 3);
+      expect(finalLineup.get('pos1')).toBe('A');
+      expect(finalLineup.get('pos2')).toBe('E');
+      expect(finalLineup.get('pos3')).toBe('C');
+    });
+
+    it('should handle cascading through multiple downstream rotations', () => {
+      const startingLineup = new Map([
+        ['pos1', 'A'],
+        ['pos2', 'B'],
+      ]);
+
+      // Rot1: A->C at pos1     => C, B
+      // Rot2: B->D at pos2     => C, D
+      // Rot3: C->A at pos1     => A, D
+      // Rot4: D->B at pos2     => A, B
+      const rotations = [
+        { rotationNumber: 1, plannedSubstitutions: [{ playerOutId: 'A', playerInId: 'C', positionId: 'pos1' }] },
+        { rotationNumber: 2, plannedSubstitutions: [{ playerOutId: 'B', playerInId: 'D', positionId: 'pos2' }] },
+        { rotationNumber: 3, plannedSubstitutions: [{ playerOutId: 'C', playerInId: 'A', positionId: 'pos1' }] },
+        { rotationNumber: 4, plannedSubstitutions: [{ playerOutId: 'D', playerInId: 'B', positionId: 'pos2' }] },
+      ];
+
+      // Change Rot1 to empty (copy from previous)
+      const updated = recalculateDownstreamRotations(
+        startingLineup,
+        rotations,
+        1,
+        new Map([[1, []]]) // Rot1 cleared
+      );
+
+      // Intended lineups should be preserved:
+      // Rot1 intended: C, B (but now cleared => A, B)
+      // Rot2 intended: C, D. New prev (Rot1) = A, B. Diff: pos1: A->C, pos2: B->D
+      // Rot3 intended: A, D. New prev (Rot2) = C, D. Diff: pos1: C->A
+      // Rot4 intended: A, B. New prev (Rot3) = A, D. Diff: pos2: D->B
+
+      // Verify all intended lineups are preserved
+      expect(getLineupAtRotation(startingLineup, updated, 2).get('pos1')).toBe('C');
+      expect(getLineupAtRotation(startingLineup, updated, 2).get('pos2')).toBe('D');
+      expect(getLineupAtRotation(startingLineup, updated, 3).get('pos1')).toBe('A');
+      expect(getLineupAtRotation(startingLineup, updated, 3).get('pos2')).toBe('D');
+      expect(getLineupAtRotation(startingLineup, updated, 4).get('pos1')).toBe('A');
+      expect(getLineupAtRotation(startingLineup, updated, 4).get('pos2')).toBe('B');
+    });
+
+    it('should produce no-op subs when downstream intended lineup matches new predecessor', () => {
+      const startingLineup = new Map([
+        ['pos1', 'A'],
+        ['pos2', 'B'],
+      ]);
+
+      // Rot1: A->C   => C, B
+      // Rot2: C->A   => A, B  (back to starting)
+      const rotations = [
+        { rotationNumber: 1, plannedSubstitutions: [{ playerOutId: 'A', playerInId: 'C', positionId: 'pos1' }] },
+        { rotationNumber: 2, plannedSubstitutions: [{ playerOutId: 'C', playerInId: 'A', positionId: 'pos1' }] },
+      ];
+
+      // Clear Rot1 => lineup at Rot1 = A, B (same as starting).
+      // Rot2 intended = A, B. New prev = A, B. No diff => empty subs.
+      const updated = recalculateDownstreamRotations(
+        startingLineup,
+        rotations,
+        1,
+        new Map([[1, []]])
+      );
+
+      expect(updated[1].plannedSubstitutions).toEqual([]);
+    });
+
+    it('should handle a manual swap in the middle cascading forward', () => {
+      const startingLineup = new Map([
+        ['pos1', 'A'],
+        ['pos2', 'B'],
+        ['pos3', 'C'],
+      ]);
+
+      // Rot1: A->D at pos1  => D, B, C
+      // Rot2: D->A at pos1  => A, B, C
+      const rotations = [
+        { rotationNumber: 1, plannedSubstitutions: [{ playerOutId: 'A', playerInId: 'D', positionId: 'pos1' }] },
+        { rotationNumber: 2, plannedSubstitutions: [{ playerOutId: 'D', playerInId: 'A', positionId: 'pos1' }] },
+      ];
+
+      // Coach changes Rot1 to sub B->D at pos2 instead (new swap)
+      const newRot1Subs: PlannedSubstitution[] = [{ playerOutId: 'B', playerInId: 'D', positionId: 'pos2' }];
+      // Rot1 lineup becomes: A, D, C
+      // Rot2 intended: A, B, C. New prev (Rot1) = A, D, C. Diff: pos2: D->B (instead of old pos1: D->A)
+      const updated = recalculateDownstreamRotations(
+        startingLineup,
+        rotations,
+        1,
+        new Map([[1, newRot1Subs]])
+      );
+
+      const rot2Subs = updated[1].plannedSubstitutions;
+      expect(rot2Subs).toHaveLength(1);
+      expect(rot2Subs[0].positionId).toBe('pos2');
+      expect(rot2Subs[0].playerOutId).toBe('D');
+      expect(rot2Subs[0].playerInId).toBe('B');
+
+      // Final lineup at Rot2 should be the original intended: A, B, C
+      const finalLineup = getLineupAtRotation(startingLineup, updated, 2);
+      expect(finalLineup.get('pos1')).toBe('A');
+      expect(finalLineup.get('pos2')).toBe('B');
+      expect(finalLineup.get('pos3')).toBe('C');
+    });
+  });
 });
