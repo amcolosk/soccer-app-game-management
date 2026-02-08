@@ -2959,6 +2959,25 @@
   background: rgba(0, 0, 0, 0.4);
 }
 
+.assigned-player.unavailable {
+  background: #d32f2f;
+  opacity: 0.85;
+}
+
+.lineup-availability-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.5rem;
+  margin-top: -2px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #d32f2f;
+  background: #fff3f3;
+  border-left: 3px solid #f44336;
+  border-radius: 0 0 6px 6px;
+}
+
 .player-select {
   padding: 0.5rem;
   border: 2px solid var(--border-color);
@@ -3014,6 +3033,20 @@
   font-weight: 600;
   color: var(--text-primary);
   font-size: 0.9rem;
+}
+
+.bench-player.unavailable {
+  opacity: 0.6;
+  background: #fff3f3;
+}
+
+.bench-player.unavailable .player-name {
+  text-decoration: line-through;
+}
+
+.bench-status {
+  font-size: 1rem;
+  line-height: 1;
 }
 
 /* Rotation Timeline */

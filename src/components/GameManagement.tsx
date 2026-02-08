@@ -1334,6 +1334,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               }
             }}
             showPreferredPositions={true}
+            getPlayerAvailability={getPlayerAvailability}
           />
         ) : (
           <>

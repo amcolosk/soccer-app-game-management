@@ -695,6 +695,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
               lineup={startingLineup}
               onLineupChange={handleLineupChange}
               showPreferredPositions={true}
+              getPlayerAvailability={getPlayerAvailability}
             />
           </div>
         );

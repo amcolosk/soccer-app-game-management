@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getStatusColor, getStatusLabel } from './PlayerAvailabilityGrid';
 
 interface Player {
   id: string;
@@ -21,6 +22,7 @@ interface LineupBuilderProps {
   onLineupChange: (positionId: string, playerId: string) => void;
   disabled?: boolean;
   showPreferredPositions?: boolean;
+  getPlayerAvailability?: (playerId: string) => string;
 }
 
 export function LineupBuilder({
@@ -30,6 +32,7 @@ export function LineupBuilder({
   onLineupChange,
   disabled = false,
   showPreferredPositions = true,
+  getPlayerAvailability,
 }: LineupBuilderProps) {
   const [draggedPlayer, setDraggedPlayer] = useState<Player | null>(null);
 
@@ -88,27 +91,44 @@ export function LineupBuilder({
             >
               <div className="position-label">{position.abbreviation}</div>
               {assignedPlayer ? (
-                <div
-                  className="assigned-player"
-                  draggable={!disabled}
-                  onDragStart={() => !disabled && handleDragStart(assignedPlayer)}
-                >
-                  <span className="player-number">#{assignedPlayer.playerNumber || 0}</span>
-                  <span className="player-name-short">
-                    {assignedPlayer.firstName.charAt(0)}. {assignedPlayer.lastName}
-                  </span>
-                  {!disabled && (
-                    <button
-                      className="remove-player"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onLineupChange(position.id, '');
-                      }}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
+                <>
+                  <div
+                    className={`assigned-player ${
+                      getPlayerAvailability && (getPlayerAvailability(assignedPlayer.id) === 'absent' || getPlayerAvailability(assignedPlayer.id) === 'injured')
+                        ? 'unavailable'
+                        : ''
+                    }`}
+                    draggable={!disabled}
+                    onDragStart={() => !disabled && handleDragStart(assignedPlayer)}
+                  >
+                    <span className="player-number">#{assignedPlayer.playerNumber || 0}</span>
+                    <span className="player-name-short">
+                      {assignedPlayer.firstName.charAt(0)}. {assignedPlayer.lastName}
+                    </span>
+                    {!disabled && (
+                      <button
+                        className="remove-player"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onLineupChange(position.id, '');
+                        }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  {getPlayerAvailability && (() => {
+                    const status = getPlayerAvailability(assignedPlayer.id);
+                    if (status === 'absent' || status === 'injured') {
+                      return (
+                        <div className="lineup-availability-warning" style={{ borderLeftColor: getStatusColor(status) }}>
+                          {getStatusLabel(status)} {status === 'absent' ? 'Absent' : 'Injured'}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                </>
               ) : (
                 <select
                   className="player-select"
@@ -155,19 +175,29 @@ export function LineupBuilder({
         <div className="bench-players">
           {availablePlayers
             .filter((p) => !Array.from(lineup.values()).includes(p.id))
-            .map((player) => (
-              <div
-                key={player.id}
-                className="bench-player"
-                draggable={!disabled}
-                onDragStart={() => !disabled && handleDragStart(player)}
-              >
-                <span className="player-number">#{player.playerNumber || 0}</span>
-                <span className="player-name">
-                  {player.firstName} {player.lastName}
-                </span>
-              </div>
-            ))}
+            .map((player) => {
+              const status = getPlayerAvailability?.(player.id);
+              const isUnavailable = status === 'absent' || status === 'injured';
+              return (
+                <div
+                  key={player.id}
+                  className={`bench-player ${isUnavailable ? 'unavailable' : ''}`}
+                  draggable={!disabled}
+                  onDragStart={() => !disabled && handleDragStart(player)}
+                  style={isUnavailable ? { borderColor: getStatusColor(status) } : undefined}
+                >
+                  {isUnavailable && (
+                    <span className="bench-status" style={{ color: getStatusColor(status) }}>
+                      {getStatusLabel(status)}
+                    </span>
+                  )}
+                  <span className="player-number">#{player.playerNumber || 0}</span>
+                  <span className="player-name">
+                    {player.firstName} {player.lastName}
+                  </span>
+                </div>
+              );
+            })}
         </div>
       </div>
     </div>
