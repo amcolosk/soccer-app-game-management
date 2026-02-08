@@ -69,7 +69,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [gamePlan, setGamePlan] = useState<GamePlan | null>(null);
   const [plannedRotations, setPlannedRotations] = useState<PlannedRotation[]>([]);
   const [playerAvailabilities, setPlayerAvailabilities] = useState<PlayerAvailability[]>([]);
-  const [showAvailabilityCheck, setShowAvailabilityCheck] = useState(false);
   const [showRotationModal, setShowRotationModal] = useState(false);
   const [currentRotation, setCurrentRotation] = useState<PlannedRotation | null>(null);
   const [showLateArrivalModal, setShowLateArrivalModal] = useState(false);
@@ -438,12 +437,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const handleStartGame = async () => {
-    // Show availability check if there's a game plan
-    if (gamePlan && gameState.status === 'scheduled') {
-      setShowAvailabilityCheck(true);
-      return;
-    }
-
     try {
       const startTime = new Date().toISOString();
       
@@ -1176,6 +1169,60 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           </div>
         )}
 
+        {gameState.status === 'scheduled' && gamePlan && players.length > 0 && (
+          <div className="planner-section">
+            <h3>Player Availability</h3>
+            <div className="availability-grid">
+              {players.map((player) => {
+                const status = getPlayerAvailability(player.id);
+                const statusColor = status === 'available' ? '#4caf50' : 
+                                  status === 'absent' ? '#f44336' : 
+                                  status === 'late-arrival' ? '#fdd835' : '#ff9800';
+                const statusLabel = status === 'available' ? '✓' :
+                                   status === 'absent' ? '✗' :
+                                   status === 'late-arrival' ? '⏰' : '🩹';
+                
+                return (
+                  <button
+                    key={player.id}
+                    className="availability-card"
+                    onClick={() => {
+                      const statusCycle = ['available', 'absent', 'late-arrival', 'injured'];
+                      const currentIndex = statusCycle.indexOf(status);
+                      const newStatus = statusCycle[(currentIndex + 1) % statusCycle.length] as
+                        'available' | 'absent' | 'late-arrival' | 'injured';
+                      updatePlayerAvailability(
+                        game.id,
+                        player.id,
+                        newStatus,
+                        undefined,
+                        team.coaches || []
+                      );
+                    }}
+                    style={{ borderColor: statusColor }}
+                  >
+                    <div
+                      className="availability-status"
+                      style={{ backgroundColor: statusColor }}
+                    >
+                      {statusLabel}
+                    </div>
+                    <div className="player-info">
+                      <span className="player-number">#{player.playerNumber}</span>
+                      <span className="player-name">
+                        {player.firstName} {player.lastName}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="availability-legend">
+              Click player cards to cycle: Available → Absent → Late Arrival → Injured
+            </p>
+          </div>
+        )}
+
         <div className="timer-controls">
           {gameState.status === 'scheduled' && (
             <button onClick={handleStartGame} className="btn-primary btn-large">
@@ -1883,104 +1930,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       </div>
 
       {/* Availability Check Modal */}
-      {showAvailabilityCheck && (
-        <div className="modal-overlay" onClick={() => setShowAvailabilityCheck(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>Player Availability Check</h3>
-            <p className="modal-subtitle">Confirm which players are present before starting the game</p>
-            
-            <div className="availability-check-list">
-              {players.map((player) => {
-                const status = getPlayerAvailability(player.id);
-                const statusColor = status === 'available' ? '#4caf50' : 
-                                  status === 'absent' ? '#f44336' : 
-                                  status === 'late-arrival' ? '#fdd835' : '#ff9800';
-                
-                return (
-                  <div key={player.id} className="availability-check-item">
-                    <div
-                      className="availability-indicator"
-                      style={{ backgroundColor: statusColor }}
-                    />
-                    <span className="player-name">
-                      #{player.playerNumber} {player.firstName} {player.lastName}
-                    </span>
-                    <select
-                      value={status}
-                      onChange={(e) => {
-                        updatePlayerAvailability(
-                          game.id,
-                          player.id,
-                          e.target.value as any,
-                          undefined,
-                          team.coaches || []
-                        );
-                      }}
-                      className="availability-select"
-                    >
-                      <option value="available">Present</option>
-                      <option value="absent">Absent</option>
-                      <option value="late-arrival">Expected Late</option>
-                      <option value="injured">Injured</option>
-                    </select>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="form-actions">
-              <button
-                onClick={async () => {
-                  setShowAvailabilityCheck(false);
-                  // Actually start the game
-                  const startTime = new Date().toISOString();
-                  
-                  await client.models.Game.update({
-                    id: game.id,
-                    status: 'in-progress',
-                    lastStartTime: startTime,
-                  });
-
-                  // Only create records for starters who don't already have an active record
-                  const startersWithoutActiveRecords = lineup
-                    .filter(l => l.isStarter)
-                    .filter(l => {
-                      const hasActiveRecord = playTimeRecords.some(
-                        r => r.playerId === l.playerId && r.endGameSeconds === null
-                      );
-                      return !hasActiveRecord;
-                    });
-
-                  const starterPromises = startersWithoutActiveRecords.map(l =>
-                    client.models.PlayTimeRecord.create({
-                      gameId: game.id,
-                      playerId: l.playerId,
-                      positionId: l.positionId,
-                      startGameSeconds: currentTime,
-                      coaches: team.coaches,
-                    })
-                  );
-
-                  await Promise.all(starterPromises);
-
-                  setGameState({ ...gameState, status: 'in-progress' });
-                  setIsRunning(true);
-                }}
-                className="btn-primary"
-              >
-                Start Game
-              </button>
-              <button
-                onClick={() => setShowAvailabilityCheck(false)}
-                className="btn-secondary"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Rotation Modal */}
       {showRotationModal && currentRotation && (
         <div className="modal-overlay" onClick={() => setShowRotationModal(false)}>
