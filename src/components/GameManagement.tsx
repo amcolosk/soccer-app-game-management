@@ -15,6 +15,7 @@ import { executeSubstitution, closeActivePlayTimeRecords } from "../services/sub
 import { updatePlayerAvailability, type PlannedSubstitution } from "../services/rotationPlannerService";
 import { PlayerSelect } from "./PlayerSelect";
 import { LineupBuilder } from "./LineupBuilder";
+import { PlayerAvailabilityGrid } from "./PlayerAvailabilityGrid";
 import { useTeamData, type PlayerWithRoster as PlayerWithRosterBase } from "../hooks/useTeamData";
 
 const client = generateClient<Schema>();
@@ -1170,57 +1171,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         )}
 
         {gameState.status === 'scheduled' && gamePlan && players.length > 0 && (
-          <div className="planner-section">
-            <h3>Player Availability</h3>
-            <div className="availability-grid">
-              {players.map((player) => {
-                const status = getPlayerAvailability(player.id);
-                const statusColor = status === 'available' ? '#4caf50' : 
-                                  status === 'absent' ? '#f44336' : 
-                                  status === 'late-arrival' ? '#fdd835' : '#ff9800';
-                const statusLabel = status === 'available' ? '✓' :
-                                   status === 'absent' ? '✗' :
-                                   status === 'late-arrival' ? '⏰' : '🩹';
-                
-                return (
-                  <button
-                    key={player.id}
-                    className="availability-card"
-                    onClick={() => {
-                      const statusCycle = ['available', 'absent', 'late-arrival', 'injured'];
-                      const currentIndex = statusCycle.indexOf(status);
-                      const newStatus = statusCycle[(currentIndex + 1) % statusCycle.length] as
-                        'available' | 'absent' | 'late-arrival' | 'injured';
-                      updatePlayerAvailability(
-                        game.id,
-                        player.id,
-                        newStatus,
-                        undefined,
-                        team.coaches || []
-                      );
-                    }}
-                    style={{ borderColor: statusColor }}
-                  >
-                    <div
-                      className="availability-status"
-                      style={{ backgroundColor: statusColor }}
-                    >
-                      {statusLabel}
-                    </div>
-                    <div className="player-info">
-                      <span className="player-number">#{player.playerNumber}</span>
-                      <span className="player-name">
-                        {player.firstName} {player.lastName}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="availability-legend">
-              Click player cards to cycle: Available → Absent → Late Arrival → Injured
-            </p>
-          </div>
+          <PlayerAvailabilityGrid
+            players={players}
+            gameId={game.id}
+            coaches={team.coaches || []}
+            getPlayerAvailability={getPlayerAvailability}
+          />
         )}
 
         <div className="timer-controls">
