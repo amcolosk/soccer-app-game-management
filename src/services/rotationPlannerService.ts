@@ -346,11 +346,12 @@ export async function copyGamePlan(
     filter: { gamePlanId: { eq: sourcePlan.id } },
   });
   
-  // Create new game plan
+  // Create new game plan (including starting lineup)
   const newPlanResult = await client.models.GamePlan.create({
     gameId: targetGameId,
     rotationIntervalMinutes: sourcePlan.rotationIntervalMinutes,
     totalRotations: sourcePlan.totalRotations,
+    startingLineup: sourcePlan.startingLineup,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     coaches,
