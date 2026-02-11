@@ -3,6 +3,7 @@ import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import {
   calculatePlayTime,
+  calculateFairRotations,
   copyGamePlan,
   type PlannedSubstitution,
 } from "../services/rotationPlannerService";
@@ -335,6 +336,73 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     } catch (error) {
       console.error("Error updating rotation plan:", error);
       alert("Failed to update rotation plan");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleAutoGenerateRotations = async () => {
+    if (!gamePlan || rotations.length === 0) {
+      alert('Create a plan first before auto-generating rotations.');
+      return;
+    }
+
+    if (startingLineup.size === 0) {
+      alert('Set up a starting lineup first.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'This will overwrite all current rotation substitutions with auto-generated fair rotations based on player availability.\n\nContinue?'
+    );
+    if (!confirmed) return;
+
+    try {
+      setIsGenerating(true);
+
+      // Build available roster from players who are available or late-arrival
+      const availableRoster = players
+        .filter(p => {
+          const status = getPlayerAvailability(p.id);
+          return status === 'available' || status === 'late-arrival';
+        })
+        .map(p => ({
+          id: p.id,
+          playerId: p.id,
+          playerNumber: p.playerNumber || 0,
+          preferredPositions: p.preferredPositions,
+        }));
+
+      const lineupArray = Array.from(startingLineup.entries()).map(([positionId, playerId]) => ({
+        playerId,
+        positionId,
+      }));
+
+      const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
+
+      const generatedRotations = calculateFairRotations(
+        availableRoster,
+        lineupArray,
+        rotations.length,
+        rotationsPerHalf,
+        team.maxPlayersOnField || positions.length
+      );
+
+      // Update each rotation with generated substitutions
+      const updates = rotations.map((rotation, idx) => {
+        const generated = generatedRotations[idx];
+        return client.models.PlannedRotation.update({
+          id: rotation.id,
+          plannedSubstitutions: JSON.stringify(generated?.substitutions || []),
+        });
+      });
+
+      await Promise.all(updates);
+
+      alert('Rotations auto-generated! Review each rotation to verify.');
+    } catch (error) {
+      console.error('Error auto-generating rotations:', error);
+      alert('Failed to auto-generate rotations.');
     } finally {
       setIsGenerating(false);
     }
@@ -687,6 +755,16 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                 >
                   {isGenerating ? "Updating..." : (gamePlan ? "Update Plan" : "Create Plan")}
                 </button>
+                {gamePlan && rotations.length > 0 && (
+                  <button
+                    onClick={handleAutoGenerateRotations}
+                    className="secondary-button"
+                    disabled={isGenerating}
+                    title="Auto-generate fair rotation substitutions based on current availability"
+                  >
+                    🔄 Auto-Generate Rotations
+                  </button>
+                )}
               </div>
             </div>
             <LineupBuilder

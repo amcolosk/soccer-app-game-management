@@ -183,11 +183,7 @@ async function setupLineup(page: Page) {
   await gameCard.locator('.plan-button').click();
   await page.waitForTimeout(1000);
 
-  // Click "Setup" button in the timeline to open the lineup builder
-  // We need to click this to make the position slots visible
-  await clickButton(page, 'Setup');
-  await page.waitForTimeout(500);
-  
+  // The lineup builder is already visible on the game planner page
   // Wait for players to be loaded in the dropdown (ensure options exist)
   const firstSlotSelect = page.locator('.position-slot select').first();
   await expect(firstSlotSelect).toBeVisible();
@@ -353,8 +349,8 @@ async function verifyTimeline(page: Page) {
   const rotationCount = await rotationButtons.count();
   console.log(`  Found ${rotationCount} rotation buttons`);
   
-  // Check that Start button exists
-  await expect(page.getByRole('button', { name: 'Setup' })).toBeVisible();
+  // Check that Lineup button exists
+  await expect(page.getByRole('button', { name: 'Lineup' })).toBeVisible();
   
   // Check that HT (halftime) marker exists (with longer timeout for observeQuery to update)
   try {
@@ -415,9 +411,11 @@ async function planSubstitutions(page: Page) {
   }
   
   // Substitution 2: At halftime, sub Late Arrival for Player 2
-  // The halftime rotation is managed via the HT panel, not as a separate rotation button
+  // The halftime rotation button is inside .halftime-column. After downstream recalculation
+  // auto-generates a reverse swap, the button text changes from "Halftime" to "1 subs",
+  // so we select by the column class instead of text matching.
   console.log('  Halftime: Substituting Late Arrival for Player 2...');
-  const halftimeButton = page.locator('.rotation-button').filter({ hasText: /Halftime/ });
+  const halftimeButton = page.locator('.halftime-column .rotation-button');
   const hasHalftime = await halftimeButton.count() > 0;
   
   if (hasHalftime) {
@@ -501,20 +499,31 @@ async function verifyPlayTimeReport(page: Page) {
   console.log('\n--- Projected Play Time ---');
   
   // Expected play times based on rotation plan:
-  // Game is 40 minutes (20 min per half), rotation every 10 minutes = 2 rotations total
-  // Starting lineup: P1, P2, P3, P4, P5 (0-10 min)
-  // Rotation 1 (10-20 min): P6 in for P1, so P2, P3, P4, P5, P6
-  // Halftime rotation (20-40 min): Late Arrival in for P2, so Late, P3, P4, P5, P6
+  // Game is 40 minutes (20 min per half), rotation every 10 minutes
+  // Starting lineup: P1, P2, P3, P4, P5
+  // Rotation 1 at 10': P6 in for P1 → lineup: P6, P2, P3, P4, P5
+  // Halftime (auto-reverse from downstream recalc): P1 back for P6
+  // Halftime (manual): Late Arrival in for P2 → lineup: P1, Late, P3, P4, P5
+  // 30' (auto-reverse from downstream recalc): P2 back for Late Arrival → P1, P2, P3, P4, P5
+  //
+  // Play times:
+  // P1: 0-10 + 20-40 = 30 min
+  // P2: 0-20 + 30-40 = 30 min (subbed out at HT, auto-reversed back at 30')
+  // P3: 0-40 = 40 min (entire game)
+  // P4: 0-40 = 40 min (entire game)
+  // P5: 0-40 = 40 min (entire game)
+  // P6: 10-20 = 10 min (subbed in at 10', auto-reversed at HT)
+  // Late Arrival: 20-30 = 10 min (subbed in at HT, auto-reversed at 30')
   
   // Expected times (using format "#N FirstName L." as displayed in UI)
   const expectedPlayTimes: Record<string, { min: number; max: number }> = {
-    '#1 Player O.': { min: 9, max: 11 },    // Player One: 10 minutes (0-10)
-    '#2 Player T.': { min: 19, max: 21 },   // Player Two: 20 minutes (0-20, subbed out at halftime)
+    '#1 Player O.': { min: 29, max: 31 },   // Player One: 30 minutes (0-10, 20-40)
+    '#2 Player T.': { min: 29, max: 31 },   // Player Two: 30 minutes (0-20, 30-40 auto-reversed)
     '#3 Player T.': { min: 39, max: 41 },   // Player Three: 40 minutes (entire game)
     '#4 Player F.': { min: 39, max: 41 },   // Player Four: 40 minutes (entire game)
     '#5 Player F.': { min: 39, max: 41 },   // Player Five: 40 minutes (entire game)
-    '#6 Player S.': { min: 29, max: 31 },   // Player Six: 30 minutes (10-40)
-    '#7 Late A.': { min: 19, max: 21 },     // Late Arrival: 20 minutes (20-40, subbed in at halftime)
+    '#6 Player S.': { min: 9, max: 11 },    // Player Six: 10 minutes (10-20, auto-reversed at HT)
+    '#7 Late A.': { min: 9, max: 11 },      // Late Arrival: 10 minutes (20-30, auto-reversed at 30')
   };
   
   for (const [playerName, expectedTime] of Object.entries(expectedPlayTimes)) {

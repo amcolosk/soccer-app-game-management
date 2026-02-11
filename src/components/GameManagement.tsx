@@ -12,7 +12,7 @@ import {
 } from "../utils/lineupUtils";
 import { formatGameTimeDisplay, formatMinutesSeconds } from "../utils/gameTimeUtils";
 import { executeSubstitution, closeActivePlayTimeRecords } from "../services/substitutionService";
-import { updatePlayerAvailability, type PlannedSubstitution } from "../services/rotationPlannerService";
+import { updatePlayerAvailability, calculateFairRotations, type PlannedSubstitution } from "../services/rotationPlannerService";
 import { PlayerSelect } from "./PlayerSelect";
 import { LineupBuilder } from "./LineupBuilder";
 import { PlayerAvailabilityGrid } from "./PlayerAvailabilityGrid";
@@ -73,6 +73,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [showRotationModal, setShowRotationModal] = useState(false);
   const [currentRotation, setCurrentRotation] = useState<PlannedRotation | null>(null);
   const [showLateArrivalModal, setShowLateArrivalModal] = useState(false);
+  const [isRecalculating, setIsRecalculating] = useState(false);
 
   // Substitution queue: array of {playerId, positionId}
   interface SubQueue {
@@ -387,6 +388,159 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     return availability?.status || 'available';
   };
 
+  // Detect conflicts between current availability and the rotation plan
+  const getPlanConflicts = () => {
+    const conflicts: Array<{
+      type: 'starter' | 'rotation';
+      playerId: string;
+      playerName: string;
+      status: string;
+      rotationNumbers: number[];
+    }> = [];
+
+    if (!gamePlan) return conflicts;
+
+    // Check starting lineup
+    if (gamePlan.startingLineup) {
+      try {
+        const sl = JSON.parse(gamePlan.startingLineup as string) as Array<{ playerId: string; positionId: string }>;
+        for (const entry of sl) {
+          const status = getPlayerAvailability(entry.playerId);
+          if (status === 'absent' || status === 'injured') {
+            const player = players.find(p => p.id === entry.playerId);
+            conflicts.push({
+              type: 'starter',
+              playerId: entry.playerId,
+              playerName: player ? `#${player.playerNumber} ${player.firstName} ${player.lastName}` : 'Unknown',
+              status,
+              rotationNumbers: [],
+            });
+          }
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
+    // Check all planned rotations
+    for (const rotation of plannedRotations) {
+      try {
+        const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
+        for (const sub of subs) {
+          for (const pid of [sub.playerOutId, sub.playerInId]) {
+            const status = getPlayerAvailability(pid);
+            if (status === 'absent' || status === 'injured') {
+              const player = players.find(p => p.id === pid);
+              const existing = conflicts.find(c => c.playerId === pid);
+              if (existing) {
+                if (!existing.rotationNumbers.includes(rotation.rotationNumber)) {
+                  existing.rotationNumbers.push(rotation.rotationNumber);
+                }
+              } else {
+                conflicts.push({
+                  type: 'rotation',
+                  playerId: pid,
+                  playerName: player ? `#${player.playerNumber} ${player.firstName} ${player.lastName}` : 'Unknown',
+                  status,
+                  rotationNumbers: [rotation.rotationNumber],
+                });
+              }
+            }
+          }
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
+    return conflicts;
+  };
+
+  // Check which future rotations reference a specific player
+  const getRotationsReferencingPlayer = (playerId: string): number[] => {
+    const rotationNums: number[] = [];
+    const currentMinutes = Math.floor(currentTime / 60);
+    for (const rotation of plannedRotations) {
+      if (rotation.gameMinute <= currentMinutes) continue;
+      try {
+        const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
+        if (subs.some(s => s.playerOutId === playerId || s.playerInId === playerId)) {
+          rotationNums.push(rotation.rotationNumber);
+        }
+      } catch { /* ignore */ }
+    }
+    return rotationNums;
+  };
+
+  const handleRecalculateRotations = async () => {
+    if (!gamePlan || plannedRotations.length === 0) return;
+
+    if (!gamePlan.startingLineup) {
+      alert('No starting lineup found in the game plan.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'This will recalculate all rotation substitutions based on current player availability and preferred positions.\n\nExisting rotation substitutions will be overwritten.\n\nContinue?'
+    );
+    if (!confirmed) return;
+
+    try {
+      setIsRecalculating(true);
+
+      // Build available roster from players who are available or late-arrival
+      const availableRoster = players
+        .filter(p => {
+          const status = getPlayerAvailability(p.id);
+          return status === 'available' || status === 'late-arrival';
+        })
+        .map(p => ({
+          id: p.id,
+          playerId: p.id,
+          playerNumber: p.playerNumber || 0,
+          preferredPositions: p.preferredPositions,
+        }));
+
+      // Parse starting lineup, filtering out unavailable starters
+      const fullLineup = JSON.parse(gamePlan.startingLineup as string) as Array<{ playerId: string; positionId: string }>;
+      const lineupArray = fullLineup.filter(entry => {
+        const status = getPlayerAvailability(entry.playerId);
+        return status === 'available' || status === 'late-arrival';
+      });
+
+      if (lineupArray.length === 0) {
+        alert('No available players in the starting lineup. Adjust the lineup in the Game Planner first.');
+        return;
+      }
+
+      const halfLengthMinutes = team.halfLengthMinutes || 30;
+      const rotationIntervalMinutes = gamePlan.rotationIntervalMinutes || 10;
+      const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
+
+      const generatedRotations = calculateFairRotations(
+        availableRoster,
+        lineupArray,
+        plannedRotations.length,
+        rotationsPerHalf,
+        team.maxPlayersOnField || positions.length
+      );
+
+      // Update each rotation with generated substitutions
+      const updates = plannedRotations.map((rotation, idx) => {
+        const generated = generatedRotations[idx];
+        return client.models.PlannedRotation.update({
+          id: rotation.id,
+          plannedSubstitutions: JSON.stringify(generated?.substitutions || []),
+        });
+      });
+
+      await Promise.all(updates);
+
+      alert('Rotations recalculated based on current availability! Review each rotation to verify.');
+    } catch (error) {
+      console.error('Error recalculating rotations:', error);
+      alert('Failed to recalculate rotations.');
+    } finally {
+      setIsRecalculating(false);
+    }
+  };
+
   const getNextRotation = (): PlannedRotation | null => {
     if (!gamePlan || plannedRotations.length === 0) return null;
     
@@ -411,8 +565,36 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       
       // Close active play time record
       await closeActivePlayTimeRecords(playTimeRecords, currentTime, [playerId]);
-      
-      alert('Player marked as injured');
+
+      // Remove from lineup so the position shows as empty
+      const assignment = lineup.find(l => l.playerId === playerId);
+      if (assignment) {
+        await client.models.LineupAssignment.delete({ id: assignment.id });
+      }
+
+      // Check if this player is in future planned rotations
+      const affectedRotations = getRotationsReferencingPlayer(playerId);
+      const player = players.find(p => p.id === playerId);
+      const playerName = player ? `#${player.playerNumber} ${player.firstName}` : 'Player';
+
+      if (affectedRotations.length > 0) {
+        alert(
+          `${playerName} marked as injured and removed from the field.\n\n` +
+          `⚠️ This player is referenced in planned rotation(s) ${affectedRotations.join(', ')}.\n` +
+          `Those rotations will need to be adjusted.`
+        );
+      } else {
+        alert(`${playerName} marked as injured and removed from the field.`);
+      }
+
+      // Prompt to substitute if the position is now empty
+      if (assignment) {
+        const position = positions.find(p => p.id === assignment.positionId);
+        if (position) {
+          setSubstitutionPosition(position);
+          setShowSubstitution(true);
+        }
+      }
     } catch (error) {
       console.error('Error marking player injured:', error);
       alert('Failed to mark player injured');
@@ -438,6 +620,26 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const handleStartGame = async () => {
+    // Warn if any starters are unavailable
+    const unavailableStarters = lineup
+      .filter(l => l.isStarter)
+      .filter(l => {
+        const status = getPlayerAvailability(l.playerId);
+        return status === 'absent' || status === 'injured';
+      })
+      .map(l => {
+        const player = players.find(p => p.id === l.playerId);
+        const status = getPlayerAvailability(l.playerId);
+        return player ? `#${player.playerNumber} ${player.firstName} (${status})` : `Unknown (${status})`;
+      });
+
+    if (unavailableStarters.length > 0) {
+      const proceed = window.confirm(
+        `⚠️ The following starters are unavailable:\n\n${unavailableStarters.join('\n')}\n\nPlease update the lineup before starting. Start anyway?`
+      );
+      if (!proceed) return;
+    }
+
     try {
       const startTime = new Date().toISOString();
       
@@ -1039,13 +1241,30 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             if (nextRotation) {
               const currentMinutes = Math.floor(currentTime / 60);
               const minutesUntil = nextRotation.gameMinute - currentMinutes;
+
+              // Check if this rotation references any unavailable players
+              const rotationConflicts = (() => {
+                try {
+                  const subs: PlannedSubstitution[] = JSON.parse(nextRotation.plannedSubstitutions as string);
+                  return subs.filter(sub => {
+                    const inStatus = getPlayerAvailability(sub.playerInId);
+                    const outStatus = getPlayerAvailability(sub.playerOutId);
+                    return inStatus === 'absent' || inStatus === 'injured' || outStatus === 'absent' || outStatus === 'injured';
+                  });
+                } catch { return []; }
+              })();
               
               return (
-                <div className="rotation-countdown-banner">
+                <div className={`rotation-countdown-banner ${rotationConflicts.length > 0 ? 'has-conflicts' : ''}`}>
                   <div className="countdown-info">
                     <span className="countdown-label">Next Rotation:</span>
                     <span className="countdown-time">{minutesUntil} min</span>
                     <span className="countdown-detail">at {nextRotation.gameMinute}'</span>
+                    {rotationConflicts.length > 0 && (
+                      <span className="rotation-conflict-badge" title="This rotation references unavailable players">
+                        ⚠️ {rotationConflicts.length} conflict{rotationConflicts.length > 1 ? 's' : ''}
+                      </span>
+                    )}
                   </div>
                   <button 
                     onClick={() => {
@@ -1169,6 +1388,35 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             </button>
           </div>
         )}
+
+        {gameState.status === 'scheduled' && gamePlan && (() => {
+          const conflicts = getPlanConflicts();
+          if (conflicts.length === 0) return null;
+          return (
+            <div className="plan-conflict-banner">
+              <h4>⚠️ Plan Conflicts</h4>
+              <p>The following players are in the game plan but currently unavailable:</p>
+              <ul>
+                {conflicts.map(c => (
+                  <li key={c.playerId}>
+                    <strong>{c.playerName}</strong> — {c.status}
+                    {c.type === 'starter' && ' (starting lineup)'}
+                    {c.rotationNumbers.length > 0 && ` · Rotation${c.rotationNumbers.length > 1 ? 's' : ''} ${c.rotationNumbers.join(', ')}`}
+                  </li>
+                ))}
+              </ul>
+              <p className="conflict-hint">Update availability or adjust the game plan before starting.</p>
+              <button
+                onClick={handleRecalculateRotations}
+                disabled={isRecalculating}
+                className="btn-secondary"
+                style={{ marginTop: '8px' }}
+              >
+                {isRecalculating ? '⏳ Recalculating...' : '🔄 Recalculate Rotations'}
+              </button>
+            </div>
+          );
+        })()}
 
         {gameState.status === 'scheduled' && gamePlan && players.length > 0 && (
           <PlayerAvailabilityGrid
@@ -1532,10 +1780,14 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                       const positionName = currentPosition?.positionName || '';
                       const positionAbbr = currentPosition?.abbreviation || '';
                       
-                      // Filter available players
+                      // Filter available players (exclude unavailable + already queued)
                       const availablePlayers = players
                         .filter(p => isEmptyPosition ? !isInLineup(p.id) : !isCurrentlyPlaying(p.id))
-                        .filter(p => !substitutionQueue.some(q => q.playerId === p.id));
+                        .filter(p => !substitutionQueue.some(q => q.playerId === p.id))
+                        .filter(p => {
+                          const status = getPlayerAvailability(p.id);
+                          return status !== 'absent' && status !== 'injured';
+                        });
                       
                       // Separate recommended players (those with this position as preferred)
                       const recommendedPlayers = availablePlayers.filter(p => {

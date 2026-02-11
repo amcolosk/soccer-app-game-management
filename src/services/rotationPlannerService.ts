@@ -65,6 +65,67 @@ export function calculateFairRotations(
   const playerIds = availablePlayers.map(p => p.playerId);
   const rotations: Array<{ substitutions: PlannedSubstitution[] }> = [];
   
+  // Build preferred positions lookup: playerId -> Set of positionIds
+  const preferredPositionsMap = new Map<string, Set<string>>();
+  for (const player of availablePlayers) {
+    if (player.preferredPositions) {
+      const prefs = player.preferredPositions.split(',').map(s => s.trim()).filter(Boolean);
+      preferredPositionsMap.set(player.playerId, new Set(prefs));
+    }
+  }
+
+  // Check if a player prefers a given position
+  const prefersPosition = (playerId: string, positionId: string): boolean => {
+    const prefs = preferredPositionsMap.get(playerId);
+    return prefs ? prefs.has(positionId) : false;
+  };
+
+  /**
+   * Given a set of positions to fill and candidate bench players (sorted by least time),
+   * return the best assignment: bench players matched to positions they prefer when possible.
+   * Falls back to time-based ordering when preferences don't help.
+   */
+  const assignPlayersToPositions = (
+    positionsToFill: string[],
+    benchCandidates: Array<{ id: string; time: number }>
+  ): Array<{ playerId: string; positionId: string }> => {
+    const assignments: Array<{ playerId: string; positionId: string }> = [];
+    const usedPlayers = new Set<string>();
+    const usedPositions = new Set<string>();
+
+    // Pass 1: Assign bench players to positions they prefer (least time first)
+    for (const candidate of benchCandidates) {
+      if (usedPlayers.size >= positionsToFill.length) break;
+      if (usedPlayers.has(candidate.id)) continue;
+
+      for (const posId of positionsToFill) {
+        if (usedPositions.has(posId)) continue;
+        if (prefersPosition(candidate.id, posId)) {
+          assignments.push({ playerId: candidate.id, positionId: posId });
+          usedPlayers.add(candidate.id);
+          usedPositions.add(posId);
+          break;
+        }
+      }
+    }
+
+    // Pass 2: Fill remaining positions with remaining bench players (least time first)
+    for (const candidate of benchCandidates) {
+      if (usedPlayers.size >= positionsToFill.length) break;
+      if (usedPlayers.has(candidate.id)) continue;
+
+      for (const posId of positionsToFill) {
+        if (usedPositions.has(posId)) continue;
+        assignments.push({ playerId: candidate.id, positionId: posId });
+        usedPlayers.add(candidate.id);
+        usedPositions.add(posId);
+        break;
+      }
+    }
+
+    return assignments;
+  };
+
   // Track current field state
   let currentField = new Set(startingLineup.map(s => s.playerId));
   const positionMap = new Map(startingLineup.map(s => [s.playerId, s.positionId]));
@@ -81,27 +142,37 @@ export function calculateFairRotations(
     // At halftime, swap entire lineup for fresh legs
     if (rotNum === rotationsPerHalf + 1) {
       const benchPlayers = Array.from(playerIds).filter(id => !currentField.has(id));
-      const sortedByLeastTime = benchPlayers.sort((a, b) => 
-        (playTimeRotations.get(a) || 0) - (playTimeRotations.get(b) || 0)
-      );
+      const benchWithTime = benchPlayers.map(id => ({
+        id,
+        time: playTimeRotations.get(id) || 0,
+      })).sort((a, b) => a.time - b.time);
       
       const fieldPlayers = Array.from(currentField);
-      const subsNeeded = Math.min(maxPlayersOnField, sortedByLeastTime.length);
+      const subsNeeded = Math.min(maxPlayersOnField, benchWithTime.length);
       
-      for (let i = 0; i < subsNeeded; i++) {
-        const playerOut = fieldPlayers[i];
-        const playerIn = sortedByLeastTime[i];
+      // Collect which positions will be vacated
+      const positionsToFill = fieldPlayers.slice(0, subsNeeded).map(pid => positionMap.get(pid)!);
+      const playersOut = fieldPlayers.slice(0, subsNeeded);
+      
+      // Match bench players to positions using preferred positions
+      const assignments = assignPlayersToPositions(positionsToFill, benchWithTime);
+      
+      for (let i = 0; i < playersOut.length; i++) {
+        const playerOut = playersOut[i];
         const position = positionMap.get(playerOut)!;
+        // Find which bench player was assigned to this position
+        const assignment = assignments.find(a => a.positionId === position);
+        if (!assignment) continue;
         
         substitutions.push({
           playerOutId: playerOut,
-          playerInId: playerIn,
+          playerInId: assignment.playerId,
           positionId: position,
         });
         
         currentField.delete(playerOut);
-        currentField.add(playerIn);
-        positionMap.set(playerIn, position);
+        currentField.add(assignment.playerId);
+        positionMap.set(assignment.playerId, position);
       }
     } else {
       // Regular rotation - sub players with most time for those with least
@@ -120,27 +191,34 @@ export function calculateFairRotations(
           time: playTimeRotations.get(id) || 0,
         })).sort((a, b) => a.time - b.time);
         
-        // Calculate how many subs to make (aim for 2-3 per rotation)
+        // Calculate how many subs to make (aim for ~1/3 of field per rotation)
         const subsNeeded = Math.min(
           Math.ceil(maxPlayersOnField / 3),
           benchPlayers.length,
           fieldWithTime.length
         );
         
-        for (let i = 0; i < subsNeeded; i++) {
-          const playerOut = fieldWithTime[i].id;
-          const playerIn = benchWithTime[i].id;
-          const position = positionMap.get(playerOut)!;
+        // Collect positions being vacated
+        const playersOut = fieldWithTime.slice(0, subsNeeded);
+        const positionsToFill = playersOut.map(p => positionMap.get(p.id)!);
+        
+        // Match bench players to positions using preferred positions
+        const assignments = assignPlayersToPositions(positionsToFill, benchWithTime);
+        
+        for (const playerOutEntry of playersOut) {
+          const position = positionMap.get(playerOutEntry.id)!;
+          const assignment = assignments.find(a => a.positionId === position);
+          if (!assignment) continue;
           
           substitutions.push({
-            playerOutId: playerOut,
-            playerInId: playerIn,
+            playerOutId: playerOutEntry.id,
+            playerInId: assignment.playerId,
             positionId: position,
           });
           
-          currentField.delete(playerOut);
-          currentField.add(playerIn);
-          positionMap.set(playerIn, position);
+          currentField.delete(playerOutEntry.id);
+          currentField.add(assignment.playerId);
+          positionMap.set(assignment.playerId, position);
         }
       }
     }

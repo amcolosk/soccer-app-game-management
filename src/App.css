@@ -2978,6 +2978,46 @@
   border-radius: 0 0 6px 6px;
 }
 
+/* Plan conflict banner */
+.plan-conflict-banner {
+  background: #fff3f3;
+  border: 1px solid #f44336;
+  border-left: 4px solid #f44336;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.plan-conflict-banner h4 {
+  margin: 0 0 0.5rem 0;
+  color: #d32f2f;
+  font-size: 1rem;
+}
+
+.plan-conflict-banner p {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.plan-conflict-banner ul {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+
+.plan-conflict-banner li {
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
+  color: #333;
+}
+
+.plan-conflict-banner .conflict-hint {
+  font-style: italic;
+  color: #888;
+  font-size: 0.85rem;
+  margin-bottom: 0;
+}
+
 .player-select {
   padding: 0.5rem;
   border: 2px solid var(--border-color);
@@ -3530,6 +3570,21 @@
 .btn-view-rotation:hover {
   background: #f0f0f0;
   transform: translateY(-1px);
+}
+
+/* Rotation conflict indicators */
+.rotation-conflict-badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.rotation-countdown-banner.has-conflicts {
+  background: linear-gradient(135deg, #e65100 0%, #bf360c 100%);
+  box-shadow: 0 4px 12px rgba(230, 81, 0, 0.3);
 }
 
 .planner-actions {

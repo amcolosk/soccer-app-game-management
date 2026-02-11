@@ -177,6 +177,162 @@ describe('rotationPlannerService', () => {
         expect(Array.isArray(rotation.substitutions)).toBe(true);
       });
     });
+
+    it('should assign bench players to positions they prefer when possible', () => {
+      // 8 players, 6 on field, 2 on bench
+      // Bench players have clear preferred positions that differ from each other
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' },
+        { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: 'pos2' },
+        { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: 'pos3' },
+        { id: 'r4', playerId: 'p4', playerNumber: 4, preferredPositions: 'pos4' },
+        { id: 'r5', playerId: 'p5', playerNumber: 5, preferredPositions: 'pos5' },
+        { id: 'r6', playerId: 'p6', playerNumber: 6, preferredPositions: 'pos6' },
+        // Bench players: p7 prefers pos1, p8 prefers pos2
+        { id: 'r7', playerId: 'p7', playerNumber: 7, preferredPositions: 'pos1' },
+        { id: 'r8', playerId: 'p8', playerNumber: 8, preferredPositions: 'pos2' },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+        { playerId: 'p4', positionId: 'pos4' },
+        { playerId: 'p5', positionId: 'pos5' },
+        { playerId: 'p6', positionId: 'pos6' },
+      ];
+
+      const rotations = calculateFairRotations(players, startingLineup, 4, 2, 6);
+
+      // Check that in the first rotation, bench players are assigned to their preferred positions
+      const firstRotSubs = rotations[0].substitutions;
+      expect(firstRotSubs.length).toBeGreaterThan(0);
+
+      // p7 prefers pos1, p8 prefers pos2 — verify they get those positions when both are vacated
+      const p7Sub = firstRotSubs.find(s => s.playerInId === 'p7');
+      const p8Sub = firstRotSubs.find(s => s.playerInId === 'p8');
+
+      if (p7Sub && p8Sub) {
+        expect(p7Sub.positionId).toBe('pos1');
+        expect(p8Sub.positionId).toBe('pos2');
+      }
+    });
+
+    it('should handle players with multiple preferred positions', () => {
+      // Bench player prefers multiple positions — should get one of them
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' },
+        { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: 'pos2' },
+        { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: 'pos3' },
+        { id: 'r4', playerId: 'p4', playerNumber: 4, preferredPositions: 'pos4' },
+        { id: 'r5', playerId: 'p5', playerNumber: 5, preferredPositions: 'pos5' },
+        { id: 'r6', playerId: 'p6', playerNumber: 6, preferredPositions: 'pos6' },
+        // p7 prefers pos1 or pos3
+        { id: 'r7', playerId: 'p7', playerNumber: 7, preferredPositions: 'pos1, pos3' },
+        { id: 'r8', playerId: 'p8', playerNumber: 8, preferredPositions: 'pos2' },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+        { playerId: 'p4', positionId: 'pos4' },
+        { playerId: 'p5', positionId: 'pos5' },
+        { playerId: 'p6', positionId: 'pos6' },
+      ];
+
+      const rotations = calculateFairRotations(players, startingLineup, 4, 2, 6);
+      const firstRotSubs = rotations[0].substitutions;
+
+      const p7Sub = firstRotSubs.find(s => s.playerInId === 'p7');
+      if (p7Sub) {
+        // p7 should be in pos1 or pos3 (one of their preferred positions)
+        expect(['pos1', 'pos3']).toContain(p7Sub.positionId);
+      }
+    });
+
+    it('should fall back to time-based ordering when no preferred positions match', () => {
+      // Bench players have no preferred positions — should still work
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1 },
+        { id: 'r2', playerId: 'p2', playerNumber: 2 },
+        { id: 'r3', playerId: 'p3', playerNumber: 3 },
+        { id: 'r4', playerId: 'p4', playerNumber: 4 },
+        { id: 'r5', playerId: 'p5', playerNumber: 5 },
+        { id: 'r6', playerId: 'p6', playerNumber: 6 },
+        { id: 'r7', playerId: 'p7', playerNumber: 7 },
+        { id: 'r8', playerId: 'p8', playerNumber: 8 },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+        { playerId: 'p4', positionId: 'pos4' },
+        { playerId: 'p5', positionId: 'pos5' },
+        { playerId: 'p6', positionId: 'pos6' },
+      ];
+
+      const rotations = calculateFairRotations(players, startingLineup, 4, 2, 6);
+
+      expect(rotations).toHaveLength(4);
+      rotations.forEach(rotation => {
+        rotation.substitutions.forEach(sub => {
+          expect(sub.playerOutId).not.toBe(sub.playerInId);
+          expect(sub.positionId).toBeDefined();
+        });
+      });
+    });
+
+    it('should prefer bench players for halftime based on position preferences', () => {
+      // 12 players, 6 on field — at halftime the 6 bench players should be matched to preferred positions
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' },
+        { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: 'pos2' },
+        { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: 'pos3' },
+        { id: 'r4', playerId: 'p4', playerNumber: 4, preferredPositions: 'pos4' },
+        { id: 'r5', playerId: 'p5', playerNumber: 5, preferredPositions: 'pos5' },
+        { id: 'r6', playerId: 'p6', playerNumber: 6, preferredPositions: 'pos6' },
+        // Bench players with clear position preferences
+        { id: 'r7', playerId: 'p7', playerNumber: 7, preferredPositions: 'pos3' },
+        { id: 'r8', playerId: 'p8', playerNumber: 8, preferredPositions: 'pos1' },
+        { id: 'r9', playerId: 'p9', playerNumber: 9, preferredPositions: 'pos5' },
+        { id: 'r10', playerId: 'p10', playerNumber: 10, preferredPositions: 'pos2' },
+        { id: 'r11', playerId: 'p11', playerNumber: 11, preferredPositions: 'pos4' },
+        { id: 'r12', playerId: 'p12', playerNumber: 12, preferredPositions: 'pos6' },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+        { playerId: 'p4', positionId: 'pos4' },
+        { playerId: 'p5', positionId: 'pos5' },
+        { playerId: 'p6', positionId: 'pos6' },
+      ];
+
+      // rotationsPerHalf = 2, so rotNum 3 (index 2) is halftime
+      const rotations = calculateFairRotations(players, startingLineup, 4, 2, 6);
+
+      // Halftime rotation is at index 2 (rotNum 3 = rotationsPerHalf + 1)
+      const halftimeSubs = rotations[2].substitutions;
+      expect(halftimeSubs.length).toBe(6); // Full swap with 12 players
+
+      // Verify bench players got their preferred positions
+      const p7Sub = halftimeSubs.find(s => s.playerInId === 'p7');
+      const p8Sub = halftimeSubs.find(s => s.playerInId === 'p8');
+      const p9Sub = halftimeSubs.find(s => s.playerInId === 'p9');
+      const p10Sub = halftimeSubs.find(s => s.playerInId === 'p10');
+      const p11Sub = halftimeSubs.find(s => s.playerInId === 'p11');
+      const p12Sub = halftimeSubs.find(s => s.playerInId === 'p12');
+
+      if (p7Sub) expect(p7Sub.positionId).toBe('pos3');
+      if (p8Sub) expect(p8Sub.positionId).toBe('pos1');
+      if (p9Sub) expect(p9Sub.positionId).toBe('pos5');
+      if (p10Sub) expect(p10Sub.positionId).toBe('pos2');
+      if (p11Sub) expect(p11Sub.positionId).toBe('pos4');
+      if (p12Sub) expect(p12Sub.positionId).toBe('pos6');
+    });
   });
 
   describe('calculatePlayTime', () => {
