@@ -606,6 +606,7 @@
   display: flex;
   flex-direction: column;
   gap: 0;
+  margin-bottom: 1rem;
 }
 
 .item-card {
@@ -706,6 +707,15 @@
   margin-bottom: 1rem;
 }
 
+.team-card-wrapper .swipeable-item-container {
+  margin-bottom: 0;
+}
+
+.team-card-wrapper.expanded .swipeable-item-container {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
 .swipeable-item-container .item-card {
   position: relative;
   z-index: 2;
@@ -752,7 +762,7 @@
 .team-roster-section {
   background: var(--card-background);
   border: 2px solid var(--border-color);
-  border-top: 1px solid var(--border-color);
+  border-top: 1px dashed var(--border-color);
   border-radius: 0 0 12px 12px;
   padding: 1.5rem;
   margin-top: 0;
@@ -761,7 +771,7 @@
 
 .team-card-wrapper:hover .team-roster-section {
   border-color: var(--primary-green);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-top-color: var(--border-color);
 }
 
 .team-roster-section h4 {
