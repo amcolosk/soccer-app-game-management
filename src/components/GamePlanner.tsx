@@ -10,6 +10,7 @@ import {
 import { LineupBuilder } from "./LineupBuilder";
 import { PlayerAvailabilityGrid } from "./PlayerAvailabilityGrid";
 import { useTeamData, type PlayerWithRoster as PlayerWithRosterBase } from "../hooks/useTeamData";
+import { UI_CONSTANTS } from "../constants/ui";
 
 const client = generateClient<Schema>();
 
@@ -443,10 +444,14 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           `.rotation-column:nth-child(${index + 1})`
         );
         if (selectedElement) {
-          selectedElement.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+          selectedElement.scrollIntoView({
+            behavior: UI_CONSTANTS.SCROLL.BEHAVIOR,
+            inline: UI_CONSTANTS.SCROLL.INLINE,
+            block: UI_CONSTANTS.SCROLL.BLOCK,
+          });
         }
       }
-    }, 100);
+    }, UI_CONSTANTS.SCROLL.DELAY_MS);
   };
 
   /**

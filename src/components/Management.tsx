@@ -6,6 +6,8 @@ import { InvitationManagement } from './InvitationManagement';
 import type { Schema } from '../../amplify/data/resource';
 import { FORMATION_TEMPLATES } from '../../amplify/data/formation-templates';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
+import { DEFAULT_FORM_VALUES, GAME_CONFIG } from '../constants/gameConfig';
+import { UI_CONSTANTS } from '../constants/ui';
 
 const client = generateClient<Schema>();
 
@@ -34,11 +36,11 @@ export function Management() {
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [teamName, setTeamName] = useState('');
-  const [maxPlayers, setMaxPlayers] = useState('7');
-  const [halfLength, setHalfLength] = useState('25');
+  const [maxPlayers, setMaxPlayers] = useState(DEFAULT_FORM_VALUES.maxPlayers);
+  const [halfLength, setHalfLength] = useState(DEFAULT_FORM_VALUES.halfLength);
   const [selectedFormation, setSelectedFormation] = useState('');
-  const [sport, setSport] = useState('Soccer');
-  const [gameFormat, setGameFormat] = useState('Halves');
+  const [sport, setSport] = useState(DEFAULT_FORM_VALUES.sport);
+  const [gameFormat, setGameFormat] = useState(DEFAULT_FORM_VALUES.gameFormat);
   const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
   const [isAddingRosterPlayer, setIsAddingRosterPlayer] = useState(false);
   const [editingRoster, setEditingRoster] = useState<TeamRoster | null>(null);
@@ -703,16 +705,16 @@ export function Management() {
     if (swipedItemId === null) return;
     const currentX = e.touches[0].clientX;
     const diff = swipeStartX - currentX;
-    // Only allow left swipe (positive diff) up to 100px
-    if (diff > 0 && diff <= 100) {
+    // Only allow left swipe (positive diff) up to max distance
+    if (diff > 0 && diff <= UI_CONSTANTS.SWIPE.MAX_DISTANCE_PX) {
       setSwipeCurrentX(diff);
     }
   };
 
   const handleTouchEnd = () => {
-    // If swiped more than 50px, keep it open at 80px, otherwise close
-    if (swipeCurrentX > 50) {
-      setSwipeCurrentX(80);
+    // If swiped more than threshold, keep it open at open width, otherwise close
+    if (swipeCurrentX > UI_CONSTANTS.SWIPE.THRESHOLD_PX) {
+      setSwipeCurrentX(UI_CONSTANTS.SWIPE.OPEN_WIDTH_PX);
     } else {
       setSwipeCurrentX(0);
       setSwipedItemId(null);
@@ -730,16 +732,16 @@ export function Management() {
     if (swipedItemId === null || swipeStartX === 0) return;
     const currentX = e.clientX;
     const diff = swipeStartX - currentX;
-    // Only allow left drag (positive diff) up to 100px
-    if (diff > 0 && diff <= 100) {
+    // Only allow left drag (positive diff) up to max distance
+    if (diff > 0 && diff <= UI_CONSTANTS.SWIPE.MAX_DISTANCE_PX) {
       setSwipeCurrentX(diff);
     }
   };
 
   const handleMouseUp = () => {
-    // If dragged more than 50px, keep it open at 80px, otherwise close
-    if (swipeCurrentX > 50) {
-      setSwipeCurrentX(80);
+    // If dragged more than threshold, keep it open at open width, otherwise close
+    if (swipeCurrentX > UI_CONSTANTS.SWIPE.THRESHOLD_PX) {
+      setSwipeCurrentX(UI_CONSTANTS.SWIPE.OPEN_WIDTH_PX);
     } else {
       setSwipeCurrentX(0);
       setSwipedItemId(null);

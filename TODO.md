@@ -276,7 +276,7 @@ export const handleError = (error: any, context: string) => {
 
 ---
 
-### 3.4 Extract Magic Numbers to Constants
+### 3.4 Extract Magic Numbers to Constants ✅ COMPLETED
 **Priority**: MEDIUM | **Effort**: 2-3 hours | **Impact**: Readability
 
 **Magic Numbers Found**:
@@ -412,9 +412,11 @@ export const logger = {
 - [x] Architectural analysis
 - [x] TODO.md creation
 - [x] N+1 query fix (GamePlanner.tsx)
+- [x] Run knip (no unused code found)
+- [x] Extract magic numbers to constants
 
 ### In Progress
-- [ ] None
+- [ ] Add useMemo to expensive computations
 
 ### Next Up
 - [ ] Component tests for LineupBuilder

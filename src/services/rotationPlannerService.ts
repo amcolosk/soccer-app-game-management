@@ -1,5 +1,6 @@
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
+import { GAME_CONFIG } from "../constants/gameConfig";
 
 const client = generateClient<Schema>();
 
@@ -191,9 +192,9 @@ export function calculateFairRotations(
           time: playTimeRotations.get(id) || 0,
         })).sort((a, b) => a.time - b.time);
         
-        // Calculate how many subs to make (aim for ~1/3 of field per rotation)
+        // Calculate how many subs to make (aim for fair distribution per rotation)
         const subsNeeded = Math.min(
-          Math.ceil(maxPlayersOnField / 3),
+          Math.ceil(maxPlayersOnField / GAME_CONFIG.ROTATION_CALCULATION.MIN_PLAYERS_PER_GROUP),
           benchPlayers.length,
           fieldWithTime.length
         );
