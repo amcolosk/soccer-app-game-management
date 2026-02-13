@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import {
@@ -186,6 +186,36 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     const availability = availabilities.find((a) => a.playerId === playerId);
     return availability?.status || "available";
   };
+
+  // Memoize filtered player lists to avoid recalculating on every render
+  const startingLineupPlayers = useMemo(() => {
+    return players.filter((p) => {
+      const status = getPlayerAvailability(p.id);
+      return status === "available";
+    });
+  }, [players, availabilities]);
+
+  const rotationPlayers = useMemo(() => {
+    return players.filter((p) => {
+      const status = getPlayerAvailability(p.id);
+      return status === "available" || status === "late-arrival";
+    });
+  }, [players, availabilities]);
+
+  // Memoize play time calculation which is expensive
+  const playTimeData = useMemo(() => {
+    if (!gamePlan || rotations.length === 0) return new Map();
+
+    return calculatePlayTime(
+      rotations,
+      Array.from(startingLineup.entries()).map(([positionId, playerId]) => ({
+        playerId,
+        positionId,
+      })),
+      rotationIntervalMinutes,
+      halfLengthMinutes * 2
+    );
+  }, [gamePlan, rotations, startingLineup, rotationIntervalMinutes, halfLengthMinutes]);
 
   const handleLineupChange = async (positionId: string, playerId: string) => {
     const newLineup = new Map(startingLineup);
@@ -649,15 +679,26 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     await handleRotationLineupChange(rotationNumber, newLineup);
   };
 
-  // Calculate lineup state at each rotation
+  // Memoize lineup calculations at each rotation to avoid recalculating
+  const lineupCache = useMemo(() => {
+    const cache = new Map<number, Map<string, string>>();
+    return cache;
+  }, [startingLineup, rotations]);
+
+  // Calculate lineup state at each rotation (with caching)
   const getLineupAtRotation = (rotationNumber: number): Map<string, string> => {
+    // Check cache first
+    if (lineupCache.has(rotationNumber)) {
+      return lineupCache.get(rotationNumber)!;
+    }
+
     const lineup = new Map(startingLineup);
-    
+
     // Apply all substitutions up to this rotation
     for (let i = 0; i < rotations.length && rotations[i].rotationNumber <= rotationNumber; i++) {
       const rotation = rotations[i];
       const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
-      
+
       subs.forEach(sub => {
         // Simply swap the player at the position with the new player
         // Remove the new player from wherever they might be
@@ -669,10 +710,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           }
           tempLineup.set(posId, pId);
         }
-        
+
         // Set the new player at the target position (replaces whoever was there)
         tempLineup.set(sub.positionId, sub.playerInId);
-        
+
         // Update lineup
         lineup.clear();
         tempLineup.forEach((playerId, positionId) => {
@@ -680,40 +721,16 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         });
       });
     }
-    
+
+    // Cache the result
+    lineupCache.set(rotationNumber, lineup);
     return lineup;
   };
 
 
 
   const renderRotationTimeline = () => {
-
-    const playTimeData = gamePlan && rotations.length > 0 ? calculatePlayTime(
-      rotations,
-      Array.from(startingLineup.entries()).map(([positionId, playerId]) => ({
-        playerId,
-        positionId,
-      })),
-      rotationIntervalMinutes,
-      halfLengthMinutes * 2
-    ) : new Map();
-
-    // For starting lineup: exclude late-arrival and unavailable players
-    const startingLineupPlayers = players.filter(
-      (p) => {
-        const status = getPlayerAvailability(p.id);
-        return status === "available";
-      }
-    );
-
-    // For rotations and halftime: include late-arrival players
-    const rotationPlayers = players.filter(
-      (p) => {
-        const status = getPlayerAvailability(p.id);
-        return status === "available" || status === "late-arrival";
-      }
-    );
-
+    // Use memoized values - these are now calculated efficiently at the component level
     const rotationsPerHalf = gamePlan ? Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1 : 0;
 
     // Create timeline items with starting lineup first, then all rotations.

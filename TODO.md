@@ -184,7 +184,7 @@ export function useAmplifyQuery<T>(
 
 ---
 
-### 2.4 Add useMemo to Expensive Computations
+### 2.4 Add useMemo to Expensive Computations ✅ COMPLETED
 **Priority**: HIGH | **Effort**: 2-3 hours | **Impact**: Performance improvement
 
 **Files**:
@@ -414,9 +414,10 @@ export const logger = {
 - [x] N+1 query fix (GamePlanner.tsx)
 - [x] Run knip (no unused code found)
 - [x] Extract magic numbers to constants
+- [x] Add useMemo to expensive computations
 
 ### In Progress
-- [ ] Add useMemo to expensive computations
+- [ ] Fix over-fetching in useTeamData
 
 ### Next Up
 - [ ] Component tests for LineupBuilder
