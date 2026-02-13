@@ -39,6 +39,38 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   // Use a ref to store the current gamePlanId for use in subscriptions
   const gamePlanIdRef = useRef<string | null>(null);
   
+  // Track in-flight saves to prevent observeQuery from clobbering local state
+  // with stale DynamoDB data while saves are pending.
+  // When saves complete, we apply the latest buffered subscription data.
+  const pendingLineupSaves = useRef(0);
+  const pendingRotationSaves = useRef(0);
+  const bufferedLineupData = useRef<string | null>(null);
+  const bufferedRotationData = useRef<PlannedRotation[] | null>(null);
+
+  // Apply any buffered subscription data when pending saves finish
+  const flushBufferedLineup = () => {
+    if (pendingLineupSaves.current === 0 && bufferedLineupData.current) {
+      try {
+        const lineupArray = JSON.parse(bufferedLineupData.current) as Array<{ positionId: string; playerId: string }>;
+        const lineup = new Map<string, string>();
+        lineupArray.forEach(({ positionId, playerId }) => {
+          lineup.set(positionId, playerId);
+        });
+        setStartingLineup(lineup);
+      } catch (error) {
+        console.error("Error parsing buffered starting lineup:", error);
+      }
+      bufferedLineupData.current = null;
+    }
+  };
+
+  const flushBufferedRotations = () => {
+    if (pendingRotationSaves.current === 0 && bufferedRotationData.current) {
+      setRotations(bufferedRotationData.current);
+      bufferedRotationData.current = null;
+    }
+  };
+  
   // Extend players with availability data
   const [players, setPlayers] = useState<PlayerWithRoster[]>([]);
   const [gamePlan, setGamePlan] = useState<GamePlan | null>(null);
@@ -83,16 +115,22 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           setRotationIntervalMinutes(plan.rotationIntervalMinutes);
 
           // Load starting lineup from GamePlan
+          // Skip if we have pending local saves to avoid clobbering optimistic state
           if (plan.startingLineup) {
-            try {
-              const lineupArray = JSON.parse(plan.startingLineup as string) as Array<{ positionId: string; playerId: string }>;
-              const lineup = new Map<string, string>();
-              lineupArray.forEach(({ positionId, playerId }) => {
-                lineup.set(positionId, playerId);
-              });
-              setStartingLineup(lineup);
-            } catch (error) {
-              console.error("Error parsing starting lineup:", error);
+            if (pendingLineupSaves.current > 0) {
+              // Buffer the latest data so we can apply it when saves finish
+              bufferedLineupData.current = plan.startingLineup as string;
+            } else {
+              try {
+                const lineupArray = JSON.parse(plan.startingLineup as string) as Array<{ positionId: string; playerId: string }>;
+                const lineup = new Map<string, string>();
+                lineupArray.forEach(({ positionId, playerId }) => {
+                  lineup.set(positionId, playerId);
+                });
+                setStartingLineup(lineup);
+              } catch (error) {
+                console.error("Error parsing starting lineup:", error);
+              }
             }
           }
         } else {
@@ -113,7 +151,13 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         const currentPlanRotations = currentPlanId 
           ? data.items.filter(r => r.gamePlanId === currentPlanId)
           : [];
-        setRotations([...currentPlanRotations].sort((a, b) => a.rotationNumber - b.rotationNumber));
+        const sorted = [...currentPlanRotations].sort((a, b) => a.rotationNumber - b.rotationNumber);
+        // Skip if we have pending local rotation saves to avoid clobbering optimistic state
+        if (pendingRotationSaves.current > 0) {
+          bufferedRotationData.current = sorted;
+          return;
+        }
+        setRotations(sorted);
       },
     });
 
@@ -234,6 +278,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
     // Auto-save starting lineup to GamePlan if it exists
     if (gamePlan) {
+      pendingLineupSaves.current++;
       try {
         const lineupArray = Array.from(newLineup.entries()).map(([positionId, playerId]) => ({
           playerId,
@@ -247,6 +292,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         });
       } catch (error) {
         console.error("Error auto-saving starting lineup:", error);
+      } finally {
+        pendingLineupSaves.current--;
+        flushBufferedLineup();
       }
     }
   };
@@ -260,6 +308,8 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
     setIsGenerating(true);
     setValidationErrors([]);
+    pendingLineupSaves.current++;
+    pendingRotationSaves.current++;
 
     try {
       const lineupArray = Array.from(startingLineup.entries()).map(([positionId, playerId]) => ({
@@ -365,6 +415,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       alert("Failed to update rotation plan");
     } finally {
       setIsGenerating(false);
+      pendingLineupSaves.current--;
+      pendingRotationSaves.current--;
+      flushBufferedLineup();
+      flushBufferedRotations();
     }
   };
 
@@ -386,6 +440,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
     try {
       setIsGenerating(true);
+      pendingRotationSaves.current++;
 
       // Build available roster from players who are available or late-arrival
       const availableRoster = players
@@ -432,6 +487,8 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       alert('Failed to auto-generate rotations.');
     } finally {
       setIsGenerating(false);
+      pendingRotationSaves.current--;
+      flushBufferedRotations();
     }
   };
 
@@ -439,6 +496,8 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     try {
       setShowCopyModal(false);
       setIsGenerating(true);
+      pendingLineupSaves.current++;
+      pendingRotationSaves.current++;
 
       // Delete existing plan if any
       if (gamePlan) {
@@ -458,6 +517,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       alert("Failed to copy game plan");
     } finally {
       setIsGenerating(false);
+      pendingLineupSaves.current--;
+      pendingRotationSaves.current--;
+      flushBufferedLineup();
+      flushBufferedRotations();
     }
   };
 
@@ -599,6 +662,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       }
     }
 
+    pendingRotationSaves.current++;
     try {
       const subsJson = JSON.stringify(subs);
       await client.models.PlannedRotation.update({
@@ -615,6 +679,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     } catch (error) {
       console.error("Error updating rotation:", error);
       alert("Failed to update rotation");
+    } finally {
+      pendingRotationSaves.current--;
+      flushBufferedRotations();
     }
   };
 
@@ -623,6 +690,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     if (!rotation) return;
 
     // Copy the lineup (no substitutions)
+    pendingRotationSaves.current++;
     try {
       const emptySubsJson = JSON.stringify([]);
       await client.models.PlannedRotation.update({
@@ -642,6 +710,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     } catch (error) {
       console.error("Error copying rotation:", error);
       alert("Failed to copy from previous rotation");
+    } finally {
+      pendingRotationSaves.current--;
+      flushBufferedRotations();
     }
   };
 
