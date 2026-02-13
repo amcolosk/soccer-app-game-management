@@ -363,7 +363,7 @@ export const GAME_CONFIG = {
 
 ---
 
-### 4.5 Fix Over-Fetching in useTeamData
+### 4.5 Fix Over-Fetching in useTeamData ✅ COMPLETED
 **Priority**: MEDIUM | **Effort**: 2-3 hours | **Impact**: Performance, bandwidth
 
 **File**: `src/hooks/useTeamData.ts` (lines 44-63)
@@ -415,9 +415,10 @@ export const logger = {
 - [x] Run knip (no unused code found)
 - [x] Extract magic numbers to constants
 - [x] Add useMemo to expensive computations
+- [x] Fix over-fetching in useTeamData
 
 ### In Progress
-- [ ] Fix over-fetching in useTeamData
+- [ ] None (all quick wins completed!)
 
 ### Next Up
 - [ ] Component tests for LineupBuilder

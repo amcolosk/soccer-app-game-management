@@ -34,33 +34,45 @@ export function useTeamData(teamId: string, formationId: string | null | undefin
     }).subscribe({
       next: async (rosterData) => {
         const rosters = sortRosterByNumber([...rosterData.items]);
-        
+
         // Clean up previous player subscription if it exists
         if (playerSub) {
           playerSub.unsubscribe();
         }
-        
-        // Load all players with observeQuery for real-time updates
-        playerSub = client.models.Player.observeQuery().subscribe({
-          next: (playerData) => {
-            const allPlayers = playerData.items;
-            
-            // Merge roster with player data
-            const playersWithRoster: PlayerWithRoster[] = rosters
-              .map((roster) => {
-                const player = allPlayers.find((p) => p.id === roster.playerId);
-                if (!player) return null;
-                return {
-                  ...player,
-                  playerNumber: roster.playerNumber,
-                  preferredPositions: roster.preferredPositions || undefined,
-                };
-              })
-              .filter((p) => p !== null) as PlayerWithRoster[];
-            
-            setPlayers(playersWithRoster);
-          },
-        });
+
+        // Extract player IDs from roster for filtered query
+        const rosterPlayerIds = rosters.map(r => r.playerId);
+
+        // Only load players that are on this team's roster (no over-fetching)
+        if (rosterPlayerIds.length > 0) {
+          playerSub = client.models.Player.observeQuery({
+            filter: {
+              or: rosterPlayerIds.map(id => ({ id: { eq: id } })),
+            },
+          }).subscribe({
+            next: (playerData) => {
+              const teamPlayers = playerData.items;
+
+              // Merge roster with player data (O(n*m) but both are small now)
+              const playersWithRoster: PlayerWithRoster[] = rosters
+                .map((roster) => {
+                  const player = teamPlayers.find((p) => p.id === roster.playerId);
+                  if (!player) return null;
+                  return {
+                    ...player,
+                    playerNumber: roster.playerNumber,
+                    preferredPositions: roster.preferredPositions || undefined,
+                  };
+                })
+                .filter((p) => p !== null) as PlayerWithRoster[];
+
+              setPlayers(playersWithRoster);
+            },
+          });
+        } else {
+          // No roster entries, set empty players
+          setPlayers([]);
+        }
       },
     });
     
