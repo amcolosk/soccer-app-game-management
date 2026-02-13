@@ -149,9 +149,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       });
 
       // Query all GamePlans for the team in a single call (instead of N queries)
-      const gamePlansResult = await client.models.GamePlan.list({
-        filter: { gameId: { ne: null } }, // Get all plans that have a gameId
-      });
+      const gamePlansResult = await client.models.GamePlan.list();
 
       // Create a Set of gameIds that have plans for O(1) lookup
       const gameIdsWithPlans = new Set(

@@ -6,7 +6,7 @@ import { InvitationManagement } from './InvitationManagement';
 import type { Schema } from '../../amplify/data/resource';
 import { FORMATION_TEMPLATES } from '../../amplify/data/formation-templates';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
-import { DEFAULT_FORM_VALUES, GAME_CONFIG } from '../constants/gameConfig';
+import { DEFAULT_FORM_VALUES } from '../constants/gameConfig';
 import { UI_CONSTANTS } from '../constants/ui';
 
 const client = generateClient<Schema>();

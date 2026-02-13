@@ -26,4 +26,4 @@ export const DEFAULT_FORM_VALUES = {
   halfLength: '25',
   sport: 'Soccer',
   gameFormat: 'Halves',
-} as const;
+};
