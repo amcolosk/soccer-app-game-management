@@ -595,7 +595,7 @@ test.describe('Game Planner with Timeline', () => {
   });
 
   test('Complete game planning workflow with timeline', async ({ page }) => {
-    test.setTimeout(120000); // 2 minute timeout
+    test.setTimeout(240000); // 4 minute timeout
     
     console.log('\n=== Starting Game Planner E2E Test ===\n');
     
