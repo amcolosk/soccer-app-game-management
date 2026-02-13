@@ -146,24 +146,22 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           ],
         },
       });
-      
-      // Filter games that have plans
-      const gamesWithPlans = await Promise.all(
-        previousGamesResult.data.map(async (g) => {
-          const planResult = await client.models.GamePlan.list({
-            filter: { gameId: { eq: g.id } },
-          });
-          return planResult.data.length > 0 ? g : null;
-        })
+
+      // Query all GamePlans for the team in a single call (instead of N queries)
+      const gamePlansResult = await client.models.GamePlan.list({
+        filter: { gameId: { ne: null } }, // Get all plans that have a gameId
+      });
+
+      // Create a Set of gameIds that have plans for O(1) lookup
+      const gameIdsWithPlans = new Set(
+        gamePlansResult.data.map(plan => plan.gameId).filter(Boolean)
       );
-      
-      const validGames: Game[] = [];
-      for (const g of gamesWithPlans) {
-        if (g !== null) {
-          validGames.push(g);
-        }
-      }
-      
+
+      // Filter games that have plans using the Set
+      const validGames = previousGamesResult.data.filter(g =>
+        gameIdsWithPlans.has(g.id)
+      );
+
       setPreviousGames(
         validGames.sort((a, b) => {
           const dateA = a.gameDate ? new Date(a.gameDate).getTime() : 0;
