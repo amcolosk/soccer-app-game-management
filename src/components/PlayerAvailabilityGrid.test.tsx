@@ -1,0 +1,179 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { PlayerAvailabilityGrid } from "./PlayerAvailabilityGrid";
+
+vi.mock("../services/rotationPlannerService", () => ({
+  updatePlayerAvailability: vi.fn(),
+}));
+
+import { updatePlayerAvailability } from "../services/rotationPlannerService";
+
+const mockUpdate = vi.mocked(updatePlayerAvailability);
+
+const players = [
+  { id: "p1", playerNumber: 5, firstName: "Alice", lastName: "Smith" },
+  { id: "p2", playerNumber: 9, firstName: "Bob", lastName: "Jones" },
+];
+
+const defaultProps = {
+  players,
+  gameId: "game-1",
+  coaches: ["coach-1"],
+  getPlayerAvailability: () => "available",
+};
+
+beforeEach(() => {
+  mockUpdate.mockReset();
+});
+
+describe("PlayerAvailabilityGrid", () => {
+  it("renders heading, player buttons, and legend", () => {
+    render(<PlayerAvailabilityGrid {...defaultProps} />);
+    expect(screen.getByText("Player Availability")).toBeInTheDocument();
+    expect(screen.getAllByRole("button")).toHaveLength(2);
+    expect(
+      screen.getByText(/Click player cards to cycle/)
+    ).toBeInTheDocument();
+  });
+
+  it("displays player number and name for each player", () => {
+    render(<PlayerAvailabilityGrid {...defaultProps} />);
+    expect(screen.getByText("#5")).toBeInTheDocument();
+    expect(screen.getByText("Alice Smith")).toBeInTheDocument();
+    expect(screen.getByText("#9")).toBeInTheDocument();
+    expect(screen.getByText("Bob Jones")).toBeInTheDocument();
+  });
+
+  it("shows correct status indicator for available", () => {
+    render(<PlayerAvailabilityGrid {...defaultProps} />);
+    // All players are available, so check marks
+    const statusEls = document.querySelectorAll(".availability-status");
+    expect(statusEls[0]).toHaveTextContent("✓");
+    expect(statusEls[0]).toHaveStyle({ backgroundColor: "#4caf50" });
+  });
+
+  it("shows correct status indicator for absent", () => {
+    render(
+      <PlayerAvailabilityGrid
+        {...defaultProps}
+        getPlayerAvailability={() => "absent"}
+      />
+    );
+    const statusEls = document.querySelectorAll(".availability-status");
+    expect(statusEls[0]).toHaveTextContent("✗");
+    expect(statusEls[0]).toHaveStyle({ backgroundColor: "#f44336" });
+  });
+
+  it("shows correct status indicator for late-arrival", () => {
+    render(
+      <PlayerAvailabilityGrid
+        {...defaultProps}
+        getPlayerAvailability={() => "late-arrival"}
+      />
+    );
+    const statusEls = document.querySelectorAll(".availability-status");
+    expect(statusEls[0]).toHaveTextContent("⏰");
+    expect(statusEls[0]).toHaveStyle({ backgroundColor: "#fdd835" });
+  });
+
+  it("shows correct status indicator for injured", () => {
+    render(
+      <PlayerAvailabilityGrid
+        {...defaultProps}
+        getPlayerAvailability={() => "injured"}
+      />
+    );
+    const statusEls = document.querySelectorAll(".availability-status");
+    expect(statusEls[0]).toHaveTextContent("🩹");
+    expect(statusEls[0]).toHaveStyle({ backgroundColor: "#ff9800" });
+  });
+
+  it("calls updatePlayerAvailability with next status on click (available -> absent)", async () => {
+    const user = userEvent.setup();
+    mockUpdate.mockResolvedValue(undefined);
+
+    render(<PlayerAvailabilityGrid {...defaultProps} />);
+    await user.click(screen.getAllByRole("button")[0]);
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      "game-1", "p1", "absent", undefined, ["coach-1"]
+    );
+  });
+
+  it("cycles absent -> late-arrival on click", async () => {
+    const user = userEvent.setup();
+    mockUpdate.mockResolvedValue(undefined);
+
+    render(
+      <PlayerAvailabilityGrid
+        {...defaultProps}
+        getPlayerAvailability={() => "absent"}
+      />
+    );
+    await user.click(screen.getAllByRole("button")[0]);
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      "game-1", "p1", "late-arrival", undefined, ["coach-1"]
+    );
+  });
+
+  it("cycles injured -> available (wraps around)", async () => {
+    const user = userEvent.setup();
+    mockUpdate.mockResolvedValue(undefined);
+
+    render(
+      <PlayerAvailabilityGrid
+        {...defaultProps}
+        getPlayerAvailability={() => "injured"}
+      />
+    );
+    await user.click(screen.getAllByRole("button")[0]);
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      "game-1", "p1", "available", undefined, ["coach-1"]
+    );
+  });
+
+  it("defaults unknown status to available on click", async () => {
+    const user = userEvent.setup();
+    mockUpdate.mockResolvedValue(undefined);
+
+    render(
+      <PlayerAvailabilityGrid
+        {...defaultProps}
+        getPlayerAvailability={() => "unknown"}
+      />
+    );
+    await user.click(screen.getAllByRole("button")[0]);
+
+    // indexOf('unknown') = -1, (-1+1)%4 = 0 => 'available'
+    expect(mockUpdate).toHaveBeenCalledWith(
+      "game-1", "p1", "available", undefined, ["coach-1"]
+    );
+  });
+
+  it("shows alert on API error", async () => {
+    const user = userEvent.setup();
+    mockUpdate.mockRejectedValue(new Error("network"));
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+
+    render(<PlayerAvailabilityGrid {...defaultProps} />);
+    await user.click(screen.getAllByRole("button")[0]);
+
+    expect(alertSpy).toHaveBeenCalledWith("Failed to update player availability");
+    alertSpy.mockRestore();
+  });
+
+  it("does not alert on success", async () => {
+    const user = userEvent.setup();
+    mockUpdate.mockResolvedValue(undefined);
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+
+    render(<PlayerAvailabilityGrid {...defaultProps} />);
+    await user.click(screen.getAllByRole("button")[0]);
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+});
