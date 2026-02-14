@@ -10,6 +10,7 @@ import {
 } from "../../utils/lineupUtils";
 import { formatMinutesSeconds } from "../../utils/gameTimeUtils";
 import { executeSubstitution } from "../../services/substitutionService";
+import { useAvailability } from "../../contexts/AvailabilityContext";
 import type {
   Game,
   Team,
@@ -35,7 +36,6 @@ interface SubstitutionPanelProps {
   onQueueChange: (queue: SubQueue[]) => void;
   substitutionRequest: FormationPosition | null;
   onSubstitutionRequestHandled: () => void;
-  getPlayerAvailability: (playerId: string) => string;
 }
 
 export function SubstitutionPanel({
@@ -51,8 +51,8 @@ export function SubstitutionPanel({
   onQueueChange,
   substitutionRequest,
   onSubstitutionRequestHandled,
-  getPlayerAvailability,
 }: SubstitutionPanelProps) {
+  const { getPlayerAvailability } = useAvailability();
   const [showSubstitution, setShowSubstitution] = useState(false);
   const [substitutionPosition, setSubstitutionPosition] = useState<FormationPosition | null>(null);
 

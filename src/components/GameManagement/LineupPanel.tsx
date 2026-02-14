@@ -35,7 +35,6 @@ interface LineupPanelProps {
   gamePlan: GamePlan | null;
   onSubstitute: (position: FormationPosition) => void;
   onMarkInjured: (playerId: string) => void;
-  getPlayerAvailability: (playerId: string) => string;
 }
 
 export function LineupPanel({
@@ -50,7 +49,6 @@ export function LineupPanel({
   gamePlan,
   onSubstitute,
   onMarkInjured,
-  getPlayerAvailability,
 }: LineupPanelProps) {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [showPositionPicker, setShowPositionPicker] = useState(false);
@@ -217,7 +215,6 @@ export function LineupPanel({
               }
             }}
             showPreferredPositions={true}
-            getPlayerAvailability={getPlayerAvailability}
           />
         ) : (
           <>

@@ -35,7 +35,6 @@ const noopCallbacks = {
   onEndGame: vi.fn(),
   onAddTestTime: vi.fn(),
   onRecalculateRotations: vi.fn(),
-  getPlayerAvailability: () => "available",
   getPlanConflicts: () => [],
 };
 

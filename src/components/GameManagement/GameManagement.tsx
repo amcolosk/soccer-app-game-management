@@ -16,6 +16,7 @@ import { RotationWidget } from "./RotationWidget";
 import { SubstitutionPanel } from "./SubstitutionPanel";
 import { LineupPanel } from "./LineupPanel";
 import type { Game, Team, FormationPosition, SubQueue } from "./types";
+import { AvailabilityProvider } from "../../contexts/AvailabilityContext";
 
 const client = generateClient<Schema>();
 
@@ -509,6 +510,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   return (
+    <AvailabilityProvider availabilities={playerAvailabilities}>
     <div className="game-management">
       <GameHeader gameState={gameState} onBack={onBack} />
 
@@ -541,13 +543,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         positions={positions}
         gamePlan={gamePlan}
         plannedRotations={plannedRotations}
-        playerAvailabilities={playerAvailabilities}
         currentTime={currentTime}
         lineup={lineup}
         playTimeRecords={playTimeRecords}
         substitutionQueue={substitutionQueue}
         onQueueSubstitution={handleQueueSubstitution}
-        getPlayerAvailability={getPlayerAvailability}
       />
 
       <SubstitutionPanel
@@ -563,7 +563,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         onQueueChange={setSubstitutionQueue}
         substitutionRequest={substitutionRequest}
         onSubstitutionRequestHandled={() => setSubstitutionRequest(null)}
-        getPlayerAvailability={getPlayerAvailability}
       />
 
       <GameTimer
@@ -586,7 +585,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         onEndGame={handleEndGame}
         onAddTestTime={handleAddTestTime}
         onRecalculateRotations={handleRecalculateRotations}
-        getPlayerAvailability={getPlayerAvailability}
         getPlanConflicts={getPlanConflicts}
       />
 
@@ -602,7 +600,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         gamePlan={gamePlan}
         onSubstitute={handleSubstitute}
         onMarkInjured={handleMarkInjured}
-        getPlayerAvailability={getPlayerAvailability}
       />
 
       {gameState.status !== 'in-progress' && (
@@ -626,5 +623,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         </div>
       )}
     </div>
+    </AvailabilityProvider>
   );
 }

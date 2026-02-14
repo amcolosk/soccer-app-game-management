@@ -7,9 +7,15 @@ vi.mock("../services/rotationPlannerService", () => ({
   updatePlayerAvailability: vi.fn(),
 }));
 
+vi.mock("../contexts/AvailabilityContext", () => ({
+  useAvailability: vi.fn(),
+}));
+
 import { updatePlayerAvailability } from "../services/rotationPlannerService";
+import { useAvailability } from "../contexts/AvailabilityContext";
 
 const mockUpdate = vi.mocked(updatePlayerAvailability);
+const mockUseAvailability = vi.mocked(useAvailability);
 
 const players = [
   { id: "p1", playerNumber: 5, firstName: "Alice", lastName: "Smith" },
@@ -20,11 +26,14 @@ const defaultProps = {
   players,
   gameId: "game-1",
   coaches: ["coach-1"],
-  getPlayerAvailability: () => "available",
 };
 
 beforeEach(() => {
   mockUpdate.mockReset();
+  mockUseAvailability.mockReturnValue({
+    availabilities: [],
+    getPlayerAvailability: () => "available",
+  });
 });
 
 describe("PlayerAvailabilityGrid", () => {
@@ -54,36 +63,33 @@ describe("PlayerAvailabilityGrid", () => {
   });
 
   it("shows correct status indicator for absent", () => {
-    render(
-      <PlayerAvailabilityGrid
-        {...defaultProps}
-        getPlayerAvailability={() => "absent"}
-      />
-    );
+    mockUseAvailability.mockReturnValue({
+      availabilities: [],
+      getPlayerAvailability: () => "absent",
+    });
+    render(<PlayerAvailabilityGrid {...defaultProps} />);
     const statusEls = document.querySelectorAll(".availability-status");
     expect(statusEls[0]).toHaveTextContent("✗");
     expect(statusEls[0]).toHaveStyle({ backgroundColor: "#f44336" });
   });
 
   it("shows correct status indicator for late-arrival", () => {
-    render(
-      <PlayerAvailabilityGrid
-        {...defaultProps}
-        getPlayerAvailability={() => "late-arrival"}
-      />
-    );
+    mockUseAvailability.mockReturnValue({
+      availabilities: [],
+      getPlayerAvailability: () => "late-arrival",
+    });
+    render(<PlayerAvailabilityGrid {...defaultProps} />);
     const statusEls = document.querySelectorAll(".availability-status");
     expect(statusEls[0]).toHaveTextContent("⏰");
     expect(statusEls[0]).toHaveStyle({ backgroundColor: "#fdd835" });
   });
 
   it("shows correct status indicator for injured", () => {
-    render(
-      <PlayerAvailabilityGrid
-        {...defaultProps}
-        getPlayerAvailability={() => "injured"}
-      />
-    );
+    mockUseAvailability.mockReturnValue({
+      availabilities: [],
+      getPlayerAvailability: () => "injured",
+    });
+    render(<PlayerAvailabilityGrid {...defaultProps} />);
     const statusEls = document.querySelectorAll(".availability-status");
     expect(statusEls[0]).toHaveTextContent("🩹");
     expect(statusEls[0]).toHaveStyle({ backgroundColor: "#ff9800" });
@@ -104,13 +110,12 @@ describe("PlayerAvailabilityGrid", () => {
   it("cycles absent -> late-arrival on click", async () => {
     const user = userEvent.setup();
     mockUpdate.mockResolvedValue(undefined);
+    mockUseAvailability.mockReturnValue({
+      availabilities: [],
+      getPlayerAvailability: () => "absent",
+    });
 
-    render(
-      <PlayerAvailabilityGrid
-        {...defaultProps}
-        getPlayerAvailability={() => "absent"}
-      />
-    );
+    render(<PlayerAvailabilityGrid {...defaultProps} />);
     await user.click(screen.getAllByRole("button")[0]);
 
     expect(mockUpdate).toHaveBeenCalledWith(
@@ -121,13 +126,12 @@ describe("PlayerAvailabilityGrid", () => {
   it("cycles injured -> available (wraps around)", async () => {
     const user = userEvent.setup();
     mockUpdate.mockResolvedValue(undefined);
+    mockUseAvailability.mockReturnValue({
+      availabilities: [],
+      getPlayerAvailability: () => "injured",
+    });
 
-    render(
-      <PlayerAvailabilityGrid
-        {...defaultProps}
-        getPlayerAvailability={() => "injured"}
-      />
-    );
+    render(<PlayerAvailabilityGrid {...defaultProps} />);
     await user.click(screen.getAllByRole("button")[0]);
 
     expect(mockUpdate).toHaveBeenCalledWith(
@@ -138,13 +142,12 @@ describe("PlayerAvailabilityGrid", () => {
   it("defaults unknown status to available on click", async () => {
     const user = userEvent.setup();
     mockUpdate.mockResolvedValue(undefined);
+    mockUseAvailability.mockReturnValue({
+      availabilities: [],
+      getPlayerAvailability: () => "unknown",
+    });
 
-    render(
-      <PlayerAvailabilityGrid
-        {...defaultProps}
-        getPlayerAvailability={() => "unknown"}
-      />
-    );
+    render(<PlayerAvailabilityGrid {...defaultProps} />);
     await user.click(screen.getAllByRole("button")[0]);
 
     // indexOf('unknown') = -1, (-1+1)%4 = 0 => 'available'

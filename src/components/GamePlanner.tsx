@@ -10,6 +10,7 @@ import {
 import { LineupBuilder } from "./LineupBuilder";
 import { PlayerAvailabilityGrid } from "./PlayerAvailabilityGrid";
 import { useTeamData, type PlayerWithRoster as PlayerWithRosterBase } from "../hooks/useTeamData";
+import { AvailabilityProvider } from "../contexts/AvailabilityContext";
 import { UI_CONSTANTS } from "../constants/ui";
 
 const client = generateClient<Schema>();
@@ -862,7 +863,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
               lineup={startingLineup}
               onLineupChange={handleLineupChange}
               showPreferredPositions={true}
-              getPlayerAvailability={getPlayerAvailability}
             />
           </div>
         );
@@ -1263,6 +1263,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   };
 
   return (
+    <AvailabilityProvider availabilities={availabilities}>
     <div className="game-planner-container">
       <div className="planner-header">
         <button onClick={onBack} className="back-button">
@@ -1291,7 +1292,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         players={players}
         gameId={game.id}
         coaches={team.coaches || []}
-        getPlayerAvailability={getPlayerAvailability}
       />
       {renderRotationTimeline()}
 
@@ -1376,5 +1376,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         );
       })()}
     </div>
+    </AvailabilityProvider>
   );
 }

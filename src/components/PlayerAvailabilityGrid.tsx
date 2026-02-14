@@ -1,4 +1,5 @@
 import { updatePlayerAvailability } from "../services/rotationPlannerService";
+import { useAvailability } from "../contexts/AvailabilityContext";
 
 interface Player {
   id: string;
@@ -11,7 +12,6 @@ interface PlayerAvailabilityGridProps {
   players: Player[];
   gameId: string;
   coaches: string[];
-  getPlayerAvailability: (playerId: string) => string;
 }
 
 export const STATUS_CYCLE: Array<"available" | "absent" | "late-arrival" | "injured"> = [
@@ -55,8 +55,8 @@ export function PlayerAvailabilityGrid({
   players,
   gameId,
   coaches,
-  getPlayerAvailability,
 }: PlayerAvailabilityGridProps) {
+  const { getPlayerAvailability } = useAvailability();
   const handleToggle = async (playerId: string) => {
     const currentStatus = getPlayerAvailability(playerId);
     const currentIndex = STATUS_CYCLE.indexOf(

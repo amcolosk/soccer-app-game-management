@@ -32,7 +32,6 @@ interface GameTimerProps {
   onEndGame: () => void;
   onAddTestTime: (minutes: number) => void;
   onRecalculateRotations: () => void;
-  getPlayerAvailability: (playerId: string) => string;
   getPlanConflicts: () => Array<{
     type: 'starter' | 'rotation';
     playerId: string;
@@ -62,7 +61,6 @@ export function GameTimer({
   onEndGame,
   onAddTestTime,
   onRecalculateRotations,
-  getPlayerAvailability,
   getPlanConflicts,
 }: GameTimerProps) {
   return (
@@ -134,7 +132,6 @@ export function GameTimer({
           players={players}
           gameId={game.id}
           coaches={team.coaches || []}
-          getPlayerAvailability={getPlayerAvailability}
         />
       )}
 

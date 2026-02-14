@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { getStatusColor, getStatusLabel } from './PlayerAvailabilityGrid';
+import { useAvailability } from '../contexts/AvailabilityContext';
 
 interface Player {
   id: string;
@@ -22,7 +23,6 @@ interface LineupBuilderProps {
   onLineupChange: (positionId: string, playerId: string) => void;
   disabled?: boolean;
   showPreferredPositions?: boolean;
-  getPlayerAvailability?: (playerId: string) => string;
 }
 
 export function LineupBuilder({
@@ -32,8 +32,8 @@ export function LineupBuilder({
   onLineupChange,
   disabled = false,
   showPreferredPositions = true,
-  getPlayerAvailability,
 }: LineupBuilderProps) {
+  const { getPlayerAvailability } = useAvailability();
   const [draggedPlayer, setDraggedPlayer] = useState<Player | null>(null);
 
   const handleDragStart = (player: Player) => {
@@ -94,7 +94,7 @@ export function LineupBuilder({
                 <>
                   <div
                     className={`assigned-player ${
-                      getPlayerAvailability && (getPlayerAvailability(assignedPlayer.id) === 'absent' || getPlayerAvailability(assignedPlayer.id) === 'injured')
+                      (getPlayerAvailability(assignedPlayer.id) === 'absent' || getPlayerAvailability(assignedPlayer.id) === 'injured')
                         ? 'unavailable'
                         : ''
                     }`}
@@ -117,7 +117,7 @@ export function LineupBuilder({
                       </button>
                     )}
                   </div>
-                  {getPlayerAvailability && (() => {
+                  {(() => {
                     const status = getPlayerAvailability(assignedPlayer.id);
                     if (status === 'absent' || status === 'injured') {
                       return (
@@ -176,7 +176,7 @@ export function LineupBuilder({
           {availablePlayers
             .filter((p) => !Array.from(lineup.values()).includes(p.id))
             .map((player) => {
-              const status = getPlayerAvailability?.(player.id);
+              const status = getPlayerAvailability(player.id);
               const isUnavailable = status === 'absent' || status === 'injured';
               return (
                 <div

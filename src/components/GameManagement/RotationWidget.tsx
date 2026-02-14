@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { updatePlayerAvailability } from "../../services/rotationPlannerService";
+import { useAvailability } from "../../contexts/AvailabilityContext";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import type {
@@ -9,7 +10,6 @@ import type {
   FormationPosition,
   GamePlan,
   PlannedRotation,
-  PlayerAvailability,
   LineupAssignment,
   PlayTimeRecord,
   SubQueue,
@@ -23,13 +23,11 @@ interface RotationWidgetProps {
   positions: FormationPosition[];
   gamePlan: GamePlan | null;
   plannedRotations: PlannedRotation[];
-  playerAvailabilities: PlayerAvailability[];
   currentTime: number;
   lineup: LineupAssignment[];
   playTimeRecords: PlayTimeRecord[];
   substitutionQueue: SubQueue[];
   onQueueSubstitution: (playerId: string, positionId: string) => void;
-  getPlayerAvailability: (playerId: string) => string;
 }
 
 export function RotationWidget({
@@ -43,8 +41,8 @@ export function RotationWidget({
   currentTime,
   substitutionQueue,
   onQueueSubstitution,
-  getPlayerAvailability,
 }: RotationWidgetProps) {
+  const { getPlayerAvailability } = useAvailability();
   const [showRotationModal, setShowRotationModal] = useState(false);
   const [currentRotation, setCurrentRotation] = useState<PlannedRotation | null>(null);
   const [showLateArrivalModal, setShowLateArrivalModal] = useState(false);

@@ -1,7 +1,15 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LineupBuilder } from "./LineupBuilder";
+
+vi.mock("../contexts/AvailabilityContext", () => ({
+  useAvailability: vi.fn(),
+}));
+
+import { useAvailability } from "../contexts/AvailabilityContext";
+
+const mockUseAvailability = vi.mocked(useAvailability);
 
 const positions = [
   { id: "pos1", positionName: "Goalkeeper", abbreviation: "GK" },
@@ -21,6 +29,13 @@ const emptyLineup = new Map<string, string>();
 function lineupWith(entries: [string, string][]) {
   return new Map(entries);
 }
+
+beforeEach(() => {
+  mockUseAvailability.mockReturnValue({
+    availabilities: [],
+    getPlayerAvailability: () => "available",
+  });
+});
 
 describe("LineupBuilder", () => {
   // ---------- Rendering ----------
@@ -281,13 +296,16 @@ describe("LineupBuilder", () => {
   describe("availability indicators", () => {
     it("shows warning for absent assigned players", () => {
       const lineup = lineupWith([["pos1", "p1"]]);
+      mockUseAvailability.mockReturnValue({
+        availabilities: [],
+        getPlayerAvailability: () => "absent",
+      });
       render(
         <LineupBuilder
           positions={positions}
           availablePlayers={players}
           lineup={lineup}
           onLineupChange={() => {}}
-          getPlayerAvailability={() => "absent"}
         />
       );
       expect(screen.getByText(/Absent/)).toBeInTheDocument();
@@ -296,13 +314,16 @@ describe("LineupBuilder", () => {
 
     it("shows warning for injured assigned players", () => {
       const lineup = lineupWith([["pos1", "p1"]]);
+      mockUseAvailability.mockReturnValue({
+        availabilities: [],
+        getPlayerAvailability: () => "injured",
+      });
       render(
         <LineupBuilder
           positions={positions}
           availablePlayers={players}
           lineup={lineup}
           onLineupChange={() => {}}
-          getPlayerAvailability={() => "injured"}
         />
       );
       expect(screen.getByText(/Injured/)).toBeInTheDocument();
@@ -317,7 +338,6 @@ describe("LineupBuilder", () => {
           availablePlayers={players}
           lineup={lineup}
           onLineupChange={() => {}}
-          getPlayerAvailability={() => "available"}
         />
       );
       expect(document.querySelector(".lineup-availability-warning")).not.toBeInTheDocument();
@@ -325,13 +345,16 @@ describe("LineupBuilder", () => {
 
     it("does not show warning for late-arrival assigned players", () => {
       const lineup = lineupWith([["pos1", "p1"]]);
+      mockUseAvailability.mockReturnValue({
+        availabilities: [],
+        getPlayerAvailability: () => "late-arrival",
+      });
       render(
         <LineupBuilder
           positions={positions}
           availablePlayers={players}
           lineup={lineup}
           onLineupChange={() => {}}
-          getPlayerAvailability={() => "late-arrival"}
         />
       );
       expect(document.querySelector(".lineup-availability-warning")).not.toBeInTheDocument();
@@ -339,13 +362,16 @@ describe("LineupBuilder", () => {
 
     it("applies unavailable class and status icon on bench for absent players", () => {
       const lineup = lineupWith([["pos1", "p1"]]);
+      mockUseAvailability.mockReturnValue({
+        availabilities: [],
+        getPlayerAvailability: () => "absent",
+      });
       render(
         <LineupBuilder
           positions={positions}
           availablePlayers={players}
           lineup={lineup}
           onLineupChange={() => {}}
-          getPlayerAvailability={() => "absent"}
         />
       );
       const benchPlayers = document.querySelectorAll(".bench-player");
@@ -356,7 +382,7 @@ describe("LineupBuilder", () => {
       expect(document.querySelectorAll(".bench-status").length).toBeGreaterThan(0);
     });
 
-    it("does not show availability indicators when getPlayerAvailability is omitted", () => {
+    it("does not show availability warnings when all players are available", () => {
       const lineup = lineupWith([["pos1", "p1"]]);
       render(
         <LineupBuilder
