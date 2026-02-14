@@ -29,98 +29,47 @@ const gamesWithPlans = await Promise.all(
 
 ---
 
-### 1.2 Refactor GameManagement.tsx (2,279 lines)
+### 1.2 Refactor GameManagement.tsx (2,279 lines) ✅ COMPLETED
 **Priority**: CRITICAL | **Effort**: 16-20 hours | **Impact**: Enables testing, improves maintainability
 
-**Problem**: Single component handles too many responsibilities:
-- Game timer logic
-- Lineup/substitution UI and logic
-- Goal tracking
-- Game notes
-- Player availability
-- Rotation modal integration
-- Real-time subscriptions
-
-**Solution**: Break into focused components:
-```
-src/components/GameManagement/
-  ├── GameManagement.tsx          (orchestration, ~300 lines)
-  ├── GameTimer.tsx               (timing logic)
-  ├── LineupPanel.tsx             (lineup management)
-  ├── RotationWidget.tsx          (rotation display/control)
-  ├── GoalTracker.tsx             (goal management)
-  ├── PlayerNotesPanel.tsx        (game notes)
-  └── hooks/
-      └── useGameState.ts         (game state management hook)
-```
-
-**Steps**:
-- [ ] Extract GameTimer component with timer logic
-- [ ] Extract LineupPanel for lineup display
-- [ ] Extract RotationWidget for rotation planning integration
-- [ ] Extract GoalTracker for goal/score management
-- [ ] Extract PlayerNotesPanel for notes
-- [ ] Create useGameState hook for state management
-- [ ] Wire components together in main GameManagement
-- [ ] Add tests for each extracted component
+**Solution**: Decomposed into 12 files in `src/components/GameManagement/`:
+- Orchestrator (609 lines) with cross-domain handlers and shared state
+- 7 sub-components: GameHeader, GameTimer, GoalTracker, PlayerNotesPanel, RotationWidget, SubstitutionPanel, LineupPanel
+- 2 custom hooks: useGameSubscriptions, useGameTimer
+- Shared types.ts and index.ts re-export
 
 ---
 
-### 1.3 Add Component Tests
+### 1.3 Add Component Tests ✅ COMPLETED
 **Priority**: CRITICAL | **Effort**: 8-10 hours | **Impact**: Prevents regressions
 
-**Problem**: 5,300+ lines of component code with zero tests
-
-**Initial Focus**: Start with smaller, reusable components
-
-**To Test**:
-- [ ] LineupBuilder.tsx (205 lines)
-  - Render all positions
-  - Player selection/assignment
-  - Drag and drop functionality
-  - Availability filtering
-- [ ] PlayerAvailabilityGrid.tsx (110 lines)
-  - Grid rendering
-  - Status toggling
-  - Player filtering
-- [ ] PlayerSelect.tsx
-  - Player list rendering
-  - Selection handling
-  - Search/filter functionality
-
-**Test Setup**: Already have Vitest + React Testing Library configured
+**Completed**: 228 total tests (up from 0 component tests)
+- LineupBuilder.test.tsx (24 tests)
+- PlayerAvailabilityGrid.test.tsx (12 tests) + PlayerAvailabilityGrid.test.ts (13 tests)
+- PlayerSelect.test.tsx (9 tests)
+- GameTimer.test.tsx (22 tests)
+- GoalTracker.test.tsx (13 tests)
+- PlayerNotesPanel.test.tsx (13 tests)
+- GameHeader.test.tsx (6 tests)
 
 ---
 
 ## 🔥 PHASE 2: High Priority Issues (Weeks 3-4)
 
-### 2.1 Convert Management.tsx to useReducer
+### 2.1 Convert Management.tsx to useReducer ✅ COMPLETED
 **Priority**: HIGH | **Effort**: 6-8 hours | **Impact**: Cleaner state management
 
 **File**: `src/components/Management.tsx` (lines 18-69)
 
-**Problem**: 52 individual useState calls for form state makes it hard to reset forms and manage related state.
+**Problem**: 40 individual useState calls for form state makes it hard to reset forms and manage related state.
 
-**Solution**:
-```typescript
-interface FormState {
-  team: { name: string; maxPlayers: string; halfLength: string; ... };
-  formation: { name: string; playerCount: string; ... };
-  player: { firstName: string; lastName: string };
-}
+**Solution**: Created `src/components/managementReducers.ts` with 4 focused reducers:
+- `playerFormReducer` (4 fields) — firstName, lastName, isCreating, editing
+- `formationFormReducer` (6 fields) — name, playerCount, sport, positions, isCreating, editing
+- `teamFormReducer` (9 fields) — name, maxPlayers, halfLength, sport, gameFormat, selectedFormation, expandedTeamId, isCreating, editing
+- `rosterFormReducer` (7 fields) — playerNumber, selectedPlayer, preferredPositions, editFirstName, editLastName, isAdding, editing
 
-const [formState, dispatch] = useReducer(formReducer, initialState);
-
-// Single reset:
-dispatch({ type: 'RESET_TEAM_FORM' });
-```
-
-**Steps**:
-- [ ] Create formReducer with actions for each form
-- [ ] Define FormState interface
-- [ ] Convert useState calls to useReducer
-- [ ] Update form handlers to dispatch actions
-- [ ] Test form reset functionality
+**Result**: 40 useState → 4 useReducer + 14 useState (65% reduction). Duplicate reset patterns eliminated. 27 unit tests for reducers.
 
 ---
 
@@ -416,13 +365,13 @@ export const logger = {
 - [x] Extract magic numbers to constants
 - [x] Add useMemo to expensive computations
 - [x] Fix over-fetching in useTeamData
-
-### In Progress
-- [ ] None (all quick wins completed!)
+- [x] Refactor GameManagement.tsx into sub-components (1.2)
+- [x] Add component tests — 228 total tests (1.3)
+- [x] Convert Management.tsx to useReducer — 4 reducers, 27 tests (2.1)
 
 ### Next Up
-- [ ] Component tests for LineupBuilder
-- [ ] GameManagement.tsx refactor
+- [ ] Eliminate prop drilling with Context (2.2)
+- [ ] Create useAmplifyQuery hook (2.3)
 
 ---
 

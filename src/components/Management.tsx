@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useReducer } from 'react';
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
 import { BugReport } from './BugReport';
@@ -6,8 +6,13 @@ import { InvitationManagement } from './InvitationManagement';
 import type { Schema } from '../../amplify/data/resource';
 import { FORMATION_TEMPLATES } from '../../amplify/data/formation-templates';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
-import { DEFAULT_FORM_VALUES } from '../constants/gameConfig';
 import { UI_CONSTANTS } from '../constants/ui';
+import {
+  playerFormReducer, initialPlayerForm,
+  formationFormReducer, initialFormationForm,
+  teamFormReducer, initialTeamForm,
+  rosterFormReducer, initialRosterForm,
+} from './managementReducers';
 
 const client = generateClient<Schema>();
 
@@ -32,42 +37,17 @@ export function Management() {
   const [sharingResourceId, setSharingResourceId] = useState<string>('');
   const [sharingResourceName, setSharingResourceName] = useState<string>('');
 
-  // Team form state
-  const [isCreatingTeam, setIsCreatingTeam] = useState(false);
-  const [editingTeam, setEditingTeam] = useState<Team | null>(null);
-  const [teamName, setTeamName] = useState('');
-  const [maxPlayers, setMaxPlayers] = useState(DEFAULT_FORM_VALUES.maxPlayers);
-  const [halfLength, setHalfLength] = useState(DEFAULT_FORM_VALUES.halfLength);
-  const [selectedFormation, setSelectedFormation] = useState('');
-  const [sport, setSport] = useState(DEFAULT_FORM_VALUES.sport);
-  const [gameFormat, setGameFormat] = useState(DEFAULT_FORM_VALUES.gameFormat);
-  const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
-  const [isAddingRosterPlayer, setIsAddingRosterPlayer] = useState(false);
-  const [editingRoster, setEditingRoster] = useState<TeamRoster | null>(null);
-  const [selectedPlayerForRoster, setSelectedPlayerForRoster] = useState('');
-  const [rosterPlayerNumber, setRosterPlayerNumber] = useState('');
-  const [rosterPreferredPositions, setRosterPreferredPositions] = useState<string[]>([]);
-  const [editRosterFirstName, setEditRosterFirstName] = useState('');
-  const [editRosterLastName, setEditRosterLastName] = useState('');
+  // Form state (useReducer)
+  const [teamForm, teamDispatch] = useReducer(teamFormReducer, initialTeamForm);
+  const [rosterForm, rosterDispatch] = useReducer(rosterFormReducer, initialRosterForm);
 
   // Swipe-to-delete state
   const [swipedItemId, setSwipedItemId] = useState<string | null>(null);
   const [swipeStartX, setSwipeStartX] = useState<number>(0);
   const [swipeCurrentX, setSwipeCurrentX] = useState<number>(0);
 
-  // Formation form state
-  const [isCreatingFormation, setIsCreatingFormation] = useState(false);
-  const [editingFormation, setEditingFormation] = useState<Formation | null>(null);
-  const [formationName, setFormationName] = useState('');
-  const [playerCount, setPlayerCount] = useState('');
-  const [formationSport, setFormationSport] = useState('Soccer');
-  const [formationPositionsList, setFormationPositionsList] = useState<Array<{ positionName: string; abbreviation: string }>>([]);
-
-  // Player form state
-  const [isCreatingPlayer, setIsCreatingPlayer] = useState(false);
-  const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
+  const [formationForm, formationDispatch] = useReducer(formationFormReducer, initialFormationForm);
+  const [playerForm, playerDispatch] = useReducer(playerFormReducer, initialPlayerForm);
 
   useEffect(() => {
     loadCurrentUser();
@@ -115,7 +95,7 @@ export function Management() {
   }
 
   const handleCreateTeam = async () => {
-    if (!teamName.trim()) {
+    if (!teamForm.name.trim()) {
       alert('Please enter team name');
       return;
     }
@@ -125,24 +105,24 @@ export function Management() {
       return;
     }
 
-    const maxPlayersNum = parseInt(maxPlayers);
+    const maxPlayersNum = parseInt(teamForm.maxPlayers);
     if (isNaN(maxPlayersNum) || maxPlayersNum < 1) {
       alert('Please enter a valid number of players');
       return;
     }
 
-    const halfLengthNum = parseInt(halfLength);
+    const halfLengthNum = parseInt(teamForm.halfLength);
     if (isNaN(halfLengthNum) || halfLengthNum < 1) {
       alert('Please enter a valid half length');
       return;
     }
 
     try {
-      let formationIdToUse = selectedFormation;
+      let formationIdToUse = teamForm.selectedFormation;
 
       // If a template is selected, create a new formation from it
-      if (selectedFormation.startsWith('template-')) {
-        const templateIndex = parseInt(selectedFormation.replace('template-', ''));
+      if (teamForm.selectedFormation.startsWith('template-')) {
+        const templateIndex = parseInt(teamForm.selectedFormation.replace('template-', ''));
         const template = FORMATION_TEMPLATES[templateIndex];
         
         if (template) {
@@ -169,26 +149,20 @@ export function Management() {
             }
           }
         }
-      } else if (selectedFormation === '') {
+      } else if (teamForm.selectedFormation === '') {
         formationIdToUse = '';
       }
 
       await client.models.Team.create({
-        name: teamName,
+        name: teamForm.name,
         coaches: [currentUserId], // Initialize with current user as the only coach
         formationId: formationIdToUse || undefined,
         maxPlayersOnField: maxPlayersNum,
         halfLengthMinutes: halfLengthNum,
-        sport: sport,
-        gameFormat: gameFormat,
+        sport: teamForm.sport,
+        gameFormat: teamForm.gameFormat,
       });
-      setTeamName('');
-      setMaxPlayers('7');
-      setHalfLength('25');
-      setSelectedFormation('');
-      setSport('Soccer');
-      setGameFormat('Halves');
-      setIsCreatingTeam(false);
+      teamDispatch({ type: 'RESET' });
       trackEvent(AnalyticsEvents.TEAM_CREATED.category, AnalyticsEvents.TEAM_CREATED.action);
     } catch (error) {
       console.error('Error creating team:', error);
@@ -197,44 +171,37 @@ export function Management() {
   };
 
   const handleEditTeam = (team: Team) => {
-    setEditingTeam(team);
-    setTeamName(team.name);
-    setMaxPlayers(team.maxPlayersOnField.toString());
-    setHalfLength((team.halfLengthMinutes || 30).toString());
-    setSelectedFormation(team.formationId || '');
-    setSport(team.sport || 'Soccer');
-    setGameFormat(team.gameFormat || 'Halves');
-    setIsCreatingTeam(false);
+    teamDispatch({ type: 'EDIT_TEAM', team });
   };
 
   const handleUpdateTeam = async () => {
-    if (!editingTeam) return;
+    if (!teamForm.editing) return;
 
-    if (!teamName.trim()) {
+    if (!teamForm.name.trim()) {
       alert('Please enter team name');
       return;
     }
 
-    const maxPlayersNum = parseInt(maxPlayers);
+    const maxPlayersNum = parseInt(teamForm.maxPlayers);
     if (isNaN(maxPlayersNum) || maxPlayersNum < 1) {
       alert('Please enter a valid number of players');
       return;
     }
 
-    const halfLengthNum = parseInt(halfLength);
+    const halfLengthNum = parseInt(teamForm.halfLength);
     if (isNaN(halfLengthNum) || halfLengthNum < 1) {
       alert('Please enter a valid half length');
       return;
     }
 
     try {
-      let formationIdToUse = selectedFormation;
+      let formationIdToUse = teamForm.selectedFormation;
 
       // If a template is selected, create a new formation from it
-      if (selectedFormation.startsWith('template-')) {
-        const templateIndex = parseInt(selectedFormation.replace('template-', ''));
+      if (teamForm.selectedFormation.startsWith('template-')) {
+        const templateIndex = parseInt(teamForm.selectedFormation.replace('template-', ''));
         const template = FORMATION_TEMPLATES[templateIndex];
-        
+
         if (template) {
           const newFormation = await client.models.Formation.create({
             name: template.name,
@@ -245,7 +212,7 @@ export function Management() {
 
           if (newFormation.data) {
             formationIdToUse = newFormation.data.id;
-            
+
             // Create positions for the new formation
             for (let i = 0; i < template.positions.length; i++) {
               const pos = template.positions[i];
@@ -259,26 +226,20 @@ export function Management() {
             }
           }
         }
-      } else if (selectedFormation === '') {
+      } else if (teamForm.selectedFormation === '') {
         formationIdToUse = '';
       }
 
       await client.models.Team.update({
-        id: editingTeam.id,
-        name: teamName,
+        id: teamForm.editing!.id,
+        name: teamForm.name,
         formationId: formationIdToUse || undefined,
         maxPlayersOnField: maxPlayersNum,
         halfLengthMinutes: halfLengthNum,
-        sport: sport,
-        gameFormat: gameFormat,
+        sport: teamForm.sport,
+        gameFormat: teamForm.gameFormat,
       });
-      setTeamName('');
-      setMaxPlayers('7');
-      setHalfLength('25');
-      setSelectedFormation('');
-      setSport('Soccer');
-      setGameFormat('Halves');
-      setEditingTeam(null);
+      teamDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error updating team:', error);
       alert('Failed to update team');
@@ -286,13 +247,7 @@ export function Management() {
   };
 
   const handleCancelTeamEdit = () => {
-    setEditingTeam(null);
-    setTeamName('');
-    setMaxPlayers('7');
-    setHalfLength('25');
-    setSelectedFormation('');
-    setSport('Soccer');
-    setGameFormat('Halves');
+    teamDispatch({ type: 'RESET' });
   };
 
   const handleDeleteTeam = async (id: string) => {
@@ -307,19 +262,19 @@ export function Management() {
   };
 
   const handleAddPlayerToRoster = async (teamId: string) => {
-    if (!selectedPlayerForRoster || !rosterPlayerNumber.trim()) {
+    if (!rosterForm.selectedPlayer || !rosterForm.playerNumber.trim()) {
       alert('Please select a player and enter a player number');
       return;
     }
 
-    const num = parseInt(rosterPlayerNumber);
+    const num = parseInt(rosterForm.playerNumber);
     if (isNaN(num) || num < 1 || num > 99) {
       alert('Please enter a valid player number (1-99)');
       return;
     }
 
     // Check if player is already on this team's roster
-    if (teamRosters.some(r => r.teamId === teamId && r.playerId === selectedPlayerForRoster)) {
+    if (teamRosters.some(r => r.teamId === teamId && r.playerId === rosterForm.selectedPlayer)) {
       alert('This player is already on the team roster');
       return;
     }
@@ -339,18 +294,15 @@ export function Management() {
     try {
       await client.models.TeamRoster.create({
         teamId,
-        playerId: selectedPlayerForRoster,
+        playerId: rosterForm.selectedPlayer,
         playerNumber: num,
-        preferredPositions: rosterPreferredPositions.length > 0 
-          ? rosterPreferredPositions.join(', ') 
+        preferredPositions: rosterForm.preferredPositions.length > 0
+          ? rosterForm.preferredPositions.join(', ')
           : undefined,
         coaches: team.coaches, // Copy coaches array from team
       });
 
-      setSelectedPlayerForRoster('');
-      setRosterPlayerNumber('');
-      setRosterPreferredPositions([]);
-      setIsAddingRosterPlayer(false);
+      rosterDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error adding player to roster:', error);
       alert('Failed to add player to roster');
@@ -370,35 +322,35 @@ export function Management() {
 
   const handleEditRoster = (roster: TeamRoster) => {
     const player = players.find(p => p.id === roster.playerId);
-    setEditingRoster(roster);
-    setRosterPlayerNumber(roster.playerNumber?.toString() || '');
-    setRosterPreferredPositions(roster.preferredPositions ? roster.preferredPositions.split(', ') : []);
-    setEditRosterFirstName(player?.firstName || '');
-    setEditRosterLastName(player?.lastName || '');
-    setIsAddingRosterPlayer(false);
+    rosterDispatch({
+      type: 'EDIT_ROSTER',
+      roster,
+      firstName: player?.firstName || '',
+      lastName: player?.lastName || '',
+    });
   };
 
   const handleUpdateRoster = async () => {
-    if (!editingRoster) return;
+    if (!rosterForm.editing) return;
 
-    if (!rosterPlayerNumber.trim()) {
+    if (!rosterForm.playerNumber.trim()) {
       alert('Please enter a player number');
       return;
     }
 
-    const num = parseInt(rosterPlayerNumber);
+    const num = parseInt(rosterForm.playerNumber);
     if (isNaN(num) || num < 1 || num > 99) {
       alert('Player number must be between 1 and 99');
       return;
     }
 
     // Check if number is already in use by another player on this team
-    if (teamRosters.some(r => r.teamId === editingRoster.teamId && r.playerNumber === num && r.id !== editingRoster.id)) {
+    if (teamRosters.some(r => r.teamId === rosterForm.editing!.teamId && r.playerNumber === num && r.id !== rosterForm.editing!.id)) {
       alert('This player number is already in use on this team');
       return;
     }
 
-    if (!editRosterFirstName.trim() || !editRosterLastName.trim()) {
+    if (!rosterForm.editFirstName.trim() || !rosterForm.editLastName.trim()) {
       alert('Please enter first name and last name');
       return;
     }
@@ -406,25 +358,21 @@ export function Management() {
     try {
       // Update player name
       await client.models.Player.update({
-        id: editingRoster.playerId,
-        firstName: editRosterFirstName,
-        lastName: editRosterLastName,
+        id: rosterForm.editing.playerId,
+        firstName: rosterForm.editFirstName,
+        lastName: rosterForm.editLastName,
       });
 
       // Update roster entry
       await client.models.TeamRoster.update({
-        id: editingRoster.id,
+        id: rosterForm.editing.id,
         playerNumber: num,
-        preferredPositions: rosterPreferredPositions.length > 0 
-          ? rosterPreferredPositions.join(', ') 
+        preferredPositions: rosterForm.preferredPositions.length > 0
+          ? rosterForm.preferredPositions.join(', ')
           : undefined,
       });
 
-      setEditingRoster(null);
-      setRosterPlayerNumber('');
-      setRosterPreferredPositions([]);
-      setEditRosterFirstName('');
-      setEditRosterLastName('');
+      rosterDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error updating roster:', error);
       alert('Failed to update roster');
@@ -432,11 +380,7 @@ export function Management() {
   };
 
   const handleCancelRosterEdit = () => {
-    setEditingRoster(null);
-    setRosterPlayerNumber('');
-    setRosterPreferredPositions([]);
-    setEditRosterFirstName('');
-    setEditRosterLastName('');
+    rosterDispatch({ type: 'RESET' });
   };
 
   const handleDeletePlayer = async (id: string) => {
@@ -458,7 +402,7 @@ export function Management() {
 
 
   const handleCreatePlayer = async () => {
-    if (!firstName.trim() || !lastName.trim()) {
+    if (!playerForm.firstName.trim() || !playerForm.lastName.trim()) {
       alert('Please enter first name and last name');
       return;
     }
@@ -469,22 +413,14 @@ export function Management() {
     }
 
     try {
-      // Create the player with coaches array containing only the current user
-      // This ensures the player is private to the creator initially
-      // They will be shared with the team when added to a roster
-      const coachesArray = [currentUserId];
-
       await client.models.Player.create({
-        firstName,
-        lastName,
-        coaches: coachesArray,
+        firstName: playerForm.firstName,
+        lastName: playerForm.lastName,
+        coaches: [currentUserId],
       });
 
       trackEvent(AnalyticsEvents.PLAYER_ADDED.category, AnalyticsEvents.PLAYER_ADDED.action);
-
-      setFirstName('');
-      setLastName('');
-      setIsCreatingPlayer(false);
+      playerDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error creating player:', error);
       alert('Failed to create player');
@@ -492,30 +428,25 @@ export function Management() {
   };
 
   const handleEditPlayer = (player: Player) => {
-    setEditingPlayer(player);
-    setFirstName(player.firstName);
-    setLastName(player.lastName);
-    setIsCreatingPlayer(false);
+    playerDispatch({ type: 'EDIT_PLAYER', player });
   };
 
   const handleUpdatePlayer = async () => {
-    if (!editingPlayer) return;
-    
-    if (!firstName.trim() || !lastName.trim()) {
+    if (!playerForm.editing) return;
+
+    if (!playerForm.firstName.trim() || !playerForm.lastName.trim()) {
       alert('Please enter first name and last name');
       return;
     }
 
     try {
       await client.models.Player.update({
-        id: editingPlayer.id,
-        firstName,
-        lastName,
+        id: playerForm.editing.id,
+        firstName: playerForm.firstName,
+        lastName: playerForm.lastName,
       });
 
-      setFirstName('');
-      setLastName('');
-      setEditingPlayer(null);
+      playerDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error updating player:', error);
       alert('Failed to update player');
@@ -523,24 +454,22 @@ export function Management() {
   };
 
   const handleCancelPlayerEdit = () => {
-    setEditingPlayer(null);
-    setFirstName('');
-    setLastName('');
+    playerDispatch({ type: 'RESET' });
   };
 
   const handleCreateFormation = async () => {
-    if (!formationName.trim() || !playerCount.trim()) {
+    if (!formationForm.name.trim() || !formationForm.playerCount.trim()) {
       alert('Please enter formation name and specify player count');
       return;
     }
 
-    const count = parseInt(playerCount);
+    const count = parseInt(formationForm.playerCount);
     if (isNaN(count) || count < 1) {
       alert('Please enter a valid player count');
       return;
     }
 
-    if (formationPositionsList.length === 0) {
+    if (formationForm.positions.length === 0) {
       alert('Please add at least one position');
       return;
     }
@@ -552,16 +481,16 @@ export function Management() {
 
     try {
       const formation = await client.models.Formation.create({
-        name: formationName,
+        name: formationForm.name,
         playerCount: count,
-        sport: formationSport,
+        sport: formationForm.sport,
         coaches: [currentUserId],
       });
 
       if (formation.data) {
         // Create all positions
-        for (let i = 0; i < formationPositionsList.length; i++) {
-          const pos = formationPositionsList[i];
+        for (let i = 0; i < formationForm.positions.length; i++) {
+          const pos = formationForm.positions[i];
           await client.models.FormationPosition.create({
             formationId: formation.data.id,
             positionName: pos.positionName,
@@ -572,11 +501,7 @@ export function Management() {
         }
       }
 
-      setFormationName('');
-      setPlayerCount('');
-      setFormationSport('Soccer');
-      setFormationPositionsList([]);
-      setIsCreatingFormation(false);
+      formationDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error creating formation:', error);
       alert('Failed to create formation');
@@ -584,36 +509,30 @@ export function Management() {
   };
 
   const handleEditFormation = (formation: Formation) => {
-    setEditingFormation(formation);
-    setFormationName(formation.name);
-    setPlayerCount(formation.playerCount.toString());
-    setFormationSport(formation.sport || 'Soccer');
-    
     // Load existing positions for this formation
     const existingPositions = formationPositions
       .filter(p => p.formationId === formation.id)
       .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
       .map(p => ({ positionName: p.positionName, abbreviation: p.abbreviation }));
-    
-    setFormationPositionsList(existingPositions);
-    setIsCreatingFormation(false);
+
+    formationDispatch({ type: 'EDIT_FORMATION', formation, positions: existingPositions });
   };
 
   const handleUpdateFormation = async () => {
-    if (!editingFormation) return;
+    if (!formationForm.editing) return;
 
-    if (!formationName.trim() || !playerCount.trim()) {
+    if (!formationForm.name.trim() || !formationForm.playerCount.trim()) {
       alert('Please enter formation name and specify player count');
       return;
     }
 
-    const count = parseInt(playerCount);
+    const count = parseInt(formationForm.playerCount);
     if (isNaN(count) || count < 1) {
       alert('Please enter a valid player count');
       return;
     }
 
-    if (formationPositionsList.length === 0) {
+    if (formationForm.positions.length === 0) {
       alert('Please add at least one position');
       return;
     }
@@ -621,35 +540,31 @@ export function Management() {
     try {
       // Update formation
       await client.models.Formation.update({
-        id: editingFormation.id,
-        name: formationName,
+        id: formationForm.editing.id,
+        name: formationForm.name,
         playerCount: count,
-        sport: formationSport,
+        sport: formationForm.sport,
       });
 
       // Delete all existing positions for this formation
-      const existingPositions = formationPositions.filter(p => p.formationId === editingFormation.id);
+      const existingPositions = formationPositions.filter(p => p.formationId === formationForm.editing!.id);
       for (const pos of existingPositions) {
         await client.models.FormationPosition.delete({ id: pos.id });
       }
 
       // Create new positions
-      for (let i = 0; i < formationPositionsList.length; i++) {
-        const pos = formationPositionsList[i];
+      for (let i = 0; i < formationForm.positions.length; i++) {
+        const pos = formationForm.positions[i];
         await client.models.FormationPosition.create({
-          formationId: editingFormation.id,
+          formationId: formationForm.editing!.id,
           positionName: pos.positionName,
           abbreviation: pos.abbreviation,
           sortOrder: i + 1,
-          coaches: editingFormation.coaches || [],
+          coaches: formationForm.editing!.coaches || [],
         });
       }
 
-      setFormationName('');
-      setPlayerCount('');
-      setFormationSport('Soccer');
-      setFormationPositionsList([]);
-      setEditingFormation(null);
+      formationDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error updating formation:', error);
       alert('Failed to update formation');
@@ -657,11 +572,7 @@ export function Management() {
   };
 
   const handleCancelFormationEdit = () => {
-    setEditingFormation(null);
-    setFormationName('');
-    setPlayerCount('');
-    setFormationSport('Soccer');
-    setFormationPositionsList([]);
+    formationDispatch({ type: 'RESET' });
   };
 
   const handleDeleteFormation = async (id: string) => {
@@ -676,17 +587,15 @@ export function Management() {
   };
 
   const addFormationPosition = () => {
-    setFormationPositionsList([...formationPositionsList, { positionName: '', abbreviation: '' }]);
+    formationDispatch({ type: 'ADD_POSITION' });
   };
 
   const updateFormationPosition = (index: number, field: 'positionName' | 'abbreviation', value: string) => {
-    const updated = [...formationPositionsList];
-    updated[index][field] = value;
-    setFormationPositionsList(updated);
+    formationDispatch({ type: 'UPDATE_POSITION', index, field, value });
   };
 
   const removeFormationPosition = (index: number) => {
-    setFormationPositionsList(formationPositionsList.filter((_, i) => i !== index));
+    formationDispatch({ type: 'REMOVE_POSITION', index });
   };
 
   const getFormationName = (formationId: string | null | undefined) => {
@@ -774,7 +683,7 @@ export function Management() {
 
   // Filter templates based on max players on field, preserving global index
   const getFilteredTemplates = () => {
-    const maxPlayersNum = parseInt(maxPlayers);
+    const maxPlayersNum = parseInt(teamForm.maxPlayers);
     const indexed = FORMATION_TEMPLATES.map((template, globalIndex) => ({ ...template, globalIndex }));
     if (isNaN(maxPlayersNum) || maxPlayersNum < 1) {
       return indexed;
@@ -820,13 +729,13 @@ export function Management() {
 
       {activeSection === 'teams' && (
         <div className="management-section">
-          {!isCreatingTeam && !editingTeam && (
-            <button onClick={() => setIsCreatingTeam(true)} className="btn-primary">
+          {!teamForm.isCreating && !teamForm.editing && (
+            <button onClick={() => teamDispatch({ type: 'START_CREATE' })} className="btn-primary">
               + Create New Team
             </button>
           )}
 
-          {editingTeam && (
+          {teamForm.editing && (
             <div className="create-form">
               <h3>Edit Team</h3>
               <label>
@@ -834,8 +743,8 @@ export function Management() {
                 <input
                   type="text"
                   placeholder="Enter team name"
-                  value={teamName}
-                  onChange={(e) => setTeamName(e.target.value)}
+                  value={teamForm.name}
+                  onChange={(e) => teamDispatch({ type: 'SET_FIELD', field: 'name', value: e.target.value })}
                 />
               </label>
               <label>
@@ -843,8 +752,8 @@ export function Management() {
                 <input
                   type="number"
                   placeholder="Enter max players"
-                  value={maxPlayers}
-                  onChange={(e) => setMaxPlayers(e.target.value)}
+                  value={teamForm.maxPlayers}
+                  onChange={(e) => teamDispatch({ type: 'SET_FIELD', field: 'maxPlayers', value: e.target.value })}
                   min="1"
                 />
               </label>
@@ -853,16 +762,16 @@ export function Management() {
                 <input
                   type="number"
                   placeholder="Enter half length"
-                  value={halfLength}
-                  onChange={(e) => setHalfLength(e.target.value)}
+                  value={teamForm.halfLength}
+                  onChange={(e) => teamDispatch({ type: 'SET_FIELD', field: 'halfLength', value: e.target.value })}
                   min="1"
                 />
               </label>
               <label>
                 Sport
                 <select
-                  value={sport}
-                  onChange={(e) => setSport(e.target.value)}
+                  value={teamForm.sport}
+                  onChange={(e) => teamDispatch({ type: 'SET_FIELD', field: 'sport', value: e.target.value })}
                 >
                   <option value="Soccer">Soccer</option>
                 </select>
@@ -870,8 +779,8 @@ export function Management() {
               <label>
                 Game Format
                 <select
-                  value={gameFormat}
-                  onChange={(e) => setGameFormat(e.target.value)}
+                  value={teamForm.gameFormat}
+                  onChange={(e) => teamDispatch({ type: 'SET_FIELD', field: 'gameFormat', value: e.target.value })}
                 >
                   <option value="Halves">Halves</option>
                   <option value="Quarters">Quarters</option>
@@ -880,8 +789,8 @@ export function Management() {
               <label>
                 Formation
                 <select
-                  value={selectedFormation}
-                  onChange={(e) => setSelectedFormation(e.target.value)}
+                  value={teamForm.selectedFormation}
+                  onChange={(e) => teamDispatch({ type: 'SET_FIELD', field: 'selectedFormation', value: e.target.value })}
                 >
                   <option value="">Select formation (optional)</option>
                   <optgroup label="My Formations">
@@ -914,7 +823,7 @@ export function Management() {
             </div>
           )}
 
-          {isCreatingTeam && (
+          {teamForm.isCreating && (
             <div className="create-form">
               <h3>Create New Team</h3>
               <label>
@@ -922,8 +831,8 @@ export function Management() {
                 <input
                   type="text"
                   placeholder="Enter team name"
-                  value={teamName}
-                  onChange={(e) => setTeamName(e.target.value)}
+                  value={teamForm.name}
+                  onChange={(e) => teamDispatch({ type: 'SET_FIELD', field: 'name', value: e.target.value })}
                 />
               </label>
               <label>
@@ -931,8 +840,8 @@ export function Management() {
                 <input
                   type="number"
                   placeholder="Enter max players"
-                  value={maxPlayers}
-                  onChange={(e) => setMaxPlayers(e.target.value)}
+                  value={teamForm.maxPlayers}
+                  onChange={(e) => teamDispatch({ type: 'SET_FIELD', field: 'maxPlayers', value: e.target.value })}
                   min="1"
                 />
               </label>
@@ -941,16 +850,16 @@ export function Management() {
                 <input
                   type="number"
                   placeholder="Enter half length"
-                  value={halfLength}
-                  onChange={(e) => setHalfLength(e.target.value)}
+                  value={teamForm.halfLength}
+                  onChange={(e) => teamDispatch({ type: 'SET_FIELD', field: 'halfLength', value: e.target.value })}
                   min="1"
                 />
               </label>
               <label>
                 Sport
                 <select
-                  value={sport}
-                  onChange={(e) => setSport(e.target.value)}
+                  value={teamForm.sport}
+                  onChange={(e) => teamDispatch({ type: 'SET_FIELD', field: 'sport', value: e.target.value })}
                 >
                   <option value="Soccer">Soccer</option>
                 </select>
@@ -958,8 +867,8 @@ export function Management() {
               <label>
                 Game Format
                 <select
-                  value={gameFormat}
-                  onChange={(e) => setGameFormat(e.target.value)}
+                  value={teamForm.gameFormat}
+                  onChange={(e) => teamDispatch({ type: 'SET_FIELD', field: 'gameFormat', value: e.target.value })}
                 >
                   <option value="Halves">Halves</option>
                   <option value="Quarters">Quarters</option>
@@ -968,8 +877,8 @@ export function Management() {
               <label>
                 Formation
                 <select
-                  value={selectedFormation}
-                  onChange={(e) => setSelectedFormation(e.target.value)}
+                  value={teamForm.selectedFormation}
+                  onChange={(e) => teamDispatch({ type: 'SET_FIELD', field: 'selectedFormation', value: e.target.value })}
                 >
                   <option value="">Select formation (optional)</option>
                   <optgroup label="My Formations">
@@ -993,15 +902,7 @@ export function Management() {
                   Create
                 </button>
                 <button
-                  onClick={() => {
-                    setIsCreatingTeam(false);
-                    setTeamName('');
-                    setMaxPlayers('7');
-                    setHalfLength('25');
-                    setSelectedFormation('');
-                    setSport('Soccer');
-                    setGameFormat('Halves');
-                  }}
+                  onClick={() => teamDispatch({ type: 'RESET' })}
                   className="btn-secondary"
                 >
                   Cancel
@@ -1016,7 +917,7 @@ export function Management() {
             ) : (
               teams.map((team) => {
                 const teamRosterList = teamRosters.filter(r => r.teamId === team.id);
-                const isExpanded = expandedTeamId === team.id;
+                const isExpanded = teamForm.expandedTeamId === team.id;
                 const isSwiped = swipedItemId === team.id;
                 const swipeOffset = isSwiped ? swipeCurrentX : 0;
                 
@@ -1049,7 +950,7 @@ export function Management() {
                         </div>
                         <div className="card-actions">
                           <button
-                            onClick={() => setExpandedTeamId(isExpanded ? null : team.id)}
+                            onClick={() => teamDispatch({ type: 'TOGGLE_EXPAND', teamId: team.id })}
                             className="btn-edit"
                             aria-label={isExpanded ? "Hide roster" : "Show roster"}
                             title={isExpanded ? "Hide roster" : "Show roster"}
@@ -1085,9 +986,9 @@ export function Management() {
                       <div className="team-roster-section">
                         <h4>Team Roster</h4>
                         
-                        {!isAddingRosterPlayer && !editingRoster && (
-                          <button 
-                            onClick={() => setIsAddingRosterPlayer(true)} 
+                        {!rosterForm.isAdding && !rosterForm.editing && (
+                          <button
+                            onClick={() => rosterDispatch({ type: 'START_ADD' })}
                             className="btn-secondary" 
                             style={{ marginBottom: '1rem' }}
                           >
@@ -1095,12 +996,12 @@ export function Management() {
                           </button>
                         )}
                         
-                        {isAddingRosterPlayer && (
+                        {rosterForm.isAdding && (
                           <div className="create-form" style={{ marginBottom: '1rem' }}>
                             <h5>Add Player to Roster</h5>
                             <select
-                              value={selectedPlayerForRoster}
-                              onChange={(e) => setSelectedPlayerForRoster(e.target.value)}
+                              value={rosterForm.selectedPlayer}
+                              onChange={(e) => rosterDispatch({ type: 'SET_FIELD', field: 'selectedPlayer', value: e.target.value })}
                             >
                               <option value="">Select Player *</option>
                               {players
@@ -1114,8 +1015,8 @@ export function Management() {
                             <input
                               type="number"
                               placeholder="Player Number *"
-                              value={rosterPlayerNumber}
-                              onChange={(e) => setRosterPlayerNumber(e.target.value)}
+                              value={rosterForm.playerNumber}
+                              onChange={(e) => rosterDispatch({ type: 'SET_FIELD', field: 'playerNumber', value: e.target.value })}
                               min="1"
                               max="99"
                             />
@@ -1126,12 +1027,12 @@ export function Management() {
                                   <label key={position.id} className="checkbox-label">
                                     <input
                                       type="checkbox"
-                                      checked={rosterPreferredPositions.includes(position.id)}
+                                      checked={rosterForm.preferredPositions.includes(position.id)}
                                       onChange={(e) => {
                                         if (e.target.checked) {
-                                          setRosterPreferredPositions([...rosterPreferredPositions, position.id]);
+                                          rosterDispatch({ type: 'SET_PREFERRED_POSITIONS', positions: [...rosterForm.preferredPositions, position.id] });
                                         } else {
-                                          setRosterPreferredPositions(rosterPreferredPositions.filter(id => id !== position.id));
+                                          rosterDispatch({ type: 'SET_PREFERRED_POSITIONS', positions: rosterForm.preferredPositions.filter(id => id !== position.id) });
                                         }
                                       }}
                                     />
@@ -1145,12 +1046,7 @@ export function Management() {
                                 Add
                               </button>
                               <button
-                                onClick={() => {
-                                  setIsAddingRosterPlayer(false);
-                                  setSelectedPlayerForRoster('');
-                                  setRosterPlayerNumber('');
-                                  setRosterPreferredPositions([]);
-                                }}
+                                onClick={() => rosterDispatch({ type: 'RESET' })}
                                 className="btn-secondary"
                               >
                                 Cancel
@@ -1158,8 +1054,8 @@ export function Management() {
                             </div>
                           </div>
                         )}
-                        
-                        {editingRoster && editingRoster.teamId === team.id && (
+
+                        {rosterForm.editing && rosterForm.editing.teamId === team.id && (
                           <div className="create-form" style={{ marginBottom: '1rem' }}>
                             <h5>Edit Roster Entry</h5>
                             <label>
@@ -1167,8 +1063,8 @@ export function Management() {
                               <input
                                 type="text"
                                 placeholder="Enter first name"
-                                value={editRosterFirstName}
-                                onChange={(e) => setEditRosterFirstName(e.target.value)}
+                                value={rosterForm.editFirstName}
+                                onChange={(e) => rosterDispatch({ type: 'SET_FIELD', field: 'editFirstName', value: e.target.value })}
                               />
                             </label>
                             <label>
@@ -1176,8 +1072,8 @@ export function Management() {
                               <input
                                 type="text"
                                 placeholder="Enter last name"
-                                value={editRosterLastName}
-                                onChange={(e) => setEditRosterLastName(e.target.value)}
+                                value={rosterForm.editLastName}
+                                onChange={(e) => rosterDispatch({ type: 'SET_FIELD', field: 'editLastName', value: e.target.value })}
                               />
                             </label>
                             <label>
@@ -1185,8 +1081,8 @@ export function Management() {
                               <input
                                 type="number"
                                 placeholder="Player Number"
-                                value={rosterPlayerNumber}
-                                onChange={(e) => setRosterPlayerNumber(e.target.value)}
+                                value={rosterForm.playerNumber}
+                                onChange={(e) => rosterDispatch({ type: 'SET_FIELD', field: 'playerNumber', value: e.target.value })}
                                 min="1"
                                 max="99"
                               />
@@ -1198,12 +1094,12 @@ export function Management() {
                                   <label key={position.id} className="checkbox-label">
                                     <input
                                       type="checkbox"
-                                      checked={rosterPreferredPositions.includes(position.id)}
+                                      checked={rosterForm.preferredPositions.includes(position.id)}
                                       onChange={(e) => {
                                         if (e.target.checked) {
-                                          setRosterPreferredPositions([...rosterPreferredPositions, position.id]);
+                                          rosterDispatch({ type: 'SET_PREFERRED_POSITIONS', positions: [...rosterForm.preferredPositions, position.id] });
                                         } else {
-                                          setRosterPreferredPositions(rosterPreferredPositions.filter(id => id !== position.id));
+                                          rosterDispatch({ type: 'SET_PREFERRED_POSITIONS', positions: rosterForm.preferredPositions.filter(id => id !== position.id) });
                                         }
                                       }}
                                     />
@@ -1278,40 +1174,40 @@ export function Management() {
 
       {activeSection === 'formations' && (
         <div className="management-section">
-          {!isCreatingFormation && !editingFormation && (
-            <button onClick={() => setIsCreatingFormation(true)} className="btn-primary">
+          {!formationForm.isCreating && !formationForm.editing && (
+            <button onClick={() => formationDispatch({ type: 'START_CREATE' })} className="btn-primary">
               + Create Formation
             </button>
           )}
 
-          {editingFormation && (
+          {formationForm.editing && (
             <div className="create-form">
               <h3>Edit Formation</h3>
               <input
                 type="text"
                 placeholder="Formation Name (e.g., 4-3-3) *"
-                value={formationName}
-                onChange={(e) => setFormationName(e.target.value)}
+                value={formationForm.name}
+                onChange={(e) => formationDispatch({ type: 'SET_FIELD', field: 'name', value: e.target.value })}
               />
               <input
                 type="number"
                 placeholder="Number of Players on Field *"
-                value={playerCount}
-                onChange={(e) => setPlayerCount(e.target.value)}
+                value={formationForm.playerCount}
+                onChange={(e) => formationDispatch({ type: 'SET_FIELD', field: 'playerCount', value: e.target.value })}
                 min="1"
               />
               <div className="form-group">
                 <label>Sport</label>
                 <select
-                  value={formationSport}
-                  onChange={(e) => setFormationSport(e.target.value)}
+                  value={formationForm.sport}
+                  onChange={(e) => formationDispatch({ type: 'SET_FIELD', field: 'sport', value: e.target.value })}
                 >
                   <option value="Soccer">Soccer</option>
                 </select>
               </div>
               <div className="form-group">
                 <label>Positions</label>
-                {formationPositionsList.map((pos, index) => (
+                {formationForm.positions.map((pos, index) => (
                   <div key={index} className="position-row">
                     <input
                       type="text"
@@ -1360,34 +1256,34 @@ export function Management() {
             </div>
           )}
 
-          {isCreatingFormation && (
+          {formationForm.isCreating && (
             <div className="create-form">
               <h3>Create New Formation</h3>
               <input
                 type="text"
                 placeholder="Formation Name (e.g., 4-3-3) *"
-                value={formationName}
-                onChange={(e) => setFormationName(e.target.value)}
+                value={formationForm.name}
+                onChange={(e) => formationDispatch({ type: 'SET_FIELD', field: 'name', value: e.target.value })}
               />
               <input
                 type="number"
                 placeholder="Number of Players on Field *"
-                value={playerCount}
-                onChange={(e) => setPlayerCount(e.target.value)}
+                value={formationForm.playerCount}
+                onChange={(e) => formationDispatch({ type: 'SET_FIELD', field: 'playerCount', value: e.target.value })}
                 min="1"
               />
               <div className="form-group">
                 <label>Sport</label>
                 <select
-                  value={formationSport}
-                  onChange={(e) => setFormationSport(e.target.value)}
+                  value={formationForm.sport}
+                  onChange={(e) => formationDispatch({ type: 'SET_FIELD', field: 'sport', value: e.target.value })}
                 >
                   <option value="Soccer">Soccer</option>
                 </select>
               </div>
               <div className="form-group">
                 <label>Positions</label>
-                {formationPositionsList.map((pos, index) => (
+                {formationForm.positions.map((pos, index) => (
                   <div key={index} className="position-row">
                     <input
                       type="text"
@@ -1427,13 +1323,7 @@ export function Management() {
                   Create
                 </button>
                 <button
-                  onClick={() => {
-                    setIsCreatingFormation(false);
-                    setFormationName('');
-                    setPlayerCount('');
-                    setFormationSport('Soccer');
-                    setFormationPositionsList([]);
-                  }}
+                  onClick={() => formationDispatch({ type: 'RESET' })}
                   className="btn-secondary"
                 >
                   Cancel
@@ -1515,26 +1405,26 @@ export function Management() {
 
       {activeSection === 'players' && (
         <div className="management-section">
-          {!isCreatingPlayer && !editingPlayer && (
-            <button onClick={() => setIsCreatingPlayer(true)} className="btn-primary">
+          {!playerForm.isCreating && !playerForm.editing && (
+            <button onClick={() => playerDispatch({ type: 'START_CREATE' })} className="btn-primary">
               + Add Player
             </button>
           )}
 
-          {isCreatingPlayer && (
+          {playerForm.isCreating && (
             <div className="create-form">
               <h3>Add New Player</h3>
               <input
                 type="text"
                 placeholder="First Name *"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
+                value={playerForm.firstName}
+                onChange={(e) => playerDispatch({ type: 'SET_FIELD', field: 'firstName', value: e.target.value })}
               />
               <input
                 type="text"
                 placeholder="Last Name *"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
+                value={playerForm.lastName}
+                onChange={(e) => playerDispatch({ type: 'SET_FIELD', field: 'lastName', value: e.target.value })}
               />
               <p className="form-hint">Players can be assigned to teams in the Team Management section.</p>
               <div className="form-actions">
@@ -1542,11 +1432,7 @@ export function Management() {
                   Add
                 </button>
                 <button
-                  onClick={() => {
-                    setIsCreatingPlayer(false);
-                    setFirstName('');
-                    setLastName('');
-                  }}
+                  onClick={() => playerDispatch({ type: 'RESET' })}
                   className="btn-secondary"
                 >
                   Cancel
@@ -1555,20 +1441,20 @@ export function Management() {
             </div>
           )}
 
-          {editingPlayer && (
+          {playerForm.editing && (
             <div className="create-form">
               <h3>Edit Player</h3>
               <input
                 type="text"
                 placeholder="First Name *"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
+                value={playerForm.firstName}
+                onChange={(e) => playerDispatch({ type: 'SET_FIELD', field: 'firstName', value: e.target.value })}
               />
               <input
                 type="text"
                 placeholder="Last Name *"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
+                value={playerForm.lastName}
+                onChange={(e) => playerDispatch({ type: 'SET_FIELD', field: 'lastName', value: e.target.value })}
               />
               <div className="form-actions">
                 <button onClick={handleUpdatePlayer} className="btn-primary">
