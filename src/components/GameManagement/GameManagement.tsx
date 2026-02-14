@@ -6,6 +6,7 @@ import { showError, showSuccess, showWarning, showInfo } from "../../utils/toast
 import { useConfirm } from "../ConfirmModal";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { closeActivePlayTimeRecords } from "../../services/substitutionService";
+import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { updatePlayerAvailability, calculateFairRotations, type PlannedSubstitution } from "../../services/rotationPlannerService";
 import { useTeamData } from "../../hooks/useTeamData";
 import { useGameSubscriptions } from "./hooks/useGameSubscriptions";
@@ -655,7 +656,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               if (!confirmed) return;
 
               try {
-                await client.models.Game.delete({ id: game.id });
+                await deleteGameCascade(game.id);
                 onBack();
               } catch (error) {
                 console.error("Error deleting game:", error);

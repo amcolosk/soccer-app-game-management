@@ -9,6 +9,7 @@ import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { showError, showWarning } from '../utils/toast';
 import { useConfirm } from './ConfirmModal';
 import { UI_CONSTANTS } from '../constants/ui';
+import { deleteTeamCascade, deletePlayerCascade, deleteFormationCascade } from '../services/cascadeDeleteService';
 import {
   playerFormReducer, initialPlayerForm,
   formationFormReducer, initialFormationForm,
@@ -263,7 +264,7 @@ export function Management() {
     if (!confirmed) return;
 
     try {
-      await client.models.Team.delete({ id });
+      await deleteTeamCascade(id);
     } catch (error) {
       console.error('Error deleting team:', error);
       showError('Failed to delete team');
@@ -408,7 +409,7 @@ export function Management() {
     if (!confirmed) return;
 
     try {
-      await client.models.Player.delete({ id });
+      await deletePlayerCascade(id);
     } catch (error) {
       console.error('Error deleting player:', error);
       showError('Failed to delete player');
@@ -606,7 +607,7 @@ export function Management() {
     if (!confirmed) return;
 
     try {
-      await client.models.Formation.delete({ id });
+      await deleteFormationCascade(id);
     } catch (error) {
       console.error('Error deleting formation:', error);
       showError('Failed to delete formation');
