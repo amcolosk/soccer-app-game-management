@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
+import { showError, showWarning } from "../../utils/toast";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { PlayerSelect } from "../PlayerSelect";
 import type { Game, Team, PlayerWithRoster, Goal } from "./types";
@@ -44,7 +45,7 @@ export function GoalTracker({
 
   const handleRecordGoal = async () => {
     if (goalScoredByUs && !goalScorerId) {
-      alert("Please select who scored the goal");
+      showWarning("Please select who scored the goal");
       return;
     }
 
@@ -74,7 +75,7 @@ export function GoalTracker({
       setShowGoalModal(false);
     } catch (error) {
       console.error("Error recording goal:", error);
-      alert("Failed to record goal");
+      showError("Failed to record goal");
     }
   };
 

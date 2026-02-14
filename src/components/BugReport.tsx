@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
+import { showError, showWarning } from '../utils/toast';
 
 const client = generateClient<Schema>();
 
@@ -20,7 +21,7 @@ export function BugReport({ onClose }: BugReportProps) {
     e.preventDefault();
     
     if (!description.trim()) {
-      alert('Please describe the issue');
+      showWarning('Please describe the issue');
       return;
     }
 
@@ -65,7 +66,7 @@ export function BugReport({ onClose }: BugReportProps) {
       }, 2000);
     } catch (error) {
       console.error('Error submitting bug report:', error);
-      alert('Failed to submit bug report. Please try again.');
+      showError('Failed to submit bug report. Please try again.');
     } finally {
       setIsSubmitting(false);
     }

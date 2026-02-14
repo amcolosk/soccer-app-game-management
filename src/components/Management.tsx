@@ -6,6 +6,8 @@ import { InvitationManagement } from './InvitationManagement';
 import type { Schema } from '../../amplify/data/resource';
 import { FORMATION_TEMPLATES } from '../../amplify/data/formation-templates';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
+import { showError, showWarning } from '../utils/toast';
+import { useConfirm } from './ConfirmModal';
 import { UI_CONSTANTS } from '../constants/ui';
 import {
   playerFormReducer, initialPlayerForm,
@@ -23,6 +25,7 @@ type Formation = Schema['Formation']['type'];
 type FormationPosition = Schema['FormationPosition']['type'];
 
 export function Management() {
+  const confirm = useConfirm();
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [teamRosters, setTeamRosters] = useState<TeamRoster[]>([]);
@@ -96,24 +99,24 @@ export function Management() {
 
   const handleCreateTeam = async () => {
     if (!teamForm.name.trim()) {
-      alert('Please enter team name');
+      showWarning('Please enter team name');
       return;
     }
 
     if (!currentUserId) {
-      alert('User not authenticated');
+      showError('User not authenticated');
       return;
     }
 
     const maxPlayersNum = parseInt(teamForm.maxPlayers);
     if (isNaN(maxPlayersNum) || maxPlayersNum < 1) {
-      alert('Please enter a valid number of players');
+      showWarning('Please enter a valid number of players');
       return;
     }
 
     const halfLengthNum = parseInt(teamForm.halfLength);
     if (isNaN(halfLengthNum) || halfLengthNum < 1) {
-      alert('Please enter a valid half length');
+      showWarning('Please enter a valid half length');
       return;
     }
 
@@ -166,7 +169,7 @@ export function Management() {
       trackEvent(AnalyticsEvents.TEAM_CREATED.category, AnalyticsEvents.TEAM_CREATED.action);
     } catch (error) {
       console.error('Error creating team:', error);
-      alert('Failed to create team');
+      showError('Failed to create team');
     }
   };
 
@@ -178,19 +181,19 @@ export function Management() {
     if (!teamForm.editing) return;
 
     if (!teamForm.name.trim()) {
-      alert('Please enter team name');
+      showWarning('Please enter team name');
       return;
     }
 
     const maxPlayersNum = parseInt(teamForm.maxPlayers);
     if (isNaN(maxPlayersNum) || maxPlayersNum < 1) {
-      alert('Please enter a valid number of players');
+      showWarning('Please enter a valid number of players');
       return;
     }
 
     const halfLengthNum = parseInt(teamForm.halfLength);
     if (isNaN(halfLengthNum) || halfLengthNum < 1) {
-      alert('Please enter a valid half length');
+      showWarning('Please enter a valid half length');
       return;
     }
 
@@ -242,7 +245,7 @@ export function Management() {
       teamDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error updating team:', error);
-      alert('Failed to update team');
+      showError('Failed to update team');
     }
   };
 
@@ -251,43 +254,49 @@ export function Management() {
   };
 
   const handleDeleteTeam = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this team? This will also delete all players, positions, and games.')) {
-      try {
-        await client.models.Team.delete({ id });
-      } catch (error) {
-        console.error('Error deleting team:', error);
-        alert('Failed to delete team');
-      }
+    const confirmed = await confirm({
+      title: 'Delete Team',
+      message: 'Are you sure you want to delete this team? This will also delete all players, positions, and games.',
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
+    try {
+      await client.models.Team.delete({ id });
+    } catch (error) {
+      console.error('Error deleting team:', error);
+      showError('Failed to delete team');
     }
   };
 
   const handleAddPlayerToRoster = async (teamId: string) => {
     if (!rosterForm.selectedPlayer || !rosterForm.playerNumber.trim()) {
-      alert('Please select a player and enter a player number');
+      showWarning('Please select a player and enter a player number');
       return;
     }
 
     const num = parseInt(rosterForm.playerNumber);
     if (isNaN(num) || num < 1 || num > 99) {
-      alert('Please enter a valid player number (1-99)');
+      showWarning('Please enter a valid player number (1-99)');
       return;
     }
 
     // Check if player is already on this team's roster
     if (teamRosters.some(r => r.teamId === teamId && r.playerId === rosterForm.selectedPlayer)) {
-      alert('This player is already on the team roster');
+      showWarning('This player is already on the team roster');
       return;
     }
 
     // Check if number is already in use on this team
     if (teamRosters.some(r => r.teamId === teamId && r.playerNumber === num)) {
-      alert('This player number is already in use on this team');
+      showWarning('This player number is already in use on this team');
       return;
     }
 
     const team = teams.find(t => t.id === teamId);
     if (!team) {
-      alert('Team not found');
+      showError('Team not found');
       return;
     }
 
@@ -305,18 +314,24 @@ export function Management() {
       rosterDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error adding player to roster:', error);
-      alert('Failed to add player to roster');
+      showError('Failed to add player to roster');
     }
   };
 
   const handleRemovePlayerFromRoster = async (rosterId: string) => {
-    if (window.confirm('Are you sure you want to remove this player from the team roster?')) {
-      try {
-        await client.models.TeamRoster.delete({ id: rosterId });
-      } catch (error) {
-        console.error('Error removing player from roster:', error);
-        alert('Failed to remove player from roster');
-      }
+    const confirmed = await confirm({
+      title: 'Remove from Roster',
+      message: 'Are you sure you want to remove this player from the team roster?',
+      confirmText: 'Remove',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
+    try {
+      await client.models.TeamRoster.delete({ id: rosterId });
+    } catch (error) {
+      console.error('Error removing player from roster:', error);
+      showError('Failed to remove player from roster');
     }
   };
 
@@ -334,24 +349,24 @@ export function Management() {
     if (!rosterForm.editing) return;
 
     if (!rosterForm.playerNumber.trim()) {
-      alert('Please enter a player number');
+      showWarning('Please enter a player number');
       return;
     }
 
     const num = parseInt(rosterForm.playerNumber);
     if (isNaN(num) || num < 1 || num > 99) {
-      alert('Player number must be between 1 and 99');
+      showWarning('Player number must be between 1 and 99');
       return;
     }
 
     // Check if number is already in use by another player on this team
     if (teamRosters.some(r => r.teamId === rosterForm.editing!.teamId && r.playerNumber === num && r.id !== rosterForm.editing!.id)) {
-      alert('This player number is already in use on this team');
+      showWarning('This player number is already in use on this team');
       return;
     }
 
     if (!rosterForm.editFirstName.trim() || !rosterForm.editLastName.trim()) {
-      alert('Please enter first name and last name');
+      showWarning('Please enter first name and last name');
       return;
     }
 
@@ -375,7 +390,7 @@ export function Management() {
       rosterDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error updating roster:', error);
-      alert('Failed to update roster');
+      showError('Failed to update roster');
     }
   };
 
@@ -384,13 +399,19 @@ export function Management() {
   };
 
   const handleDeletePlayer = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this player? This will remove them from all team rosters.')) {
-      try {
-        await client.models.Player.delete({ id });
-      } catch (error) {
-        console.error('Error deleting player:', error);
-        alert('Failed to delete player');
-      }
+    const confirmed = await confirm({
+      title: 'Delete Player',
+      message: 'Are you sure you want to delete this player? This will remove them from all team rosters.',
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
+    try {
+      await client.models.Player.delete({ id });
+    } catch (error) {
+      console.error('Error deleting player:', error);
+      showError('Failed to delete player');
     }
   };
 
@@ -403,12 +424,12 @@ export function Management() {
 
   const handleCreatePlayer = async () => {
     if (!playerForm.firstName.trim() || !playerForm.lastName.trim()) {
-      alert('Please enter first name and last name');
+      showWarning('Please enter first name and last name');
       return;
     }
 
     if (!currentUserId) {
-      alert('User not authenticated');
+      showError('User not authenticated');
       return;
     }
 
@@ -423,7 +444,7 @@ export function Management() {
       playerDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error creating player:', error);
-      alert('Failed to create player');
+      showError('Failed to create player');
     }
   };
 
@@ -435,7 +456,7 @@ export function Management() {
     if (!playerForm.editing) return;
 
     if (!playerForm.firstName.trim() || !playerForm.lastName.trim()) {
-      alert('Please enter first name and last name');
+      showWarning('Please enter first name and last name');
       return;
     }
 
@@ -449,7 +470,7 @@ export function Management() {
       playerDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error updating player:', error);
-      alert('Failed to update player');
+      showError('Failed to update player');
     }
   };
 
@@ -459,23 +480,23 @@ export function Management() {
 
   const handleCreateFormation = async () => {
     if (!formationForm.name.trim() || !formationForm.playerCount.trim()) {
-      alert('Please enter formation name and specify player count');
+      showWarning('Please enter formation name and specify player count');
       return;
     }
 
     const count = parseInt(formationForm.playerCount);
     if (isNaN(count) || count < 1) {
-      alert('Please enter a valid player count');
+      showWarning('Please enter a valid player count');
       return;
     }
 
     if (formationForm.positions.length === 0) {
-      alert('Please add at least one position');
+      showWarning('Please add at least one position');
       return;
     }
 
     if (!currentUserId) {
-      alert('User not authenticated');
+      showError('User not authenticated');
       return;
     }
 
@@ -504,7 +525,7 @@ export function Management() {
       formationDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error creating formation:', error);
-      alert('Failed to create formation');
+      showError('Failed to create formation');
     }
   };
 
@@ -522,18 +543,18 @@ export function Management() {
     if (!formationForm.editing) return;
 
     if (!formationForm.name.trim() || !formationForm.playerCount.trim()) {
-      alert('Please enter formation name and specify player count');
+      showWarning('Please enter formation name and specify player count');
       return;
     }
 
     const count = parseInt(formationForm.playerCount);
     if (isNaN(count) || count < 1) {
-      alert('Please enter a valid player count');
+      showWarning('Please enter a valid player count');
       return;
     }
 
     if (formationForm.positions.length === 0) {
-      alert('Please add at least one position');
+      showWarning('Please add at least one position');
       return;
     }
 
@@ -567,7 +588,7 @@ export function Management() {
       formationDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error updating formation:', error);
-      alert('Failed to update formation');
+      showError('Failed to update formation');
     }
   };
 
@@ -576,13 +597,19 @@ export function Management() {
   };
 
   const handleDeleteFormation = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this formation? This will also delete all positions in the formation.')) {
-      try {
-        await client.models.Formation.delete({ id });
-      } catch (error) {
-        console.error('Error deleting formation:', error);
-        alert('Failed to delete formation');
-      }
+    const confirmed = await confirm({
+      title: 'Delete Formation',
+      message: 'Are you sure you want to delete this formation? This will also delete all positions in the formation.',
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
+    try {
+      await client.models.Formation.delete({ id });
+    } catch (error) {
+      console.error('Error deleting formation:', error);
+      showError('Failed to delete formation');
     }
   };
 

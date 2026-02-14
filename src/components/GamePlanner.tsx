@@ -11,6 +11,8 @@ import { LineupBuilder } from "./LineupBuilder";
 import { PlayerAvailabilityGrid } from "./PlayerAvailabilityGrid";
 import { useTeamData, type PlayerWithRoster as PlayerWithRosterBase } from "../hooks/useTeamData";
 import { AvailabilityProvider } from "../contexts/AvailabilityContext";
+import { showError, showSuccess, showWarning } from "../utils/toast";
+import { useConfirm } from "./ConfirmModal";
 import { UI_CONSTANTS } from "../constants/ui";
 
 const client = generateClient<Schema>();
@@ -34,6 +36,7 @@ interface GamePlannerProps {
 }
 
 export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
+  const confirm = useConfirm();
   // Load team roster and formation positions with real-time updates
   const { players: basePlayersData, positions } = useTeamData(team.id, team.formationId);
   
@@ -303,7 +306,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const handleUpdatePlan = async () => {
     // Validate starting lineup
     if (startingLineup.size > maxPlayersOnField) {
-      alert(`Starting lineup cannot exceed ${maxPlayersOnField} players`);
+      showWarning(`Starting lineup cannot exceed ${maxPlayersOnField} players`);
       return;
     }
 
@@ -410,10 +413,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       
       // Data will update automatically via observeQuery subscriptions
       
-      alert(gamePlan ? "Plan updated successfully!" : "Plan created successfully! Now set up each rotation.");
+      showSuccess(gamePlan ? "Plan updated!" : "Plan created! Now set up each rotation.");
     } catch (error) {
       console.error("Error updating rotation plan:", error);
-      alert("Failed to update rotation plan");
+      showError("Failed to update rotation plan");
     } finally {
       setIsGenerating(false);
       pendingLineupSaves.current--;
@@ -425,18 +428,21 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
   const handleAutoGenerateRotations = async () => {
     if (!gamePlan || rotations.length === 0) {
-      alert('Create a plan first before auto-generating rotations.');
+      showWarning('Create a plan first before auto-generating rotations.');
       return;
     }
 
     if (startingLineup.size === 0) {
-      alert('Set up a starting lineup first.');
+      showWarning('Set up a starting lineup first.');
       return;
     }
 
-    const confirmed = window.confirm(
-      'This will overwrite all current rotation substitutions with auto-generated fair rotations based on player availability.\n\nContinue?'
-    );
+    const confirmed = await confirm({
+      title: 'Overwrite Rotations',
+      message: 'This will overwrite all current rotation substitutions with auto-generated fair rotations based on player availability.\n\nContinue?',
+      confirmText: 'Overwrite',
+      variant: 'warning',
+    });
     if (!confirmed) return;
 
     try {
@@ -482,10 +488,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
       await Promise.all(updates);
 
-      alert('Rotations auto-generated! Review each rotation to verify.');
+      showSuccess('Rotations auto-generated! Review each rotation to verify.');
     } catch (error) {
       console.error('Error auto-generating rotations:', error);
-      alert('Failed to auto-generate rotations.');
+      showError('Failed to auto-generate rotations.');
     } finally {
       setIsGenerating(false);
       pendingRotationSaves.current--;
@@ -512,10 +518,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       await copyGamePlan(sourceGameId, game.id, team.coaches || []);
       // Data will update automatically via observeQuery subscriptions
       
-      alert("Plan copied successfully!");
+      showSuccess("Plan copied successfully!");
     } catch (error) {
       console.error("Error copying game plan:", error);
-      alert("Failed to copy game plan");
+      showError("Failed to copy game plan");
     } finally {
       setIsGenerating(false);
       pendingLineupSaves.current--;
@@ -679,7 +685,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       // Data will update automatically via observeQuery subscriptions
     } catch (error) {
       console.error("Error updating rotation:", error);
-      alert("Failed to update rotation");
+      showError("Failed to update rotation");
     } finally {
       pendingRotationSaves.current--;
       flushBufferedRotations();
@@ -710,7 +716,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       setSelectedRotation(rotationNumber);
     } catch (error) {
       console.error("Error copying rotation:", error);
-      alert("Failed to copy from previous rotation");
+      showError("Failed to copy from previous rotation");
     } finally {
       pendingRotationSaves.current--;
       flushBufferedRotations();

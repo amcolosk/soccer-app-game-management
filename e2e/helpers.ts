@@ -146,14 +146,14 @@ export async function loginUser(page: Page, email: string, password: string) {
   await clickButton(page, 'Sign in');
 
   // Click Skip Verification if it appears (wait longer for it to load)
-  try {
-    await page.waitForSelector('button:has-text("Skip")', { timeout: 5000 });
-    await clickButton(page, 'Skip');
-    console.log('Clicked Skip on email verification');
-  } catch (e) {
-    // Skip button may not appear if already verified
-    console.log('No Skip button found - user may already be verified');
-  }
+  // try {
+  //   await page.waitForSelector('button:has-text("Skip")', { timeout: 5000 });
+  //   await clickButton(page, 'Skip');
+  //   console.log('Clicked Skip on email verification');
+  // } catch (e) {
+  //   // Skip button may not appear if already verified
+  //   console.log('No Skip button found - user may already be verified');
+  // }
   
   // Wait for successful login
   await waitForPageLoad(page);
@@ -192,9 +192,7 @@ export async function cleanupTestData(page: Page) {
   if (teamCount > 0) {
     console.log(`Found ${teamCount} team(s), deleting...`);
     
-    page.on('dialog', async (dialog) => {
-      await dialog.accept();
-    });
+    const cleanupTeamDialog = handleConfirmDialog(page, false);
     
     while (teamCount > 0) {
       await swipeToDelete(page, '.item-card');
@@ -205,7 +203,7 @@ export async function cleanupTestData(page: Page) {
       teamCount = newCount;
     }
     
-    page.removeAllListeners('dialog');
+    cleanupTeamDialog();
     console.log('✓ Teams deleted');
   }
   
@@ -219,9 +217,7 @@ export async function cleanupTestData(page: Page) {
   if (playerCount > 0) {
     console.log(`Found ${playerCount} player(s), deleting...`);
     
-    page.on('dialog', async (dialog) => {
-      await dialog.accept();
-    });
+    const cleanupPlayerDialog = handleConfirmDialog(page, false);
     
     while (playerCount > 0) {
       await swipeToDelete(page, '.item-card');
@@ -232,7 +228,7 @@ export async function cleanupTestData(page: Page) {
       playerCount = newCount;
     }
     
-    page.removeAllListeners('dialog');
+    cleanupPlayerDialog();
     console.log('✓ Players deleted');
   }
   
@@ -246,9 +242,7 @@ export async function cleanupTestData(page: Page) {
   if (formationCount > 0) {
     console.log(`Found ${formationCount} formation(s), deleting...`);
     
-    page.on('dialog', async (dialog) => {
-      await dialog.accept();
-    });
+    const cleanupFormationDialog = handleConfirmDialog(page, false);
     
     while (formationCount > 0) {
       await swipeToDelete(page, '.item-card');
@@ -259,7 +253,7 @@ export async function cleanupTestData(page: Page) {
       formationCount = newCount;
     }
     
-    page.removeAllListeners('dialog');
+    cleanupFormationDialog();
     console.log('✓ Formations deleted');
   }
 }
@@ -433,49 +427,99 @@ export async function waitForUIUpdate(page: Page, duration: number = UI_TIMING.S
 }
 
 /**
- * Set up a dialog handler to automatically accept confirmation dialogs
- * Returns a cleanup function to remove the handler
+ * Set up automatic confirmation for ConfirmModal dialogs.
+ * Clicks the confirm button whenever a confirm modal appears.
+ * Returns a cleanup function to stop auto-confirming.
  * @param page - Playwright page object
- * @param logMessage - Whether to log the dialog message (default: true)
- * @returns Cleanup function to remove the dialog listener
+ * @param logMessage - Whether to log confirmation (default: true)
+ * @returns Cleanup function to stop the observer
  */
 export function handleConfirmDialog(page: Page, logMessage: boolean = true): () => void {
-  const handler = async (dialog: any) => {
-    if (logMessage) {
-      console.log(`  Confirming: ${dialog.message()}`);
+  let active = true;
+
+  const poll = async () => {
+    while (active) {
+      try {
+        const confirmBtn = page.locator('.confirm-btn--confirm');
+        if (await confirmBtn.isVisible({ timeout: 200 }).catch(() => false)) {
+          if (logMessage) {
+            const message = await page.locator('.confirm-message').textContent().catch(() => '');
+            console.log(`  Confirming: ${message}`);
+          }
+          await confirmBtn.click();
+          await page.waitForTimeout(100);
+        }
+        await page.waitForTimeout(200);
+      } catch {
+        // ignore errors during polling (including "Test ended")
+        break;
+      }
     }
-    await dialog.accept();
   };
-  
-  page.on('dialog', handler);
-  
-  // Return cleanup function
+
+  poll(); // fire and forget
+
   return () => {
-    page.removeListener('dialog', handler);
+    active = false;
   };
 }
 
 /**
- * Set up a dialog handler to automatically dismiss/cancel dialogs
- * Returns a cleanup function to remove the handler
+ * Set up automatic dismissal for ConfirmModal dialogs.
+ * Clicks the cancel button whenever a confirm modal appears.
+ * Returns a cleanup function to stop auto-dismissing.
  * @param page - Playwright page object
- * @param logMessage - Whether to log the dialog message (default: true)
- * @returns Cleanup function to remove the dialog listener
+ * @param logMessage - Whether to log dismissal (default: true)
+ * @returns Cleanup function to stop the observer
  */
 export function handleDismissDialog(page: Page, logMessage: boolean = true): () => void {
-  const handler = async (dialog: any) => {
-    if (logMessage) {
-      console.log(`  Dismissing: ${dialog.message()}`);
+  let active = true;
+
+  const poll = async () => {
+    while (active) {
+      try {
+        const cancelBtn = page.locator('.confirm-btn--cancel');
+        if (await cancelBtn.isVisible({ timeout: 200 }).catch(() => false)) {
+          if (logMessage) {
+            const message = await page.locator('.confirm-message').textContent().catch(() => '');
+            console.log(`  Dismissing: ${message}`);
+          }
+          await cancelBtn.click();
+          await page.waitForTimeout(100);
+        }
+        await page.waitForTimeout(200);
+      } catch {
+        // ignore errors during polling (including "Test ended")
+        break;
+      }
     }
-    await dialog.dismiss();
   };
-  
-  page.on('dialog', handler);
-  
-  // Return cleanup function
+
+  poll(); // fire and forget
+
   return () => {
-    page.removeListener('dialog', handler);
+    active = false;
   };
+}
+
+/**
+ * Wait for a ConfirmModal to appear and click the confirm button.
+ * @param page - Playwright page object
+ */
+export async function clickConfirmModalConfirm(page: Page) {
+  await page.locator('.confirm-overlay').waitFor({ state: 'visible', timeout: 5000 });
+  await page.locator('.confirm-btn--confirm').click();
+  await page.waitForTimeout(100);
+}
+
+/**
+ * Wait for a ConfirmModal to appear and click the cancel button.
+ * @param page - Playwright page object
+ */
+export async function clickConfirmModalCancel(page: Page) {
+  await page.locator('.confirm-overlay').waitFor({ state: 'visible', timeout: 5000 });
+  await page.locator('.confirm-btn--cancel').click();
+  await page.waitForTimeout(100);
 }
 
 /**

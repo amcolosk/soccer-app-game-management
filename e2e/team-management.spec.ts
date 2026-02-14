@@ -10,6 +10,8 @@ import {
   clickManagementTab,
   createTeam,
   handleConfirmDialog,
+  clickConfirmModalConfirm,
+  clickConfirmModalCancel,
   swipeToDelete,
   UI_TIMING,
 } from './helpers';
@@ -249,18 +251,13 @@ test.describe('Team Management CRUD', () => {
     
     // Test cancel on confirmation dialog
     console.log('Testing deletion cancellation...');
-    let dialogShown = false;
-    page.once('dialog', async (dialog) => {
-      dialogShown = true;
-      console.log(`  Dialog shown: ${dialog.message()}`);
-      await dialog.dismiss(); // Cancel deletion
-    });
     
-    // Swipe to delete the team
+    // Swipe to delete the team (this triggers the confirm modal)
     await swipeToDelete(page, '.item-card:has-text("Test Team for Deletion")');
-    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
-    expect(dialogShown).toBe(true);
+    // Wait for confirm modal and click Cancel
+    await clickConfirmModalCancel(page);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Team should still exist after canceling
     await expect(page.locator('.item-card').filter({ hasText: 'Test Team for Deletion' })).toBeVisible();
@@ -268,13 +265,12 @@ test.describe('Team Management CRUD', () => {
     
     // Test confirm deletion
     console.log('Testing deletion confirmation...');
-    page.once('dialog', async (dialog) => {
-      console.log(`  Confirming: ${dialog.message()}`);
-      await dialog.accept();
-    });
     
     // Swipe to delete the team
     await swipeToDelete(page, '.item-card:has-text("Test Team for Deletion")');
+    
+    // Wait for confirm modal and click Confirm
+    await clickConfirmModalConfirm(page);
     await page.waitForTimeout(1500);
     
     // Team should be deleted

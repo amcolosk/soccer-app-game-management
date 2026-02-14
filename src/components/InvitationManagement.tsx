@@ -8,6 +8,7 @@ import {
   revokeCoachAccess,
   type InvitationRole,
 } from '../services/invitationService';
+import { useConfirm } from './ConfirmModal';
 
 const client = generateClient<Schema>();
 
@@ -22,6 +23,7 @@ export function InvitationManagement({
   resourceId,
   resourceName,
 }: InvitationManagementProps) {
+  const confirm = useConfirm();
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<InvitationRole>('COACH');
   const [coaches, setCoaches] = useState<string[]>([]);
@@ -98,9 +100,13 @@ export function InvitationManagement({
   }
 
   async function handleRevokeAccess(userId: string) {
-    if (!confirm('Are you sure you want to revoke access for this coach?')) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: 'Revoke Access',
+      message: 'Are you sure you want to revoke access for this coach?',
+      confirmText: 'Revoke',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
 
     setLoading(true);
     try {
@@ -115,9 +121,13 @@ export function InvitationManagement({
   }
 
   async function handleCancelInvitation(invitationId: string) {
-    if (!confirm('Are you sure you want to cancel this invitation?')) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: 'Cancel Invitation',
+      message: 'Are you sure you want to cancel this invitation?',
+      confirmText: 'Cancel Invitation',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
 
     setLoading(true);
     try {

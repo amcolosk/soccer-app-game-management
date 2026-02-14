@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
+import { showError, showWarning } from "../../utils/toast";
+import { useConfirm } from "../ConfirmModal";
 import {
   calculatePlayerPlayTime,
   isPlayerCurrentlyPlaying,
@@ -52,6 +54,7 @@ export function SubstitutionPanel({
   substitutionRequest,
   onSubstitutionRequestHandled,
 }: SubstitutionPanelProps) {
+  const confirm = useConfirm();
   const { getPlayerAvailability } = useAvailability();
   const [showSubstitution, setShowSubstitution] = useState(false);
   const [substitutionPosition, setSubstitutionPosition] = useState<FormationPosition | null>(null);
@@ -74,13 +77,13 @@ export function SubstitutionPanel({
       q => q.playerId === playerId && q.positionId === positionId
     );
     if (alreadyQueued) {
-      alert("This player is already queued for this position");
+      showWarning("This player is already queued for this position");
       return;
     }
 
     const queuedElsewhere = substitutionQueue.find(q => q.playerId === playerId);
     if (queuedElsewhere) {
-      alert("This player is already queued for another position");
+      showWarning("This player is already queued for another position");
       return;
     }
 
@@ -99,7 +102,13 @@ export function SubstitutionPanel({
     if (substitutionQueue.length === 0) return;
 
     const confirmMessage = `Execute all ${substitutionQueue.length} queued substitutions?`;
-    if (!confirm(confirmMessage)) return;
+    const confirmed = await confirm({
+      title: 'Execute Substitutions',
+      message: confirmMessage,
+      confirmText: 'Execute All',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
 
     try {
       for (const queueItem of substitutionQueue) {
@@ -128,7 +137,7 @@ export function SubstitutionPanel({
       onQueueChange([]);
     } catch (error) {
       console.error("Error executing all substitutions:", error);
-      alert("Failed to execute all substitutions. Some may have been completed.");
+      showError("Failed to execute all substitutions. Some may have been completed.");
     }
   };
 
@@ -139,7 +148,7 @@ export function SubstitutionPanel({
       l => l.positionId === positionId && l.isStarter
     );
     if (!currentAssignment) {
-      alert("No player currently in this position");
+      showError("No player currently in this position");
       return;
     }
 
@@ -161,7 +170,7 @@ export function SubstitutionPanel({
       handleRemoveFromQueue(newPlayerId, positionId);
     } catch (error) {
       console.error("Error making substitution:", error);
-      alert("Failed to make substitution");
+      showError("Failed to make substitution");
     }
   };
 
@@ -192,7 +201,7 @@ export function SubstitutionPanel({
       setSubstitutionPosition(null);
     } catch (error) {
       console.error("Error making substitution:", error);
-      alert("Failed to make substitution");
+      showError("Failed to make substitution");
     }
   };
 
@@ -220,7 +229,7 @@ export function SubstitutionPanel({
       setSubstitutionPosition(null);
     } catch (error) {
       console.error("Error adding to lineup:", error);
-      alert("Failed to add player to lineup");
+      showError("Failed to add player to lineup");
     }
   };
 

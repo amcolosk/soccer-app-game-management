@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
+import { showError } from "../../utils/toast";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { PlayerSelect } from "../PlayerSelect";
 import type { Game, Team, PlayerWithRoster, GameNote } from "./types";
@@ -57,7 +58,7 @@ export function PlayerNotesPanel({
       setShowNoteModal(false);
     } catch (error) {
       console.error("Error saving note:", error);
-      alert("Failed to save note");
+      showError("Failed to save note");
     }
   };
 

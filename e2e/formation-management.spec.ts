@@ -96,50 +96,36 @@ test.describe('Formation Management CRUD', () => {
     await clickButton(page, '+ Create Formation');
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
-    // Set up dialog handler to capture validation message
-    let alertMessage = '';
-    page.once('dialog', async (dialog) => {
-      alertMessage = dialog.message();
-      console.log(`  Alert shown: "${alertMessage}"`);
-      await dialog.accept();
-    });
-    
     // Try to submit without filling anything
     await clickButton(page, 'Create');
     await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
-    // Verify alert was shown
-    expect(alertMessage).toContain('formation name');
+    // Verify toast was shown with validation message
+    let toastText = await page.locator('[role="status"]').first().textContent().catch(() => '');
+    expect(toastText).toContain('formation name');
+    console.log(`  Toast shown: "${toastText}"`);
     console.log('  ✓ Validation triggered for empty fields\n');
     
     console.log('Step 5: VALIDATION - Test form with name but no player count');
     await fillInput(page, 'input[placeholder*="Formation Name"]', 'Test Formation');
     
-    page.once('dialog', async (dialog) => {
-      alertMessage = dialog.message();
-      console.log(`  Alert shown: "${alertMessage}"`);
-      await dialog.accept();
-    });
-    
     await clickButton(page, 'Create');
     await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
-    expect(alertMessage).toContain('player count');
+    toastText = await page.locator('[role="status"]').first().textContent().catch(() => '');
+    expect(toastText).toContain('player count');
+    console.log(`  Toast shown: "${toastText}"`);
     console.log('  ✓ Validation triggered for missing player count\n');
     
     console.log('Step 6: VALIDATION - Test form with name and player count but no positions');
     await fillInput(page, 'input[placeholder*="Number of Players"]', '7');
     
-    page.once('dialog', async (dialog) => {
-      alertMessage = dialog.message();
-      console.log(`  Alert shown: "${alertMessage}"`);
-      await dialog.accept();
-    });
-    
     await clickButton(page, 'Create');
     await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
-    expect(alertMessage).toContain('position');
+    toastText = await page.locator('[role="status"]').first().textContent().catch(() => '');
+    expect(toastText).toContain('position');
+    console.log(`  Toast shown: "${toastText}"`);
     console.log('  ✓ Validation triggered for missing positions\n');
     
     // Clear form and cancel to ensure clean state
@@ -313,9 +299,6 @@ test.describe('Formation Management CRUD', () => {
     await expect(page.locator('.empty-message')).toBeVisible();
     await expect(page.locator('.empty-message')).toContainText('No formations yet');
     console.log('  ✓ Empty state visible again');
-    
-    // Remove dialog handler
-    page.removeAllListeners('dialog');
     
     console.log('\n=== Formation Validation & CRUD Test Completed Successfully ===\n');
   });

@@ -423,12 +423,8 @@ async function executeRotation(page: Page, rotationMinute: number, playerOut: st
 async function runGame(page: Page, gameNumber: number = 1) {
   console.log(`Running game ${gameNumber} simulation with planned rotations...`);
   
-  // Set up a PERSISTENT dialog handler for ALL confirm dialogs during the game
-  // This is needed because executeRotation calls confirm() for each substitution
-  const dialogHandler = async (dialog: any) => {
-    await dialog.accept();
-  };
-  page.on('dialog', dialogHandler);
+  // Set up a PERSISTENT handler to auto-confirm any ConfirmModal dialogs during the game
+  const cleanupConfirm = handleConfirmDialog(page, false);
   
   // Click the initial "Start Game" button which opens the availability check modal
   await clickButton(page, 'Start Game');
@@ -606,8 +602,8 @@ async function runGame(page: Page, gameNumber: number = 1) {
   await expect(page.getByText(/Game Completed/)).toBeVisible();
   console.log(`✓ Game ${gameNumber} completed`);
   
-  // Remove the dialog handler now that game is complete
-  page.off('dialog', dialogHandler);
+  // Remove the confirm handler now that game is complete
+  cleanupConfirm();
   
   // Navigate back to Home to see games list for next game (if not the last game)
   if (gameNumber === 1) {
@@ -660,6 +656,9 @@ async function verifyTeamTotals(page: Page, gameData: any) {
   await reportsTab.click();
   await waitForPageLoad(page);
   
+  // Wait for all observeQuery subscriptions to finish syncing (table renders only after full sync)
+  await expect(page.locator('.stats-table')).toBeVisible({ timeout: 30000 });
+  
   // Verify total goals in summary
   const goalsSummary = page.locator('.summary-card').filter({ hasText: 'Total Goals' });
   await expect(goalsSummary.locator('.summary-value')).toContainText(gameData.goals.toString());
@@ -692,7 +691,9 @@ async function verifyTeamTotals(page: Page, gameData: any) {
   // Others played 40 min per game = 80 min total (1h 20m)
   
   // Click on Diana Davis to see her details
+  // First, wait for Diana's play time in the table to be correct (confirms full data sync)
   const dianaRow = page.locator('tr').filter({ hasText: 'Diana Davis' });
+  await expect(dianaRow.locator('td').nth(3)).toContainText('40m', { timeout: 15000 });
   await dianaRow.click();
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
@@ -703,15 +704,15 @@ async function verifyTeamTotals(page: Page, gameData: any) {
   await expect(page.locator('h3').filter({ hasText: /Play Time by Position/ })).toBeVisible();
   
   // Verify Diana's play time (should be 40 min = 20 min per game × 2 games)
-  const dianaPositionTime = page.locator('.position-time-item', { hasText: 'Center Midfielder' });
+  const dianaPositionTime = page.locator('.position-time-item').filter({ hasText: 'Center Midfielder' });
   await expect(dianaPositionTime).toBeVisible();
+  
+  // Diana should have 40 minutes (displayed as "40m")
+  await expect(dianaPositionTime.locator('.position-time')).toContainText('40m', { timeout: 15000 });
   
   // Log actual play time for debugging
   const dianaActualTime = await dianaPositionTime.locator('.position-time').textContent();
   console.log(`Diana Davis play time at CM: ${dianaActualTime}`);
-  
-  // Diana should have 40 minutes (displayed as "40m")
-  await expect(dianaPositionTime.locator('.position-time')).toContainText('40m');
   console.log('✓ Diana Davis play time verified: 40m');
   
   // Go back to player list
@@ -726,13 +727,13 @@ async function verifyTeamTotals(page: Page, gameData: any) {
     await hannahRow.click();
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
-    const hannahPositionTime = page.locator('.position-time-item', { hasText: 'Center Midfielder' });
+    const hannahPositionTime = page.locator('.position-time-item').filter({ hasText: 'Center Midfielder' });
     if (await hannahPositionTime.isVisible().catch(() => false)) {
       const hannahActualTime = await hannahPositionTime.locator('.position-time').textContent();
       console.log(`Hannah Harris play time at CM: ${hannahActualTime}`);
       
       // Hannah should also have 40 minutes
-      await expect(hannahPositionTime.locator('.position-time')).toContainText('40m');
+      await expect(hannahPositionTime.locator('.position-time')).toContainText('40m', { timeout: 15000 });
       console.log('✓ Hannah Harris play time verified: 40m');
     }
   }
@@ -746,13 +747,13 @@ async function verifyTeamTotals(page: Page, gameData: any) {
     await aliceRow.click();
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
-    const alicePositionTime = page.locator('.position-time-item', { hasText: 'Goalkeeper' });
+    const alicePositionTime = page.locator('.position-time-item').filter({ hasText: 'Goalkeeper' });
     if (await alicePositionTime.isVisible().catch(() => false)) {
       const aliceActualTime = await alicePositionTime.locator('.position-time').textContent();
       console.log(`Alice Anderson play time at GK: ${aliceActualTime}`);
       
       // Alice should have 80 minutes (1h 20m)
-      await expect(alicePositionTime.locator('.position-time')).toContainText('1h 20m');
+      await expect(alicePositionTime.locator('.position-time')).toContainText('1h 20m', { timeout: 15000 });
       console.log('✓ Alice Anderson play time verified: 1h 20m (80 min)');
     }
   }

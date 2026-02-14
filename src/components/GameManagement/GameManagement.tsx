@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
+import { showError, showSuccess, showWarning, showInfo } from "../../utils/toast";
+import { useConfirm } from "../ConfirmModal";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { updatePlayerAvailability, calculateFairRotations, type PlannedSubstitution } from "../../services/rotationPlannerService";
@@ -27,6 +29,7 @@ interface GameManagementProps {
 }
 
 export function GameManagement({ game, team, onBack }: GameManagementProps) {
+  const confirm = useConfirm();
   // Load team roster and formation positions with real-time updates
   const { players, positions } = useTeamData(team.id, team.formationId);
 
@@ -165,13 +168,16 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     if (!gamePlan || plannedRotations.length === 0) return;
 
     if (!gamePlan.startingLineup) {
-      alert('No starting lineup found in the game plan.');
+      showError('No starting lineup found in the game plan.');
       return;
     }
 
-    const confirmed = window.confirm(
-      'This will recalculate all rotation substitutions based on current player availability and preferred positions.\n\nExisting rotation substitutions will be overwritten.\n\nContinue?'
-    );
+    const confirmed = await confirm({
+      title: 'Recalculate Rotations',
+      message: 'This will recalculate all rotation substitutions based on current player availability and preferred positions.\n\nExisting rotation substitutions will be overwritten.',
+      confirmText: 'Recalculate',
+      variant: 'warning',
+    });
     if (!confirmed) return;
 
     try {
@@ -198,7 +204,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       });
 
       if (lineupArray.length === 0) {
-        alert('No available players in the starting lineup. Adjust the lineup in the Game Planner first.');
+        showError('No available players in the starting lineup. Adjust the lineup in the Game Planner first.');
         return;
       }
 
@@ -225,10 +231,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
       await Promise.all(updates);
 
-      alert('Rotations recalculated based on current availability! Review each rotation to verify.');
+      showSuccess('Rotations recalculated based on current availability! Review each rotation to verify.');
     } catch (error) {
       console.error('Error recalculating rotations:', error);
-      alert('Failed to recalculate rotations.');
+      showError('Failed to recalculate rotations.');
     } finally {
       setIsRecalculating(false);
     }
@@ -259,13 +265,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       const playerName = player ? `#${player.playerNumber} ${player.firstName}` : 'Player';
 
       if (affectedRotations.length > 0) {
-        alert(
-          `${playerName} marked as injured and removed from the field.\n\n` +
-          `⚠️ This player is referenced in planned rotation(s) ${affectedRotations.join(', ')}.\n` +
-          `Those rotations will need to be adjusted.`
+        showWarning(
+          `${playerName} marked as injured. Rotation(s) ${affectedRotations.join(', ')} need adjustment.`
         );
       } else {
-        alert(`${playerName} marked as injured and removed from the field.`);
+        showInfo(`${playerName} marked as injured and removed from the field.`);
       }
 
       // Prompt to substitute if the position is now empty
@@ -277,7 +281,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       }
     } catch (error) {
       console.error('Error marking player injured:', error);
-      alert('Failed to mark player injured');
+      showError('Failed to mark player injured');
     }
   };
 
@@ -296,9 +300,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       });
 
     if (unavailableStarters.length > 0) {
-      const proceed = window.confirm(
-        `⚠️ The following starters are unavailable:\n\n${unavailableStarters.join('\n')}\n\nPlease update the lineup before starting. Start anyway?`
-      );
+      const proceed = await confirm({
+        title: 'Unavailable Starters',
+        message: `The following starters are unavailable:\n\n${unavailableStarters.join('\n')}\n\nPlease update the lineup before starting. Start anyway?`,
+        confirmText: 'Start Anyway',
+        variant: 'warning',
+      });
       if (!proceed) return;
     }
 
@@ -339,7 +346,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       trackEvent(AnalyticsEvents.GAME_STARTED.category, AnalyticsEvents.GAME_STARTED.action);
     } catch (error) {
       console.error("Error starting game:", error);
-      alert("Failed to start game");
+      showError("Failed to start game");
     }
   };
 
@@ -381,7 +388,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       
       // End all active play time records
       // Close all active play time records at halftime
-      await closeActivePlayTimeRecords(playTimeRecords, halftimeSeconds);
+      // Pass game.id so DB is queried for records not yet in React state
+      await closeActivePlayTimeRecords(playTimeRecords, halftimeSeconds, undefined, game.id);
 
       // Update game status - preserve the exact halftime seconds
       await client.models.Game.update({
@@ -447,7 +455,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       setIsRunning(false);
       
       // End all active play time records
-      await closeActivePlayTimeRecords(playTimeRecords, endGameTime);
+      // Pass game.id so DB is queried for records not yet in React state
+      await closeActivePlayTimeRecords(playTimeRecords, endGameTime, undefined, game.id);
       
       // Update game with final time - use endGameTime to ensure consistency
       await client.models.Game.update({
@@ -489,14 +498,14 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       q => q.playerId === playerId && q.positionId === positionId
     );
     if (alreadyQueued) {
-      alert("This player is already queued for this position");
+      showWarning("This player is already queued for this position");
       return;
     }
 
     // Check if player is already queued for a different position
     const queuedElsewhere = substitutionQueue.find(q => q.playerId === playerId);
     if (queuedElsewhere) {
-      alert("This player is already queued for another position");
+      showWarning("This player is already queued for another position");
       return;
     }
 
@@ -606,14 +615,20 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         <div className="delete-game-section">
           <button
             onClick={async () => {
-              if (window.confirm("Are you sure you want to delete this game? This action cannot be undone.")) {
-                try {
-                  await client.models.Game.delete({ id: game.id });
-                  onBack();
-                } catch (error) {
-                  console.error("Error deleting game:", error);
-                  alert("Failed to delete game");
-                }
+              const confirmed = await confirm({
+                title: 'Delete Game',
+                message: 'Are you sure you want to delete this game? This action cannot be undone.',
+                confirmText: 'Delete',
+                variant: 'danger',
+              });
+              if (!confirmed) return;
+
+              try {
+                await client.models.Game.delete({ id: game.id });
+                onBack();
+              } catch (error) {
+                console.error("Error deleting game:", error);
+                showError("Failed to delete game");
               }
             }}
             className="btn-delete-game"

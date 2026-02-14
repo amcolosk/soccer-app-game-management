@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
+import { showError } from "../utils/toast";
 import { trackEvent, AnalyticsEvents } from "../utils/analytics";
 import { sortRosterByNumber } from "../utils/playerUtils";
 import {
@@ -71,6 +72,19 @@ export function TeamReport({ team }: TeamReportProps) {
   const [allPositions, setAllPositions] = useState<FormationPosition[]>([]);
   const [teamRosters, setTeamRosters] = useState<TeamRoster[]>([]);
 
+  // Track sync status for all observeQuery subscriptions
+  // Stats should only render once ALL subscriptions have finished their initial page load
+  const [syncStatus, setSyncStatus] = useState({
+    rosters: false,
+    players: false,
+    playTimeRecords: false,
+    goals: false,
+    notes: false,
+    games: false,
+    positions: false,
+  });
+  const allSynced = Object.values(syncStatus).every(Boolean);
+
   useEffect(() => {
     trackEvent(AnalyticsEvents.SEASON_REPORT_VIEWED.category, AnalyticsEvents.SEASON_REPORT_VIEWED.action);
     
@@ -80,7 +94,8 @@ export function TeamReport({ team }: TeamReportProps) {
     }).subscribe({
       next: (data) => {
         setTeamRosters([...data.items]);
-        console.log(`[TeamReport] Rosters updated: ${data.items.length} rosters`);
+        if (data.isSynced) setSyncStatus(prev => ({ ...prev, rosters: true }));
+        console.log(`[TeamReport] Rosters updated: ${data.items.length} rosters, synced: ${data.isSynced}`);
       },
     });
 
@@ -88,7 +103,8 @@ export function TeamReport({ team }: TeamReportProps) {
     const playerSub = client.models.Player.observeQuery().subscribe({
       next: (data) => {
         setPlayers([...data.items]);
-        console.log(`[TeamReport] Players updated: ${data.items.length} players`);
+        if (data.isSynced) setSyncStatus(prev => ({ ...prev, players: true }));
+        console.log(`[TeamReport] Players updated: ${data.items.length} players, synced: ${data.isSynced}`);
       },
     });
 
@@ -96,7 +112,8 @@ export function TeamReport({ team }: TeamReportProps) {
     const playTimeSub = client.models.PlayTimeRecord.observeQuery().subscribe({
       next: (data) => {
         setAllPlayTimeRecords([...data.items]);
-        console.log(`[TeamReport] PlayTimeRecords updated: ${data.items.length} records`);
+        if (data.isSynced) setSyncStatus(prev => ({ ...prev, playTimeRecords: true }));
+        console.log(`[TeamReport] PlayTimeRecords updated: ${data.items.length} records, synced: ${data.isSynced}`);
       },
     });
 
@@ -104,7 +121,8 @@ export function TeamReport({ team }: TeamReportProps) {
     const goalsSub = client.models.Goal.observeQuery().subscribe({
       next: (data) => {
         setAllGoals([...data.items]);
-        console.log(`[TeamReport] Goals updated: ${data.items.length} goals`);
+        if (data.isSynced) setSyncStatus(prev => ({ ...prev, goals: true }));
+        console.log(`[TeamReport] Goals updated: ${data.items.length} goals, synced: ${data.isSynced}`);
       },
     });
 
@@ -112,7 +130,8 @@ export function TeamReport({ team }: TeamReportProps) {
     const notesSub = client.models.GameNote.observeQuery().subscribe({
       next: (data) => {
         setAllNotes([...data.items]);
-        console.log(`[TeamReport] Notes updated: ${data.items.length} notes`);
+        if (data.isSynced) setSyncStatus(prev => ({ ...prev, notes: true }));
+        console.log(`[TeamReport] Notes updated: ${data.items.length} notes, synced: ${data.isSynced}`);
       },
     });
 
@@ -122,7 +141,8 @@ export function TeamReport({ team }: TeamReportProps) {
     }).subscribe({
       next: (data) => {
         setAllGames([...data.items]);
-        console.log(`[TeamReport] Games updated: ${data.items.length} games`);
+        if (data.isSynced) setSyncStatus(prev => ({ ...prev, games: true }));
+        console.log(`[TeamReport] Games updated: ${data.items.length} games, synced: ${data.isSynced}`);
       },
     });
 
@@ -130,8 +150,8 @@ export function TeamReport({ team }: TeamReportProps) {
     const positionsSub = client.models.FormationPosition.observeQuery().subscribe({
       next: (data) => {
         setAllPositions([...data.items]);
-        console.log(`[TeamReport] Positions updated: ${data.items.length} positions`);
-        setLoading(false);
+        if (data.isSynced) setSyncStatus(prev => ({ ...prev, positions: true }));
+        console.log(`[TeamReport] Positions updated: ${data.items.length} positions, synced: ${data.isSynced}`);
       },
     });
 
@@ -146,12 +166,16 @@ export function TeamReport({ team }: TeamReportProps) {
     };
   }, [team.id]);
 
-  // Recalculate stats when PlayTimeRecords update
+  // Recalculate stats only after ALL subscriptions have fully synced
+  // This prevents showing incorrect stats from partial observeQuery page loads
   useEffect(() => {
-    if (allPlayTimeRecords.length > 0 && teamRosters.length > 0 && players.length > 0 && allGames.length > 0) {
-      calculateStats();
+    if (allSynced) {
+      setLoading(false);
+      if (teamRosters.length > 0 && players.length > 0 && allGames.length > 0) {
+        calculateStats();
+      }
     }
-  }, [allPlayTimeRecords, teamRosters, players, allGames, allGoals, allNotes]);
+  }, [allSynced, allPlayTimeRecords, teamRosters, players, allGames, allGoals, allNotes]);
 
   const calculateStats = () => {
     const teamGameIds = new Set(allGames.map(g => g.id));
@@ -344,7 +368,7 @@ export function TeamReport({ team }: TeamReportProps) {
       });
     } catch (error) {
       console.error("Error loading player details:", error);
-      alert("Failed to load player details");
+      showError("Failed to load player details");
     } finally {
       setLoadingDetails(false);
     }

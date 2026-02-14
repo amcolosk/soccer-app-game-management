@@ -8,6 +8,7 @@ import {
   acceptTeamInvitation,
   declineTeamInvitation,
 } from '../services/invitationService';
+import { useConfirm } from './ConfirmModal';
 
 const client = generateClient<Schema>();
 
@@ -18,6 +19,7 @@ interface UserProfileProps {
 }
 
 export function UserProfile({ onSignOut }: UserProfileProps) {
+  const confirm = useConfirm();
   const { user } = useAuthenticator();
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -78,9 +80,13 @@ export function UserProfile({ onSignOut }: UserProfileProps) {
   }
 
   async function handleDeclineInvitation(invitationId: string) {
-    if (!confirm('Are you sure you want to decline this invitation?')) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: 'Decline Invitation',
+      message: 'Are you sure you want to decline this invitation?',
+      confirmText: 'Decline',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
 
     try {
       await declineTeamInvitation(invitationId);
@@ -125,15 +131,21 @@ export function UserProfile({ onSignOut }: UserProfileProps) {
   };
 
   const handleDeleteAccount = async () => {
-    const confirmed = window.confirm(
-      'Are you sure you want to delete your account? This action cannot be undone and will delete all your data including seasons, teams, players, and game records.'
-    );
+    const confirmed = await confirm({
+      title: 'Delete Account',
+      message: 'Are you sure you want to delete your account? This action cannot be undone and will delete all your data including seasons, teams, players, and game records.',
+      confirmText: 'Delete Account',
+      variant: 'danger',
+    });
 
     if (!confirmed) return;
 
-    const doubleConfirm = window.confirm(
-      'This is your final warning. Deleting your account is PERMANENT. Are you absolutely sure?'
-    );
+    const doubleConfirm = await confirm({
+      title: 'Final Warning',
+      message: 'This is your final warning. Deleting your account is PERMANENT. Are you absolutely sure?',
+      confirmText: 'Yes, Delete Forever',
+      variant: 'danger',
+    });
 
     if (!doubleConfirm) return;
 

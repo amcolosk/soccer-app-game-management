@@ -5,6 +5,7 @@ import {
   acceptTeamInvitation,
   declineTeamInvitation
 } from '../services/invitationService';
+import { useConfirm } from './ConfirmModal';
 
 const client = generateClient<Schema>();
 
@@ -14,6 +15,7 @@ interface InvitationAcceptanceProps {
 }
 
 function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptanceProps) {
+  const confirm = useConfirm();
   const [loading, setLoading] = useState(true);
   const [invitation, setInvitation] = useState<any>(null);
   const [resourceName, setResourceName] = useState('');
@@ -118,9 +120,13 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
   async function handleDecline() {
     if (!invitationId) return;
 
-    if (!confirm('Are you sure you want to decline this invitation?')) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: 'Decline Invitation',
+      message: 'Are you sure you want to decline this invitation?',
+      confirmText: 'Decline',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
 
     setProcessing(true);
     setMessage('');

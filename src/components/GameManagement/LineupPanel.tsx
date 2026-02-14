@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
+import { showError, showWarning } from "../../utils/toast";
+import { useConfirm } from "../ConfirmModal";
 import {
   calculatePlayerPlayTime,
   formatPlayTime,
@@ -50,6 +52,7 @@ export function LineupPanel({
   onSubstitute,
   onMarkInjured,
 }: LineupPanelProps) {
+  const confirm = useConfirm();
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [showPositionPicker, setShowPositionPicker] = useState(false);
 
@@ -83,14 +86,18 @@ export function LineupPanel({
       await client.models.LineupAssignment.delete({ id: lineupId });
     } catch (error) {
       console.error("Error removing from lineup:", error);
-      alert("Failed to remove player from lineup");
+      showError("Failed to remove player from lineup");
     }
   };
 
   const handleClearAllPositions = async () => {
-    if (!confirm(`Remove all ${startersCount} players from the lineup?`)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: 'Clear Lineup',
+      message: `Remove all ${startersCount} players from the lineup?`,
+      confirmText: 'Clear All',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
 
     try {
       const deletePromises = lineup.map(assignment =>
@@ -99,7 +106,7 @@ export function LineupPanel({
       await Promise.all(deletePromises);
     } catch (error) {
       console.error("Error clearing lineup:", error);
-      alert("Failed to clear lineup");
+      showError("Failed to clear lineup");
     }
   };
 
@@ -110,7 +117,7 @@ export function LineupPanel({
       handleRemoveFromLineup(existing.id);
     } else {
       if (startersCount >= team.maxPlayersOnField) {
-        alert(`Maximum ${team.maxPlayersOnField} starters allowed`);
+        showWarning(`Maximum ${team.maxPlayersOnField} starters allowed`);
         return;
       }
       setSelectedPlayer(player);
@@ -120,7 +127,7 @@ export function LineupPanel({
 
   const handleEmptyPositionClick = (position: FormationPosition) => {
     if (startersCount >= team.maxPlayersOnField) {
-      alert(`Maximum ${team.maxPlayersOnField} starters allowed`);
+      showWarning(`Maximum ${team.maxPlayersOnField} starters allowed`);
       return;
     }
     onSubstitute(position);
@@ -152,7 +159,7 @@ export function LineupPanel({
       setShowPositionPicker(false);
     } catch (error) {
       console.error("Error adding to lineup:", error);
-      alert("Failed to add player to lineup");
+      showError("Failed to add player to lineup");
     }
   };
 
@@ -257,9 +264,15 @@ export function LineupPanel({
                               </button>
                               {gamePlan && (
                                 <button
-                                  onClick={(e) => {
+                                  onClick={async (e) => {
                                     e.stopPropagation();
-                                    if (window.confirm(`Mark ${assignedPlayer.firstName} as injured?`)) {
+                                    const confirmed = await confirm({
+                                      title: 'Mark Injured',
+                                      message: `Mark ${assignedPlayer.firstName} as injured?`,
+                                      confirmText: 'Mark Injured',
+                                      variant: 'warning',
+                                    });
+                                    if (confirmed) {
                                       onMarkInjured(assignedPlayer.id);
                                     }
                                   }}

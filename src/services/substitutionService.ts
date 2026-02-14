@@ -6,17 +6,68 @@ const client = generateClient<Schema>();
 type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
 
 /**
- * Closes active play time records for specified players or all active records
- * @param playTimeRecords - All play time records
+ * Closes active play time records for specified players or all active records.
+ * 
+ * Uses BOTH the in-memory array AND a fresh DB query to ensure no records are missed.
+ * This fixes a race condition where records created by executeSubstitution may not
+ * yet be reflected in the React state (updated via observeQuery subscriptions).
+ * 
+ * @param playTimeRecords - All play time records from React state (may be stale)
  * @param endGameSeconds - The game time to mark as end time
  * @param playerIds - Optional array of player IDs to close records for. If not provided, closes all active records
+ * @param gameId - Optional game ID to query DB for active records (recommended for accuracy)
  */
 export async function closeActivePlayTimeRecords(
   playTimeRecords: PlayTimeRecord[],
   endGameSeconds: number,
-  playerIds?: string[]
+  playerIds?: string[],
+  gameId?: string
 ): Promise<void> {
-  const activeRecords = playTimeRecords.filter(r => {
+  // Start with in-memory records
+  let allRecords = [...playTimeRecords];
+
+  // If gameId provided, also query DB to catch any records not yet in React state.
+  // Must paginate through ALL pages since .list() only returns one page at a time,
+  // and without a GSI on gameId the DynamoDB Scan may need multiple pages to find
+  // all matching records (orphaned records from previous runs fill up earlier pages).
+  if (gameId) {
+    try {
+      let nextToken: string | null | undefined = undefined;
+      const allDbRecords: PlayTimeRecord[] = [];
+      let hasMore = true;
+      
+      while (hasMore) {
+        const listOptions: { filter: { gameId: { eq: string } }; nextToken?: string } = {
+          filter: { gameId: { eq: gameId } },
+        };
+        if (nextToken) {
+          listOptions.nextToken = nextToken;
+        }
+        const response = await client.models.PlayTimeRecord.list(listOptions);
+        if (response.data && response.data.length > 0) {
+          allDbRecords.push(...response.data);
+        }
+        nextToken = response.nextToken;
+        hasMore = !!nextToken;
+      }
+      
+      if (allDbRecords.length > 0) {
+        // Merge: add any DB records not already in the in-memory array
+        const existingIds = new Set(allRecords.map(r => r.id));
+        for (const dbRecord of allDbRecords) {
+          if (!existingIds.has(dbRecord.id)) {
+            console.log(`Found record in DB not in React state: player ${dbRecord.playerId}, start ${dbRecord.startGameSeconds}s`);
+            allRecords.push(dbRecord);
+          }
+        }
+      }
+      console.log(`DB query found ${allDbRecords.length} total records for game ${gameId}`);
+    } catch (error) {
+      console.warn('Failed to query DB for play time records, using in-memory only:', error);
+    }
+  }
+
+  const activeRecords = allRecords.filter(r => {
     const isActive = r.endGameSeconds === null || r.endGameSeconds === undefined;
     if (!isActive) return false;
     

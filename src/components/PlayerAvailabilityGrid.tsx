@@ -1,5 +1,6 @@
 import { updatePlayerAvailability } from "../services/rotationPlannerService";
 import { useAvailability } from "../contexts/AvailabilityContext";
+import { showError } from "../utils/toast";
 
 interface Player {
   id: string;
@@ -68,7 +69,7 @@ export function PlayerAvailabilityGrid({
       await updatePlayerAvailability(gameId, playerId, newStatus, undefined, coaches);
     } catch (error) {
       console.error("Error updating availability:", error);
-      alert("Failed to update player availability");
+      showError("Failed to update player availability");
     }
   };
 

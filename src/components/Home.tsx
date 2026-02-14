@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
+import { showError, showWarning } from '../utils/toast';
 
 const client = generateClient<Schema>();
 
@@ -96,14 +97,14 @@ export function Home({ onGameSelect, onPlanGame }: HomeProps) {
 
   const handleCreateGame = async () => {
     if (!opponent.trim() || !selectedTeamForGame) {
-      alert('Please enter opponent name and select a team');
+      showWarning('Please enter opponent name and select a team');
       return;
     }
 
     try {
       const team = teams.find(t => t.id === selectedTeamForGame);
       if (!team) {
-        alert('Team not found');
+        showError('Team not found');
         return;
       }
 
@@ -140,7 +141,7 @@ export function Home({ onGameSelect, onPlanGame }: HomeProps) {
       window.location.reload();
     } catch (error) {
       console.error('Error creating game:', error);
-      alert('Failed to create game');
+      showError('Failed to create game');
     }
   };
 

@@ -7,6 +7,7 @@ import {
   navigateToManagement,
   clickManagementTab,
   cleanupTestData,
+  handleConfirmDialog,
   swipeToDelete,
   UI_TIMING,
 } from './helpers';
@@ -469,24 +470,16 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Delete the shared team
-    page.on('dialog', async (dialog) => {
-      await dialog.accept();
-    });
+    const cleanupDialog = handleConfirmDialog(page);
     
     await swipeToDelete(page, '.item-card');
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
-    
-    page.removeAllListeners('dialog');
     
     console.log('✓ Shared team deleted');
     
     // Clean up players
     await clickManagementTab(page, 'Players');
     await page.waitForTimeout(UI_TIMING.STANDARD);
-    
-    page.on('dialog', async (dialog) => {
-      await dialog.accept();
-    });
     
     // Delete John Smith and Jane Doe
     let playerCards = page.locator('.item-card');
@@ -500,7 +493,7 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       count = newCount;
     }
     
-    page.removeAllListeners('dialog');
+    cleanupDialog();
     
     console.log('✓ All test data cleaned up\n');
   });

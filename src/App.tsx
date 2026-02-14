@@ -8,6 +8,8 @@ import { UserProfile } from "./components/UserProfile";
 import { TeamReport } from "./components/SeasonReport";
 import { Management } from "./components/Management";
 import InvitationAcceptance from "./components/InvitationAcceptance";
+import { Toaster } from "react-hot-toast";
+import { ConfirmProvider } from "./components/ConfirmModal";
 import type { Schema } from "../amplify/data/resource";
 import { trackPageView } from "./utils/analytics";
 import "./App.css";
@@ -114,23 +116,34 @@ function App() {
   if (invitationId) {
     console.log('Rendering invitation acceptance UI for:', invitationId);
     return (
-      <main className="app-container">
-        <header className="app-header">
-          <div className="app-branding">
-            <h1>⚽ TeamTrack</h1>
-            <p className="app-tagline">Game Management for Coaches</p>
-          </div>
-        </header>
-        <InvitationAcceptance 
-          invitationId={invitationId} 
-          onComplete={handleInvitationComplete}
-        />
-      </main>
+      <ConfirmProvider>
+        <main className="app-container">
+          <header className="app-header">
+            <div className="app-branding">
+              <h1>⚽ TeamTrack</h1>
+              <p className="app-tagline">Game Management for Coaches</p>
+            </div>
+          </header>
+          <InvitationAcceptance 
+            invitationId={invitationId} 
+            onComplete={handleInvitationComplete}
+          />
+        </main>
+      </ConfirmProvider>
     );
   }
 
   return (
+    <ConfirmProvider>
     <main className="app-container">
+      <Toaster
+        position="top-center"
+        toastOptions={{
+          style: { fontSize: '0.95rem', maxWidth: '90vw' },
+          success: { duration: 2500 },
+          error: { duration: 4000 },
+        }}
+      />
       <header className="app-header">
         <div className="app-branding">
           <h1>⚽ TeamTrack</h1>
@@ -215,6 +228,7 @@ function App() {
         </button>
       </nav>
     </main>
+    </ConfirmProvider>
   );
 }
 

@@ -11,11 +11,20 @@ vi.mock("../contexts/AvailabilityContext", () => ({
   useAvailability: vi.fn(),
 }));
 
+vi.mock("../utils/toast", () => ({
+  showError: vi.fn(),
+  showSuccess: vi.fn(),
+  showWarning: vi.fn(),
+  showInfo: vi.fn(),
+}));
+
 import { updatePlayerAvailability } from "../services/rotationPlannerService";
 import { useAvailability } from "../contexts/AvailabilityContext";
+import { showError } from "../utils/toast";
 
 const mockUpdate = vi.mocked(updatePlayerAvailability);
 const mockUseAvailability = vi.mocked(useAvailability);
+const mockShowError = vi.mocked(showError);
 
 const players = [
   { id: "p1", playerNumber: 5, firstName: "Alice", lastName: "Smith" },
@@ -30,6 +39,7 @@ const defaultProps = {
 
 beforeEach(() => {
   mockUpdate.mockReset();
+  mockShowError.mockReset();
   mockUseAvailability.mockReturnValue({
     availabilities: [],
     getPlayerAvailability: () => "available",
@@ -156,27 +166,23 @@ describe("PlayerAvailabilityGrid", () => {
     );
   });
 
-  it("shows alert on API error", async () => {
+  it("shows error toast on API error", async () => {
     const user = userEvent.setup();
     mockUpdate.mockRejectedValue(new Error("network"));
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
 
     render(<PlayerAvailabilityGrid {...defaultProps} />);
     await user.click(screen.getAllByRole("button")[0]);
 
-    expect(alertSpy).toHaveBeenCalledWith("Failed to update player availability");
-    alertSpy.mockRestore();
+    expect(mockShowError).toHaveBeenCalledWith("Failed to update player availability");
   });
 
-  it("does not alert on success", async () => {
+  it("does not show error toast on success", async () => {
     const user = userEvent.setup();
     mockUpdate.mockResolvedValue(undefined);
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
 
     render(<PlayerAvailabilityGrid {...defaultProps} />);
     await user.click(screen.getAllByRole("button")[0]);
 
-    expect(alertSpy).not.toHaveBeenCalled();
-    alertSpy.mockRestore();
+    expect(mockShowError).not.toHaveBeenCalled();
   });
 });
