@@ -4,14 +4,10 @@ import type { Schema } from "../../../../amplify/data/resource";
 import type {
   Game,
   Team,
-  LineupAssignment,
-  PlayTimeRecord,
-  Goal,
-  GameNote,
   GamePlan,
   PlannedRotation,
-  PlayerAvailability,
 } from "../types";
+import { useAmplifyQuery } from "../../../hooks/useAmplifyQuery";
 
 const client = generateClient<Schema>();
 
@@ -31,13 +27,36 @@ export function useGameSubscriptions({
   setIsRunning,
 }: UseGameSubscriptionsParams) {
   const [gameState, setGameState] = useState(game);
-  const [lineup, setLineup] = useState<LineupAssignment[]>([]);
-  const [playTimeRecords, setPlayTimeRecords] = useState<PlayTimeRecord[]>([]);
-  const [goals, setGoals] = useState<Goal[]>([]);
-  const [gameNotes, setGameNotes] = useState<GameNote[]>([]);
   const [gamePlan, setGamePlan] = useState<GamePlan | null>(null);
   const [plannedRotations, setPlannedRotations] = useState<PlannedRotation[]>([]);
-  const [playerAvailabilities, setPlayerAvailabilities] = useState<PlayerAvailability[]>([]);
+
+  // Simple data subscriptions via reusable hook
+  const { data: lineup } = useAmplifyQuery('LineupAssignment', {
+    filter: { gameId: { eq: game.id } },
+  }, [game.id]);
+
+  const { data: playTimeRecords } = useAmplifyQuery('PlayTimeRecord', {
+    filter: { gameId: { eq: game.id } },
+  }, [game.id]);
+
+  const halfThenSeconds = (a: { half: number; gameSeconds: number }, b: { half: number; gameSeconds: number }) => {
+    if (a.half !== b.half) return a.half - b.half;
+    return a.gameSeconds - b.gameSeconds;
+  };
+
+  const { data: goals } = useAmplifyQuery('Goal', {
+    filter: { gameId: { eq: game.id } },
+    sort: halfThenSeconds,
+  }, [game.id]);
+
+  const { data: gameNotes } = useAmplifyQuery('GameNote', {
+    filter: { gameId: { eq: game.id } },
+    sort: halfThenSeconds,
+  }, [game.id]);
+
+  const { data: playerAvailabilities } = useAmplifyQuery('PlayerAvailability', {
+    filter: { gameId: { eq: game.id } },
+  }, [game.id]);
 
   // Ref to track manual pause - prevents race condition with observeQuery auto-resume
   const manuallyPausedRef = useRef(false);
@@ -45,7 +64,7 @@ export function useGameSubscriptions({
   // Ref to track if lineup sync is in progress - prevents duplicate creation
   const lineupSyncInProgressRef = useRef(false);
 
-  // Observe game changes and restore state
+  // Observe game changes and restore state (complex timer resume logic — stays manual)
   useEffect(() => {
     const gameSub = client.models.Game.observeQuery({
       filter: { id: { eq: game.id } },
@@ -92,43 +111,8 @@ export function useGameSubscriptions({
     };
   }, [game.id, isRunning]);
 
-  // Data subscriptions
+  // GamePlan + PlannedRotation subscriptions (co-dependent — stays manual)
   useEffect(() => {
-    // Load lineup
-    const lineupSub = client.models.LineupAssignment.observeQuery({
-      filter: { gameId: { eq: game.id } },
-    }).subscribe({
-      next: (data) => setLineup([...data.items]),
-    });
-
-    // Load play time records
-    const playTimeSub = client.models.PlayTimeRecord.observeQuery({
-      filter: { gameId: { eq: game.id } },
-    }).subscribe({
-      next: (data) => setPlayTimeRecords([...data.items]),
-    });
-
-    // Load goals
-    const goalSub = client.models.Goal.observeQuery({
-      filter: { gameId: { eq: game.id } },
-    }).subscribe({
-      next: (data) => setGoals([...data.items].sort((a, b) => {
-        if (a.half !== b.half) return a.half - b.half;
-        return a.gameSeconds - b.gameSeconds;
-      })),
-    });
-
-    // Load game notes
-    const noteSub = client.models.GameNote.observeQuery({
-      filter: { gameId: { eq: game.id } },
-    }).subscribe({
-      next: (data) => setGameNotes([...data.items].sort((a, b) => {
-        if (a.half !== b.half) return a.half - b.half;
-        return a.gameSeconds - b.gameSeconds;
-      })),
-    });
-
-    // Load game plan and rotations
     let currentGamePlanId: string | null = null;
 
     const gamePlanSub = client.models.GamePlan.observeQuery({
@@ -161,22 +145,11 @@ export function useGameSubscriptions({
       },
     });
 
-    const availabilitySub = client.models.PlayerAvailability.observeQuery({
-      filter: { gameId: { eq: game.id } },
-    }).subscribe({
-      next: (data) => setPlayerAvailabilities([...data.items]),
-    });
-
     return () => {
-      lineupSub.unsubscribe();
-      playTimeSub.unsubscribe();
-      goalSub.unsubscribe();
-      noteSub.unsubscribe();
       gamePlanSub.unsubscribe();
       rotationSub.unsubscribe();
-      availabilitySub.unsubscribe();
     };
-  }, [team.id, team.formationId, game.id, gamePlan?.id]);
+  }, [game.id, gamePlan?.id]);
 
   // Sync lineup from game plan when available
   useEffect(() => {

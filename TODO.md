@@ -76,60 +76,27 @@ const gamesWithPlans = await Promise.all(
 ### 2.2 Eliminate Prop Drilling with Context ✅ COMPLETED
 **Priority**: HIGH | **Effort**: 4-6 hours | **Impact**: Cleaner component tree
 
-**File**: `src/components/GamePlanner.tsx` (lines 65-70, 186-190)
+**Problem**: `getPlayerAvailability` drilled through 8 components across two parallel flows (GamePlanner and GameManagement), up to 3 levels deep.
 
-**Problem**: Player availability data passed through 3+ component levels
+**Solution**: Created `src/contexts/AvailabilityContext.tsx` with `AvailabilityProvider` and `useAvailability` hook.
 
-**Solution**: Create AvailabilityContext
-```typescript
-const AvailabilityContext = createContext<{
-  getPlayerAvailability: (id: string) => string;
-  playerAvailabilities: PlayerAvailability[];
-}>(null);
-```
-
-**Steps**:
-- [ ] Create AvailabilityContext in contexts/AvailabilityContext.tsx
-- [ ] Wrap GamePlanner children with provider
-- [ ] Convert LineupBuilder to use useContext
-- [ ] Remove availability props from component signatures
-- [ ] Test that availability still works
+**Changes**:
+- Created context with `useCallback`/`useMemo` for stable references
+- Updated 8 consumer components to use `useAvailability()` hook instead of props
+- Both parent components (GameManagement, GamePlanner) wrap children with `<AvailabilityProvider>`
+- Updated 3 test files to mock `useAvailability` instead of passing props
+- Removed unused `PlayerAvailability` type import and `playerAvailabilities` prop from RotationWidget
 
 ---
 
-### 2.3 Create useAmplifyQuery Hook
+### 2.3 Create useAmplifyQuery Hook ✅ COMPLETED
 **Priority**: HIGH | **Effort**: 4-5 hours | **Impact**: DRY, consistent subscriptions
 
-**Problem**: Subscription management code duplicated across GameManagement, GamePlanner, Management
+**Problem**: Subscription management code duplicated across GameManagement, GamePlanner, Management, Home, SeasonReport, InvitationManagement
 
-**Solution**: Extract to custom hook
-```typescript
-export function useAmplifyQuery<T>(
-  model: string,
-  filter?: Record<string, any>,
-  dependencies: any[] = []
-) {
-  const [data, setData] = useState<T[]>([]);
+**Solution**: Created `src/hooks/useAmplifyQuery.ts` — reusable hook with TypeScript generics, filter memoization via deps array, sort via ref (no re-subscription), and isSynced tracking.
 
-  useEffect(() => {
-    const sub = client.models[model].observeQuery({ filter }).subscribe({
-      next: (data) => setData([...data.items]),
-    });
-    return () => sub.unsubscribe();
-  }, dependencies);
-
-  return data;
-}
-```
-
-**Steps**:
-- [ ] Create hooks/useAmplifyQuery.ts
-- [ ] Implement with proper TypeScript generics
-- [ ] Add error handling
-- [ ] Replace subscription code in GameManagement
-- [ ] Replace subscription code in GamePlanner
-- [ ] Replace subscription code in Management
-- [ ] Add tests for hook
+**Result**: 17 observeQuery subscriptions replaced across 6 files. Also fixed a subscription leak bug in Home.tsx. 12 new unit tests. 291 total tests passing.
 
 ---
 
@@ -368,10 +335,11 @@ export const logger = {
 - [x] Refactor GameManagement.tsx into sub-components (1.2)
 - [x] Add component tests — 228 total tests (1.3)
 - [x] Convert Management.tsx to useReducer — 4 reducers, 27 tests (2.1)
+- [x] Eliminate prop drilling with AvailabilityContext — 8 components, 3 test files updated (2.2)
+- [x] Create useAmplifyQuery hook — 17 subscriptions replaced across 6 files, fixed Home.tsx leak, 12 new tests (2.3)
 
 ### Next Up
-- [ ] Eliminate prop drilling with Context (2.2)
-- [ ] Create useAmplifyQuery hook (2.3)
+- [ ] Consolidate type definitions (3.1)
 
 ---
 

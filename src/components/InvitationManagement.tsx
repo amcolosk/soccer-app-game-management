@@ -9,6 +9,7 @@ import {
   type InvitationRole,
 } from '../services/invitationService';
 import { useConfirm } from './ConfirmModal';
+import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
 
 const client = generateClient<Schema>();
 
@@ -27,36 +28,23 @@ export function InvitationManagement({
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<InvitationRole>('COACH');
   const [coaches, setCoaches] = useState<string[]>([]);
-  const [invitations, setInvitations] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [currentUserId, setCurrentUserId] = useState<string>('');
 
+  const { data: invitations } = useAmplifyQuery('TeamInvitation', {
+    filter: { teamId: { eq: resourceId } },
+  }, [resourceId]);
+
   useEffect(() => {
     getCurrentUser().then(user => setCurrentUserId(user.userId)).catch(() => {});
-    
+
     // Load team coaches (one-time fetch, team changes are rare)
     client.models.Team.get({ id: resourceId }).then(teamResponse => {
       setCoaches(teamResponse.data?.coaches || []);
     }).catch(error => {
       console.error('Error loading team:', error);
     });
-
-    // Subscribe to invitations for real-time updates
-    const invitationSub = client.models.TeamInvitation.observeQuery({
-      filter: { teamId: { eq: resourceId } },
-    }).subscribe({
-      next: (data) => {
-        setInvitations([...data.items]);
-      },
-      error: (error) => {
-        console.error('Error observing invitations:', error);
-      },
-    });
-
-    return () => {
-      invitationSub.unsubscribe();
-    };
   }, [resourceId, type]);
 
   async function refreshCoaches() {

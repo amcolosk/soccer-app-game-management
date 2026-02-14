@@ -218,6 +218,9 @@ async function setupLineup(page: Page, opponent: string) {
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   console.log('✓ Game Planner opened');
   
+  // Wait for all 7 position slots to appear (observeQuery may take time to load FormationPositions)
+  await expect(page.locator('.position-slot')).toHaveCount(7, { timeout: 15000 });
+  
   // In GamePlanner, use the dropdown selects to assign players to positions
   const positionSlots = page.locator('.position-slot');
   const slotCount = await positionSlots.count();

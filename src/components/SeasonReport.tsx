@@ -17,6 +17,7 @@ import {
   calculatePlayerYellowCards,
   calculatePlayerRedCards,
 } from "../utils/gameCalculations";
+import { useAmplifyQuery } from "../hooks/useAmplifyQuery";
 
 const client = generateClient<Schema>();
 
@@ -27,7 +28,6 @@ type Goal = Schema["Goal"]["type"];
 type GameNote = Schema["GameNote"]["type"];
 type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
 type Game = Schema["Game"]["type"];
-type FormationPosition = Schema["FormationPosition"]["type"];
 
 interface TeamReportProps {
   team: Team;
@@ -56,7 +56,6 @@ interface PlayerDetails {
 }
 
 export function TeamReport({ team }: TeamReportProps) {
-  const [players, setPlayers] = useState<Player[]>([]);
   const [playerStats, setPlayerStats] = useState<PlayerStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -68,74 +67,24 @@ export function TeamReport({ team }: TeamReportProps) {
   const [allGoals, setAllGoals] = useState<Goal[]>([]);
   const [allNotes, setAllNotes] = useState<GameNote[]>([]);
   const [allPlayTimeRecords, setAllPlayTimeRecords] = useState<PlayTimeRecord[]>([]);
-  const [allGames, setAllGames] = useState<Game[]>([]);
-  const [allPositions, setAllPositions] = useState<FormationPosition[]>([]);
-  const [teamRosters, setTeamRosters] = useState<TeamRoster[]>([]);
-
-  // Track sync status for all observeQuery subscriptions
-  // Stats should only render once ALL subscriptions have finished their initial page load
-  const [syncStatus, setSyncStatus] = useState({
-    rosters: false,
-    players: false,
-    playTimeRecords: false,
-    goals: false,
-    notes: false,
-    games: false,
-    positions: false,
-  });
-  const allSynced = Object.values(syncStatus).every(Boolean);
 
   // Phase 1: Subscribe to team-scoped data and simple models
+  const { data: teamRosters, isSynced: rostersSynced } = useAmplifyQuery('TeamRoster', {
+    filter: { teamId: { eq: team.id } },
+  }, [team.id]);
+  const { data: players, isSynced: playersSynced } = useAmplifyQuery('Player');
+  const { data: allGames, isSynced: gamesSynced } = useAmplifyQuery('Game', {
+    filter: { teamId: { eq: team.id } },
+  }, [team.id]);
+  const { data: allPositions, isSynced: positionsSynced } = useAmplifyQuery('FormationPosition');
+
+  // Track sync status for Phase 2 data (fetched via list(), not observeQuery)
+  const [phase2Synced, setPhase2Synced] = useState(false);
+  const allSynced = rostersSynced && playersSynced && gamesSynced && positionsSynced && phase2Synced;
+
   useEffect(() => {
     trackEvent(AnalyticsEvents.SEASON_REPORT_VIEWED.category, AnalyticsEvents.SEASON_REPORT_VIEWED.action);
-    
-    // Subscribe to team rosters
-    const rosterSub = client.models.TeamRoster.observeQuery({
-      filter: { teamId: { eq: team.id } },
-    }).subscribe({
-      next: (data) => {
-        setTeamRosters([...data.items]);
-        if (data.isSynced) setSyncStatus(prev => ({ ...prev, rosters: true }));
-        console.log(`[TeamReport] Rosters updated: ${data.items.length} rosters, synced: ${data.isSynced}`);
-      },
-    });
-
-    // Subscribe to all players (observeQuery handles pagination)
-    const playerSub = client.models.Player.observeQuery().subscribe({
-      next: (data) => {
-        setPlayers([...data.items]);
-        if (data.isSynced) setSyncStatus(prev => ({ ...prev, players: true }));
-        console.log(`[TeamReport] Players updated: ${data.items.length} players, synced: ${data.isSynced}`);
-      },
-    });
-
-    // Subscribe to games for this team
-    const gamesSub = client.models.Game.observeQuery({
-      filter: { teamId: { eq: team.id } },
-    }).subscribe({
-      next: (data) => {
-        setAllGames([...data.items]);
-        if (data.isSynced) setSyncStatus(prev => ({ ...prev, games: true }));
-        console.log(`[TeamReport] Games updated: ${data.items.length} games, synced: ${data.isSynced}`);
-      },
-    });
-
-    // Subscribe to ALL positions (not just current formation) to handle historical data
-    const positionsSub = client.models.FormationPosition.observeQuery().subscribe({
-      next: (data) => {
-        setAllPositions([...data.items]);
-        if (data.isSynced) setSyncStatus(prev => ({ ...prev, positions: true }));
-        console.log(`[TeamReport] Positions updated: ${data.items.length} positions, synced: ${data.isSynced}`);
-      },
-    });
-
-    return () => {
-      rosterSub.unsubscribe();
-      playerSub.unsubscribe();
-      gamesSub.unsubscribe();
-      positionsSub.unsubscribe();
-    };
-  }, [team.id]);
+  }, []);
 
   // Phase 2: Once games are loaded, fetch PlayTimeRecords, Goals, and GameNotes
   // per-game using paginated list() calls. This avoids the unfiltered observeQuery()
@@ -143,7 +92,7 @@ export function TeamReport({ team }: TeamReportProps) {
   // when orphaned records from previous test/game sessions accumulate.
   const gameDataLoadedRef = useRef(false);
   useEffect(() => {
-    if (!syncStatus.games || allGames.length === 0) return;
+    if (!gamesSynced || allGames.length === 0) return;
     // Reload game-specific data whenever allGames changes
     gameDataLoadedRef.current = false;
 
@@ -218,22 +167,12 @@ export function TeamReport({ team }: TeamReportProps) {
         setAllGoals(allGoalsData);
         setAllNotes(allNotesData);
 
-        setSyncStatus(prev => ({
-          ...prev,
-          playTimeRecords: true,
-          goals: true,
-          notes: true,
-        }));
+        setPhase2Synced(true);
         gameDataLoadedRef.current = true;
       } catch (error) {
         console.error('[TeamReport] Error loading game data:', error);
         // Still mark as synced so the UI doesn't hang forever
-        setSyncStatus(prev => ({
-          ...prev,
-          playTimeRecords: true,
-          goals: true,
-          notes: true,
-        }));
+        setPhase2Synced(true);
       }
     };
 
@@ -248,7 +187,7 @@ export function TeamReport({ team }: TeamReportProps) {
     }, 2000);
 
     return () => clearTimeout(reloadTimer);
-  }, [syncStatus.games, allGames]);
+  }, [gamesSynced, allGames]);
 
   // Recalculate stats only after ALL subscriptions have fully synced
   // This prevents showing incorrect stats from partial observeQuery page loads

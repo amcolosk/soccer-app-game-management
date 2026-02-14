@@ -16,6 +16,7 @@ import {
   teamFormReducer, initialTeamForm,
   rosterFormReducer, initialRosterForm,
 } from './managementReducers';
+import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
 
 const client = generateClient<Schema>();
 
@@ -23,15 +24,14 @@ type Team = Schema['Team']['type'];
 type Player = Schema['Player']['type'];
 type TeamRoster = Schema['TeamRoster']['type'];
 type Formation = Schema['Formation']['type'];
-type FormationPosition = Schema['FormationPosition']['type'];
 
 export function Management() {
   const confirm = useConfirm();
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [teamRosters, setTeamRosters] = useState<TeamRoster[]>([]);
-  const [formations, setFormations] = useState<Formation[]>([]);
-  const [formationPositions, setFormationPositions] = useState<FormationPosition[]>([]);
+  const { data: teams } = useAmplifyQuery('Team');
+  const { data: players } = useAmplifyQuery('Player');
+  const { data: teamRosters } = useAmplifyQuery('TeamRoster');
+  const { data: formations } = useAmplifyQuery('Formation');
+  const { data: formationPositions } = useAmplifyQuery('FormationPosition');
   const [activeSection, setActiveSection] = useState<'teams' | 'formations' | 'players' | 'sharing' | 'app'>('teams');
   const [showBugReport, setShowBugReport] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>('');
@@ -57,37 +57,6 @@ export function Management() {
     loadCurrentUser();
   }, []);
 
-  useEffect(() => {
-    if (!currentUserId) return;
-
-    const teamSub = client.models.Team.observeQuery().subscribe({
-      next: (data) => setTeams([...data.items]),
-    });
-
-    const playerSub = client.models.Player.observeQuery().subscribe({
-      next: (data) => setPlayers([...data.items]),
-    });
-
-    const rosterSub = client.models.TeamRoster.observeQuery().subscribe({
-      next: (data) => setTeamRosters([...data.items]),
-    });
-
-    const formationSub = client.models.Formation.observeQuery().subscribe({
-      next: (data) => setFormations([...data.items]),
-    });
-
-    const formationPositionSub = client.models.FormationPosition.observeQuery().subscribe({
-      next: (data) => setFormationPositions([...data.items]),
-    });
-
-    return () => {
-      teamSub.unsubscribe();
-      playerSub.unsubscribe();
-      rosterSub.unsubscribe();
-      formationSub.unsubscribe();
-      formationPositionSub.unsubscribe();
-    };
-  }, [currentUserId]);
 
   async function loadCurrentUser() {
     try {

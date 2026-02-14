@@ -3,6 +3,7 @@ import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
 import { showError, showWarning } from '../utils/toast';
+import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
 
 const client = generateClient<Schema>();
 
@@ -15,7 +16,6 @@ interface HomeProps {
 }
 
 export function Home({ onGameSelect, onPlanGame }: HomeProps) {
-  const [games, setGames] = useState<Game[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [isCreatingGame, setIsCreatingGame] = useState(false);
   const [selectedTeamForGame, setSelectedTeamForGame] = useState('');
@@ -24,9 +24,43 @@ export function Home({ onGameSelect, onPlanGame }: HomeProps) {
   const [isHome, setIsHome] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string>('');
 
+  const { data: games } = useAmplifyQuery('Game', {
+    sort: (a, b) => {
+      const statusA = a.status || 'scheduled';
+      const statusB = b.status || 'scheduled';
+
+      const getPriority = (status: string) => {
+        if (status === 'in-progress' || status === 'halftime') return 1;
+        if (status === 'scheduled') return 2;
+        return 3; // completed
+      };
+
+      const priorityA = getPriority(statusA);
+      const priorityB = getPriority(statusB);
+
+      if (priorityA !== priorityB) {
+        return priorityA - priorityB;
+      }
+
+      // Within same priority, sort by date
+      const dateA = a.gameDate ? new Date(a.gameDate).getTime() : 0;
+      const dateB = b.gameDate ? new Date(b.gameDate).getTime() : 0;
+
+      if (statusA === 'completed') {
+        // Completed: most recent first
+        if (!dateA) return 1;
+        if (!dateB) return -1;
+        return dateB - dateA;
+      }
+
+      // In-progress/scheduled: upcoming first
+      return dateB - dateA;
+    },
+  });
+
   useEffect(() => {
     loadCurrentUser();
-    loadTeamsAndData();
+    loadTeams();
   }, []);
 
   async function loadCurrentUser() {
@@ -38,57 +72,13 @@ export function Home({ onGameSelect, onPlanGame }: HomeProps) {
     }
   }
 
-  async function loadTeamsAndData() {
+  async function loadTeams() {
     try {
-      // With ownersDefinedIn('coaches'), Team.list() automatically returns only accessible teams
       const teamsResponse = await client.models.Team.list();
       setTeams(teamsResponse.data || []);
     } catch (error) {
       console.error('Error loading teams:', error);
     }
-
-    // Subscribe to games
-    const gameSub = client.models.Game.observeQuery().subscribe({
-      next: (data) => {
-        // Sort games: in-progress/halftime first, then scheduled, then completed
-        const sortedGames = [...data.items].sort((a, b) => {
-          const statusA = a.status || 'scheduled';
-          const statusB = b.status || 'scheduled';
-          
-          const getPriority = (status: string) => {
-            if (status === 'in-progress' || status === 'halftime') return 1;
-            if (status === 'scheduled') return 2;
-            return 3; // completed
-          };
-
-          const priorityA = getPriority(statusA);
-          const priorityB = getPriority(statusB);
-
-          if (priorityA !== priorityB) {
-            return priorityA - priorityB;
-          }
-
-          // Within same priority, sort by date
-          const dateA = a.gameDate ? new Date(a.gameDate).getTime() : 0;
-          const dateB = b.gameDate ? new Date(b.gameDate).getTime() : 0;
-
-          if (statusA === 'completed') {
-            // Completed: most recent first
-            if (!dateA) return 1;
-            if (!dateB) return -1;
-            return dateB - dateA;
-          }
-          
-          // In-progress/scheduled: upcoming first
-          return dateB - dateA;
-        });
-        setGames(sortedGames);
-      },
-    });
-
-    return () => {
-      gameSub.unsubscribe();
-    };
   }
 
   const getTeam = (teamId: string) => {

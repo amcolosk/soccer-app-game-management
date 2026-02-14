@@ -14,6 +14,7 @@ import { AvailabilityProvider } from "../contexts/AvailabilityContext";
 import { showError, showSuccess, showWarning } from "../utils/toast";
 import { useConfirm } from "./ConfirmModal";
 import { UI_CONSTANTS } from "../constants/ui";
+import { useAmplifyQuery } from "../hooks/useAmplifyQuery";
 
 const client = generateClient<Schema>();
 
@@ -79,7 +80,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const [players, setPlayers] = useState<PlayerWithRoster[]>([]);
   const [gamePlan, setGamePlan] = useState<GamePlan | null>(null);
   const [rotations, setRotations] = useState<PlannedRotation[]>([]);
-  const [availabilities, setAvailabilities] = useState<PlayerAvailability[]>([]);
+  const { data: availabilities } = useAmplifyQuery('PlayerAvailability', {
+    filter: { gameId: { eq: game.id } },
+  }, [game.id]);
   const [startingLineup, setStartingLineup] = useState<Map<string, string>>(new Map()); // positionId -> playerId
   const [rotationIntervalMinutes, setRotationIntervalMinutes] = useState(10);
   const [selectedRotation, setSelectedRotation] = useState<number | 'starting' | 'halftime' | null>(null);
@@ -165,22 +168,12 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       },
     });
 
-    // Set up reactive subscription for player availability
-    const availabilitySub = client.models.PlayerAvailability.observeQuery({
-      filter: { gameId: { eq: game.id } },
-    }).subscribe({
-      next: (data) => {
-        setAvailabilities([...data.items]);
-      },
-    });
-
     // Load previous games once (doesn't need real-time updates)
     loadPreviousGames();
 
     return () => {
       gamePlanSub.unsubscribe();
       rotationSub.unsubscribe();
-      availabilitySub.unsubscribe();
     };
   }, [game.id, team.id, gamePlan?.id]);
 
