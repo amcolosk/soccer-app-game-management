@@ -775,6 +775,39 @@ test.describe('Soccer App Full Workflow', () => {
     
     // Step 1.5: Clean up existing test data
     console.log('Step 1.5: Clean up existing data');
+    
+    // First, clean up orphaned data via API (PlayTimeRecords, Goals, Games, etc.)
+    // These accumulate from previous test runs and pollute DynamoDB Scans
+    console.log('Cleaning up orphaned API data...');
+    try {
+      // Use a longer default timeout for the page context during cleanup
+      page.setDefaultTimeout(120000);
+      const cleanupResults = await page.evaluate(async () => {
+        if (typeof (window as any).__cleanupAllData === 'function') {
+          return await (window as any).__cleanupAllData();
+        }
+        return null;
+      });
+      page.setDefaultTimeout(30000); // Reset to default
+      if (cleanupResults) {
+        const entries = Object.entries(cleanupResults as Record<string, number>)
+          .filter(([, count]) => (count as number) > 0);
+        if (entries.length > 0) {
+          console.log('✓ Orphaned data cleaned:', entries.map(([model, count]) => `${model}: ${count}`).join(', '));
+        } else {
+          console.log('✓ No orphaned data found');
+        }
+      } else {
+        console.log('⚠ __cleanupAllData not available (not in dev mode?)');
+      }
+    } catch (e) {
+      console.log(`⚠ API cleanup failed: ${e}`);
+    }
+    
+    // Brief pause after cleanup for eventual consistency
+    await page.waitForTimeout(1000);
+    
+    // Then clean up UI-visible data (teams, players, formations)
     await cleanupTestData(page);
     console.log('');
     

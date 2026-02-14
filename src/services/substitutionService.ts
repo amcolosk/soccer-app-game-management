@@ -37,8 +37,9 @@ export async function closeActivePlayTimeRecords(
       let hasMore = true;
       
       while (hasMore) {
-        const listOptions: { filter: { gameId: { eq: string } }; nextToken?: string } = {
+        const listOptions: { filter: { gameId: { eq: string } }; nextToken?: string; limit?: number } = {
           filter: { gameId: { eq: gameId } },
+          limit: 1000,
         };
         if (nextToken) {
           listOptions.nextToken = nextToken;
@@ -93,6 +94,41 @@ export async function closeActivePlayTimeRecords(
 
   await Promise.all(endPromises);
   console.log('All play time records closed successfully');
+
+  // Retry: DynamoDB Scans use eventually consistent reads, so records written
+  // very recently (e.g., by executeSubstitution seconds before End Game) may not
+  // appear in the first Scan. Wait briefly and re-query to catch stragglers.
+  if (gameId) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    try {
+      let retryToken: string | null | undefined = undefined;
+      const retryRecords: PlayTimeRecord[] = [];
+      let retryMore = true;
+      while (retryMore) {
+        const retryOpts: { filter: { gameId: { eq: string } }; nextToken?: string; limit?: number } = {
+          filter: { gameId: { eq: gameId } },
+          limit: 1000,
+        };
+        if (retryToken) retryOpts.nextToken = retryToken;
+        const retryRes = await client.models.PlayTimeRecord.list(retryOpts);
+        if (retryRes.data) retryRecords.push(...retryRes.data);
+        retryToken = retryRes.nextToken;
+        retryMore = !!retryToken;
+      }
+      const stillActive = retryRecords.filter(r =>
+        (r.endGameSeconds === null || r.endGameSeconds === undefined) &&
+        (!playerIds || playerIds.length === 0 || playerIds.includes(r.playerId))
+      );
+      if (stillActive.length > 0) {
+        console.log(`Retry: closing ${stillActive.length} records missed by first pass`);
+        await Promise.all(stillActive.map(r =>
+          client.models.PlayTimeRecord.update({ id: r.id, endGameSeconds: endGameSeconds })
+        ));
+      }
+    } catch (error) {
+      console.warn('Retry scan failed:', error);
+    }
+  }
 }
 
 /**

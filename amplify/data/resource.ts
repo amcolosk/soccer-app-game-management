@@ -223,6 +223,9 @@ const schema = a.schema({
       endGameSeconds: a.integer(), // Game time when player left field (null if still playing)
       coaches: a.string().array(), // Team coaches who can access this record
     })
+    .secondaryIndexes((index) => [
+      index('gameId').queryField('listPlayTimeRecordsByGameId'),
+    ])
     .authorization((allow) => [
       allow.ownersDefinedIn('coaches'), // Only team coaches can access play time records
     ]),

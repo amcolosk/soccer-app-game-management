@@ -9,8 +9,59 @@ import { Amplify } from "aws-amplify";
 import outputs from "../amplify_outputs.json";
 import '@aws-amplify/ui-react/styles.css';
 import { initGA } from "./utils/analytics.ts";
+import type { Schema } from "../amplify/data/resource";
 
 Amplify.configure(outputs);
+
+// Expose a cleanup function for E2E tests to delete orphaned data
+// This runs in the browser context via page.evaluate()
+if (import.meta.env.DEV || import.meta.env.MODE === 'development') {
+  (window as any).__cleanupAllData = async () => {
+    // Generate client inside the function so it uses the current auth session
+    const { generateClient } = await import('aws-amplify/data');
+    const cleanupClient = generateClient<Schema>();
+    
+    const models = ['PlayTimeRecord', 'Goal', 'GameNote', 'Substitution', 'Game', 'LineupAssignment', 'PlannedRotation', 'GamePlan', 'PlayerAvailability'] as const;
+    const results: Record<string, number> = {};
+    
+    for (const modelName of models) {
+      let deleted = 0;
+      let nextToken: string | null | undefined = undefined;
+      let hasMore = true;
+      
+      while (hasMore) {
+        try {
+          const opts: any = { limit: 1000 };
+          if (nextToken) opts.nextToken = nextToken;
+          const response = await (cleanupClient.models as any)[modelName].list(opts);
+          
+          if (response.data && response.data.length > 0) {
+            // Delete in parallel batches of 10 for speed
+            const items = response.data;
+            for (let i = 0; i < items.length; i += 10) {
+              const batch = items.slice(i, i + 10);
+              await Promise.allSettled(
+                batch.map((item: any) =>
+                  (cleanupClient.models as any)[modelName].delete({ id: item.id })
+                )
+              );
+              deleted += batch.length;
+            }
+          }
+          
+          nextToken = response.nextToken;
+          hasMore = !!nextToken;
+        } catch {
+          hasMore = false;
+        }
+      }
+      
+      results[modelName] = deleted;
+    }
+    
+    return results;
+  };
+}
 
 // Initialize Google Analytics
 const gaMeasurementId = (outputs as any).custom?.ga_measurement_id;

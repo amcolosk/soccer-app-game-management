@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import { showError } from "../utils/toast";
@@ -85,6 +85,7 @@ export function TeamReport({ team }: TeamReportProps) {
   });
   const allSynced = Object.values(syncStatus).every(Boolean);
 
+  // Phase 1: Subscribe to team-scoped data and simple models
   useEffect(() => {
     trackEvent(AnalyticsEvents.SEASON_REPORT_VIEWED.category, AnalyticsEvents.SEASON_REPORT_VIEWED.action);
     
@@ -105,33 +106,6 @@ export function TeamReport({ team }: TeamReportProps) {
         setPlayers([...data.items]);
         if (data.isSynced) setSyncStatus(prev => ({ ...prev, players: true }));
         console.log(`[TeamReport] Players updated: ${data.items.length} players, synced: ${data.isSynced}`);
-      },
-    });
-
-    // Subscribe to PlayTimeRecord updates for reactive data
-    const playTimeSub = client.models.PlayTimeRecord.observeQuery().subscribe({
-      next: (data) => {
-        setAllPlayTimeRecords([...data.items]);
-        if (data.isSynced) setSyncStatus(prev => ({ ...prev, playTimeRecords: true }));
-        console.log(`[TeamReport] PlayTimeRecords updated: ${data.items.length} records, synced: ${data.isSynced}`);
-      },
-    });
-
-    // Subscribe to all goals
-    const goalsSub = client.models.Goal.observeQuery().subscribe({
-      next: (data) => {
-        setAllGoals([...data.items]);
-        if (data.isSynced) setSyncStatus(prev => ({ ...prev, goals: true }));
-        console.log(`[TeamReport] Goals updated: ${data.items.length} goals, synced: ${data.isSynced}`);
-      },
-    });
-
-    // Subscribe to all game notes
-    const notesSub = client.models.GameNote.observeQuery().subscribe({
-      next: (data) => {
-        setAllNotes([...data.items]);
-        if (data.isSynced) setSyncStatus(prev => ({ ...prev, notes: true }));
-        console.log(`[TeamReport] Notes updated: ${data.items.length} notes, synced: ${data.isSynced}`);
       },
     });
 
@@ -158,13 +132,123 @@ export function TeamReport({ team }: TeamReportProps) {
     return () => {
       rosterSub.unsubscribe();
       playerSub.unsubscribe();
-      playTimeSub.unsubscribe();
-      goalsSub.unsubscribe();
-      notesSub.unsubscribe();
       gamesSub.unsubscribe();
       positionsSub.unsubscribe();
     };
   }, [team.id]);
+
+  // Phase 2: Once games are loaded, fetch PlayTimeRecords, Goals, and GameNotes
+  // per-game using paginated list() calls. This avoids the unfiltered observeQuery()
+  // which scans the entire table and may miss records due to pagination issues
+  // when orphaned records from previous test/game sessions accumulate.
+  const gameDataLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!syncStatus.games || allGames.length === 0) return;
+    // Reload game-specific data whenever allGames changes
+    gameDataLoadedRef.current = false;
+
+    // Paginated list helper for a single gameId
+    async function fetchPlayTimeForGame(gameId: string): Promise<PlayTimeRecord[]> {
+      const items: PlayTimeRecord[] = [];
+      let nextToken: string | null | undefined = undefined;
+      do {
+        const opts: { filter: { gameId: { eq: string } }; nextToken?: string; limit?: number } = {
+          filter: { gameId: { eq: gameId } },
+          limit: 1000,
+        };
+        if (nextToken) opts.nextToken = nextToken;
+        const res = await client.models.PlayTimeRecord.list(opts);
+        if (res.data) items.push(...res.data);
+        nextToken = res.nextToken;
+      } while (nextToken);
+      return items;
+    }
+
+    async function fetchGoalsForGame(gameId: string): Promise<Goal[]> {
+      const items: Goal[] = [];
+      let nextToken: string | null | undefined = undefined;
+      do {
+        const opts: { filter: { gameId: { eq: string } }; nextToken?: string; limit?: number } = {
+          filter: { gameId: { eq: gameId } },
+          limit: 1000,
+        };
+        if (nextToken) opts.nextToken = nextToken;
+        const res = await client.models.Goal.list(opts);
+        if (res.data) items.push(...res.data);
+        nextToken = res.nextToken;
+      } while (nextToken);
+      return items;
+    }
+
+    async function fetchNotesForGame(gameId: string): Promise<GameNote[]> {
+      const items: GameNote[] = [];
+      let nextToken: string | null | undefined = undefined;
+      do {
+        const opts: { filter: { gameId: { eq: string } }; nextToken?: string; limit?: number } = {
+          filter: { gameId: { eq: gameId } },
+          limit: 1000,
+        };
+        if (nextToken) opts.nextToken = nextToken;
+        const res = await client.models.GameNote.list(opts);
+        if (res.data) items.push(...res.data);
+        nextToken = res.nextToken;
+      } while (nextToken);
+      return items;
+    }
+
+    const loadGameData = async () => {
+      try {
+        const gameIds = allGames.map(g => g.id);
+        console.log(`[TeamReport] Loading data for ${gameIds.length} games...`);
+
+        // Fetch PlayTimeRecords, Goals, and GameNotes for all games in parallel
+        const [playTimeResults, goalResults, noteResults] = await Promise.all([
+          Promise.all(gameIds.map(fetchPlayTimeForGame)),
+          Promise.all(gameIds.map(fetchGoalsForGame)),
+          Promise.all(gameIds.map(fetchNotesForGame)),
+        ]);
+
+        const allPlayTime = playTimeResults.flat();
+        const allGoalsData = goalResults.flat();
+        const allNotesData = noteResults.flat();
+
+        console.log(`[TeamReport] Loaded ${allPlayTime.length} PlayTimeRecords, ${allGoalsData.length} Goals, ${allNotesData.length} Notes`);
+
+        setAllPlayTimeRecords(allPlayTime);
+        setAllGoals(allGoalsData);
+        setAllNotes(allNotesData);
+
+        setSyncStatus(prev => ({
+          ...prev,
+          playTimeRecords: true,
+          goals: true,
+          notes: true,
+        }));
+        gameDataLoadedRef.current = true;
+      } catch (error) {
+        console.error('[TeamReport] Error loading game data:', error);
+        // Still mark as synced so the UI doesn't hang forever
+        setSyncStatus(prev => ({
+          ...prev,
+          playTimeRecords: true,
+          goals: true,
+          notes: true,
+        }));
+      }
+    };
+
+    loadGameData();
+
+    // Schedule a reload after 2 seconds to catch records missed by
+    // eventually consistent DynamoDB Scans. This handles the case where
+    // records were written very recently and the initial Scan didn't see them.
+    const reloadTimer = setTimeout(() => {
+      console.log('[TeamReport] Reloading game data (eventual consistency retry)...');
+      loadGameData();
+    }, 2000);
+
+    return () => clearTimeout(reloadTimer);
+  }, [syncStatus.games, allGames]);
 
   // Recalculate stats only after ALL subscriptions have fully synced
   // This prevents showing incorrect stats from partial observeQuery page loads
@@ -180,13 +264,36 @@ export function TeamReport({ team }: TeamReportProps) {
   const calculateStats = () => {
     const teamGameIds = new Set(allGames.map(g => g.id));
     
+    // Build a map of gameId → elapsedSeconds for completed games.
+    // This is used as a safety net: if closeActivePlayTimeRecords missed closing
+    // some records (e.g., due to DynamoDB Scan pagination without a GSI on gameId),
+    // we can still calculate correct play time for completed games.
+    const completedGameEndTimes = new Map<string, number>();
+    allGames.forEach(g => {
+      if (g.status === 'completed' && g.elapsedSeconds != null) {
+        completedGameEndTimes.set(g.id, g.elapsedSeconds);
+      }
+    });
+    
+    // Fix up any unclosed records in completed games before calculating stats.
+    // This handles the case where closeActivePlayTimeRecords didn't find all records
+    // during the DynamoDB Scan (no GSI on gameId, eventually consistent reads).
+    const fixedPlayTimeRecords = allPlayTimeRecords.map(r => {
+      if ((r.endGameSeconds === null || r.endGameSeconds === undefined) && completedGameEndTimes.has(r.gameId)) {
+        const gameEndTime = completedGameEndTimes.get(r.gameId)!;
+        console.log(`[TeamReport] Fixing unclosed record for player ${r.playerId} in completed game: setting endGameSeconds to ${gameEndTime}`);
+        return { ...r, endGameSeconds: gameEndTime };
+      }
+      return r;
+    });
+    
     // DEBUG: Log all games and their IDs
     console.log(`[TeamReport DEBUG] Team games (${allGames.length}):`, 
       allGames.map(g => ({ id: g.id, opponent: g.opponent, status: g.status }))
     );
     
     // DEBUG: Log ALL PlayTimeRecords for this team's games
-    const teamPlayTimeRecords = allPlayTimeRecords.filter(r => teamGameIds.has(r.gameId));
+    const teamPlayTimeRecords = fixedPlayTimeRecords.filter(r => teamGameIds.has(r.gameId));
     console.log(`[TeamReport DEBUG] All PlayTimeRecords for team games (${teamPlayTimeRecords.length} records):`,
       teamPlayTimeRecords.map(r => ({
         id: r.id,
@@ -212,7 +319,7 @@ export function TeamReport({ team }: TeamReportProps) {
       // Filter data for this team's games only
       const teamGoals = allGoals.filter(g => g && teamGameIds.has(g.gameId));
       const teamNotes = allNotes.filter(n => n && teamGameIds.has(n.gameId));
-      const playerPlayTime = allPlayTimeRecords.filter(r => 
+      const playerPlayTime = fixedPlayTimeRecords.filter(r => 
         r && r.playerId === player.id && teamGameIds.has(r.gameId)
       );
 
@@ -340,9 +447,21 @@ export function TeamReport({ team }: TeamReportProps) {
         .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
 
       // Calculate play time by position using shared utility
-      const playerPlayTime = allPlayTimeRecords.filter(r => 
-        r && r.playerId === player.id && teamGameIds.has(r.gameId)
-      );
+      // Fix up unclosed records for completed games (same as calculateStats)
+      const completedGameEndTimes = new Map<string, number>();
+      allGames.forEach(g => {
+        if (g.status === 'completed' && g.elapsedSeconds != null) {
+          completedGameEndTimes.set(g.id, g.elapsedSeconds);
+        }
+      });
+      const playerPlayTime = allPlayTimeRecords
+        .filter(r => r && r.playerId === player.id && teamGameIds.has(r.gameId))
+        .map(r => {
+          if ((r.endGameSeconds === null || r.endGameSeconds === undefined) && completedGameEndTimes.has(r.gameId)) {
+            return { ...r, endGameSeconds: completedGameEndTimes.get(r.gameId)! };
+          }
+          return r;
+        });
  
       // Create position map with position names
       const positionsMap = new Map(

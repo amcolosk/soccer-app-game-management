@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
@@ -41,6 +41,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [isRecalculating, setIsRecalculating] = useState(false);
 
   const [substitutionQueue, setSubstitutionQueue] = useState<SubQueue[]>([]);
+
+  // Guards to prevent duplicate halftime/end-game handling when both the
+  // auto-trigger (from useGameTimer) and a manual button click fire concurrently.
+  const halftimeInProgressRef = useRef(false);
+  const endGameInProgressRef = useRef(false);
 
   // Subscriptions hook - manages game observation, data subscriptions, and lineup sync
   const {
@@ -381,6 +386,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const handleHalftime = async () => {
+    // Guard: prevent duplicate calls from auto-trigger + manual button click
+    if (halftimeInProgressRef.current) {
+      console.log('handleHalftime: already in progress, skipping duplicate call');
+      return;
+    }
+    halftimeInProgressRef.current = true;
     setIsRunning(false);
     
     try {
@@ -398,10 +409,14 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         elapsedSeconds: halftimeSeconds,
       });
       
+      // Update local state immediately so the UI reflects halftime
+      setGameState(prev => ({ ...prev, status: 'halftime', elapsedSeconds: halftimeSeconds }));
+      
       // Ensure current time stays at halftime value
       setCurrentTime(halftimeSeconds);
     } catch (error) {
       console.error("Error setting halftime:", error);
+      halftimeInProgressRef.current = false; // Reset on error so user can retry
     }
   };
 
@@ -410,6 +425,14 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       const startTime = new Date().toISOString();
       const resumeTime = currentTime; // Capture current time to continue from
       console.log(`Starting second half at time ${resumeTime}s`);
+      
+      // CRITICAL: Update gameState.currentHalf BEFORE starting the timer.
+      // Without this, the timer hook may see currentHalf===1 and re-trigger
+      // auto-halftime because the DB subscription hasn't propagated yet.
+      setGameState(prev => ({ ...prev, status: 'in-progress', currentHalf: 2 }));
+      
+      // Reset halftime guard so it could theoretically fire again if needed
+      halftimeInProgressRef.current = false;
       
       // Create play time records for all players currently in lineup for second half
       const starters = lineup.filter(l => l.isStarter);
@@ -448,6 +471,13 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const handleEndGame = async () => {
+    // Guard: prevent duplicate calls from auto-trigger + manual button click
+    if (endGameInProgressRef.current) {
+      console.log('handleEndGame: already in progress, skipping duplicate call');
+      return;
+    }
+    endGameInProgressRef.current = true;
+
     try {
       const endGameTime = currentTime;
       
@@ -471,6 +501,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       trackEvent(AnalyticsEvents.GAME_COMPLETED.category, AnalyticsEvents.GAME_COMPLETED.action);
     } catch (error) {
       console.error("Error ending game:", error);
+      endGameInProgressRef.current = false; // Reset on error so user can retry
     }
   };
 

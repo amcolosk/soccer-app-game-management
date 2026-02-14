@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../../amplify/data/resource";
 import type { Game, GamePlan, PlannedRotation } from "../types";
@@ -30,6 +30,28 @@ export function useGameTimer({
   onHalftime,
   onEndGame,
 }: UseGameTimerParams) {
+  // Guards to prevent duplicate auto-halftime / auto-end-game calls.
+  // Without these, the timer can fire onHalftime() multiple times before
+  // the React state update (setIsRunning(false)) takes effect, and also
+  // re-fire onHalftime() at the start of the second half when
+  // gameState.currentHalf hasn't yet propagated from the DB subscription.
+  const halftimeTriggeredRef = useRef(false);
+  const endGameTriggeredRef = useRef(false);
+
+  // Reset the halftime guard when we enter the second half
+  useEffect(() => {
+    if (gameState.currentHalf === 2) {
+      halftimeTriggeredRef.current = false;
+    }
+  }, [gameState.currentHalf]);
+
+  // Use refs for callbacks so the interval always calls the latest version
+  // without needing them in the useEffect dependency array
+  const onHalftimeRef = useRef(onHalftime);
+  onHalftimeRef.current = onHalftime;
+  const onEndGameRef = useRef(onEndGame);
+  onEndGameRef.current = onEndGame;
+
   useEffect(() => {
     let interval: NodeJS.Timeout;
     let saveInterval: NodeJS.Timeout;
@@ -58,15 +80,19 @@ export function useGameTimer({
             }
           }
 
-          // Auto-pause at halftime
-          if (gameState.currentHalf === 1 && newTime >= halfLengthSeconds) {
-            onHalftime();
+          // Auto-pause at halftime (only in first half, only once)
+          if (gameState.currentHalf === 1 && newTime >= halfLengthSeconds && !halftimeTriggeredRef.current) {
+            halftimeTriggeredRef.current = true;
+            // Schedule the callback outside the state updater to avoid
+            // calling async operations from inside a React setState
+            setTimeout(() => onHalftimeRef.current(), 0);
             return newTime;
           }
 
           // Auto-end game after 2 hours maximum (7200 seconds)
-          if (newTime >= 7200) {
-            onEndGame();
+          if (newTime >= 7200 && !endGameTriggeredRef.current) {
+            endGameTriggeredRef.current = true;
+            setTimeout(() => onEndGameRef.current(), 0);
             return newTime;
           }
 
