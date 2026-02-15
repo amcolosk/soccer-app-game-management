@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
@@ -9,12 +10,8 @@ import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
 
 const client = generateClient<Schema>();
 
-interface HomeProps {
-  onGameSelect: (game: Game, team: Team) => void;
-  onPlanGame?: (game: Game, team: Team) => void;
-}
-
-export function Home({ onGameSelect, onPlanGame }: HomeProps) {
+export function Home() {
+  const navigate = useNavigate();
   const [teams, setTeams] = useState<Team[]>([]);
   const [isCreatingGame, setIsCreatingGame] = useState(false);
   const [selectedTeamForGame, setSelectedTeamForGame] = useState('');
@@ -123,11 +120,6 @@ export function Home({ onGameSelect, onPlanGame }: HomeProps) {
       setIsCreatingGame(false);
       
       console.log('✓ Game created successfully:', gameData);
-      
-      // Force a reload to ensure PWA service worker syncs the new data
-      // This addresses potential issues with DynamoDB eventual consistency
-      // and subscription update timing
-      window.location.reload();
     } catch (error) {
       handleApiError(error, 'Failed to create game');
     }
@@ -176,16 +168,19 @@ export function Home({ onGameSelect, onPlanGame }: HomeProps) {
 
   const handleGameClick = (game: Game) => {
     const team = getTeam(game.teamId);
-    if (team) {
-      onGameSelect(game, team);
-    }
+    // Amplify model instances contain lazy-loader functions for relations
+    // which cannot be structured-cloned by history.pushState. JSON round-trip
+    // strips those non-serializable properties.
+    navigate(`/game/${game.id}`, {
+      state: JSON.parse(JSON.stringify({ game, team: team || null })),
+    });
   };
 
   const handlePlanClick = (game: Game) => {
     const team = getTeam(game.teamId);
-    if (team && onPlanGame) {
-      onPlanGame(game, team);
-    }
+    navigate(`/game/${game.id}/plan`, {
+      state: JSON.parse(JSON.stringify({ game, team: team || null })),
+    });
   };
 
   // Group games by status
@@ -321,8 +316,7 @@ export function Home({ onGameSelect, onPlanGame }: HomeProps) {
                     </p>
                   </div>
                 </div>
-                {onPlanGame && (
-                  <div className="game-card-actions">
+                <div className="game-card-actions">
                     <button
                       className="plan-button"
                       onClick={(e) => {
@@ -333,7 +327,6 @@ export function Home({ onGameSelect, onPlanGame }: HomeProps) {
                       📋 Plan Game
                     </button>
                   </div>
-                )}
               </div>
             );
           })}

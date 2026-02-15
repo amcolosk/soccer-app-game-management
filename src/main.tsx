@@ -61,6 +61,14 @@ if (import.meta.env.DEV || import.meta.env.MODE === 'development') {
     
     return results;
   };
+
+  // Helper for E2E tests to get the first team's ID (for /reports/:teamId navigation)
+  (window as any).__getFirstTeamId = async () => {
+    const { generateClient } = await import('aws-amplify/data');
+    const client = generateClient<Schema>();
+    const teams = await client.models.Team.list();
+    return teams.data?.[0]?.id || null;
+  };
 }
 
 // Initialize Google Analytics

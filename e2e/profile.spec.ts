@@ -21,7 +21,7 @@ async function navigateToProfile(page: Page) {
   }
   
   // Click Profile tab in bottom navigation
-  await page.getByRole('button', { name: /profile/i }).click();
+  await page.getByRole('link', { name: /profile/i }).click();
   await waitForPageLoad(page);
   
   // Verify we're on the profile page
@@ -39,7 +39,7 @@ async function navigateToManagement(page: Page) {
   }
   
   // Click Manage tab in bottom navigation
-  await page.getByRole('button', { name: /manage/i }).click();
+  await page.getByRole('link', { name: /manage/i }).click();
   await waitForPageLoad(page);
   
   // Verify we're on the management page
@@ -209,14 +209,14 @@ test.describe('User Profile', () => {
     
     // Test navigation between tabs
     console.log('Testing tab navigation...');
-    await page.getByRole('button', { name: /games/i }).click();
+    await page.getByRole('link', { name: /games/i }).click();
     await waitForPageLoad(page);
     await expect(page.locator('.home')).toBeVisible();
     
     await navigateToProfile(page);
     await expect(page.locator('.user-profile')).toBeVisible();
     
-    await page.getByRole('button', { name: /manage/i }).click();
+    await page.getByRole('link', { name: /manage/i }).click();
     await waitForPageLoad(page);
     await expect(page.locator('.management')).toBeVisible();
     

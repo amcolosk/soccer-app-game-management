@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
@@ -70,21 +70,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   });
 
   const halfLengthSeconds = (team.halfLengthMinutes || 30) * 60;
-
-  // Store active game info for persistence across refreshes
-  useEffect(() => {
-    localStorage.setItem('activeGame', JSON.stringify({
-      gameId: game.id,
-      teamId: team.id,
-    }));
-
-    return () => {
-      // Clear on unmount if game is completed
-      if (gameState.status === 'completed') {
-        localStorage.removeItem('activeGame');
-      }
-    };
-  }, [game.id, team.id, gameState.status]);
 
   const getPlayerAvailability = (playerId: string): string => {
     const availability = playerAvailabilities.find(a => a.playerId === playerId);

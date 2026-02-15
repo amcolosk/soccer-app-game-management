@@ -22,7 +22,7 @@ const TEST_TEAM_NAME = 'Private Team FC';
 // Helper to logout
 async function logout(page: Page) {
   // Navigate to profile tab
-  const profileTab = page.getByRole('button', { name: /profile/i });
+  const profileTab = page.getByRole('link', { name: /profile/i });
   if (await profileTab.isVisible({ timeout: 2000 }).catch(() => false)) {
     await profileTab.click();
     await page.waitForTimeout(500);

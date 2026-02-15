@@ -147,36 +147,16 @@ const gamesWithPlans = await Promise.all(
 
 ---
 
-### 3.3 Implement Centralized Error Handling
+### 3.3 Implement Centralized Error Handling ✅ COMPLETED
 **Priority**: MEDIUM | **Effort**: 3-4 hours | **Impact**: Consistent UX
 
-**Problem**: Inconsistent error handling patterns
-- Some places: try/catch with generic alert
-- Some places: Only console.error
-- Some places: Silent failures
+**Problem**: 63 `console.error` calls but only 40 `showError` calls — ~23 locations where errors are logged but the user sees nothing. CRUD operations mostly showed toasts, but data loading, auto-saves, and auth operations failed silently.
 
-**Solution**: Create error handling utility
-```typescript
-// utils/errorHandler.ts
-export const handleError = (error: any, context: string) => {
-  console.error(`[${context}]`, error);
+**Solution**: Created `src/utils/errorHandler.ts` with two functions:
+- `handleApiError(error, userMessage)` — logs + shows toast. For operations where user should know something failed.
+- `logError(context, error)` — logs only. For non-critical failures (auth init, localStorage restore, JSON parse fallbacks).
 
-  if (error instanceof NetworkError) {
-    showNotification('Network error. Please check your connection.');
-  } else if (error instanceof AuthError) {
-    // Handle auth
-  }
-};
-```
-
-**Steps**:
-- [ ] Create utils/errorHandler.ts
-- [ ] Define error categories
-- [ ] Implement user-friendly messages
-- [ ] Replace error handling in GameManagement
-- [ ] Replace error handling in GamePlanner
-- [ ] Replace error handling in Management
-- [ ] Replace error handling in useTeamData
+**Result**: 5 previously silent failures now show user-visible toasts (auto-save lineup, save timer, sync lineup, load game data, load teams). ~30 catch blocks simplified from 2-line `console.error` + `showError` to single-line `handleApiError`. Unused `showError` imports cleaned from 8 files. 15 files updated across the codebase.
 
 ---
 
@@ -310,7 +290,81 @@ export const logger = {
 
 ---
 
-## 📈 Progress Tracking
+## � PHASE 5: Architecture (Performance & UX)
+
+### 5.1 Add React Router + Code Splitting
+**Priority**: HIGH | **Effort**: 6-8 hours | **Impact**: Back/forward navigation, deep linking, lazy loading
+
+**Problem**: `App.tsx` uses `useState<NavigationTab>` with conditional rendering instead of a router.
+- No browser back/forward — pressing back exits the installed PWA entirely
+- No deep linking — coaches can't share URLs to specific games
+- No code splitting — the entire app (1,000 KB) is bundled and loaded upfront
+- `activeGame` localStorage hack needed to restore state across refreshes
+
+**Library**: `react-router-dom` v7 (React 19 compatible, standard for Vite+React PWA)
+
+**Route structure**:
+| Current state | URL | Component |
+|---|---|---|
+| `activeNav='home'` | `/` | `Home` |
+| `selectedGame` set | `/game/:gameId` | `GameManagement` |
+| `planningGame` set | `/game/:gameId/plan` | `GamePlanner` |
+| `activeNav='reports'` | `/reports/:teamId` | `SeasonReport` |
+| `activeNav='manage'` | `/manage` | `Management` |
+| `activeNav='profile'` | `/profile` | `UserProfile` |
+| `invitationId` param | `/invite/:invitationId` | `InvitationAcceptance` |
+
+**Key design decision — `location.state` for instant navigation**:
+
+Route wrapper components for `/game/:gameId`, `/game/:gameId/plan`, and `/reports/:teamId` use a two-tier loading strategy:
+1. **From in-app navigation**: `navigate('/game/abc', { state: { game, team } })` passes the already-loaded objects via router state → component renders instantly, no fetch, no spinner
+2. **From direct URL** (bookmark, shared link, refresh): Route wrapper reads `:gameId` from `useParams()`, fetches Game + Team from DynamoDB, shows loading state
+
+This avoids the data-fetching regression where clicking a game in Home would need to re-fetch data it already had.
+
+**Steps**:
+- [x] Install `react-router-dom`
+- [x] Create `src/components/AppLayout.tsx` — shared shell (header, bottom nav with `<NavLink>`, `<Outlet>`, `<Toaster>`, `<Suspense>` fallback)
+- [x] Create route wrapper components (`src/components/routes/GameManagementRoute.tsx`, `GamePlannerRoute.tsx`, `SeasonReportRoute.tsx`) — read `location.state` first, fetch by param ID as fallback
+- [x] Rewrite `src/App.tsx` — replace state machine with `<BrowserRouter>` + `<Routes>`
+- [x] Update `Home.tsx` — remove `onGameSelect`/`onPlanGame` props, use `useNavigate()` with state
+- [x] Update `GameManagement.tsx` — remove `activeGame` localStorage persistence
+- [x] Update `GamePlanner.tsx` — `onBack` kept (passed from route wrapper)
+- [x] Update invitation flow — `/invite/:invitationId` route, `useParams()` instead of `URLSearchParams`
+- [x] Add `React.lazy()` for large components (Management, UserProfile, SeasonReportRoute)
+- [x] Update `vite.config.ts` — widen `navigateFallbackAllowlist` to `[/^\/(?!api\/).*/]`
+- [x] Update analytics — `trackPageView` in `AppLayout` via `useLocation()` listener
+- [x] Update `e2e/team-sharing.spec.ts` — `/?invitationId=xxx` → `/invite/xxx`
+- [x] Verify `npm run build` shows multiple chunks (UserProfile 6.6KB, SeasonReport 13.3KB, Management 43.4KB)
+- [x] Verify all 291 tests pass
+
+**Files changed**:
+| File | Change |
+|---|---|
+| `package.json` | Add `react-router-dom` |
+| `src/components/AppLayout.tsx` | **NEW** — shared shell with `<Outlet>` |
+| `src/components/routes/GameManagementRoute.tsx` | **NEW** — state-first param loader |
+| `src/components/routes/GamePlannerRoute.tsx` | **NEW** — state-first param loader |
+| `src/components/routes/SeasonReportRoute.tsx` | **NEW** — state-first param loader |
+| `src/App.tsx` | Replace state machine with `<BrowserRouter>` + `<Routes>` |
+| `src/components/Home.tsx` | Remove nav callback props, use `useNavigate()` |
+| `src/components/GameManagement/GameManagement.tsx` | Remove `onBack` + localStorage, use `useNavigate()` |
+| `src/components/GamePlanner.tsx` | Remove `onBack`, use `useNavigate()` |
+| `src/components/InvitationAcceptance.tsx` | `useParams()` instead of URLSearchParams |
+| `src/components/InvitationManagement.tsx` | Update invitation link format |
+| `vite.config.ts` | Widen PWA `navigateFallbackAllowlist` |
+| `e2e/team-sharing.spec.ts` | Update invitation URL pattern |
+
+**NOT changed**: `main.tsx` (Authenticator.Provider stays), `Management.tsx` (no nav props), `UserProfile.tsx` (no nav props), `BugReport.tsx` (`window.location.href` for report data is fine)
+
+**PWA considerations**:
+- Code splitting improves parse/execute time but not download time (service worker precaches all chunks via `globPatterns`)
+- `navigateFallback: 'index.html'` already set — all routes fall through to SPA entry point
+- `navigateFallbackAllowlist` must be widened from `[/^\/(?:\?.*)?$/]` to allow new route paths
+
+---
+
+## �📈 Progress Tracking
 
 ### Completed
 - [x] Architectural analysis
@@ -329,9 +383,11 @@ export const logger = {
 - [x] Consolidate type definitions — `src/types/schema.ts` with 16 Schema types + 2 domain interfaces, 19 files updated (3.1)
 
 - [x] Extract duplicate utility functions — useSwipeDelete hook, confirmAndDelete, team/formation validation helpers (3.2)
+- [x] Implement centralized error handling — `handleApiError` + `logError`, 15 files updated, 5 silent failures fixed (3.3)
+- [x] Add React Router + code splitting — `react-router-dom` v7, 4 route wrappers, `location.state` for instant nav, lazy-loaded routes, `navigateFallbackAllowlist` widened, 291 tests passing (5.1)
 
 ### Next Up
-- [ ] Implement centralized error handling (3.3)
+- [ ] (no items — consider Phase 4: Testing gaps or Phase 5 remaining items)
 
 ---
 

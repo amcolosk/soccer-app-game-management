@@ -2466,10 +2466,52 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
+/* Reports Page – filter pane & wrapper */
+.reports-page {
+  padding-bottom: 5rem; /* Buffer for bottom navigation */
+}
+
+.reports-filter-pane {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--card-background);
+  border-bottom: 2px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.reports-filter-label {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--primary-green);
+  white-space: nowrap;
+}
+
+.reports-team-select {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 1rem;
+  background: var(--background-color);
+  color: var(--text-primary);
+  cursor: pointer;
+  appearance: auto;
+}
+
+.reports-team-select:focus {
+  outline: none;
+  border-color: var(--primary-green);
+  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.2);
+}
+
 /* Season Report */
 .season-report {
   padding: 1rem 0;
-  padding-bottom: 5rem; /* Buffer for bottom navigation */
 }
 
 .report-header {

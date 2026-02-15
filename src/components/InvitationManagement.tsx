@@ -218,7 +218,7 @@ export function InvitationManagement({
                   </span>
                   {/* For testing - display invitation link */}
                   <span className="invitation-link" data-invitation-id={inv.id}>
-                    Link: {window.location.origin}/?invitationId={inv.id}
+                    Link: {window.location.origin}/invite/{inv.id}
                   </span>
                 </div>
                 <button

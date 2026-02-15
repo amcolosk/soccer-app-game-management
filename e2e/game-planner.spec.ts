@@ -132,7 +132,7 @@ async function createGame(page: Page) {
   console.log('Creating game...');
   
   // Navigate to home page first
-  await page.click('button.nav-item:has-text("Games")');
+  await page.click('a.nav-item:has-text("Games")');
   await page.waitForTimeout(500);
   
   // Schedule a new game from home
@@ -174,7 +174,7 @@ async function setupLineup(page: Page) {
   console.log('Setting up lineup...');
   
   // Navigate to home first to ensure fresh data load
-  await page.click('button.nav-item:has-text("Games")');
+  await page.click('a.nav-item:has-text("Games")');
   await page.waitForTimeout(1000);
   
   // Find and click on the game card's Plan Game button

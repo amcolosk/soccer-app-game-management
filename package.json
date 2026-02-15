@@ -32,7 +32,8 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-ga4": "^2.1.0",
-    "react-hot-toast": "^2.6.0"
+    "react-hot-toast": "^2.6.0",
+    "react-router-dom": "^7.13.0"
   },
   "devDependencies": {
     "@aws-amplify/backend": "^1.19.0",

@@ -54,7 +54,7 @@ export default defineConfig({
         skipWaiting: false,
         clientsClaim: false,
         navigateFallback: 'index.html',
-        navigateFallbackAllowlist: [/^\/(?:\?.*)?$/],
+        navigateFallbackAllowlist: [/^\/(?!api\/).*/],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.execute-api\..*\.amazonaws\.com\/.*/i,

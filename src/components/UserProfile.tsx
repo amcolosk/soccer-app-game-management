@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthenticator } from '@aws-amplify/ui-react';
+import { useOutletContext } from 'react-router-dom';
 import { updatePassword, deleteUser, fetchUserAttributes } from 'aws-amplify/auth';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
@@ -13,13 +14,10 @@ import { useConfirm } from './ConfirmModal';
 
 const client = generateClient<Schema>();
 
-interface UserProfileProps {
-  onSignOut: () => void;
-}
-
-export function UserProfile({ onSignOut }: UserProfileProps) {
+export function UserProfile() {
   const confirm = useConfirm();
   const { user } = useAuthenticator();
+  const { signOut } = useOutletContext<{ signOut: () => void }>();
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -294,7 +292,7 @@ export function UserProfile({ onSignOut }: UserProfileProps) {
       </div>
 
       <div className="profile-section">
-        <button onClick={onSignOut} className="btn-signout-profile">
+        <button onClick={signOut} className="btn-signout-profile">
           Sign Out
         </button>
       </div>

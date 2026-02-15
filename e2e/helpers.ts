@@ -122,7 +122,7 @@ export async function loginUser(page: Page, email: string, password: string) {
   if (await bottomNav.isVisible({ timeout: 2000 }).catch(() => false)) {
     console.log('User already logged in, signing out...');
     // Navigate to profile and sign out
-    await page.getByRole('button', { name: 'Profile' }).click();
+    await page.getByRole('link', { name: 'Profile' }).click();
     await page.getByRole('button', { name: 'Sign Out' }).click();
     await expect(page.getByRole('button', { name: 'Log In' })).toBeVisible({ timeout: 10000 });
   }
@@ -176,7 +176,7 @@ export async function cleanupTestData(page: Page) {
   await closePWAPrompt(page);
   
   // Make sure we're on Management page
-  const manageTab = page.locator('button.nav-item', { hasText: 'Manage' });
+  const manageTab = page.locator('a.nav-item', { hasText: 'Manage' });
   if (await manageTab.isVisible({ timeout: 2000 }).catch(() => false)) {
     await manageTab.click();
     await page.waitForTimeout(500);
@@ -273,7 +273,7 @@ export async function navigateToManagement(page: Page) {
   }
 
   // Wait for Manage button to be visible
-  const manageButton = page.getByRole('button', { name: /manage/i });
+  const manageButton = page.getByRole('link', { name: /manage/i });
   await manageButton.waitFor({ state: 'visible', timeout: 10000 });
   
   // Click Manage tab in bottom navigation
@@ -310,7 +310,7 @@ export async function createTeam(
   console.log(`Creating team: ${teamData.name}...`);
   
   // Make sure we're on the Management page
-  const manageTab = page.locator('button.nav-item', { hasText: /Manage/i });
+  const manageTab = page.locator('a.nav-item', { hasText: /Manage/i });
   if (await manageTab.isVisible({ timeout: 1000 }).catch(() => false)) {
     console.log('  Navigating to Management page...');
     await manageTab.click();

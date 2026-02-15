@@ -25,7 +25,7 @@ const GAME_OPPONENT = 'Lions FC';
 
 // Helper to logout
 async function logout(page: Page) {
-  const profileTab = page.getByRole('button', { name: /profile/i });
+  const profileTab = page.getByRole('link', { name: /profile/i });
   if (await profileTab.isVisible({ timeout: 2000 }).catch(() => false)) {
     await profileTab.click();
     await page.waitForTimeout(500);
@@ -49,8 +49,11 @@ async function getInvitationLink(page: Page): Promise<string | null> {
   if (!invitationText) return null;
   
   // Extract invitation ID from URL patterns
-  const match = invitationText.match(/invitationId=([a-f0-9-]+)/i);
-  return match ? `/?invitationId=${match[1]}` : null;
+  // Match both new /invite/xxx and legacy ?invitationId=xxx formats
+  const newMatch = invitationText.match(/\/invite\/([a-f0-9-]+)/i);
+  if (newMatch) return `/invite/${newMatch[1]}`;
+  const legacyMatch = invitationText.match(/invitationId=([a-f0-9-]+)/i);
+  return legacyMatch ? `/invite/${legacyMatch[1]}` : null;
 }
 
 test.describe.serial('Team Sharing and Collaboration', () => {
@@ -199,7 +202,7 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       console.log('✓ User 2 logged in - checking for invitation in UI');
     } else {
       // Navigate directly to invitation acceptance page
-      await page.goto(`/?invitationId=${invitationId}`);
+      await page.goto(`/invite/${invitationId}`);
       await page.waitForTimeout(UI_TIMING.STANDARD);
       
       // Handle Landing Page if present

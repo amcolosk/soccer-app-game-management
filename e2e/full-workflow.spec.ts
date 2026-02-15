@@ -163,7 +163,7 @@ async function createGame(page: Page, gameData: { opponent: string; date: string
   console.log(`Creating game vs ${gameData.opponent}...`);
   
   // Navigate to Home tab
-  const homeTab = page.locator('button.nav-item', { hasText: 'Games' });
+  const homeTab = page.locator('a.nav-item', { hasText: 'Games' });
   await homeTab.click();
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
@@ -203,7 +203,7 @@ async function setupLineup(page: Page, opponent: string) {
   console.log(`Setting up lineup for game vs ${opponent}...`);
   
   // Navigate to Home tab if not already there
-  const homeTab = page.locator('button.nav-item', { hasText: 'Games' });
+  const homeTab = page.locator('a.nav-item', { hasText: 'Games' });
   await homeTab.click();
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
@@ -619,7 +619,7 @@ async function runGame(page: Page, gameNumber: number = 1) {
     }
     
     // Then navigate to Home tab
-    const homeTab = page.locator('button.nav-item', { hasText: 'Games' });
+    const homeTab = page.locator('a.nav-item', { hasText: 'Games' });
     await homeTab.click();
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
@@ -654,10 +654,22 @@ async function verifyTeamTotals(page: Page, gameData: any) {
   console.log('Waiting for data to settle (DynamoDB eventual consistency)...');
   await page.waitForTimeout(3000);
   
-  // Navigate to Reports tab at bottom nav
-  const reportsTab = page.locator('button.nav-item', { hasText: 'Reports' });
-  await reportsTab.click();
+  // Navigate to Reports page via bottom nav
+  await page.locator('a.nav-item[aria-label="Reports"]').click();
   await waitForPageLoad(page);
+  
+  // If there's only one team it auto-selects; otherwise select the first team
+  const teamSelect = page.locator('#team-select');
+  await expect(teamSelect).toBeVisible({ timeout: 10000 });
+  const selectedValue = await teamSelect.inputValue();
+  if (!selectedValue) {
+    // Pick the first available team option
+    const firstOption = teamSelect.locator('option:not([value=""])').first();
+    const firstVal = await firstOption.getAttribute('value');
+    if (!firstVal) throw new Error('No teams available in selector');
+    await teamSelect.selectOption(firstVal);
+    await waitForPageLoad(page);
+  }
   
   // Wait for all observeQuery subscriptions to finish syncing (table renders only after full sync)
   await expect(page.locator('.stats-table')).toBeVisible({ timeout: 30000 });
