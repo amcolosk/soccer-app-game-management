@@ -2,13 +2,11 @@ import { useState, useEffect } from 'react';
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
+import type { Game, Team } from '../types/schema';
 import { showError, showWarning } from '../utils/toast';
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
 
 const client = generateClient<Schema>();
-
-type Game = Schema['Game']['type'];
-type Team = Schema['Team']['type'];
 
 interface HomeProps {
   onGameSelect: (game: Game, team: Team) => void;

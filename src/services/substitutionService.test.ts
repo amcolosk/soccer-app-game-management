@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { closeActivePlayTimeRecords, executeSubstitution } from './substitutionService';
-import type { Schema } from "../../amplify/data/resource";
-
-type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
+import type { PlayTimeRecord } from '../types/schema';
 
 // Mock the AWS Amplify client
 vi.mock('aws-amplify/data', () => ({

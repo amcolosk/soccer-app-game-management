@@ -1,10 +1,5 @@
-import type { Schema } from '../../amplify/data/resource';
 import { DEFAULT_FORM_VALUES } from '../constants/gameConfig';
-
-type Team = Schema['Team']['type'];
-type Player = Schema['Player']['type'];
-type TeamRoster = Schema['TeamRoster']['type'];
-type Formation = Schema['Formation']['type'];
+import type { Team, Player, TeamRoster, Formation } from '../types/schema';
 
 // ============================================================
 // Player Form Reducer

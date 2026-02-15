@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isPlayerInLineup } from './lineupUtils';
-import type { Schema } from "../../amplify/data/resource";
-
-type LineupAssignment = Schema["LineupAssignment"]["type"];
+import type { LineupAssignment } from '../types/schema';
 
 const mockAssignments = [
   {

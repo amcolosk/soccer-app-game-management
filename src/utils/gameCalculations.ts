@@ -1,7 +1,4 @@
-import type { Schema } from "../../amplify/data/resource";
-
-type Goal = Schema["Goal"]["type"];
-type GameNote = Schema["GameNote"]["type"];
+import type { Goal, GameNote } from "../types/schema";
 
 /**
  * Calculates total goals scored by a player

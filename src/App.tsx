@@ -11,13 +11,11 @@ import InvitationAcceptance from "./components/InvitationAcceptance";
 import { Toaster } from "react-hot-toast";
 import { ConfirmProvider } from "./components/ConfirmModal";
 import type { Schema } from "../amplify/data/resource";
+import type { Team, Game } from "./types/schema";
 import { trackPageView } from "./utils/analytics";
 import "./App.css";
 
 const client = generateClient<Schema>();
-
-type Team = Schema['Team']['type'];
-type Game = Schema['Game']['type'];
 type NavigationTab = 'home' | 'reports' | 'manage' | 'profile';
 
 function App() {

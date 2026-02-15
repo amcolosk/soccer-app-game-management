@@ -2,16 +2,11 @@ import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import { sortRosterByNumber } from "../utils/playerUtils";
+import type { FormationPosition, PlayerWithRoster } from "../types/schema";
+
+export type { PlayerWithRoster } from "../types/schema";
 
 const client = generateClient<Schema>();
-
-type Player = Schema["Player"]["type"];
-type FormationPosition = Schema["FormationPosition"]["type"];
-
-export interface PlayerWithRoster extends Player {
-  playerNumber?: number;
-  preferredPositions?: string;
-}
 
 /**
  * Custom hook to load team roster and formation positions with real-time updates.

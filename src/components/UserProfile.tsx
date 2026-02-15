@@ -3,6 +3,7 @@ import { useAuthenticator } from '@aws-amplify/ui-react';
 import { updatePassword, deleteUser, fetchUserAttributes } from 'aws-amplify/auth';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
+import type { Team } from '../types/schema';
 import {
   getUserPendingInvitations,
   acceptTeamInvitation,
@@ -11,8 +12,6 @@ import {
 import { useConfirm } from './ConfirmModal';
 
 const client = generateClient<Schema>();
-
-type Team = Schema['Team']['type'];
 
 interface UserProfileProps {
   onSignOut: () => void;

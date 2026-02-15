@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
+import type { Team, Player, TeamRoster, Goal, GameNote, PlayTimeRecord, Game } from '../types/schema';
 import { showError } from "../utils/toast";
 import { trackEvent, AnalyticsEvents } from "../utils/analytics";
 import { sortRosterByNumber } from "../utils/playerUtils";
@@ -20,14 +21,6 @@ import {
 import { useAmplifyQuery } from "../hooks/useAmplifyQuery";
 
 const client = generateClient<Schema>();
-
-type Team = Schema["Team"]["type"];
-type Player = Schema["Player"]["type"];
-type TeamRoster = Schema["TeamRoster"]["type"];
-type Goal = Schema["Goal"]["type"];
-type GameNote = Schema["GameNote"]["type"];
-type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
-type Game = Schema["Game"]["type"];
 
 interface TeamReportProps {
   team: Team;

@@ -1,6 +1,10 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
+import type {
+  Game, Team, FormationPosition, GamePlan, PlannedRotation,
+  PlayerAvailability, PlayerWithRoster as PlayerWithRosterBase,
+} from "../types/schema";
 import {
   calculatePlayTime,
   calculateFairRotations,
@@ -9,7 +13,7 @@ import {
 } from "../services/rotationPlannerService";
 import { LineupBuilder } from "./LineupBuilder";
 import { PlayerAvailabilityGrid } from "./PlayerAvailabilityGrid";
-import { useTeamData, type PlayerWithRoster as PlayerWithRosterBase } from "../hooks/useTeamData";
+import { useTeamData } from "../hooks/useTeamData";
 import { AvailabilityProvider } from "../contexts/AvailabilityContext";
 import { showError, showSuccess, showWarning } from "../utils/toast";
 import { useConfirm } from "./ConfirmModal";
@@ -18,14 +22,7 @@ import { useAmplifyQuery } from "../hooks/useAmplifyQuery";
 
 const client = generateClient<Schema>();
 
-type Game = Schema["Game"]["type"];
-type Team = Schema["Team"]["type"];
-type FormationPosition = Schema["FormationPosition"]["type"];
-type GamePlan = Schema["GamePlan"]["type"];
-type PlannedRotation = Schema["PlannedRotation"]["type"];
-type PlayerAvailability = Schema["PlayerAvailability"]["type"];
-
-// Extend the base PlayerWithRoster from the hook with availability
+// Extend the base PlayerWithRoster with availability
 interface PlayerWithRoster extends PlayerWithRosterBase {
   availability?: PlayerAvailability;
 }

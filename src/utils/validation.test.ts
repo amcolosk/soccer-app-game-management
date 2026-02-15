@@ -3,9 +3,7 @@ import {
   isPlayerNumberUnique,
   isValidPlayerNumber,
 } from './validation';
-import type { Schema } from "../../amplify/data/resource";
-
-type TeamRoster = Schema["TeamRoster"]["type"];
+import type { TeamRoster } from '../types/schema';
 
 describe('Player Number Uniqueness', () => {
   const rosters: Partial<TeamRoster>[] = [

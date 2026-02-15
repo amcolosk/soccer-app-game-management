@@ -1,6 +1,4 @@
-import type { Schema } from "../../amplify/data/resource";
-
-type TeamRoster = Schema["TeamRoster"]["type"];
+import type { TeamRoster } from "../types/schema";
 
 /**
  * Checks if a player number is unique within a team roster

@@ -118,27 +118,17 @@ const gamesWithPlans = await Promise.all(
 
 ## 📊 PHASE 3: Medium Priority Issues (Weeks 5-6)
 
-### 3.1 Consolidate Type Definitions
+### 3.1 Consolidate Type Definitions ✅ COMPLETED
 **Priority**: MEDIUM | **Effort**: 3-4 hours | **Impact**: Type safety, DRY
 
-**Problem**: Same types defined in multiple files
-- `PlayerWithRoster` defined in useTeamData.ts, GameManagement.tsx, GamePlanner.tsx
-- `PlannedSubstitution` defined inline multiple places
+**Problem**: Same `type X = Schema["X"]["type"]` pattern repeated ~45 times across 22 files. `PlayerWithRoster` defined in 5 locations. `PlannedSubstitution` defined in 3 locations.
 
-**Solution**: Create types directory
-```
-src/types/
-  ├── domain.ts          (PlayerWithRoster, etc.)
-  ├── api.ts             (GraphQL type extensions)
-  └── forms.ts           (Form data types)
-```
+**Solution**: Created `src/types/schema.ts` as single source of truth with all 16 Schema type aliases + `PlayerWithRoster` and `PlannedSubstitution` domain interfaces. Updated 19 consumer files (15 source + 4 test) to import from the central file.
 
-**Steps**:
-- [ ] Create types/ directory structure
-- [ ] Move PlayerWithRoster to types/domain.ts
-- [ ] Move PlannedSubstitution to types/domain.ts
-- [ ] Update imports across codebase
-- [ ] Remove duplicate type definitions
+**Key decisions**:
+- `src/components/GameManagement/types.ts` and `src/hooks/useTeamData.ts` re-export from `schema.ts` for backward compatibility
+- `LineupBuilder.tsx` and `PlayerAvailabilityGrid.tsx` local interfaces left unchanged (intentionally minimal component-scoped contracts)
+- `useAmplifyQuery.ts` left unchanged (uses `Schema[M]["type"]` generically)
 
 ---
 
@@ -338,8 +328,10 @@ export const logger = {
 - [x] Eliminate prop drilling with AvailabilityContext — 8 components, 3 test files updated (2.2)
 - [x] Create useAmplifyQuery hook — 17 subscriptions replaced across 6 files, fixed Home.tsx leak, 12 new tests (2.3)
 
+- [x] Consolidate type definitions — `src/types/schema.ts` with 16 Schema types + 2 domain interfaces, 19 files updated (3.1)
+
 ### Next Up
-- [ ] Consolidate type definitions (3.1)
+- [ ] Extract duplicate utility functions (3.2)
 
 ---
 

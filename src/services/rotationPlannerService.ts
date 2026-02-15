@@ -1,17 +1,11 @@
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import { GAME_CONFIG } from "../constants/gameConfig";
+import type { GamePlan, PlannedRotation, PlannedSubstitution } from "../types/schema";
+
+export type { PlannedSubstitution } from "../types/schema";
 
 const client = generateClient<Schema>();
-
-type GamePlan = Schema["GamePlan"]["type"];
-type PlannedRotation = Schema["PlannedRotation"]["type"];
-
-export interface PlannedSubstitution {
-  playerOutId: string;
-  playerInId: string;
-  positionId: string;
-}
 
 export interface SimpleRoster {
   id: string;

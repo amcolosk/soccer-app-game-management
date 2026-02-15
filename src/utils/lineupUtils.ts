@@ -1,6 +1,4 @@
-import type { Schema } from "../../amplify/data/resource";
-
-type LineupAssignment = Schema["LineupAssignment"]["type"];
+import type { LineupAssignment } from "../types/schema";
 
 /**
  * Checks if a player is already assigned to a position in the lineup

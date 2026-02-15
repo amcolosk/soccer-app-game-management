@@ -4,6 +4,7 @@ import { getCurrentUser } from 'aws-amplify/auth';
 import { BugReport } from './BugReport';
 import { InvitationManagement } from './InvitationManagement';
 import type { Schema } from '../../amplify/data/resource';
+import type { Team, Player, TeamRoster, Formation } from '../types/schema';
 import { FORMATION_TEMPLATES } from '../../amplify/data/formation-templates';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { showError, showWarning } from '../utils/toast';
@@ -19,11 +20,6 @@ import {
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
 
 const client = generateClient<Schema>();
-
-type Team = Schema['Team']['type'];
-type Player = Schema['Player']['type'];
-type TeamRoster = Schema['TeamRoster']['type'];
-type Formation = Schema['Formation']['type'];
 
 export function Management() {
   const confirm = useConfirm();

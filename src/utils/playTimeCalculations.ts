@@ -6,9 +6,7 @@
  * consistent calculations across the application.
  */
 
-import type { Schema } from "../../amplify/data/resource";
-
-type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
+import type { PlayTimeRecord } from "../types/schema";
 
 /**
  * Calculate total play time for a player from their PlayTimeRecords

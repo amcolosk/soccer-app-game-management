@@ -1,9 +1,8 @@
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
+import type { PlayTimeRecord } from "../types/schema";
 
 const client = generateClient<Schema>();
-
-type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
 
 /**
  * Closes active play time records for specified players or all active records.

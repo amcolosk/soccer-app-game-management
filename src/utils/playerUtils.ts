@@ -1,6 +1,4 @@
-import type { Schema } from "../../amplify/data/resource";
-
-type TeamRoster = Schema["TeamRoster"]["type"];
+import type { TeamRoster } from "../types/schema";
 
 /**
  * Sorts team roster entries by their player number in ascending order

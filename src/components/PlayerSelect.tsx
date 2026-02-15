@@ -1,10 +1,4 @@
-import type { Schema } from "../../amplify/data/resource";
-
-type Player = Schema["Player"]["type"];
-
-interface PlayerWithRoster extends Player {
-  playerNumber?: number;
-}
+import type { PlayerWithRoster } from '../types/schema';
 
 interface PlayerSelectProps {
   players: PlayerWithRoster[];
