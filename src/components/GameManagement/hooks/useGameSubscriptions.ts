@@ -8,6 +8,7 @@ import type {
   PlannedRotation,
 } from "../types";
 import { useAmplifyQuery } from "../../../hooks/useAmplifyQuery";
+import { handleApiError } from "../../../utils/errorHandler";
 
 const client = generateClient<Schema>();
 
@@ -208,7 +209,7 @@ export function useGameSubscriptions({
         await Promise.all(lineupPromises);
         console.log(`Synced ${startingLineup.length} starters from game plan`);
       } catch (error) {
-        console.error('Error syncing lineup from game plan:', error);
+        handleApiError(error, 'Failed to sync lineup from game plan');
       } finally {
         lineupSyncInProgressRef.current = false;
       }

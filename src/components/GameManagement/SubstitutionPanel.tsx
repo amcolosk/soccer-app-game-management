@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
-import { showError, showWarning } from "../../utils/toast";
+import { showWarning } from "../../utils/toast";
+import { handleApiError } from "../../utils/errorHandler";
 import { useConfirm } from "../ConfirmModal";
 import {
   calculatePlayerPlayTime,
@@ -136,8 +137,7 @@ export function SubstitutionPanel({
 
       onQueueChange([]);
     } catch (error) {
-      console.error("Error executing all substitutions:", error);
-      showError("Failed to execute all substitutions. Some may have been completed.");
+      handleApiError(error, 'Failed to execute all substitutions. Some may have been completed.');
     }
   };
 
@@ -148,7 +148,7 @@ export function SubstitutionPanel({
       l => l.positionId === positionId && l.isStarter
     );
     if (!currentAssignment) {
-      showError("No player currently in this position");
+      showWarning("No player currently in this position");
       return;
     }
 
@@ -169,8 +169,7 @@ export function SubstitutionPanel({
 
       handleRemoveFromQueue(newPlayerId, positionId);
     } catch (error) {
-      console.error("Error making substitution:", error);
-      showError("Failed to make substitution");
+      handleApiError(error, 'Failed to make substitution');
     }
   };
 
@@ -200,8 +199,7 @@ export function SubstitutionPanel({
       setShowSubstitution(false);
       setSubstitutionPosition(null);
     } catch (error) {
-      console.error("Error making substitution:", error);
-      showError("Failed to make substitution");
+      handleApiError(error, 'Failed to make substitution');
     }
   };
 
@@ -228,8 +226,7 @@ export function SubstitutionPanel({
       setShowSubstitution(false);
       setSubstitutionPosition(null);
     } catch (error) {
-      console.error("Error adding to lineup:", error);
-      showError("Failed to add player to lineup");
+      handleApiError(error, 'Failed to add player to lineup');
     }
   };
 

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
-import { showError, showSuccess, showWarning, showInfo } from "../../utils/toast";
+import { showSuccess, showWarning, showInfo } from "../../utils/toast";
+import { handleApiError } from "../../utils/errorHandler";
 import { useConfirm } from "../ConfirmModal";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { closeActivePlayTimeRecords } from "../../services/substitutionService";
@@ -174,7 +175,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     if (!gamePlan || plannedRotations.length === 0) return;
 
     if (!gamePlan.startingLineup) {
-      showError('No starting lineup found in the game plan.');
+      showWarning('No starting lineup found in the game plan.');
       return;
     }
 
@@ -210,7 +211,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       });
 
       if (lineupArray.length === 0) {
-        showError('No available players in the starting lineup. Adjust the lineup in the Game Planner first.');
+        showWarning('No available players in the starting lineup. Adjust the lineup in the Game Planner first.');
         return;
       }
 
@@ -239,8 +240,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
       showSuccess('Rotations recalculated based on current availability! Review each rotation to verify.');
     } catch (error) {
-      console.error('Error recalculating rotations:', error);
-      showError('Failed to recalculate rotations.');
+      handleApiError(error, 'Failed to recalculate rotations');
     } finally {
       setIsRecalculating(false);
     }
@@ -286,8 +286,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         }
       }
     } catch (error) {
-      console.error('Error marking player injured:', error);
-      showError('Failed to mark player injured');
+      handleApiError(error, 'Failed to mark player injured');
     }
   };
 
@@ -351,8 +350,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       setIsRunning(true);
       trackEvent(AnalyticsEvents.GAME_STARTED.category, AnalyticsEvents.GAME_STARTED.action);
     } catch (error) {
-      console.error("Error starting game:", error);
-      showError("Failed to start game");
+      handleApiError(error, 'Failed to start game');
     }
   };
 
@@ -368,7 +366,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       // Clear the manual pause flag after DB update completes
       manuallyPausedRef.current = false;
     } catch (error) {
-      console.error("Error pausing game:", error);
+      handleApiError(error, 'Failed to pause game');
       manuallyPausedRef.current = false;
     }
   };
@@ -382,7 +380,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         elapsedSeconds: currentTime,
       });
     } catch (error) {
-      console.error("Error resuming game:", error);
+      handleApiError(error, 'Failed to resume game');
     }
   };
 
@@ -416,7 +414,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       // Ensure current time stays at halftime value
       setCurrentTime(halftimeSeconds);
     } catch (error) {
-      console.error("Error setting halftime:", error);
+      handleApiError(error, 'Failed to set halftime');
       halftimeInProgressRef.current = false; // Reset on error so user can retry
     }
   };
@@ -467,7 +465,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       console.log(`Resuming game at time ${resumeTime}s`);
       setIsRunning(true);
     } catch (error) {
-      console.error("Error starting second half:", error);
+      handleApiError(error, 'Failed to start second half');
     }
   };
 
@@ -501,7 +499,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       setCurrentTime(endGameTime);
       trackEvent(AnalyticsEvents.GAME_COMPLETED.category, AnalyticsEvents.GAME_COMPLETED.action);
     } catch (error) {
-      console.error("Error ending game:", error);
+      handleApiError(error, 'Failed to end game');
       endGameInProgressRef.current = false; // Reset on error so user can retry
     }
   };
@@ -659,8 +657,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                 await deleteGameCascade(game.id);
                 onBack();
               } catch (error) {
-                console.error("Error deleting game:", error);
-                showError("Failed to delete game");
+                handleApiError(error, 'Failed to delete game');
               }
             }}
             className="btn-delete-game"

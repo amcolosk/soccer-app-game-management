@@ -4,6 +4,7 @@ import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
 import type { Game, Team } from '../types/schema';
 import { showError, showWarning } from '../utils/toast';
+import { handleApiError, logError } from '../utils/errorHandler';
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
 
 const client = generateClient<Schema>();
@@ -66,7 +67,7 @@ export function Home({ onGameSelect, onPlanGame }: HomeProps) {
       const user = await getCurrentUser();
       setCurrentUserId(user.userId);
     } catch (error) {
-      console.error('Error getting current user:', error);
+      logError('getCurrentUser', error);
     }
   }
 
@@ -75,7 +76,7 @@ export function Home({ onGameSelect, onPlanGame }: HomeProps) {
       const teamsResponse = await client.models.Team.list();
       setTeams(teamsResponse.data || []);
     } catch (error) {
-      console.error('Error loading teams:', error);
+      handleApiError(error, 'Failed to load teams');
     }
   }
 
@@ -128,8 +129,7 @@ export function Home({ onGameSelect, onPlanGame }: HomeProps) {
       // and subscription update timing
       window.location.reload();
     } catch (error) {
-      console.error('Error creating game:', error);
-      showError('Failed to create game');
+      handleApiError(error, 'Failed to create game');
     }
   };
 

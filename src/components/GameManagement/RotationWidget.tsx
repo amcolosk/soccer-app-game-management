@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { updatePlayerAvailability } from "../../services/rotationPlannerService";
-import { showError, showSuccess } from "../../utils/toast";
+import { showSuccess } from "../../utils/toast";
+import { handleApiError } from "../../utils/errorHandler";
 import { useAvailability } from "../../contexts/AvailabilityContext";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
@@ -71,8 +72,7 @@ export function RotationWidget({
       setShowLateArrivalModal(false);
       showSuccess('Player marked as available');
     } catch (error) {
-      console.error('Error marking late arrival:', error);
-      showError('Failed to update player availability');
+      handleApiError(error, 'Failed to update player availability');
     }
   };
 

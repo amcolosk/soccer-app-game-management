@@ -15,7 +15,8 @@ import { LineupBuilder } from "./LineupBuilder";
 import { PlayerAvailabilityGrid } from "./PlayerAvailabilityGrid";
 import { useTeamData } from "../hooks/useTeamData";
 import { AvailabilityProvider } from "../contexts/AvailabilityContext";
-import { showError, showSuccess, showWarning } from "../utils/toast";
+import { showSuccess, showWarning } from "../utils/toast";
+import { handleApiError, logError } from "../utils/errorHandler";
 import { useConfirm } from "./ConfirmModal";
 import { UI_CONSTANTS } from "../constants/ui";
 import { useAmplifyQuery } from "../hooks/useAmplifyQuery";
@@ -60,7 +61,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         });
         setStartingLineup(lineup);
       } catch (error) {
-        console.error("Error parsing buffered starting lineup:", error);
+        logError('Parse buffered starting lineup', error);
       }
       bufferedLineupData.current = null;
     }
@@ -133,7 +134,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                 });
                 setStartingLineup(lineup);
               } catch (error) {
-                console.error("Error parsing starting lineup:", error);
+                logError('Parse starting lineup', error);
               }
             }
           }
@@ -207,7 +208,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         })
       );
     } catch (error) {
-      console.error("Error loading previous games:", error);
+      logError('Load previous games', error);
     }
   };
 
@@ -285,7 +286,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           updatedAt: new Date().toISOString(),
         });
       } catch (error) {
-        console.error("Error auto-saving starting lineup:", error);
+        handleApiError(error, 'Failed to auto-save lineup');
       } finally {
         pendingLineupSaves.current--;
         flushBufferedLineup();
@@ -405,8 +406,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       
       showSuccess(gamePlan ? "Plan updated!" : "Plan created! Now set up each rotation.");
     } catch (error) {
-      console.error("Error updating rotation plan:", error);
-      showError("Failed to update rotation plan");
+      handleApiError(error, 'Failed to update rotation plan');
     } finally {
       setIsGenerating(false);
       pendingLineupSaves.current--;
@@ -480,8 +480,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
       showSuccess('Rotations auto-generated! Review each rotation to verify.');
     } catch (error) {
-      console.error('Error auto-generating rotations:', error);
-      showError('Failed to auto-generate rotations.');
+      handleApiError(error, 'Failed to auto-generate rotations');
     } finally {
       setIsGenerating(false);
       pendingRotationSaves.current--;
@@ -510,8 +509,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       
       showSuccess("Plan copied successfully!");
     } catch (error) {
-      console.error("Error copying game plan:", error);
-      showError("Failed to copy game plan");
+      handleApiError(error, 'Failed to copy game plan');
     } finally {
       setIsGenerating(false);
       pendingLineupSaves.current--;
@@ -674,8 +672,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       );
       // Data will update automatically via observeQuery subscriptions
     } catch (error) {
-      console.error("Error updating rotation:", error);
-      showError("Failed to update rotation");
+      handleApiError(error, 'Failed to update rotation');
     } finally {
       pendingRotationSaves.current--;
       flushBufferedRotations();
@@ -705,8 +702,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       // Select this rotation to edit it
       setSelectedRotation(rotationNumber);
     } catch (error) {
-      console.error("Error copying rotation:", error);
-      showError("Failed to copy from previous rotation");
+      handleApiError(error, 'Failed to copy from previous rotation');
     } finally {
       pendingRotationSaves.current--;
       flushBufferedRotations();

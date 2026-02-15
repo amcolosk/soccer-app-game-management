@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../../amplify/data/resource";
 import type { Game, GamePlan, PlannedRotation } from "../types";
+import { handleApiError } from "../../../utils/errorHandler";
 
 const client = generateClient<Schema>();
 
@@ -106,7 +107,7 @@ export function useGameTimer({
           id: game.id,
           elapsedSeconds: currentTime,
           lastStartTime: new Date().toISOString(),
-        }).catch(err => console.error('Error saving elapsed time:', err));
+        }).catch(err => handleApiError(err, 'Failed to save game time'));
       }, 5000);
     }
 

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
-import { showError, showWarning } from "../../utils/toast";
+import { showWarning } from "../../utils/toast";
+import { handleApiError } from "../../utils/errorHandler";
 import { useConfirm } from "../ConfirmModal";
 import {
   calculatePlayerPlayTime,
@@ -85,8 +86,7 @@ export function LineupPanel({
     try {
       await client.models.LineupAssignment.delete({ id: lineupId });
     } catch (error) {
-      console.error("Error removing from lineup:", error);
-      showError("Failed to remove player from lineup");
+      handleApiError(error, 'Failed to remove player from lineup');
     }
   };
 
@@ -105,8 +105,7 @@ export function LineupPanel({
       );
       await Promise.all(deletePromises);
     } catch (error) {
-      console.error("Error clearing lineup:", error);
-      showError("Failed to clear lineup");
+      handleApiError(error, 'Failed to clear lineup');
     }
   };
 
@@ -158,8 +157,7 @@ export function LineupPanel({
       setSelectedPlayer(null);
       setShowPositionPicker(false);
     } catch (error) {
-      console.error("Error adding to lineup:", error);
-      showError("Failed to add player to lineup");
+      handleApiError(error, 'Failed to add player to lineup');
     }
   };
 

@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import type { Team, Player, TeamRoster, Goal, GameNote, PlayTimeRecord, Game } from '../types/schema';
-import { showError } from "../utils/toast";
+import { handleApiError } from "../utils/errorHandler";
 import { trackEvent, AnalyticsEvents } from "../utils/analytics";
 import { sortRosterByNumber } from "../utils/playerUtils";
 import {
@@ -163,7 +163,7 @@ export function TeamReport({ team }: TeamReportProps) {
         setPhase2Synced(true);
         gameDataLoadedRef.current = true;
       } catch (error) {
-        console.error('[TeamReport] Error loading game data:', error);
+        handleApiError(error, 'Failed to load game data');
         // Still mark as synced so the UI doesn't hang forever
         setPhase2Synced(true);
       }
@@ -418,8 +418,7 @@ export function TeamReport({ team }: TeamReportProps) {
         playTimeByPosition,
       });
     } catch (error) {
-      console.error("Error loading player details:", error);
-      showError("Failed to load player details");
+      handleApiError(error, 'Failed to load player details');
     } finally {
       setLoadingDetails(false);
     }

@@ -8,6 +8,7 @@ import type { Team, Player, TeamRoster, Formation } from '../types/schema';
 import { FORMATION_TEMPLATES } from '../../amplify/data/formation-templates';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { showError, showWarning } from '../utils/toast';
+import { handleApiError, logError } from '../utils/errorHandler';
 import { useConfirm } from './ConfirmModal';
 import { deleteTeamCascade, deletePlayerCascade, deleteFormationCascade } from '../services/cascadeDeleteService';
 import { useSwipeDelete } from '../hooks/useSwipeDelete';
@@ -35,8 +36,7 @@ async function confirmAndDelete(
   try {
     await opts.deleteFn();
   } catch (error) {
-    console.error(`Error deleting ${opts.entityName}:`, error);
-    showError(`Failed to delete ${opts.entityName}`);
+    handleApiError(error, `Failed to delete ${opts.entityName}`);
   }
 }
 
@@ -157,7 +157,7 @@ export function Management() {
       const user = await getCurrentUser();
       setCurrentUserId(user.userId);
     } catch (error) {
-      console.error('Error getting current user:', error);
+      logError('getCurrentUser', error);
     }
   }
 
@@ -180,8 +180,7 @@ export function Management() {
       teamDispatch({ type: 'RESET' });
       trackEvent(AnalyticsEvents.TEAM_CREATED.category, AnalyticsEvents.TEAM_CREATED.action);
     } catch (error) {
-      console.error('Error creating team:', error);
-      showError('Failed to create team');
+      handleApiError(error, 'Failed to create team');
     }
   };
 
@@ -207,8 +206,7 @@ export function Management() {
       });
       teamDispatch({ type: 'RESET' });
     } catch (error) {
-      console.error('Error updating team:', error);
-      showError('Failed to update team');
+      handleApiError(error, 'Failed to update team');
     }
   };
 
@@ -266,8 +264,7 @@ export function Management() {
 
       rosterDispatch({ type: 'RESET' });
     } catch (error) {
-      console.error('Error adding player to roster:', error);
-      showError('Failed to add player to roster');
+      handleApiError(error, 'Failed to add player to roster');
     }
   };
 
@@ -333,8 +330,7 @@ export function Management() {
 
       rosterDispatch({ type: 'RESET' });
     } catch (error) {
-      console.error('Error updating roster:', error);
-      showError('Failed to update roster');
+      handleApiError(error, 'Failed to update roster');
     }
   };
 
@@ -377,8 +373,7 @@ export function Management() {
       trackEvent(AnalyticsEvents.PLAYER_ADDED.category, AnalyticsEvents.PLAYER_ADDED.action);
       playerDispatch({ type: 'RESET' });
     } catch (error) {
-      console.error('Error creating player:', error);
-      showError('Failed to create player');
+      handleApiError(error, 'Failed to create player');
     }
   };
 
@@ -403,8 +398,7 @@ export function Management() {
 
       playerDispatch({ type: 'RESET' });
     } catch (error) {
-      console.error('Error updating player:', error);
-      showError('Failed to update player');
+      handleApiError(error, 'Failed to update player');
     }
   };
 
@@ -429,8 +423,7 @@ export function Management() {
       }
       formationDispatch({ type: 'RESET' });
     } catch (error) {
-      console.error('Error creating formation:', error);
-      showError('Failed to create formation');
+      handleApiError(error, 'Failed to create formation');
     }
   };
 
@@ -466,8 +459,7 @@ export function Management() {
 
       formationDispatch({ type: 'RESET' });
     } catch (error) {
-      console.error('Error updating formation:', error);
-      showError('Failed to update formation');
+      handleApiError(error, 'Failed to update formation');
     }
   };
 

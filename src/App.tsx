@@ -13,6 +13,7 @@ import { ConfirmProvider } from "./components/ConfirmModal";
 import type { Schema } from "../amplify/data/resource";
 import type { Team, Game } from "./types/schema";
 import { trackPageView } from "./utils/analytics";
+import { logError } from "./utils/errorHandler";
 import "./App.css";
 
 const client = generateClient<Schema>();
@@ -82,7 +83,7 @@ function App() {
           }
         }
       } catch (error) {
-        console.error('Error restoring state:', error);
+        logError('State restoration', error);
         localStorage.removeItem('activeGame');
       } finally {
         setIsRestoring(false);
