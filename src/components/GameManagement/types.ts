@@ -9,7 +9,7 @@ export type {
   GameNote,
   GamePlan,
   PlannedRotation,
-  PlayerAvailability,
+  
   PlayerWithRoster,
 } from "../../types/schema";
 

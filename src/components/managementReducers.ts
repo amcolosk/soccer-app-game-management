@@ -49,7 +49,7 @@ export function playerFormReducer(state: PlayerFormState, action: PlayerFormActi
 // Formation Form Reducer
 // ============================================================
 
-export interface FormationPosition {
+interface FormationPosition {
   positionName: string;
   abbreviation: string;
 }
