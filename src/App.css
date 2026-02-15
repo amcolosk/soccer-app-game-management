@@ -1782,6 +1782,85 @@
   .timer-controls {
     flex-direction: column;
   }
+
+  /* Game Planner mobile */
+  .game-planner-container {
+    padding: 0.5rem;
+  }
+
+  .planner-section {
+    padding: 1rem;
+  }
+
+  .planner-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .planner-header h2 {
+    font-size: 1.1rem;
+    min-width: 0;
+  }
+
+  .planner-actions {
+    justify-content: stretch;
+  }
+
+  .planner-actions > * {
+    flex: 1;
+    text-align: center;
+  }
+
+  .availability-grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 0.5rem;
+  }
+
+  .availability-card {
+    padding: 0.5rem;
+    gap: 0.5rem;
+  }
+
+  .position-lineup-grid,
+  .rotation-lineup-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.5rem;
+  }
+
+  .rotation-details-panel {
+    padding: 1rem;
+  }
+
+  .panel-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .setup-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .setup-controls button {
+    width: 100%;
+  }
+
+  .playtime-bar-container {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.25rem;
+  }
+
+  .playtime-label {
+    min-width: 0;
+  }
+
+  .bench-area {
+    padding: 0.75rem;
+  }
 }
 
 /* Play Time Tracking Styles */
@@ -2905,10 +2984,12 @@
 
 /* Game Planner Styles */
 .game-planner-container {
-  max-width: 1200px;
+  width: 100%;
+  max-width: 900px;
   margin: 0 auto;
   padding: 1rem;
   padding-bottom: 2rem;
+  box-sizing: border-box;
 }
 
 .planner-header {
@@ -2918,6 +2999,8 @@
   gap: 1rem;
   margin-bottom: 2rem;
   flex-wrap: wrap;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .planner-header h2 {
@@ -2953,7 +3036,9 @@
   border-radius: 8px;
   padding: 1.5rem;
   margin-bottom: 1.5rem;
-  overflow: visible;
+  overflow: hidden;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .planner-section h3 {
@@ -2971,8 +3056,8 @@
 /* Availability Grid */
 .availability-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.75rem;
   margin-bottom: 1rem;
 }
 
@@ -3049,8 +3134,8 @@
 
 .position-lineup-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.75rem;
 }
 
 .position-slot {
@@ -3260,6 +3345,8 @@
   border: 2px solid var(--border-color);
   border-radius: 8px;
   padding: 1rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .timeline-header {
@@ -3337,6 +3424,9 @@
   padding: 1.5rem;
   box-shadow: 0 4px 6px rgba(0,0,0,0.1);
   animation: fadeIn 0.2s ease-out;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .panel-header {
@@ -3387,8 +3477,10 @@
 
 .rotation-lineup-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.75rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .lineup-position-card {
