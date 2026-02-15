@@ -132,20 +132,18 @@ const gamesWithPlans = await Promise.all(
 
 ---
 
-### 3.2 Extract Duplicate Utility Functions
+### 3.2 Extract Duplicate Utility Functions ✅ COMPLETED
 **Priority**: MEDIUM | **Effort**: 4-5 hours | **Impact**: Code reduction
 
-**Duplicates Found**:
-- Form reset logic (5+ occurrences in Management.tsx)
-- Create/Update handler patterns (80+ duplicate lines in Management.tsx)
-- Swipe/drag handlers (Management.tsx lines 696-748)
+**Problem**: Duplicate patterns across Management.tsx — swipe handlers (touch+mouse), delete confirmation, team/formation validation, formation template resolution, and position creation.
 
-**Steps**:
-- [ ] Extract resetTeamForm, resetFormationForm, resetPlayerForm functions
-- [ ] Create saveTeam function combining create/update logic
-- [ ] Create saveFormation function combining create/update logic
-- [ ] Create hooks/useSwipeDelete.ts for swipe handling
-- [ ] Replace duplicate code with extracted functions
+**Solution**:
+- Created `src/hooks/useSwipeDelete.ts` — consolidated 3 state vars + 7 handler functions into reusable hook with `getSwipeProps()` and `getSwipeStyle()` API
+- Extracted `confirmAndDelete()` helper — replaced 4 identical delete handlers (team, player, formation, roster removal)
+- Extracted `validateTeamForm()` + `resolveFormationId()` — shared by team create/update handlers
+- Extracted `validateFormationForm()` + `createFormationPositions()` — shared by formation create/update handlers
+
+**Result**: ~150 lines removed from Management.tsx. Bundle size reduced ~1.7KB.
 
 ---
 
@@ -330,8 +328,10 @@ export const logger = {
 
 - [x] Consolidate type definitions — `src/types/schema.ts` with 16 Schema types + 2 domain interfaces, 19 files updated (3.1)
 
+- [x] Extract duplicate utility functions — useSwipeDelete hook, confirmAndDelete, team/formation validation helpers (3.2)
+
 ### Next Up
-- [ ] Extract duplicate utility functions (3.2)
+- [ ] Implement centralized error handling (3.3)
 
 ---
 

@@ -9,8 +9,8 @@ import { FORMATION_TEMPLATES } from '../../amplify/data/formation-templates';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { showError, showWarning } from '../utils/toast';
 import { useConfirm } from './ConfirmModal';
-import { UI_CONSTANTS } from '../constants/ui';
 import { deleteTeamCascade, deletePlayerCascade, deleteFormationCascade } from '../services/cascadeDeleteService';
+import { useSwipeDelete } from '../hooks/useSwipeDelete';
 import {
   playerFormReducer, initialPlayerForm,
   formationFormReducer, initialFormationForm,
@@ -20,6 +20,106 @@ import {
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
 
 const client = generateClient<Schema>();
+
+async function confirmAndDelete(
+  confirmFn: ReturnType<typeof useConfirm>,
+  opts: { title: string; message: string; confirmText?: string; deleteFn: () => Promise<unknown>; entityName: string },
+) {
+  const confirmed = await confirmFn({
+    title: opts.title,
+    message: opts.message,
+    confirmText: opts.confirmText || 'Delete',
+    variant: 'danger',
+  });
+  if (!confirmed) return;
+  try {
+    await opts.deleteFn();
+  } catch (error) {
+    console.error(`Error deleting ${opts.entityName}:`, error);
+    showError(`Failed to delete ${opts.entityName}`);
+  }
+}
+
+function validateTeamForm(form: { name: string; maxPlayers: string; halfLength: string }) {
+  if (!form.name.trim()) {
+    showWarning('Please enter team name');
+    return null;
+  }
+  const maxPlayersNum = parseInt(form.maxPlayers);
+  if (isNaN(maxPlayersNum) || maxPlayersNum < 1) {
+    showWarning('Please enter a valid number of players');
+    return null;
+  }
+  const halfLengthNum = parseInt(form.halfLength);
+  if (isNaN(halfLengthNum) || halfLengthNum < 1) {
+    showWarning('Please enter a valid half length');
+    return null;
+  }
+  return { maxPlayersNum, halfLengthNum };
+}
+
+async function resolveFormationId(selectedFormation: string, currentUserId: string) {
+  if (selectedFormation.startsWith('template-')) {
+    const templateIndex = parseInt(selectedFormation.replace('template-', ''));
+    const template = FORMATION_TEMPLATES[templateIndex];
+    if (template) {
+      const newFormation = await client.models.Formation.create({
+        name: template.name,
+        playerCount: template.playerCount,
+        sport: 'Soccer',
+        coaches: [currentUserId],
+      });
+      if (newFormation.data) {
+        for (let i = 0; i < template.positions.length; i++) {
+          const pos = template.positions[i];
+          await client.models.FormationPosition.create({
+            formationId: newFormation.data.id,
+            positionName: pos.name,
+            abbreviation: pos.abbr,
+            sortOrder: i + 1,
+            coaches: [currentUserId],
+          });
+        }
+        return newFormation.data.id;
+      }
+    }
+  }
+  return selectedFormation || undefined;
+}
+
+function validateFormationForm(form: { name: string; playerCount: string; positions: { positionName: string; abbreviation: string }[] }) {
+  if (!form.name.trim() || !form.playerCount.trim()) {
+    showWarning('Please enter formation name and specify player count');
+    return null;
+  }
+  const count = parseInt(form.playerCount);
+  if (isNaN(count) || count < 1) {
+    showWarning('Please enter a valid player count');
+    return null;
+  }
+  if (form.positions.length === 0) {
+    showWarning('Please add at least one position');
+    return null;
+  }
+  return { count };
+}
+
+async function createFormationPositions(
+  formationId: string,
+  positions: { positionName: string; abbreviation: string }[],
+  coaches: string[],
+) {
+  for (let i = 0; i < positions.length; i++) {
+    const pos = positions[i];
+    await client.models.FormationPosition.create({
+      formationId,
+      positionName: pos.positionName,
+      abbreviation: pos.abbreviation,
+      sortOrder: i + 1,
+      coaches,
+    });
+  }
+}
 
 export function Management() {
   const confirm = useConfirm();
@@ -41,10 +141,8 @@ export function Management() {
   const [teamForm, teamDispatch] = useReducer(teamFormReducer, initialTeamForm);
   const [rosterForm, rosterDispatch] = useReducer(rosterFormReducer, initialRosterForm);
 
-  // Swipe-to-delete state
-  const [swipedItemId, setSwipedItemId] = useState<string | null>(null);
-  const [swipeStartX, setSwipeStartX] = useState<number>(0);
-  const [swipeCurrentX, setSwipeCurrentX] = useState<number>(0);
+  // Swipe-to-delete
+  const { getSwipeProps, getSwipeStyle, close: closeSwipe, swipedItemId } = useSwipeDelete();
 
   const [formationForm, formationDispatch] = useReducer(formationFormReducer, initialFormationForm);
   const [playerForm, playerDispatch] = useReducer(playerFormReducer, initialPlayerForm);
@@ -64,70 +162,18 @@ export function Management() {
   }
 
   const handleCreateTeam = async () => {
-    if (!teamForm.name.trim()) {
-      showWarning('Please enter team name');
-      return;
-    }
-
-    if (!currentUserId) {
-      showError('User not authenticated');
-      return;
-    }
-
-    const maxPlayersNum = parseInt(teamForm.maxPlayers);
-    if (isNaN(maxPlayersNum) || maxPlayersNum < 1) {
-      showWarning('Please enter a valid number of players');
-      return;
-    }
-
-    const halfLengthNum = parseInt(teamForm.halfLength);
-    if (isNaN(halfLengthNum) || halfLengthNum < 1) {
-      showWarning('Please enter a valid half length');
-      return;
-    }
+    const validated = validateTeamForm(teamForm);
+    if (!validated) return;
+    if (!currentUserId) { showError('User not authenticated'); return; }
 
     try {
-      let formationIdToUse = teamForm.selectedFormation;
-
-      // If a template is selected, create a new formation from it
-      if (teamForm.selectedFormation.startsWith('template-')) {
-        const templateIndex = parseInt(teamForm.selectedFormation.replace('template-', ''));
-        const template = FORMATION_TEMPLATES[templateIndex];
-        
-        if (template) {
-          const newFormation = await client.models.Formation.create({
-            name: template.name,
-            playerCount: template.playerCount,
-            sport: 'Soccer',
-            coaches: [currentUserId],
-          });
-
-          if (newFormation.data) {
-            formationIdToUse = newFormation.data.id;
-            
-            // Create positions for the new formation
-            for (let i = 0; i < template.positions.length; i++) {
-              const pos = template.positions[i];
-              await client.models.FormationPosition.create({
-                formationId: newFormation.data.id,
-                positionName: pos.name,
-                abbreviation: pos.abbr,
-                sortOrder: i + 1,
-                coaches: [currentUserId],
-              });
-            }
-          }
-        }
-      } else if (teamForm.selectedFormation === '') {
-        formationIdToUse = '';
-      }
-
+      const formationId = await resolveFormationId(teamForm.selectedFormation, currentUserId);
       await client.models.Team.create({
         name: teamForm.name,
-        coaches: [currentUserId], // Initialize with current user as the only coach
-        formationId: formationIdToUse || undefined,
-        maxPlayersOnField: maxPlayersNum,
-        halfLengthMinutes: halfLengthNum,
+        coaches: [currentUserId],
+        formationId,
+        maxPlayersOnField: validated.maxPlayersNum,
+        halfLengthMinutes: validated.halfLengthNum,
         sport: teamForm.sport,
         gameFormat: teamForm.gameFormat,
       });
@@ -145,66 +191,17 @@ export function Management() {
 
   const handleUpdateTeam = async () => {
     if (!teamForm.editing) return;
-
-    if (!teamForm.name.trim()) {
-      showWarning('Please enter team name');
-      return;
-    }
-
-    const maxPlayersNum = parseInt(teamForm.maxPlayers);
-    if (isNaN(maxPlayersNum) || maxPlayersNum < 1) {
-      showWarning('Please enter a valid number of players');
-      return;
-    }
-
-    const halfLengthNum = parseInt(teamForm.halfLength);
-    if (isNaN(halfLengthNum) || halfLengthNum < 1) {
-      showWarning('Please enter a valid half length');
-      return;
-    }
+    const validated = validateTeamForm(teamForm);
+    if (!validated) return;
 
     try {
-      let formationIdToUse = teamForm.selectedFormation;
-
-      // If a template is selected, create a new formation from it
-      if (teamForm.selectedFormation.startsWith('template-')) {
-        const templateIndex = parseInt(teamForm.selectedFormation.replace('template-', ''));
-        const template = FORMATION_TEMPLATES[templateIndex];
-
-        if (template) {
-          const newFormation = await client.models.Formation.create({
-            name: template.name,
-            playerCount: template.playerCount,
-            sport: 'Soccer',
-            coaches: [currentUserId],
-          });
-
-          if (newFormation.data) {
-            formationIdToUse = newFormation.data.id;
-
-            // Create positions for the new formation
-            for (let i = 0; i < template.positions.length; i++) {
-              const pos = template.positions[i];
-              await client.models.FormationPosition.create({
-                formationId: newFormation.data.id,
-                positionName: pos.name,
-                abbreviation: pos.abbr,
-                sortOrder: i + 1,
-                coaches: [currentUserId],
-              });
-            }
-          }
-        }
-      } else if (teamForm.selectedFormation === '') {
-        formationIdToUse = '';
-      }
-
+      const formationId = await resolveFormationId(teamForm.selectedFormation, currentUserId);
       await client.models.Team.update({
-        id: teamForm.editing!.id,
+        id: teamForm.editing.id,
         name: teamForm.name,
-        formationId: formationIdToUse || undefined,
-        maxPlayersOnField: maxPlayersNum,
-        halfLengthMinutes: halfLengthNum,
+        formationId,
+        maxPlayersOnField: validated.maxPlayersNum,
+        halfLengthMinutes: validated.halfLengthNum,
         sport: teamForm.sport,
         gameFormat: teamForm.gameFormat,
       });
@@ -219,22 +216,12 @@ export function Management() {
     teamDispatch({ type: 'RESET' });
   };
 
-  const handleDeleteTeam = async (id: string) => {
-    const confirmed = await confirm({
-      title: 'Delete Team',
-      message: 'Are you sure you want to delete this team? This will also delete all players, positions, and games.',
-      confirmText: 'Delete',
-      variant: 'danger',
-    });
-    if (!confirmed) return;
-
-    try {
-      await deleteTeamCascade(id);
-    } catch (error) {
-      console.error('Error deleting team:', error);
-      showError('Failed to delete team');
-    }
-  };
+  const handleDeleteTeam = (id: string) => confirmAndDelete(confirm, {
+    title: 'Delete Team',
+    message: 'Are you sure you want to delete this team? This will also delete all players, positions, and games.',
+    deleteFn: () => deleteTeamCascade(id),
+    entityName: 'team',
+  });
 
   const handleAddPlayerToRoster = async (teamId: string) => {
     if (!rosterForm.selectedPlayer || !rosterForm.playerNumber.trim()) {
@@ -284,22 +271,13 @@ export function Management() {
     }
   };
 
-  const handleRemovePlayerFromRoster = async (rosterId: string) => {
-    const confirmed = await confirm({
-      title: 'Remove from Roster',
-      message: 'Are you sure you want to remove this player from the team roster?',
-      confirmText: 'Remove',
-      variant: 'danger',
-    });
-    if (!confirmed) return;
-
-    try {
-      await client.models.TeamRoster.delete({ id: rosterId });
-    } catch (error) {
-      console.error('Error removing player from roster:', error);
-      showError('Failed to remove player from roster');
-    }
-  };
+  const handleRemovePlayerFromRoster = (rosterId: string) => confirmAndDelete(confirm, {
+    title: 'Remove from Roster',
+    message: 'Are you sure you want to remove this player from the team roster?',
+    confirmText: 'Remove',
+    deleteFn: () => client.models.TeamRoster.delete({ id: rosterId }),
+    entityName: 'player from roster',
+  });
 
   const handleEditRoster = (roster: TeamRoster) => {
     const player = players.find(p => p.id === roster.playerId);
@@ -364,22 +342,12 @@ export function Management() {
     rosterDispatch({ type: 'RESET' });
   };
 
-  const handleDeletePlayer = async (id: string) => {
-    const confirmed = await confirm({
-      title: 'Delete Player',
-      message: 'Are you sure you want to delete this player? This will remove them from all team rosters.',
-      confirmText: 'Delete',
-      variant: 'danger',
-    });
-    if (!confirmed) return;
-
-    try {
-      await deletePlayerCascade(id);
-    } catch (error) {
-      console.error('Error deleting player:', error);
-      showError('Failed to delete player');
-    }
-  };
+  const handleDeletePlayer = (id: string) => confirmAndDelete(confirm, {
+    title: 'Delete Player',
+    message: 'Are you sure you want to delete this player? This will remove them from all team rosters.',
+    deleteFn: () => deletePlayerCascade(id),
+    entityName: 'player',
+  });
 
   const getTeamFormationPositions = (teamId: string) => {
     const team = teams.find(t => t.id === teamId);
@@ -445,49 +413,20 @@ export function Management() {
   };
 
   const handleCreateFormation = async () => {
-    if (!formationForm.name.trim() || !formationForm.playerCount.trim()) {
-      showWarning('Please enter formation name and specify player count');
-      return;
-    }
-
-    const count = parseInt(formationForm.playerCount);
-    if (isNaN(count) || count < 1) {
-      showWarning('Please enter a valid player count');
-      return;
-    }
-
-    if (formationForm.positions.length === 0) {
-      showWarning('Please add at least one position');
-      return;
-    }
-
-    if (!currentUserId) {
-      showError('User not authenticated');
-      return;
-    }
+    const validated = validateFormationForm(formationForm);
+    if (!validated) return;
+    if (!currentUserId) { showError('User not authenticated'); return; }
 
     try {
       const formation = await client.models.Formation.create({
         name: formationForm.name,
-        playerCount: count,
+        playerCount: validated.count,
         sport: formationForm.sport,
         coaches: [currentUserId],
       });
-
       if (formation.data) {
-        // Create all positions
-        for (let i = 0; i < formationForm.positions.length; i++) {
-          const pos = formationForm.positions[i];
-          await client.models.FormationPosition.create({
-            formationId: formation.data.id,
-            positionName: pos.positionName,
-            abbreviation: pos.abbreviation,
-            sortOrder: i + 1,
-            coaches: [currentUserId],
-          });
-        }
+        await createFormationPositions(formation.data.id, formationForm.positions, [currentUserId]);
       }
-
       formationDispatch({ type: 'RESET' });
     } catch (error) {
       console.error('Error creating formation:', error);
@@ -507,49 +446,23 @@ export function Management() {
 
   const handleUpdateFormation = async () => {
     if (!formationForm.editing) return;
-
-    if (!formationForm.name.trim() || !formationForm.playerCount.trim()) {
-      showWarning('Please enter formation name and specify player count');
-      return;
-    }
-
-    const count = parseInt(formationForm.playerCount);
-    if (isNaN(count) || count < 1) {
-      showWarning('Please enter a valid player count');
-      return;
-    }
-
-    if (formationForm.positions.length === 0) {
-      showWarning('Please add at least one position');
-      return;
-    }
+    const validated = validateFormationForm(formationForm);
+    if (!validated) return;
 
     try {
-      // Update formation
       await client.models.Formation.update({
         id: formationForm.editing.id,
         name: formationForm.name,
-        playerCount: count,
+        playerCount: validated.count,
         sport: formationForm.sport,
       });
 
-      // Delete all existing positions for this formation
+      // Delete all existing positions, then recreate
       const existingPositions = formationPositions.filter(p => p.formationId === formationForm.editing!.id);
       for (const pos of existingPositions) {
         await client.models.FormationPosition.delete({ id: pos.id });
       }
-
-      // Create new positions
-      for (let i = 0; i < formationForm.positions.length; i++) {
-        const pos = formationForm.positions[i];
-        await client.models.FormationPosition.create({
-          formationId: formationForm.editing!.id,
-          positionName: pos.positionName,
-          abbreviation: pos.abbreviation,
-          sortOrder: i + 1,
-          coaches: formationForm.editing!.coaches || [],
-        });
-      }
+      await createFormationPositions(formationForm.editing.id, formationForm.positions, formationForm.editing.coaches || []);
 
       formationDispatch({ type: 'RESET' });
     } catch (error) {
@@ -562,22 +475,12 @@ export function Management() {
     formationDispatch({ type: 'RESET' });
   };
 
-  const handleDeleteFormation = async (id: string) => {
-    const confirmed = await confirm({
-      title: 'Delete Formation',
-      message: 'Are you sure you want to delete this formation? This will also delete all positions in the formation.',
-      confirmText: 'Delete',
-      variant: 'danger',
-    });
-    if (!confirmed) return;
-
-    try {
-      await deleteFormationCascade(id);
-    } catch (error) {
-      console.error('Error deleting formation:', error);
-      showError('Failed to delete formation');
-    }
-  };
+  const handleDeleteFormation = (id: string) => confirmAndDelete(confirm, {
+    title: 'Delete Formation',
+    message: 'Are you sure you want to delete this formation? This will also delete all positions in the formation.',
+    deleteFn: () => deleteFormationCascade(id),
+    entityName: 'formation',
+  });
 
   const addFormationPosition = () => {
     formationDispatch({ type: 'ADD_POSITION' });
@@ -596,66 +499,6 @@ export function Management() {
     return formations.find(f => f.id === formationId)?.name || null;
   };
 
-  // Swipe-to-delete handlers (mobile)
-  const handleTouchStart = (e: React.TouchEvent, itemId: string) => {
-    setSwipeStartX(e.touches[0].clientX);
-    setSwipedItemId(itemId);
-    setSwipeCurrentX(0);
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (swipedItemId === null) return;
-    const currentX = e.touches[0].clientX;
-    const diff = swipeStartX - currentX;
-    // Only allow left swipe (positive diff) up to max distance
-    if (diff > 0 && diff <= UI_CONSTANTS.SWIPE.MAX_DISTANCE_PX) {
-      setSwipeCurrentX(diff);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    // If swiped more than threshold, keep it open at open width, otherwise close
-    if (swipeCurrentX > UI_CONSTANTS.SWIPE.THRESHOLD_PX) {
-      setSwipeCurrentX(UI_CONSTANTS.SWIPE.OPEN_WIDTH_PX);
-    } else {
-      setSwipeCurrentX(0);
-      setSwipedItemId(null);
-    }
-  };
-
-  // Mouse handlers for desktop drag-to-delete
-  const handleMouseDown = (e: React.MouseEvent, itemId: string) => {
-    setSwipeStartX(e.clientX);
-    setSwipedItemId(itemId);
-    setSwipeCurrentX(0);
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (swipedItemId === null || swipeStartX === 0) return;
-    const currentX = e.clientX;
-    const diff = swipeStartX - currentX;
-    // Only allow left drag (positive diff) up to max distance
-    if (diff > 0 && diff <= UI_CONSTANTS.SWIPE.MAX_DISTANCE_PX) {
-      setSwipeCurrentX(diff);
-    }
-  };
-
-  const handleMouseUp = () => {
-    // If dragged more than threshold, keep it open at open width, otherwise close
-    if (swipeCurrentX > UI_CONSTANTS.SWIPE.THRESHOLD_PX) {
-      setSwipeCurrentX(UI_CONSTANTS.SWIPE.OPEN_WIDTH_PX);
-    } else {
-      setSwipeCurrentX(0);
-      setSwipedItemId(null);
-    }
-    setSwipeStartX(0); // Reset to indicate drag ended
-  };
-
-  const closeSwipe = () => {
-    setSwipeCurrentX(0);
-    setSwipedItemId(null);
-    setSwipeStartX(0);
-  };
 
   // Filter formations to only show those where user is a coach OR used by teams the user has access to
   const accessibleFormations = formations.filter(formation => 
@@ -912,24 +755,14 @@ export function Management() {
                 const teamRosterList = teamRosters.filter(r => r.teamId === team.id);
                 const isExpanded = teamForm.expandedTeamId === team.id;
                 const isSwiped = swipedItemId === team.id;
-                const swipeOffset = isSwiped ? swipeCurrentX : 0;
-                
+
                 return (
                   <div key={team.id} className={`team-card-wrapper ${isExpanded ? 'expanded' : ''}`}>
                     <div className="swipeable-item-container">
-                      <div 
+                      <div
                         className="item-card"
-                        style={{
-                          transform: `translateX(-${swipeOffset}px)`,
-                          transition: swipeStartX === 0 ? 'transform 0.3s ease' : 'none'
-                        }}
-                        onTouchStart={(e) => handleTouchStart(e, team.id)}
-                        onTouchMove={handleTouchMove}
-                        onTouchEnd={handleTouchEnd}
-                        onMouseDown={(e) => handleMouseDown(e, team.id)}
-                        onMouseMove={handleMouseMove}
-                        onMouseUp={handleMouseUp}
-                        onMouseLeave={handleMouseUp}
+                        style={getSwipeStyle(team.id)}
+                        {...getSwipeProps(team.id)}
                       >
                         <div className="item-info">
                           <h3>{team.name}</h3>
@@ -959,7 +792,7 @@ export function Management() {
                           </button>
                         </div>
                       </div>
-                      {isSwiped && swipeOffset > 0 && (
+                      {isSwiped && (
                         <div className="delete-action">
                           <button
                             onClick={() => {
@@ -1332,23 +1165,13 @@ export function Management() {
               accessibleFormations.map((formation) => {
                 const formationPositionList = formationPositions.filter(p => p.formationId === formation.id);
                 const isSwiped = swipedItemId === formation.id;
-                const swipeOffset = isSwiped ? swipeCurrentX : 0;
-                
+
                 return (
                   <div key={formation.id} className="swipeable-item-container">
-                    <div 
+                    <div
                       className="item-card"
-                      style={{
-                        transform: `translateX(-${swipeOffset}px)`,
-                        transition: swipeStartX === 0 ? 'transform 0.3s ease' : 'none'
-                      }}
-                      onTouchStart={(e) => handleTouchStart(e, formation.id)}
-                      onTouchMove={handleTouchMove}
-                      onTouchEnd={handleTouchEnd}
-                      onMouseDown={(e) => handleMouseDown(e, formation.id)}
-                      onMouseMove={handleMouseMove}
-                      onMouseUp={handleMouseUp}
-                      onMouseLeave={handleMouseUp}
+                      style={getSwipeStyle(formation.id)}
+                      {...getSwipeProps(formation.id)}
                     >
                       <div className="item-info">
                         <h3>{formation.name}</h3>
@@ -1374,7 +1197,7 @@ export function Management() {
                         </button>
                       </div>
                     </div>
-                    {isSwiped && swipeOffset > 0 && (
+                    {isSwiped && (
                       <div className="delete-action">
                         <button
                           onClick={() => {
@@ -1472,23 +1295,13 @@ export function Management() {
                   return team ? `${team.name} #${r.playerNumber}` : '';
                 }).filter(Boolean).join(', ');
                 const isSwiped = swipedItemId === player.id;
-                const swipeOffset = isSwiped ? swipeCurrentX : 0;
-                
+
                 return (
                   <div key={player.id} className="swipeable-item-container">
-                    <div 
+                    <div
                       className="item-card"
-                      style={{
-                        transform: `translateX(-${swipeOffset}px)`,
-                        transition: swipeStartX === 0 ? 'transform 0.3s ease' : 'none'
-                      }}
-                      onTouchStart={(e) => handleTouchStart(e, player.id)}
-                      onTouchMove={handleTouchMove}
-                      onTouchEnd={handleTouchEnd}
-                      onMouseDown={(e) => handleMouseDown(e, player.id)}
-                      onMouseMove={handleMouseMove}
-                      onMouseUp={handleMouseUp}
-                      onMouseLeave={handleMouseUp}
+                      style={getSwipeStyle(player.id)}
+                      {...getSwipeProps(player.id)}
                     >
                       <div className="item-info">
                         <h3>{player.firstName} {player.lastName}</h3>
@@ -1506,7 +1319,7 @@ export function Management() {
                         </button>
                       </div>
                     </div>
-                    {isSwiped && swipeOffset > 0 && (
+                    {isSwiped && (
                       <div className="delete-action">
                         <button
                           onClick={() => {
