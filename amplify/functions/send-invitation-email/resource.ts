@@ -1,7 +1,7 @@
 import { defineFunction } from '@aws-amplify/backend';
 
 export const sendInvitationEmail = defineFunction({
-  name: 'send-invitation-email',
+  name: 'send-invitation-email-handler',
   entry: './handler.ts',
   runtime: 22,
   environment: {

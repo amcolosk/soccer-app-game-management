@@ -1,6 +1,7 @@
 import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
-import { acceptInvitation } from "../functions/accept-invitation/resource"; // Import the function
-import { getUserInvitations } from "../functions/get-user-invitations/resource"; // Import the function
+import { acceptInvitation } from "../functions/accept-invitation/resource";
+import { getUserInvitations } from "../functions/get-user-invitations/resource";
+import { sendBugReport } from "../functions/send-bug-report/resource";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -305,6 +306,19 @@ const schema = a.schema({
     .returns(a.json())
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(getUserInvitations)),
+
+  // Custom mutation for submitting bug reports via email
+  submitBugReport: a
+    .mutation()
+    .arguments({
+      description: a.string().required(),
+      steps: a.string(),
+      severity: a.string().required(),
+      systemInfo: a.string(),
+    })
+    .returns(a.boolean())
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(sendBugReport)),
 });
 
 export type Schema = ClientSchema<typeof schema>;

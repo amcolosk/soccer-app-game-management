@@ -435,7 +435,7 @@ authorization: (allow) => [allow.ownersDefinedIn('coaches')]
 ### Schema Concerns
 
 - **`PlannedRotation.plannedSubstitutions` is stored as a JSON string**, requiring manual `JSON.parse()` everywhere it's consumed. Consider an embedded type.
-- **`GameNote` is overloaded** for bug reports — `BugReport.tsx` creates notes with `gameId: 'BUG_REPORT'` which violates the model's semantic intent.
+- **Bug reports sent via SES email** — `BugReport.tsx` calls a `submitBugReport` AppSync mutation backed by a Lambda that sends a formatted email via SES. No DynamoDB storage needed.
 - A `BugReport` model exists in the schema but is **not used** — `BugReport.tsx` writes to `GameNote` instead.
 
 ---

@@ -29,6 +29,7 @@ dev-dist
 amplify_outputs*
 amplifyconfiguration*
 seed-policy.json
+amplify/.env
 
 # Playwright
 test-results/

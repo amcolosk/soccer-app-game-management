@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { generateClient } from 'aws-amplify/data';
-import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
 import { showWarning } from '../utils/toast';
 import { handleApiError } from '../utils/errorHandler';
@@ -29,9 +28,6 @@ export function BugReport({ onClose }: BugReportProps) {
     setIsSubmitting(true);
 
     try {
-      // Get current user for coaches array
-      const user = await getCurrentUser();
-      
       // Collect system information
       const systemInfo = {
         userAgent: navigator.userAgent,
@@ -42,23 +38,12 @@ export function BugReport({ onClose }: BugReportProps) {
         version: import.meta.env.VITE_APP_VERSION || '1.0.0',
       };
 
-      // Create bug report as a GameNote (reusing existing model for simplicity)
-      // In production, you might want a dedicated BugReport model
-      await client.models.GameNote.create({
-        gameId: 'BUG_REPORT', // Special marker for bug reports
-        playerId: null,
-        gameSeconds: 0,
-        half: 0,
-        noteType: 'BUG_REPORT',
-        notes: JSON.stringify({
-          type: 'BUG_REPORT',
-          description,
-          steps,
-          severity,
-          systemInfo,
-        }),
-        timestamp: new Date().toISOString(),
-        coaches: [user.userId], // Bug reports owned by the reporting user
+      // Send bug report via email (Lambda + SES)
+      await client.mutations.submitBugReport({
+        description,
+        steps: steps || undefined,
+        severity,
+        systemInfo: JSON.stringify(systemInfo),
       });
 
       setIsSubmitted(true);

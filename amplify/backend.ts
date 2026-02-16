@@ -7,6 +7,7 @@ import { data } from './data/resource';
 import { sendInvitationEmail } from './functions/send-invitation-email/resource';
 import { acceptInvitation } from './functions/accept-invitation/resource';
 import { getUserInvitations } from './functions/get-user-invitations/resource';
+import { sendBugReport } from './functions/send-bug-report/resource';
 
 const backend = defineBackend({
   auth,
@@ -14,6 +15,7 @@ const backend = defineBackend({
   sendInvitationEmail,
   acceptInvitation,
   getUserInvitations,
+  sendBugReport,
 });
 
 // Add GA Measurement ID to outputs
@@ -26,10 +28,17 @@ if (gaMeasurementId) {
   });
 }
 
-// Grant the Lambda function permission to send emails via SES
+// Grant the Lambda functions permission to send emails via SES
 backend.sendInvitationEmail.resources.lambda.addToRolePolicy(
   new PolicyStatement({
     actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+    resources: ['*'],
+  })
+);
+
+backend.sendBugReport.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['ses:SendEmail'],
     resources: ['*'],
   })
 );
@@ -76,3 +85,7 @@ backend.getUserInvitations.resources.lambda.addToRolePolicy(
 const branchName = process.env.AWS_BRANCH || 'local';
 const appUrl = branchName === 'main' ? 'https://coachteamtrack.com' : 'http://localhost:5173';
 backend.sendInvitationEmail.addEnvironment('APP_URL', appUrl);
+
+// Add bug report email from environment variable
+const bugReportEmail = process.env.BUG_REPORT_EMAIL || 'admin@coachteamtrack.com';
+backend.sendBugReport.addEnvironment('TO_EMAIL', bugReportEmail);
