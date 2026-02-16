@@ -85,8 +85,25 @@ export function formationFormReducer(state: FormationFormState, action: Formatio
   switch (action.type) {
     case 'START_CREATE':
       return { ...initialFormationForm, isCreating: true };
-    case 'SET_FIELD':
-      return { ...state, [action.field]: action.value };
+    case 'SET_FIELD': {
+      const newState = { ...state, [action.field]: action.value };
+      // Auto-sync positions array when playerCount changes
+      if (action.field === 'playerCount') {
+        const count = parseInt(action.value);
+        if (!isNaN(count) && count > 0 && count <= 30) {
+          const current = state.positions;
+          if (count > current.length) {
+            const extras = Array.from({ length: count - current.length }, () => ({ positionName: '', abbreviation: '' }));
+            newState.positions = [...current, ...extras];
+          } else if (count < current.length) {
+            newState.positions = current.slice(0, count);
+          }
+        } else {
+          newState.positions = [];
+        }
+      }
+      return newState;
+    }
     case 'EDIT_FORMATION':
       return {
         isCreating: false,

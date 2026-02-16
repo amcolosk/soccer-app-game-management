@@ -1206,6 +1206,22 @@
   gap: 0.5rem;
 }
 
+/* Formation position rows */
+.position-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.position-number {
+  font-weight: 700;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  min-width: 1.75rem;
+  text-align: right;
+  flex-shrink: 0;
+}
+
 /* Players and Positions */
 .player-list {
   display: flex;

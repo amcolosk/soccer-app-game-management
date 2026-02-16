@@ -299,22 +299,23 @@ test.describe('Team Management CRUD', () => {
     await fillInput(page, 'input[placeholder*="Formation Name"]', '4-3-3');
     await fillInput(page, 'input[placeholder*="Number of Players"]', '7');
     
-    // Add a few positions
+    // Positions auto-populate — fill all 7 slots
     const positions = [
       { name: 'Goalkeeper', abbreviation: 'GK' },
-      { name: 'Defender', abbreviation: 'D' },
-      { name: 'Midfielder', abbreviation: 'M' },
+      { name: 'Left Back', abbreviation: 'LB' },
+      { name: 'Center Back', abbreviation: 'CB' },
+      { name: 'Right Back', abbreviation: 'RB' },
+      { name: 'Left Midfielder', abbreviation: 'LM' },
+      { name: 'Center Midfielder', abbreviation: 'CM' },
       { name: 'Forward', abbreviation: 'F' },
     ];
     
-    for (const pos of positions) {
-      await clickButton(page, '+ Add Position');
-      await page.waitForTimeout(UI_TIMING.QUICK);
-      
-      const positionRows = page.locator('.position-row');
-      const lastRow = positionRows.last();
-      await lastRow.locator('input[placeholder*="Position Name"]').fill(pos.name);
-      await lastRow.locator('input[placeholder*="Abbreviation"]').fill(pos.abbreviation);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+    const positionRows = page.locator('.position-row');
+    for (let i = 0; i < positions.length; i++) {
+      const row = positionRows.nth(i);
+      await row.locator('input[placeholder*="Position Name"]').fill(positions[i].name);
+      await row.locator('input[placeholder*="Abbr"]').fill(positions[i].abbreviation);
     }
     
     await clickButton(page, 'Create');

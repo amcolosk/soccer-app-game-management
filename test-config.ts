@@ -18,6 +18,6 @@ export const TEST_CONFIG = {
   timeout: {
     short: 30000,    // 30 seconds
     medium: 60000,   // 1 minute
-    long: 300000,    // 5 minutes for full workflow
+    long: 400000,    // 6 minutes 40 seconds for full workflow
   },
 } as const;

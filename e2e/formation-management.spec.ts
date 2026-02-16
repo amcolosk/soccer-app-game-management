@@ -60,8 +60,11 @@ const TEST_DATA = {
     playerCount: '7',
     positions: [
       { name: 'Goalkeeper', abbreviation: 'GK' },
-      { name: 'Defender', abbreviation: 'D' },
-      { name: 'Midfielder', abbreviation: 'M' },
+      { name: 'Left Defender', abbreviation: 'LD' },
+      { name: 'Center Defender', abbreviation: 'CD' },
+      { name: 'Right Defender', abbreviation: 'RD' },
+      { name: 'Left Midfielder', abbreviation: 'LM' },
+      { name: 'Center Midfielder', abbreviation: 'CM' },
       { name: 'Forward', abbreviation: 'F' },
     ],
   },
@@ -117,16 +120,17 @@ test.describe('Formation Management CRUD', () => {
     console.log(`  Toast shown: "${toastText}"`);
     console.log('  ✓ Validation triggered for missing player count\n');
     
-    console.log('Step 6: VALIDATION - Test form with name and player count but no positions');
+    console.log('Step 6: VALIDATION - Test form with name and player count but empty positions');
     await fillInput(page, 'input[placeholder*="Number of Players"]', '7');
     
+    // Positions auto-populate but are empty — submit should fail
     await clickButton(page, 'Create');
     await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
     toastText = await page.locator('[role="status"]').first().textContent().catch(() => '');
-    expect(toastText).toContain('position');
+    expect(toastText).toContain('fill in');
     console.log(`  Toast shown: "${toastText}"`);
-    console.log('  ✓ Validation triggered for missing positions\n');
+    console.log('  \u2713 Validation triggered for unfilled positions\n');
     
     // Clear form and cancel to ensure clean state
     await page.locator('input[placeholder*="Formation Name"]').clear();
@@ -195,16 +199,14 @@ test.describe('Formation Management CRUD', () => {
     await fillInput(page, 'input[placeholder*="Formation Name"]', TEST_DATA.formation2.name);
     await fillInput(page, 'input[placeholder*="Number of Players"]', TEST_DATA.formation2.playerCount);
     
-    // Add positions for second formation
+    // Positions auto-populate — fill each slot by index
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+    const positionRows2 = page.locator('.position-row');
     for (let i = 0; i < TEST_DATA.formation2.positions.length; i++) {
       const pos = TEST_DATA.formation2.positions[i];
-      await clickButton(page, '+ Add Position');
-      await page.waitForTimeout(UI_TIMING.QUICK);
-      
-      const positionRows = page.locator('.position-row');
-      const lastRow = positionRows.last();
-      await lastRow.locator('input[placeholder*="Position Name"]').fill(pos.name);
-      await lastRow.locator('input[placeholder*="Abbreviation"]').fill(pos.abbreviation);
+      const row = positionRows2.nth(i);
+      await row.locator('input[placeholder*="Position Name"]').fill(pos.name);
+      await row.locator('input[placeholder*="Abbr"]').fill(pos.abbreviation);
     }
     
     await clickButton(page, 'Create');
@@ -303,8 +305,8 @@ test.describe('Formation Management CRUD', () => {
     console.log('\n=== Formation Validation & CRUD Test Completed Successfully ===\n');
   });
 
-  test('should handle position addition and removal', async ({ page }) => {
-    console.log('\n=== Testing Position Addition and Removal ===\n');
+  test('should auto-populate positions when player count changes', async ({ page }) => {
+    console.log('\n=== Testing Position Auto-Population ===\n');
     
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
@@ -316,60 +318,53 @@ test.describe('Formation Management CRUD', () => {
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
     await fillInput(page, 'input[placeholder*="Formation Name"]', TEST_DATA.formation3.name);
+    console.log('  ✓ Name filled\n');
+    
+    console.log('Step 2: Enter player count — positions should auto-populate');
     await fillInput(page, 'input[placeholder*="Number of Players"]', TEST_DATA.formation3.playerCount);
-    console.log('  ✓ Basic form filled\n');
-    
-    console.log('Step 2: Add multiple positions');
-    for (let i = 0; i < TEST_DATA.formation3.positions.length; i++) {
-      const pos = TEST_DATA.formation3.positions[i];
-      await clickButton(page, '+ Add Position');
-      await page.waitForTimeout(UI_TIMING.QUICK);
-      
-      const positionRows = page.locator('.position-row');
-      const count = await positionRows.count();
-      expect(count).toBe(i + 1);
-      
-      const lastRow = positionRows.last();
-      await lastRow.locator('input[placeholder*="Position Name"]').fill(pos.name);
-      await lastRow.locator('input[placeholder*="Abbreviation"]').fill(pos.abbreviation);
-      
-      console.log(`  ✓ Added position ${i + 1}: ${pos.name}`);
-    }
-    
-    const totalPositions = await page.locator('.position-row').count();
-    expect(totalPositions).toBe(TEST_DATA.formation3.positions.length);
-    console.log(`  ✓ Total positions: ${totalPositions}\n`);
-    
-    console.log('Step 3: Remove a position');
-    // Remove the second position
-    const secondRow = page.locator('.position-row').nth(1);
-    await secondRow.locator('.btn-delete').click();
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
-    const remainingPositions = await page.locator('.position-row').count();
-    expect(remainingPositions).toBe(TEST_DATA.formation3.positions.length - 1);
-    console.log(`  ✓ Position removed, remaining: ${remainingPositions}\n`);
+    const positionRows = page.locator('.position-row');
+    const autoCount = await positionRows.count();
+    expect(autoCount).toBe(parseInt(TEST_DATA.formation3.playerCount));
+    console.log(`  ✓ ${autoCount} position slots auto-populated\n`);
     
-    console.log('Step 4: Add position back');
-    await clickButton(page, '+ Add Position');
-    await page.waitForTimeout(UI_TIMING.QUICK);
+    console.log('Step 3: Change player count — positions should resize');
+    await page.locator('input[placeholder*="Number of Players"]').fill('4');
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
-    const lastRow = page.locator('.position-row').last();
-    await lastRow.locator('input[placeholder*="Position Name"]').fill('New Position');
-    await lastRow.locator('input[placeholder*="Abbreviation"]').fill('NP');
+    const shrunkCount = await positionRows.count();
+    expect(shrunkCount).toBe(4);
+    console.log(`  ✓ Shrunk to ${shrunkCount} slots`);
     
-    const finalCount = await page.locator('.position-row').count();
-    expect(finalCount).toBe(TEST_DATA.formation3.positions.length);
-    console.log(`  ✓ Position added back, total: ${finalCount}\n`);
+    await page.locator('input[placeholder*="Number of Players"]').fill('9');
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
-    console.log('Step 5: Submit formation');
+    const grownCount = await positionRows.count();
+    expect(grownCount).toBe(9);
+    console.log(`  ✓ Grew to ${grownCount} slots\n`);
+    
+    console.log('Step 4: Fill positions and submit');
+    // Reset to original count
+    await page.locator('input[placeholder*="Number of Players"]').fill(TEST_DATA.formation3.playerCount);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+    
+    const finalRows = page.locator('.position-row');
+    for (let i = 0; i < TEST_DATA.formation3.positions.length; i++) {
+      const pos = TEST_DATA.formation3.positions[i];
+      const row = finalRows.nth(i);
+      await row.locator('input[placeholder*="Position Name"]').fill(pos.name);
+      await row.locator('input[placeholder*="Abbr"]').fill(pos.abbreviation);
+      console.log(`  ✓ Filled position ${i + 1}: ${pos.name}`);
+    }
+    
     await clickButton(page, 'Create');
     await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.formation3.name })).toBeVisible();
-    console.log('  ✓ Formation created with modified positions\n');
+    console.log('  ✓ Formation created with auto-populated positions\n');
     
-    console.log('\n=== Position Addition/Removal Test Completed Successfully ===\n');
+    console.log('\n=== Position Auto-Population Test Completed Successfully ===\n');
   });
 
   test('should edit and update a formation', async ({ page }) => {
@@ -380,30 +375,31 @@ test.describe('Formation Management CRUD', () => {
     await cleanupTestData(page);
     await clickManagementTab(page, 'Formations');
     
-    // Create initial formation
+    // Create initial formation with 7 positions
     console.log('Step 1: Create initial formation');
     await clickButton(page, '+ Create Formation');
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
     await fillInput(page, 'input[placeholder*="Formation Name"]', '4-4-2');
-    await fillInput(page, 'input[placeholder*="Number of Players"]', '11');
+    await fillInput(page, 'input[placeholder*="Number of Players"]', '7');
     
-    // Add initial positions
+    // Positions auto-populate — fill all 7
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     const initialPositions = [
       { name: 'Goalkeeper', abbreviation: 'GK' },
-      { name: 'Defender', abbreviation: 'DEF' },
-      { name: 'Midfielder', abbreviation: 'MID' },
+      { name: 'Left Back', abbreviation: 'LB' },
+      { name: 'Center Back', abbreviation: 'CB' },
+      { name: 'Right Back', abbreviation: 'RB' },
+      { name: 'Left Mid', abbreviation: 'LM' },
+      { name: 'Right Mid', abbreviation: 'RM' },
       { name: 'Striker', abbreviation: 'STR' },
     ];
     
-    for (const pos of initialPositions) {
-      await clickButton(page, '+ Add Position');
-      await page.waitForTimeout(UI_TIMING.QUICK);
-      
-      const positionRows = page.locator('.position-row');
-      const lastRow = positionRows.last();
-      await lastRow.locator('input[placeholder*="Position Name"]').fill(pos.name);
-      await lastRow.locator('input[placeholder*="Abbreviation"]').fill(pos.abbreviation);
+    const createRows = page.locator('.position-row');
+    for (let i = 0; i < initialPositions.length; i++) {
+      const row = createRows.nth(i);
+      await row.locator('input[placeholder*="Position Name"]').fill(initialPositions[i].name);
+      await row.locator('input[placeholder*="Abbr"]').fill(initialPositions[i].abbreviation);
     }
     
     await clickButton(page, 'Create');
@@ -428,43 +424,43 @@ test.describe('Formation Management CRUD', () => {
     const nameInput = page.locator('input[placeholder*="Formation Name"]');
     const countInput = page.locator('input[placeholder*="Number of Players"]');
     await expect(nameInput).toHaveValue('4-4-2');
-    await expect(countInput).toHaveValue('11');
+    await expect(countInput).toHaveValue('7');
     console.log('  ✓ Form pre-filled with existing data');
     
     // Verify positions are loaded
     const positionRows = page.locator('.position-row');
     const positionCount = await positionRows.count();
-    expect(positionCount).toBe(4);
+    expect(positionCount).toBe(7);
     console.log(`  ✓ Positions loaded: ${positionCount}\n`);
     
-    // Update formation name and player count
+    // Update formation name and change player count (shrinks positions)
     console.log('Step 3: Update formation details');
     await nameInput.fill('3-5-2');
-    await countInput.fill('8');
-    console.log('  ✓ Updated name and player count');
-    
-    // Remove one position
-    const secondRow = positionRows.nth(1);
-    await secondRow.locator('.btn-delete').click();
+    await countInput.fill('5');
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
     const updatedCount = await page.locator('.position-row').count();
-    expect(updatedCount).toBe(3);
-    console.log('  ✓ Removed one position');
+    expect(updatedCount).toBe(5);
+    console.log(`  ✓ Positions resized to ${updatedCount} after count change`);
     
-    // Add a new position
-    await clickButton(page, '+ Add Position');
-    await page.waitForTimeout(UI_TIMING.QUICK);
-    
-    const newRow = page.locator('.position-row').last();
-    await newRow.locator('input[placeholder*="Position Name"]').fill('Wing Back');
-    await newRow.locator('input[placeholder*="Abbreviation"]').fill('WB');
-    console.log('  ✓ Added new position');
-    
-    // Modify an existing position
+    // Modify an existing position abbreviation
     const firstRow = page.locator('.position-row').first();
-    await firstRow.locator('input[placeholder*="Abbreviation"]').fill('GKP');
+    await firstRow.locator('input[placeholder*="Abbr"]').fill('GKP');
     console.log('  ✓ Modified existing position\n');
+    
+    // Fill any empty abbreviations (positions 5 was kept from original but let's verify all are filled)
+    const editRows = page.locator('.position-row');
+    for (let i = 0; i < 5; i++) {
+      const row = editRows.nth(i);
+      const nameVal = await row.locator('input[placeholder*="Position Name"]').inputValue();
+      const abbrVal = await row.locator('input[placeholder*="Abbr"]').inputValue();
+      if (!nameVal.trim()) {
+        await row.locator('input[placeholder*="Position Name"]').fill(`Position ${i + 1}`);
+      }
+      if (!abbrVal.trim()) {
+        await row.locator('input[placeholder*="Abbr"]').fill(`P${i + 1}`);
+      }
+    }
     
     // Submit update
     console.log('Step 4: Submit update');
@@ -478,10 +474,8 @@ test.describe('Formation Management CRUD', () => {
     
     // Verify updated details
     const updatedCard = page.locator('.item-card').filter({ hasText: '3-5-2' });
-    await expect(updatedCard.locator('.item-meta').first()).toContainText('8 players');
+    await expect(updatedCard.locator('.item-meta').first()).toContainText('5 players');
     await expect(updatedCard.locator('.item-meta').last()).toContainText('GKP');
-    await expect(updatedCard.locator('.item-meta').last()).toContainText('WB');
-    await expect(updatedCard.locator('.item-meta').last()).not.toContainText('DEF');
     console.log('  ✓ All details updated correctly\n');
     
     console.log('\n=== Formation Edit/Update Test Completed Successfully ===\n');
@@ -503,11 +497,14 @@ test.describe('Formation Management CRUD', () => {
     await fillInput(page, 'input[placeholder*="Formation Name"]', 'Original Formation');
     await fillInput(page, 'input[placeholder*="Number of Players"]', '7');
     
-    await clickButton(page, '+ Add Position');
-    await page.waitForTimeout(UI_TIMING.QUICK);
-    const positionRow = page.locator('.position-row').last();
-    await positionRow.locator('input[placeholder*="Position Name"]').fill('Forward');
-    await positionRow.locator('input[placeholder*="Abbreviation"]').fill('FW');
+    // Positions auto-populate — fill all 7
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+    const cancelRows = page.locator('.position-row');
+    for (let i = 0; i < 7; i++) {
+      const row = cancelRows.nth(i);
+      await row.locator('input[placeholder*="Position Name"]').fill(`Pos ${i + 1}`);
+      await row.locator('input[placeholder*="Abbr"]').fill(`P${i + 1}`);
+    }
     
     await clickButton(page, 'Create');
     await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);

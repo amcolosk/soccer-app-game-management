@@ -371,18 +371,13 @@ export async function createFormation(
   await fillInput(page, 'input[placeholder*="Formation Name"]', formationData.name);
   await fillInput(page, 'input[placeholder*="Number of Players on Field"]', formationData.playerCount);
   
-  // Add each position to the formation
-  for (const position of formationData.positions) {
-    await clickButton(page, '+ Add Position');
-    await page.waitForTimeout(UI_TIMING.STANDARD);
-    
-    // Get all position inputs and fill the last (newly added) one
-    const positionNameInputs = page.locator('input[placeholder*="Position Name"]');
-    const abbreviationInputs = page.locator('input[placeholder*="Abbreviation"]');
-    
-    const count = await positionNameInputs.count();
-    await positionNameInputs.nth(count - 1).fill(position.name);
-    await abbreviationInputs.nth(count - 1).fill(position.abbreviation);
+  // Positions auto-populate when playerCount is entered — fill each slot by index
+  await page.waitForTimeout(UI_TIMING.STANDARD);
+  const positionRows = page.locator('.position-row');
+  for (let i = 0; i < formationData.positions.length; i++) {
+    const row = positionRows.nth(i);
+    await row.locator('input[placeholder*="Position Name"]').fill(formationData.positions[i].name);
+    await row.locator('input[placeholder*="Abbr"]').fill(formationData.positions[i].abbreviation);
   }
   
   await clickButton(page, 'Create');

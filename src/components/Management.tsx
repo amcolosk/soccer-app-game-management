@@ -97,8 +97,14 @@ function validateFormationForm(form: { name: string; playerCount: string; positi
     showWarning('Please enter a valid player count');
     return null;
   }
-  if (form.positions.length === 0) {
-    showWarning('Please add at least one position');
+  if (form.positions.length !== count) {
+    showWarning(`Expected ${count} positions but found ${form.positions.length}`);
+    return null;
+  }
+  // Ensure all positions have both name and abbreviation
+  const incomplete = form.positions.some(p => !p.positionName.trim() || !p.abbreviation.trim());
+  if (incomplete) {
+    showWarning('Please fill in the name and abbreviation for every position');
     return null;
   }
   return { count };
@@ -474,16 +480,8 @@ export function Management() {
     entityName: 'formation',
   });
 
-  const addFormationPosition = () => {
-    formationDispatch({ type: 'ADD_POSITION' });
-  };
-
   const updateFormationPosition = (index: number, field: 'positionName' | 'abbreviation', value: string) => {
     formationDispatch({ type: 'UPDATE_POSITION', index, field, value });
-  };
-
-  const removeFormationPosition = (index: number) => {
-    formationDispatch({ type: 'REMOVE_POSITION', index });
   };
 
   const getFormationName = (formationId: string | null | undefined) => {
@@ -1024,9 +1022,13 @@ export function Management() {
                 </select>
               </div>
               <div className="form-group">
-                <label>Positions</label>
+                <label>Positions {formationForm.playerCount && !isNaN(parseInt(formationForm.playerCount)) ? `(${formationForm.positions.length})` : ''}</label>
+                {formationForm.positions.length === 0 && (
+                  <p className="empty-message">Enter the number of players above to define positions.</p>
+                )}
                 {formationForm.positions.map((pos, index) => (
                   <div key={index} className="position-row">
+                    <span className="position-number">{index + 1}.</span>
                     <input
                       type="text"
                       placeholder="Position Name (e.g., Left Forward)"
@@ -1036,29 +1038,13 @@ export function Management() {
                     />
                     <input
                       type="text"
-                      placeholder="Abbreviation (e.g., LF)"
+                      placeholder="Abbr (e.g., LF)"
                       value={pos.abbreviation}
                       onChange={(e) => updateFormationPosition(index, 'abbreviation', e.target.value)}
                       style={{ flex: 1 }}
                     />
-                    <button
-                      type="button"
-                      onClick={() => removeFormationPosition(index)}
-                      className="btn-delete"
-                      style={{ marginLeft: '0.5rem' }}
-                    >
-                      ✕
-                    </button>
                   </div>
                 ))}
-                <button
-                  type="button"
-                  onClick={addFormationPosition}
-                  className="btn-secondary"
-                  style={{ marginTop: '0.5rem' }}
-                >
-                  + Add Position
-                </button>
               </div>
               <div className="form-actions">
                 <button onClick={handleUpdateFormation} className="btn-primary">
@@ -1100,9 +1086,13 @@ export function Management() {
                 </select>
               </div>
               <div className="form-group">
-                <label>Positions</label>
+                <label>Positions {formationForm.playerCount && !isNaN(parseInt(formationForm.playerCount)) ? `(${formationForm.positions.length})` : ''}</label>
+                {formationForm.positions.length === 0 && (
+                  <p className="empty-message">Enter the number of players above to define positions.</p>
+                )}
                 {formationForm.positions.map((pos, index) => (
                   <div key={index} className="position-row">
+                    <span className="position-number">{index + 1}.</span>
                     <input
                       type="text"
                       placeholder="Position Name (e.g., Left Forward)"
@@ -1112,29 +1102,13 @@ export function Management() {
                     />
                     <input
                       type="text"
-                      placeholder="Abbreviation (e.g., LF)"
+                      placeholder="Abbr (e.g., LF)"
                       value={pos.abbreviation}
                       onChange={(e) => updateFormationPosition(index, 'abbreviation', e.target.value)}
                       style={{ flex: 1 }}
                     />
-                    <button
-                      type="button"
-                      onClick={() => removeFormationPosition(index)}
-                      className="btn-delete"
-                      style={{ marginLeft: '0.5rem' }}
-                    >
-                      ✕
-                    </button>
                   </div>
                 ))}
-                <button
-                  type="button"
-                  onClick={addFormationPosition}
-                  className="btn-secondary"
-                  style={{ marginTop: '0.5rem' }}
-                >
-                  + Add Position
-                </button>
               </div>
               <div className="form-actions">
                 <button onClick={handleCreateFormation} className="btn-primary">
