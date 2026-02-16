@@ -14,6 +14,8 @@ export default defineConfig({
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(version),
     'import.meta.env.VITE_BUILD_TIMESTAMP': JSON.stringify(buildTimestamp),
+    'import.meta.env.VITE_DEPLOYMENT_ID': JSON.stringify(process.env.AWS_DEPLOYMENT_ID || process.env.AWS_BRANCH || 'local'),
+    'import.meta.env.VITE_APP_ID': JSON.stringify(process.env.AWS_APP_ID || ''),
   },
   plugins: [
     react(),

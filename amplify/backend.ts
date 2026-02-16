@@ -18,6 +18,14 @@ const backend = defineBackend({
   sendBugReport,
 });
 
+// Add deployment ID to outputs
+const deploymentId = process.env.AWS_APP_ID || 'local';
+backend.addOutput({
+  custom: {
+    deployment_id: deploymentId,
+  },
+});
+
 // Add GA Measurement ID to outputs
 const gaMeasurementId = process.env.GA_MEASUREMENT_ID;
 if (gaMeasurementId) {
