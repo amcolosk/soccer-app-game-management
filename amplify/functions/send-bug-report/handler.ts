@@ -11,7 +11,10 @@ export const handler: Schema['submitBugReport']['functionHandler'] = async (even
 
   const identity = event.identity as AppSyncIdentityCognito;
   const userId = identity?.sub || 'unknown';
-  const userEmail = identity?.claims?.email || 'unknown';
+  const userEmail = (identity?.claims?.email
+    || identity?.claims?.username
+    || identity?.claims?.['cognito:username']
+    || 'unknown') as string;
 
   const { description, steps, severity, systemInfo } = event.arguments;
 
