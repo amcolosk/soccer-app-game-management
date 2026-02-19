@@ -111,7 +111,7 @@ export const handler: Schema['submitBugReport']['functionHandler'] = async (even
       Source: FROM_EMAIL,
       Destination: { ToAddresses: [TO_EMAIL] },
       Message: {
-        Subject: { Data: `${severityEmoji[severity || 'medium'] || '🟡'} TeamTrack Bug: ${description.slice(0, 80)}` },
+        Subject: { Data: `${severityEmoji[severity || 'medium'] || '🟡'} TeamTrack Bug: ${description.replace(/[\r\n]+/g, ' ').slice(0, 80)}` },
         Body: {
           Html: { Data: emailHtml },
           Text: { Data: emailText },
