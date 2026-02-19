@@ -35,18 +35,16 @@ export function useTeamData(teamId: string, formationId: string | null | undefin
           playerSub.unsubscribe();
         }
 
-        // Extract player IDs from roster for filtered query
-        const rosterPlayerIds = rosters.map(r => r.playerId);
+        // Extract player IDs from roster for client-side filtering.
+        // We subscribe to ALL players without server-side filters because
+        // AppSync subscriptions have a maximum of 10 filters, and teams
+        // commonly have more than 10 players on the roster.
+        const rosterPlayerIds = new Set(rosters.map(r => r.playerId));
 
-        // Only load players that are on this team's roster (no over-fetching)
-        if (rosterPlayerIds.length > 0) {
-          playerSub = client.models.Player.observeQuery({
-            filter: {
-              or: rosterPlayerIds.map(id => ({ id: { eq: id } })),
-            },
-          }).subscribe({
+        if (rosterPlayerIds.size > 0) {
+          playerSub = client.models.Player.observeQuery().subscribe({
             next: (playerData) => {
-              const teamPlayers = playerData.items;
+              const teamPlayers = playerData.items.filter(p => rosterPlayerIds.has(p.id));
 
               // Merge roster with player data (O(n*m) but both are small now)
               const playersWithRoster: PlayerWithRoster[] = rosters
