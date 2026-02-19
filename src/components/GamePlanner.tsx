@@ -239,6 +239,13 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     });
   }, [players, availabilities]);
 
+  // Identify the halftime rotation number (first rotation of second half)
+  const halftimeRotationNumber = useMemo(() => {
+    const rotationsPerHalf = gamePlan ? Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1 : 0;
+    return rotations.find(r => r.half === 2)?.rotationNumber
+      ?? (rotationsPerHalf > 0 ? rotationsPerHalf + 1 : undefined);
+  }, [gamePlan, halfLengthMinutes, rotationIntervalMinutes, rotations]);
+
   // Memoize play time calculation which is expensive
   const playTimeData = useMemo(() => {
     if (!gamePlan || rotations.length === 0) return new Map();
@@ -519,6 +526,28 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }
   };
 
+  const handleHalftimeLineupChange = (positionId: string, playerId: string) => {
+    if (!halftimeRotationNumber) return;
+    const secondHalfRotation = rotations.find(r => r.rotationNumber === halftimeRotationNumber);
+    if (!secondHalfRotation) return;
+
+    const currentLineup = getLineupAtRotation(secondHalfRotation.rotationNumber);
+    const newLineup = new Map(currentLineup);
+
+    if (playerId === "") {
+      newLineup.delete(positionId);
+    } else {
+      for (const [pos, pid] of newLineup.entries()) {
+        if (pid === playerId) {
+          newLineup.delete(pos);
+        }
+      }
+      newLineup.set(positionId, playerId);
+    }
+
+    handleRotationLineupChange(secondHalfRotation.rotationNumber, newLineup);
+  };
+
   const handleRotationClick = (rotationNumber: number | 'starting' | 'halftime') => {
     setSelectedRotation(selectedRotation === rotationNumber ? null : rotationNumber);
 
@@ -792,16 +821,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
 
   const renderRotationTimeline = () => {
-    // Use memoized values - these are now calculated efficiently at the component level
-    const rotationsPerHalf = gamePlan ? Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1 : 0;
-
     // Create timeline items with starting lineup first, then all rotations.
     // The halftime rotation is displayed as "HT" in the timeline but is still a rotation item.
     const timelineItems: Array<{ type: 'starting' | 'rotation'; rotation?: PlannedRotation; minute?: number }> = [];
-    
-    // Identify the halftime rotation: the first rotation in the second half.
-    const halftimeRotationNumber = rotations.find(r => r.half === 2)?.rotationNumber
-      ?? (rotationsPerHalf > 0 ? rotationsPerHalf + 1 : undefined);
 
     if (gamePlan && rotations.length > 0) {
       timelineItems.push({ type: 'starting', minute: 0 });
@@ -892,73 +914,13 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
             </div>
             
             {secondHalfStartRotation ? (
-              <div className="rotation-lineup-custom">
-                <div className="position-lineup-grid">
-                  {positions.map((position) => {
-                    const assignedPlayerId = halfTimeLineup.get(position.id);
-                    const assignedPlayer = rotationPlayers.find((p) => p.id === assignedPlayerId);
-
-                    return (
-                      <div key={position.id} className="position-slot">
-                        <div className="position-label">{position.abbreviation}</div>
-                        {assignedPlayer ? (
-                          <button
-                            className="assigned-player clickable"
-                            onClick={() => setSwapModalData({
-                              rotationNumber: secondHalfStartRotation.rotationNumber,
-                              positionId: position.id,
-                              currentPlayerId: assignedPlayer.id,
-                            })}
-                            style={{ cursor: 'pointer', border: '2px solid #ff9800' }}
-                          >
-                            <span className="player-number">#{assignedPlayer.playerNumber || 0}</span>
-                            <span className="player-name-short">
-                              {assignedPlayer.firstName} {assignedPlayer.lastName.charAt(0)}.
-                            </span>
-                            <span style={{ marginLeft: 'auto', fontSize: '0.8rem' }}>🔄</span>
-                          </button>
-                        ) : (
-                          <select
-                            className="player-select"
-                            value=""
-                            onChange={(e) => {
-                              if (e.target.value) {
-                                const newLineup = new Map(halfTimeLineup);
-                                newLineup.set(position.id, e.target.value);
-                                handleRotationLineupChange(secondHalfStartRotation.rotationNumber, newLineup);
-                              }
-                            }}
-                          >
-                            <option value="">Select player...</option>
-                            {rotationPlayers
-                              .filter((p) => !Array.from(halfTimeLineup.values()).includes(p.id))
-                              .map((player) => (
-                                <option key={player.id} value={player.id}>
-                                  #{player.playerNumber || 0} {player.firstName} {player.lastName}
-                                </option>
-                              ))}
-                          </select>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="bench-area">
-                  <h4>Bench</h4>
-                  <div className="bench-players">
-                    {rotationPlayers
-                      .filter((p) => !Array.from(halfTimeLineup.values()).includes(p.id))
-                      .map((player) => (
-                        <div key={player.id} className="bench-player">
-                          <span className="player-number">#{player.playerNumber || 0}</span>
-                          <span className="player-name">
-                            {player.firstName} {player.lastName}
-                          </span>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              </div>
+              <LineupBuilder
+                positions={positions}
+                availablePlayers={rotationPlayers}
+                lineup={halfTimeLineup}
+                onLineupChange={handleHalftimeLineupChange}
+                showPreferredPositions={true}
+              />
             ) : (
               <p>Create rotations first by clicking "Update Plan"</p>
             )}
