@@ -6,32 +6,53 @@ const ses = new SESClient({ region: process.env.AWS_REGION });
 const FROM_EMAIL = process.env.FROM_EMAIL || 'admin@coachteamtrack.com';
 const TO_EMAIL = process.env.TO_EMAIL || 'amcolosk+teamtrack@gmail.com';
 
-export const handler: Schema['submitBugReport']['functionHandler'] = async (event) => {
-  console.log('Bug report submission received');
+export interface BugReportInput {
+  description: string;
+  steps?: string;
+  severity: string;
+  systemInfo: Record<string, string>;
+  userEmail: string;
+  userId: string;
+}
 
-  const identity = event.identity as AppSyncIdentityCognito;
-  const userId = identity?.sub || 'unknown';
-  const userEmail = (identity?.claims?.email
-    || identity?.claims?.username
-    || identity?.claims?.['cognito:username']
-    || 'unknown') as string;
+const SEVERITY_EMOJI: Record<string, string> = {
+  low: '🟢',
+  medium: '🟡',
+  high: '🔴',
+};
 
-  const { description, steps, severity, systemInfo } = event.arguments;
+export function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
-  let parsedSystemInfo: Record<string, string> = {};
-  try {
-    parsedSystemInfo = JSON.parse(systemInfo || '{}');
-  } catch {
-    parsedSystemInfo = { raw: systemInfo || '' };
-  }
+export function buildSubject(input: BugReportInput): string {
+  const emoji = SEVERITY_EMOJI[input.severity] || '🟡';
+  const desc = input.description.replace(/[\r\n]+/g, ' ').slice(0, 80);
+  return `${emoji} TeamTrack Bug: ${desc}`;
+}
 
-  const severityEmoji: Record<string, string> = {
-    low: '🟢',
-    medium: '🟡',
-    high: '🔴',
-  };
+export function buildTextBody(input: BugReportInput): string {
+  return [
+    `Bug Report — ${input.severity.toUpperCase()}`,
+    '',
+    `Description: ${input.description}`,
+    input.steps ? `Steps: ${input.steps}` : '',
+    `Reporter: ${input.userEmail} (${input.userId})`,
+    '',
+    'System Info:',
+    ...Object.entries(input.systemInfo).map(([k, v]) => `  ${k}: ${v}`),
+  ].filter(Boolean).join('\n');
+}
 
-  const emailHtml = `
+export function buildHtmlBody(input: BugReportInput): string {
+  const severity = input.severity || 'medium';
+  const emoji = SEVERITY_EMOJI[severity] || '🟡';
+
+  return `
     <!DOCTYPE html>
     <html>
     <head>
@@ -53,38 +74,38 @@ export const handler: Schema['submitBugReport']['functionHandler'] = async (even
     </head>
     <body>
       <div class="header">
-        <h2 style="margin:0">${severityEmoji[severity || 'medium'] || '🟡'} Bug Report — ${(severity || 'medium').toUpperCase()}</h2>
+        <h2 style="margin:0">${emoji} Bug Report — ${severity.toUpperCase()}</h2>
       </div>
       <div class="content">
         <div class="field">
           <div class="field-label">Severity</div>
           <div class="field-value">
-            <span class="severity-badge severity-${severity || 'medium'}">${(severity || 'medium').toUpperCase()}</span>
+            <span class="severity-badge severity-${severity}">${severity.toUpperCase()}</span>
           </div>
         </div>
 
         <div class="field">
           <div class="field-label">Description</div>
-          <div class="field-value">${escapeHtml(description)}</div>
+          <div class="field-value">${escapeHtml(input.description)}</div>
         </div>
 
-        ${steps ? `
+        ${input.steps ? `
         <div class="field">
           <div class="field-label">Steps to Reproduce</div>
-          <div class="field-value" style="white-space: pre-wrap;">${escapeHtml(steps)}</div>
+          <div class="field-value" style="white-space: pre-wrap;">${escapeHtml(input.steps)}</div>
         </div>
         ` : ''}
 
         <div class="field">
           <div class="field-label">Reporter</div>
-          <div class="field-value">${escapeHtml(userEmail)} (${userId})</div>
+          <div class="field-value">${escapeHtml(input.userEmail)} (${input.userId})</div>
         </div>
 
         <div class="field">
           <div class="field-label">System Information</div>
           <div class="field-value">
             <table class="system-info">
-              ${Object.entries(parsedSystemInfo).map(([key, val]) =>
+              ${Object.entries(input.systemInfo).map(([key, val]) =>
                 `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(String(val))}</td></tr>`
               ).join('')}
             </table>
@@ -94,27 +115,48 @@ export const handler: Schema['submitBugReport']['functionHandler'] = async (even
     </body>
     </html>
   `;
+}
 
-  const emailText = [
-    `Bug Report — ${(severity || 'medium').toUpperCase()}`,
-    '',
-    `Description: ${description}`,
-    steps ? `Steps: ${steps}` : '',
-    `Reporter: ${userEmail} (${userId})`,
-    '',
-    'System Info:',
-    ...Object.entries(parsedSystemInfo).map(([k, v]) => `  ${k}: ${v}`),
-  ].filter(Boolean).join('\n');
+export function resolveUserEmail(identity: AppSyncIdentityCognito | undefined | null): string {
+  if (!identity) return 'unknown';
+  return (identity.claims?.email
+    || identity.claims?.username
+    || identity.claims?.['cognito:username']
+    || 'unknown') as string;
+}
+
+export function parseSystemInfo(raw: string | undefined | null): Record<string, string> {
+  try {
+    return JSON.parse(raw || '{}');
+  } catch {
+    return { raw: raw || '' };
+  }
+}
+
+export const handler: Schema['submitBugReport']['functionHandler'] = async (event) => {
+  console.log('Bug report submission received');
+
+  const identity = event.identity as AppSyncIdentityCognito;
+  const { description, steps, severity, systemInfo } = event.arguments;
+
+  const input: BugReportInput = {
+    description,
+    steps: steps || undefined,
+    severity: severity || 'medium',
+    systemInfo: parseSystemInfo(systemInfo),
+    userEmail: resolveUserEmail(identity),
+    userId: identity?.sub || 'unknown',
+  };
 
   try {
     await ses.send(new SendEmailCommand({
       Source: FROM_EMAIL,
       Destination: { ToAddresses: [TO_EMAIL] },
       Message: {
-        Subject: { Data: `${severityEmoji[severity || 'medium'] || '🟡'} TeamTrack Bug: ${description.replace(/[\r\n]+/g, ' ').slice(0, 80)}` },
+        Subject: { Data: buildSubject(input) },
         Body: {
-          Html: { Data: emailHtml },
-          Text: { Data: emailText },
+          Html: { Data: buildHtmlBody(input) },
+          Text: { Data: buildTextBody(input) },
         },
       },
     }));
@@ -126,11 +168,3 @@ export const handler: Schema['submitBugReport']['functionHandler'] = async (even
     throw new Error('Failed to send bug report email');
   }
 };
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
