@@ -435,10 +435,18 @@ export function TeamReport({ team }: TeamReportProps) {
       ) : (
         <div className="report-content">
           <div className="report-summary">
-            <div className="summary-card">
-              <div className="summary-label">Total Players</div>
-              <div className="summary-value">{players.length}</div>
-            </div>
+            {(() => {
+              const completedGames = allGames.filter(g => g.status === 'completed');
+              const wins = completedGames.filter(g => (g.ourScore ?? 0) > (g.opponentScore ?? 0)).length;
+              const losses = completedGames.filter(g => (g.ourScore ?? 0) < (g.opponentScore ?? 0)).length;
+              const ties = completedGames.filter(g => (g.ourScore ?? 0) === (g.opponentScore ?? 0)).length;
+              return (
+                <div className="summary-card">
+                  <div className="summary-label">Record</div>
+                  <div className="summary-value">{wins}W - {losses}L - {ties}T</div>
+                </div>
+              );
+            })()}
             <div className="summary-card">
               <div className="summary-label">Total Goals</div>
               <div className="summary-value">
