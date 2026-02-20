@@ -1,0 +1,2209 @@
+# this is an auto generated file. This will be overwritten
+
+subscription OnCreateFieldPosition(
+  $filter: ModelSubscriptionFieldPositionFilterInput
+) {
+  onCreateFieldPosition(filter: $filter) {
+    abbreviation
+    coaches
+    createdAt
+    id
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    positionName
+    sortOrder
+    substitutions {
+      nextToken
+      __typename
+    }
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreateFormation($filter: ModelSubscriptionFormationFilterInput) {
+  onCreateFormation(filter: $filter) {
+    coaches
+    createdAt
+    id
+    name
+    playerCount
+    positions {
+      nextToken
+      __typename
+    }
+    sport
+    teams {
+      nextToken
+      __typename
+    }
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreateFormationPosition(
+  $filter: ModelSubscriptionFormationPositionFilterInput
+) {
+  onCreateFormationPosition(filter: $filter) {
+    abbreviation
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    id
+    positionName
+    sortOrder
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreateGame($filter: ModelSubscriptionGameFilterInput) {
+  onCreateGame(filter: $filter) {
+    coaches
+    createdAt
+    currentHalf
+    elapsedSeconds
+    gameDate
+    gameNotes {
+      nextToken
+      __typename
+    }
+    gamePlan {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    goals {
+      nextToken
+      __typename
+    }
+    id
+    isHome
+    lastStartTime
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    opponent
+    opponentScore
+    ourScore
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    playerAvailability {
+      nextToken
+      __typename
+    }
+    status
+    substitutions {
+      nextToken
+      __typename
+    }
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreateGameNote($filter: ModelSubscriptionGameNoteFilterInput) {
+  onCreateGameNote(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    noteType
+    notes
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreateGamePlan($filter: ModelSubscriptionGamePlanFilterInput) {
+  onCreateGamePlan(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    plannedRotations {
+      nextToken
+      __typename
+    }
+    rotationIntervalMinutes
+    startingLineup
+    totalRotations
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreateGoal($filter: ModelSubscriptionGoalFilterInput) {
+  onCreateGoal(filter: $filter) {
+    assist {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    assistId
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    notes
+    scoredByUs
+    scorer {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    scorerId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreateIssue($filter: ModelSubscriptionIssueFilterInput) {
+  onCreateIssue(filter: $filter) {
+    closedAt
+    createdAt
+    description
+    id
+    issueNumber
+    resolution
+    severity
+    status
+    steps
+    systemInfo
+    type
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreateIssueCounter(
+  $filter: ModelSubscriptionIssueCounterFilterInput
+) {
+  onCreateIssueCounter(filter: $filter) {
+    counterName
+    createdAt
+    currentValue
+    id
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreateLineupAssignment(
+  $filter: ModelSubscriptionLineupAssignmentFilterInput
+) {
+  onCreateLineupAssignment(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    isStarter
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreatePlannedRotation(
+  $filter: ModelSubscriptionPlannedRotationFilterInput
+) {
+  onCreatePlannedRotation(filter: $filter) {
+    coaches
+    createdAt
+    gameMinute
+    gamePlan {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    gamePlanId
+    half
+    id
+    plannedSubstitutions
+    rotationNumber
+    updatedAt
+    viewedAt
+    __typename
+  }
+}
+
+subscription OnCreatePlayTimeRecord(
+  $filter: ModelSubscriptionPlayTimeRecordFilterInput
+) {
+  onCreatePlayTimeRecord(filter: $filter) {
+    coaches
+    createdAt
+    endGameSeconds
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    startGameSeconds
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreatePlayer($filter: ModelSubscriptionPlayerFilterInput) {
+  onCreatePlayer(filter: $filter) {
+    assists {
+      nextToken
+      __typename
+    }
+    coaches
+    createdAt
+    firstName
+    gameNotes {
+      nextToken
+      __typename
+    }
+    goalsScored {
+      nextToken
+      __typename
+    }
+    id
+    isActive
+    lastName
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    playerAvailabilities {
+      nextToken
+      __typename
+    }
+    substitutionsIn {
+      nextToken
+      __typename
+    }
+    substitutionsOut {
+      nextToken
+      __typename
+    }
+    teamRosters {
+      nextToken
+      __typename
+    }
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreatePlayerAvailability(
+  $filter: ModelSubscriptionPlayerAvailabilityFilterInput
+) {
+  onCreatePlayerAvailability(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    markedAt
+    notes
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    status
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreateSubstitution(
+  $filter: ModelSubscriptionSubstitutionFilterInput
+) {
+  onCreateSubstitution(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    playerIn {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerInId
+    playerOut {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerOutId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreateTeam($filter: ModelSubscriptionTeamFilterInput) {
+  onCreateTeam(filter: $filter) {
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    gameFormat
+    games {
+      nextToken
+      __typename
+    }
+    halfLengthMinutes
+    id
+    invitations {
+      nextToken
+      __typename
+    }
+    maxPlayersOnField
+    name
+    positions {
+      nextToken
+      __typename
+    }
+    roster {
+      nextToken
+      __typename
+    }
+    sport
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreateTeamInvitation(
+  $filter: ModelSubscriptionTeamInvitationFilterInput
+) {
+  onCreateTeamInvitation(filter: $filter) {
+    acceptedAt
+    acceptedBy
+    coaches
+    createdAt
+    email
+    expiresAt
+    id
+    invitedAt
+    invitedBy
+    role
+    status
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    teamName
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnCreateTeamRoster(
+  $filter: ModelSubscriptionTeamRosterFilterInput
+) {
+  onCreateTeamRoster(filter: $filter) {
+    coaches
+    createdAt
+    id
+    isActive
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    playerNumber
+    preferredPositions
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeleteFieldPosition(
+  $filter: ModelSubscriptionFieldPositionFilterInput
+) {
+  onDeleteFieldPosition(filter: $filter) {
+    abbreviation
+    coaches
+    createdAt
+    id
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    positionName
+    sortOrder
+    substitutions {
+      nextToken
+      __typename
+    }
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeleteFormation($filter: ModelSubscriptionFormationFilterInput) {
+  onDeleteFormation(filter: $filter) {
+    coaches
+    createdAt
+    id
+    name
+    playerCount
+    positions {
+      nextToken
+      __typename
+    }
+    sport
+    teams {
+      nextToken
+      __typename
+    }
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeleteFormationPosition(
+  $filter: ModelSubscriptionFormationPositionFilterInput
+) {
+  onDeleteFormationPosition(filter: $filter) {
+    abbreviation
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    id
+    positionName
+    sortOrder
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeleteGame($filter: ModelSubscriptionGameFilterInput) {
+  onDeleteGame(filter: $filter) {
+    coaches
+    createdAt
+    currentHalf
+    elapsedSeconds
+    gameDate
+    gameNotes {
+      nextToken
+      __typename
+    }
+    gamePlan {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    goals {
+      nextToken
+      __typename
+    }
+    id
+    isHome
+    lastStartTime
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    opponent
+    opponentScore
+    ourScore
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    playerAvailability {
+      nextToken
+      __typename
+    }
+    status
+    substitutions {
+      nextToken
+      __typename
+    }
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeleteGameNote($filter: ModelSubscriptionGameNoteFilterInput) {
+  onDeleteGameNote(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    noteType
+    notes
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeleteGamePlan($filter: ModelSubscriptionGamePlanFilterInput) {
+  onDeleteGamePlan(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    plannedRotations {
+      nextToken
+      __typename
+    }
+    rotationIntervalMinutes
+    startingLineup
+    totalRotations
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeleteGoal($filter: ModelSubscriptionGoalFilterInput) {
+  onDeleteGoal(filter: $filter) {
+    assist {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    assistId
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    notes
+    scoredByUs
+    scorer {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    scorerId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeleteIssue($filter: ModelSubscriptionIssueFilterInput) {
+  onDeleteIssue(filter: $filter) {
+    closedAt
+    createdAt
+    description
+    id
+    issueNumber
+    resolution
+    severity
+    status
+    steps
+    systemInfo
+    type
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeleteIssueCounter(
+  $filter: ModelSubscriptionIssueCounterFilterInput
+) {
+  onDeleteIssueCounter(filter: $filter) {
+    counterName
+    createdAt
+    currentValue
+    id
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeleteLineupAssignment(
+  $filter: ModelSubscriptionLineupAssignmentFilterInput
+) {
+  onDeleteLineupAssignment(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    isStarter
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeletePlannedRotation(
+  $filter: ModelSubscriptionPlannedRotationFilterInput
+) {
+  onDeletePlannedRotation(filter: $filter) {
+    coaches
+    createdAt
+    gameMinute
+    gamePlan {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    gamePlanId
+    half
+    id
+    plannedSubstitutions
+    rotationNumber
+    updatedAt
+    viewedAt
+    __typename
+  }
+}
+
+subscription OnDeletePlayTimeRecord(
+  $filter: ModelSubscriptionPlayTimeRecordFilterInput
+) {
+  onDeletePlayTimeRecord(filter: $filter) {
+    coaches
+    createdAt
+    endGameSeconds
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    startGameSeconds
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeletePlayer($filter: ModelSubscriptionPlayerFilterInput) {
+  onDeletePlayer(filter: $filter) {
+    assists {
+      nextToken
+      __typename
+    }
+    coaches
+    createdAt
+    firstName
+    gameNotes {
+      nextToken
+      __typename
+    }
+    goalsScored {
+      nextToken
+      __typename
+    }
+    id
+    isActive
+    lastName
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    playerAvailabilities {
+      nextToken
+      __typename
+    }
+    substitutionsIn {
+      nextToken
+      __typename
+    }
+    substitutionsOut {
+      nextToken
+      __typename
+    }
+    teamRosters {
+      nextToken
+      __typename
+    }
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeletePlayerAvailability(
+  $filter: ModelSubscriptionPlayerAvailabilityFilterInput
+) {
+  onDeletePlayerAvailability(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    markedAt
+    notes
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    status
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeleteSubstitution(
+  $filter: ModelSubscriptionSubstitutionFilterInput
+) {
+  onDeleteSubstitution(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    playerIn {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerInId
+    playerOut {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerOutId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeleteTeam($filter: ModelSubscriptionTeamFilterInput) {
+  onDeleteTeam(filter: $filter) {
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    gameFormat
+    games {
+      nextToken
+      __typename
+    }
+    halfLengthMinutes
+    id
+    invitations {
+      nextToken
+      __typename
+    }
+    maxPlayersOnField
+    name
+    positions {
+      nextToken
+      __typename
+    }
+    roster {
+      nextToken
+      __typename
+    }
+    sport
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeleteTeamInvitation(
+  $filter: ModelSubscriptionTeamInvitationFilterInput
+) {
+  onDeleteTeamInvitation(filter: $filter) {
+    acceptedAt
+    acceptedBy
+    coaches
+    createdAt
+    email
+    expiresAt
+    id
+    invitedAt
+    invitedBy
+    role
+    status
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    teamName
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnDeleteTeamRoster(
+  $filter: ModelSubscriptionTeamRosterFilterInput
+) {
+  onDeleteTeamRoster(filter: $filter) {
+    coaches
+    createdAt
+    id
+    isActive
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    playerNumber
+    preferredPositions
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdateFieldPosition(
+  $filter: ModelSubscriptionFieldPositionFilterInput
+) {
+  onUpdateFieldPosition(filter: $filter) {
+    abbreviation
+    coaches
+    createdAt
+    id
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    positionName
+    sortOrder
+    substitutions {
+      nextToken
+      __typename
+    }
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdateFormation($filter: ModelSubscriptionFormationFilterInput) {
+  onUpdateFormation(filter: $filter) {
+    coaches
+    createdAt
+    id
+    name
+    playerCount
+    positions {
+      nextToken
+      __typename
+    }
+    sport
+    teams {
+      nextToken
+      __typename
+    }
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdateFormationPosition(
+  $filter: ModelSubscriptionFormationPositionFilterInput
+) {
+  onUpdateFormationPosition(filter: $filter) {
+    abbreviation
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    id
+    positionName
+    sortOrder
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdateGame($filter: ModelSubscriptionGameFilterInput) {
+  onUpdateGame(filter: $filter) {
+    coaches
+    createdAt
+    currentHalf
+    elapsedSeconds
+    gameDate
+    gameNotes {
+      nextToken
+      __typename
+    }
+    gamePlan {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    goals {
+      nextToken
+      __typename
+    }
+    id
+    isHome
+    lastStartTime
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    opponent
+    opponentScore
+    ourScore
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    playerAvailability {
+      nextToken
+      __typename
+    }
+    status
+    substitutions {
+      nextToken
+      __typename
+    }
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdateGameNote($filter: ModelSubscriptionGameNoteFilterInput) {
+  onUpdateGameNote(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    noteType
+    notes
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdateGamePlan($filter: ModelSubscriptionGamePlanFilterInput) {
+  onUpdateGamePlan(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    plannedRotations {
+      nextToken
+      __typename
+    }
+    rotationIntervalMinutes
+    startingLineup
+    totalRotations
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdateGoal($filter: ModelSubscriptionGoalFilterInput) {
+  onUpdateGoal(filter: $filter) {
+    assist {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    assistId
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    notes
+    scoredByUs
+    scorer {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    scorerId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdateIssue($filter: ModelSubscriptionIssueFilterInput) {
+  onUpdateIssue(filter: $filter) {
+    closedAt
+    createdAt
+    description
+    id
+    issueNumber
+    resolution
+    severity
+    status
+    steps
+    systemInfo
+    type
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdateIssueCounter(
+  $filter: ModelSubscriptionIssueCounterFilterInput
+) {
+  onUpdateIssueCounter(filter: $filter) {
+    counterName
+    createdAt
+    currentValue
+    id
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdateLineupAssignment(
+  $filter: ModelSubscriptionLineupAssignmentFilterInput
+) {
+  onUpdateLineupAssignment(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    isStarter
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdatePlannedRotation(
+  $filter: ModelSubscriptionPlannedRotationFilterInput
+) {
+  onUpdatePlannedRotation(filter: $filter) {
+    coaches
+    createdAt
+    gameMinute
+    gamePlan {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    gamePlanId
+    half
+    id
+    plannedSubstitutions
+    rotationNumber
+    updatedAt
+    viewedAt
+    __typename
+  }
+}
+
+subscription OnUpdatePlayTimeRecord(
+  $filter: ModelSubscriptionPlayTimeRecordFilterInput
+) {
+  onUpdatePlayTimeRecord(filter: $filter) {
+    coaches
+    createdAt
+    endGameSeconds
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    startGameSeconds
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdatePlayer($filter: ModelSubscriptionPlayerFilterInput) {
+  onUpdatePlayer(filter: $filter) {
+    assists {
+      nextToken
+      __typename
+    }
+    coaches
+    createdAt
+    firstName
+    gameNotes {
+      nextToken
+      __typename
+    }
+    goalsScored {
+      nextToken
+      __typename
+    }
+    id
+    isActive
+    lastName
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    playerAvailabilities {
+      nextToken
+      __typename
+    }
+    substitutionsIn {
+      nextToken
+      __typename
+    }
+    substitutionsOut {
+      nextToken
+      __typename
+    }
+    teamRosters {
+      nextToken
+      __typename
+    }
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdatePlayerAvailability(
+  $filter: ModelSubscriptionPlayerAvailabilityFilterInput
+) {
+  onUpdatePlayerAvailability(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    markedAt
+    notes
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    status
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdateSubstitution(
+  $filter: ModelSubscriptionSubstitutionFilterInput
+) {
+  onUpdateSubstitution(filter: $filter) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    playerIn {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerInId
+    playerOut {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerOutId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdateTeam($filter: ModelSubscriptionTeamFilterInput) {
+  onUpdateTeam(filter: $filter) {
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    gameFormat
+    games {
+      nextToken
+      __typename
+    }
+    halfLengthMinutes
+    id
+    invitations {
+      nextToken
+      __typename
+    }
+    maxPlayersOnField
+    name
+    positions {
+      nextToken
+      __typename
+    }
+    roster {
+      nextToken
+      __typename
+    }
+    sport
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdateTeamInvitation(
+  $filter: ModelSubscriptionTeamInvitationFilterInput
+) {
+  onUpdateTeamInvitation(filter: $filter) {
+    acceptedAt
+    acceptedBy
+    coaches
+    createdAt
+    email
+    expiresAt
+    id
+    invitedAt
+    invitedBy
+    role
+    status
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    teamName
+    updatedAt
+    __typename
+  }
+}
+
+subscription OnUpdateTeamRoster(
+  $filter: ModelSubscriptionTeamRosterFilterInput
+) {
+  onUpdateTeamRoster(filter: $filter) {
+    coaches
+    createdAt
+    id
+    isActive
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    playerNumber
+    preferredPositions
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}

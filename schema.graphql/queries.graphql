@@ -1,0 +1,1256 @@
+# this is an auto generated file. This will be overwritten
+
+query GetFieldPosition($id: ID!) {
+  getFieldPosition(id: $id) {
+    abbreviation
+    coaches
+    createdAt
+    id
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    positionName
+    sortOrder
+    substitutions {
+      nextToken
+      __typename
+    }
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+query GetFormation($id: ID!) {
+  getFormation(id: $id) {
+    coaches
+    createdAt
+    id
+    name
+    playerCount
+    positions {
+      nextToken
+      __typename
+    }
+    sport
+    teams {
+      nextToken
+      __typename
+    }
+    updatedAt
+    __typename
+  }
+}
+
+query GetFormationPosition($id: ID!) {
+  getFormationPosition(id: $id) {
+    abbreviation
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    id
+    positionName
+    sortOrder
+    updatedAt
+    __typename
+  }
+}
+
+query GetGame($id: ID!) {
+  getGame(id: $id) {
+    coaches
+    createdAt
+    currentHalf
+    elapsedSeconds
+    gameDate
+    gameNotes {
+      nextToken
+      __typename
+    }
+    gamePlan {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    goals {
+      nextToken
+      __typename
+    }
+    id
+    isHome
+    lastStartTime
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    opponent
+    opponentScore
+    ourScore
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    playerAvailability {
+      nextToken
+      __typename
+    }
+    status
+    substitutions {
+      nextToken
+      __typename
+    }
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+query GetGameNote($id: ID!) {
+  getGameNote(id: $id) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    noteType
+    notes
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+query GetGamePlan($id: ID!) {
+  getGamePlan(id: $id) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    plannedRotations {
+      nextToken
+      __typename
+    }
+    rotationIntervalMinutes
+    startingLineup
+    totalRotations
+    updatedAt
+    __typename
+  }
+}
+
+query GetGoal($id: ID!) {
+  getGoal(id: $id) {
+    assist {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    assistId
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    notes
+    scoredByUs
+    scorer {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    scorerId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+query GetIssue($id: ID!) {
+  getIssue(id: $id) {
+    closedAt
+    createdAt
+    description
+    id
+    issueNumber
+    resolution
+    severity
+    status
+    steps
+    systemInfo
+    type
+    updatedAt
+    __typename
+  }
+}
+
+query GetIssueByNumber(
+  $filter: ModelIssueFilterInput
+  $issueNumber: Int!
+  $limit: Int
+  $nextToken: String
+  $sortDirection: ModelSortDirection
+) {
+  getIssueByNumber(
+    filter: $filter
+    issueNumber: $issueNumber
+    limit: $limit
+    nextToken: $nextToken
+    sortDirection: $sortDirection
+  ) {
+    items {
+      closedAt
+      createdAt
+      description
+      id
+      issueNumber
+      resolution
+      severity
+      status
+      steps
+      systemInfo
+      type
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query GetIssueCounter($id: ID!) {
+  getIssueCounter(id: $id) {
+    counterName
+    createdAt
+    currentValue
+    id
+    updatedAt
+    __typename
+  }
+}
+
+query GetLineupAssignment($id: ID!) {
+  getLineupAssignment(id: $id) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    isStarter
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    updatedAt
+    __typename
+  }
+}
+
+query GetPlannedRotation($id: ID!) {
+  getPlannedRotation(id: $id) {
+    coaches
+    createdAt
+    gameMinute
+    gamePlan {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    gamePlanId
+    half
+    id
+    plannedSubstitutions
+    rotationNumber
+    updatedAt
+    viewedAt
+    __typename
+  }
+}
+
+query GetPlayTimeRecord($id: ID!) {
+  getPlayTimeRecord(id: $id) {
+    coaches
+    createdAt
+    endGameSeconds
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    startGameSeconds
+    updatedAt
+    __typename
+  }
+}
+
+query GetPlayer($id: ID!) {
+  getPlayer(id: $id) {
+    assists {
+      nextToken
+      __typename
+    }
+    coaches
+    createdAt
+    firstName
+    gameNotes {
+      nextToken
+      __typename
+    }
+    goalsScored {
+      nextToken
+      __typename
+    }
+    id
+    isActive
+    lastName
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    playerAvailabilities {
+      nextToken
+      __typename
+    }
+    substitutionsIn {
+      nextToken
+      __typename
+    }
+    substitutionsOut {
+      nextToken
+      __typename
+    }
+    teamRosters {
+      nextToken
+      __typename
+    }
+    updatedAt
+    __typename
+  }
+}
+
+query GetPlayerAvailability($id: ID!) {
+  getPlayerAvailability(id: $id) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    markedAt
+    notes
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    status
+    updatedAt
+    __typename
+  }
+}
+
+query GetSubstitution($id: ID!) {
+  getSubstitution(id: $id) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    playerIn {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerInId
+    playerOut {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerOutId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+query GetTeam($id: ID!) {
+  getTeam(id: $id) {
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    gameFormat
+    games {
+      nextToken
+      __typename
+    }
+    halfLengthMinutes
+    id
+    invitations {
+      nextToken
+      __typename
+    }
+    maxPlayersOnField
+    name
+    positions {
+      nextToken
+      __typename
+    }
+    roster {
+      nextToken
+      __typename
+    }
+    sport
+    updatedAt
+    __typename
+  }
+}
+
+query GetTeamInvitation($id: ID!) {
+  getTeamInvitation(id: $id) {
+    acceptedAt
+    acceptedBy
+    coaches
+    createdAt
+    email
+    expiresAt
+    id
+    invitedAt
+    invitedBy
+    role
+    status
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    teamName
+    updatedAt
+    __typename
+  }
+}
+
+query GetTeamRoster($id: ID!) {
+  getTeamRoster(id: $id) {
+    coaches
+    createdAt
+    id
+    isActive
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    playerNumber
+    preferredPositions
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+query GetUserInvitations {
+  getUserInvitations
+}
+
+query ListFieldPositions(
+  $filter: ModelFieldPositionFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listFieldPositions(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListFormationPositions(
+  $filter: ModelFormationPositionFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listFormationPositions(
+    filter: $filter
+    limit: $limit
+    nextToken: $nextToken
+  ) {
+    items {
+      abbreviation
+      coaches
+      createdAt
+      formationId
+      id
+      positionName
+      sortOrder
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListFormations(
+  $filter: ModelFormationFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listFormations(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListGameNotes(
+  $filter: ModelGameNoteFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listGameNotes(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      coaches
+      createdAt
+      gameId
+      gameSeconds
+      half
+      id
+      noteType
+      notes
+      playerId
+      timestamp
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListGamePlans(
+  $filter: ModelGamePlanFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listGamePlans(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListGames(
+  $filter: ModelGameFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listGames(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListGoals(
+  $filter: ModelGoalFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listGoals(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      assistId
+      coaches
+      createdAt
+      gameId
+      gameSeconds
+      half
+      id
+      notes
+      scoredByUs
+      scorerId
+      timestamp
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListInvitationsByEmail(
+  $email: String!
+  $filter: ModelTeamInvitationFilterInput
+  $limit: Int
+  $nextToken: String
+  $sortDirection: ModelSortDirection
+  $status: ModelStringKeyConditionInput
+) {
+  listInvitationsByEmail(
+    email: $email
+    filter: $filter
+    limit: $limit
+    nextToken: $nextToken
+    sortDirection: $sortDirection
+    status: $status
+  ) {
+    items {
+      acceptedAt
+      acceptedBy
+      coaches
+      createdAt
+      email
+      expiresAt
+      id
+      invitedAt
+      invitedBy
+      role
+      status
+      teamId
+      teamName
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListIssueCounters(
+  $filter: ModelIssueCounterFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listIssueCounters(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      counterName
+      createdAt
+      currentValue
+      id
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListIssues(
+  $filter: ModelIssueFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listIssues(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      closedAt
+      createdAt
+      description
+      id
+      issueNumber
+      resolution
+      severity
+      status
+      steps
+      systemInfo
+      type
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListLineupAssignments(
+  $filter: ModelLineupAssignmentFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listLineupAssignments(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      coaches
+      createdAt
+      gameId
+      id
+      isStarter
+      playerId
+      positionId
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListPlannedRotations(
+  $filter: ModelPlannedRotationFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listPlannedRotations(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      coaches
+      createdAt
+      gameMinute
+      gamePlanId
+      half
+      id
+      plannedSubstitutions
+      rotationNumber
+      updatedAt
+      viewedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListPlayTimeRecords(
+  $filter: ModelPlayTimeRecordFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listPlayTimeRecords(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      coaches
+      createdAt
+      endGameSeconds
+      gameId
+      id
+      playerId
+      positionId
+      startGameSeconds
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListPlayTimeRecordsByGameId(
+  $filter: ModelPlayTimeRecordFilterInput
+  $gameId: ID!
+  $limit: Int
+  $nextToken: String
+  $sortDirection: ModelSortDirection
+) {
+  listPlayTimeRecordsByGameId(
+    filter: $filter
+    gameId: $gameId
+    limit: $limit
+    nextToken: $nextToken
+    sortDirection: $sortDirection
+  ) {
+    items {
+      coaches
+      createdAt
+      endGameSeconds
+      gameId
+      id
+      playerId
+      positionId
+      startGameSeconds
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListPlayerAvailabilities(
+  $filter: ModelPlayerAvailabilityFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listPlayerAvailabilities(
+    filter: $filter
+    limit: $limit
+    nextToken: $nextToken
+  ) {
+    items {
+      coaches
+      createdAt
+      gameId
+      id
+      markedAt
+      notes
+      playerId
+      status
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListPlayers(
+  $filter: ModelPlayerFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listPlayers(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListSubstitutions(
+  $filter: ModelSubstitutionFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listSubstitutions(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      coaches
+      createdAt
+      gameId
+      gameSeconds
+      half
+      id
+      playerInId
+      playerOutId
+      positionId
+      timestamp
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListTeamInvitations(
+  $filter: ModelTeamInvitationFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listTeamInvitations(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      acceptedAt
+      acceptedBy
+      coaches
+      createdAt
+      email
+      expiresAt
+      id
+      invitedAt
+      invitedBy
+      role
+      status
+      teamId
+      teamName
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListTeamRosters(
+  $filter: ModelTeamRosterFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listTeamRosters(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      coaches
+      createdAt
+      id
+      isActive
+      playerId
+      playerNumber
+      preferredPositions
+      teamId
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}
+
+query ListTeams(
+  $filter: ModelTeamFilterInput
+  $limit: Int
+  $nextToken: String
+) {
+  listTeams(filter: $filter, limit: $limit, nextToken: $nextToken) {
+    items {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    nextToken
+    __typename
+  }
+}

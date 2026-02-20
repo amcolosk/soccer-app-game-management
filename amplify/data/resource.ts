@@ -2,6 +2,7 @@ import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
 import { acceptInvitation } from "../functions/accept-invitation/resource";
 import { getUserInvitations } from "../functions/get-user-invitations/resource";
 import { sendBugReport } from "../functions/send-bug-report/resource";
+import { updateIssueStatus } from "../functions/update-issue-status/resource";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -289,6 +290,36 @@ const schema = a.schema({
       index('email').sortKeys(['status']).queryField('listInvitationsByEmail'),
     ]),
 
+  IssueCounter: a
+    .model({
+      counterName: a.string().required(), // e.g., "issue"
+      currentValue: a.integer().required(),
+    })
+    .authorization((allow) => [
+      // No client access — only Lambda IAM roles access this table
+      allow.authenticated().to([]),
+    ]),
+
+  Issue: a
+    .model({
+      issueNumber: a.integer().required(),
+      type: a.enum(['BUG', 'FEATURE_REQUEST']),
+      severity: a.string(),
+      status: a.enum(['OPEN', 'IN_PROGRESS', 'FIXED', 'DEPLOYED', 'CLOSED']),
+      description: a.string().required(),
+      steps: a.string(),
+      systemInfo: a.string(),
+      resolution: a.string(),
+      closedAt: a.datetime(),
+    })
+    .secondaryIndexes((index) => [
+      index('issueNumber').queryField('getIssueByNumber'),
+    ])
+    .authorization((allow) => [
+      allow.authenticated().to(['read']),
+      allow.publicApiKey().to(['read']),
+    ]),
+
   // Custom mutation for accepting invitations with elevated permissions
   // NOTE: After deployment, run: .\scripts\fix-appsync-datasource.ps1
   acceptInvitation: a
@@ -316,9 +347,21 @@ const schema = a.schema({
       severity: a.string().required(),
       systemInfo: a.string(),
     })
-    .returns(a.boolean())
+    .returns(a.json())
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(sendBugReport)),
+
+  // Custom mutation for updating issue status (AI agent + authenticated users)
+  updateIssueStatus: a
+    .mutation()
+    .arguments({
+      issueNumber: a.integer().required(),
+      status: a.string().required(),
+      resolution: a.string(),
+    })
+    .returns(a.json())
+    .authorization((allow) => [allow.publicApiKey(), allow.authenticated()])
+    .handler(a.handler.function(updateIssueStatus)),
 });
 
 export type Schema = ClientSchema<typeof schema>;
@@ -327,6 +370,9 @@ export const data = defineData({
   schema,
   authorizationModes: {
     defaultAuthorizationMode: "userPool",
+    apiKeyAuthorizationMode: {
+      expiresInDays: 365,
+    },
   },
 });
 

@@ -16,6 +16,7 @@ export function BugReport({ onClose }: BugReportProps) {
   const [severity, setSeverity] = useState<'low' | 'medium' | 'high' | 'feature-request'>('medium');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [issueNumber, setIssueNumber] = useState<number | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,17 +35,31 @@ export function BugReport({ onClose }: BugReportProps) {
         screenSize: `${window.screen.width}x${window.screen.height}`,
         viewport: `${window.innerWidth}x${window.innerHeight}`,
         timestamp: new Date().toISOString(),
-        url: window.location.href,
+        url: window.location.origin + window.location.pathname,
         version: import.meta.env.VITE_APP_VERSION || '1.0.0',
       };
 
-      // Send bug report via email (Lambda + SES)
-      await client.mutations.submitBugReport({
+      // Send bug report via email (Lambda + SES) and create Issue record
+      const result = await client.mutations.submitBugReport({
         description,
         steps: steps || undefined,
         severity,
         systemInfo: JSON.stringify(systemInfo),
       });
+
+      // Parse response to get issue number (AWSJSON may be double-encoded)
+      try {
+        let parsed: unknown = result.data;
+        while (typeof parsed === 'string') {
+          parsed = JSON.parse(parsed);
+        }
+        const issueNum = (parsed as Record<string, unknown>)?.issueNumber;
+        if (typeof issueNum === 'number') {
+          setIssueNumber(issueNum);
+        }
+      } catch {
+        // Response parsing is best-effort; submission still succeeded
+      }
 
       setIsSubmitted(true);
       setTimeout(() => {
@@ -64,7 +79,11 @@ export function BugReport({ onClose }: BugReportProps) {
           <div className="bug-report-success">
             <div className="success-icon">✓</div>
             <h3>Thank you!</h3>
-            <p>Your bug report has been submitted successfully.</p>
+            <p>
+              {issueNumber
+                ? `Your report has been submitted as Issue #${issueNumber}.`
+                : 'Your bug report has been submitted successfully.'}
+            </p>
           </div>
         </div>
       </div>

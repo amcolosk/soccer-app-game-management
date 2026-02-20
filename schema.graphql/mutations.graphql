@@ -1,0 +1,2379 @@
+# this is an auto generated file. This will be overwritten
+
+mutation AcceptInvitation($invitationId: String!) {
+  acceptInvitation(invitationId: $invitationId) {
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    gameFormat
+    games {
+      nextToken
+      __typename
+    }
+    halfLengthMinutes
+    id
+    invitations {
+      nextToken
+      __typename
+    }
+    maxPlayersOnField
+    name
+    positions {
+      nextToken
+      __typename
+    }
+    roster {
+      nextToken
+      __typename
+    }
+    sport
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreateFieldPosition(
+  $condition: ModelFieldPositionConditionInput
+  $input: CreateFieldPositionInput!
+) {
+  createFieldPosition(condition: $condition, input: $input) {
+    abbreviation
+    coaches
+    createdAt
+    id
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    positionName
+    sortOrder
+    substitutions {
+      nextToken
+      __typename
+    }
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreateFormation(
+  $condition: ModelFormationConditionInput
+  $input: CreateFormationInput!
+) {
+  createFormation(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    id
+    name
+    playerCount
+    positions {
+      nextToken
+      __typename
+    }
+    sport
+    teams {
+      nextToken
+      __typename
+    }
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreateFormationPosition(
+  $condition: ModelFormationPositionConditionInput
+  $input: CreateFormationPositionInput!
+) {
+  createFormationPosition(condition: $condition, input: $input) {
+    abbreviation
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    id
+    positionName
+    sortOrder
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreateGame(
+  $condition: ModelGameConditionInput
+  $input: CreateGameInput!
+) {
+  createGame(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    currentHalf
+    elapsedSeconds
+    gameDate
+    gameNotes {
+      nextToken
+      __typename
+    }
+    gamePlan {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    goals {
+      nextToken
+      __typename
+    }
+    id
+    isHome
+    lastStartTime
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    opponent
+    opponentScore
+    ourScore
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    playerAvailability {
+      nextToken
+      __typename
+    }
+    status
+    substitutions {
+      nextToken
+      __typename
+    }
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreateGameNote(
+  $condition: ModelGameNoteConditionInput
+  $input: CreateGameNoteInput!
+) {
+  createGameNote(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    noteType
+    notes
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreateGamePlan(
+  $condition: ModelGamePlanConditionInput
+  $input: CreateGamePlanInput!
+) {
+  createGamePlan(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    plannedRotations {
+      nextToken
+      __typename
+    }
+    rotationIntervalMinutes
+    startingLineup
+    totalRotations
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreateGoal(
+  $condition: ModelGoalConditionInput
+  $input: CreateGoalInput!
+) {
+  createGoal(condition: $condition, input: $input) {
+    assist {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    assistId
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    notes
+    scoredByUs
+    scorer {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    scorerId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreateIssue(
+  $condition: ModelIssueConditionInput
+  $input: CreateIssueInput!
+) {
+  createIssue(condition: $condition, input: $input) {
+    closedAt
+    createdAt
+    description
+    id
+    issueNumber
+    resolution
+    severity
+    status
+    steps
+    systemInfo
+    type
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreateIssueCounter(
+  $condition: ModelIssueCounterConditionInput
+  $input: CreateIssueCounterInput!
+) {
+  createIssueCounter(condition: $condition, input: $input) {
+    counterName
+    createdAt
+    currentValue
+    id
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreateLineupAssignment(
+  $condition: ModelLineupAssignmentConditionInput
+  $input: CreateLineupAssignmentInput!
+) {
+  createLineupAssignment(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    isStarter
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreatePlannedRotation(
+  $condition: ModelPlannedRotationConditionInput
+  $input: CreatePlannedRotationInput!
+) {
+  createPlannedRotation(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    gameMinute
+    gamePlan {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    gamePlanId
+    half
+    id
+    plannedSubstitutions
+    rotationNumber
+    updatedAt
+    viewedAt
+    __typename
+  }
+}
+
+mutation CreatePlayTimeRecord(
+  $condition: ModelPlayTimeRecordConditionInput
+  $input: CreatePlayTimeRecordInput!
+) {
+  createPlayTimeRecord(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    endGameSeconds
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    startGameSeconds
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreatePlayer(
+  $condition: ModelPlayerConditionInput
+  $input: CreatePlayerInput!
+) {
+  createPlayer(condition: $condition, input: $input) {
+    assists {
+      nextToken
+      __typename
+    }
+    coaches
+    createdAt
+    firstName
+    gameNotes {
+      nextToken
+      __typename
+    }
+    goalsScored {
+      nextToken
+      __typename
+    }
+    id
+    isActive
+    lastName
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    playerAvailabilities {
+      nextToken
+      __typename
+    }
+    substitutionsIn {
+      nextToken
+      __typename
+    }
+    substitutionsOut {
+      nextToken
+      __typename
+    }
+    teamRosters {
+      nextToken
+      __typename
+    }
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreatePlayerAvailability(
+  $condition: ModelPlayerAvailabilityConditionInput
+  $input: CreatePlayerAvailabilityInput!
+) {
+  createPlayerAvailability(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    markedAt
+    notes
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    status
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreateSubstitution(
+  $condition: ModelSubstitutionConditionInput
+  $input: CreateSubstitutionInput!
+) {
+  createSubstitution(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    playerIn {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerInId
+    playerOut {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerOutId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreateTeam(
+  $condition: ModelTeamConditionInput
+  $input: CreateTeamInput!
+) {
+  createTeam(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    gameFormat
+    games {
+      nextToken
+      __typename
+    }
+    halfLengthMinutes
+    id
+    invitations {
+      nextToken
+      __typename
+    }
+    maxPlayersOnField
+    name
+    positions {
+      nextToken
+      __typename
+    }
+    roster {
+      nextToken
+      __typename
+    }
+    sport
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreateTeamInvitation(
+  $condition: ModelTeamInvitationConditionInput
+  $input: CreateTeamInvitationInput!
+) {
+  createTeamInvitation(condition: $condition, input: $input) {
+    acceptedAt
+    acceptedBy
+    coaches
+    createdAt
+    email
+    expiresAt
+    id
+    invitedAt
+    invitedBy
+    role
+    status
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    teamName
+    updatedAt
+    __typename
+  }
+}
+
+mutation CreateTeamRoster(
+  $condition: ModelTeamRosterConditionInput
+  $input: CreateTeamRosterInput!
+) {
+  createTeamRoster(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    id
+    isActive
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    playerNumber
+    preferredPositions
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeleteFieldPosition(
+  $condition: ModelFieldPositionConditionInput
+  $input: DeleteFieldPositionInput!
+) {
+  deleteFieldPosition(condition: $condition, input: $input) {
+    abbreviation
+    coaches
+    createdAt
+    id
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    positionName
+    sortOrder
+    substitutions {
+      nextToken
+      __typename
+    }
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeleteFormation(
+  $condition: ModelFormationConditionInput
+  $input: DeleteFormationInput!
+) {
+  deleteFormation(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    id
+    name
+    playerCount
+    positions {
+      nextToken
+      __typename
+    }
+    sport
+    teams {
+      nextToken
+      __typename
+    }
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeleteFormationPosition(
+  $condition: ModelFormationPositionConditionInput
+  $input: DeleteFormationPositionInput!
+) {
+  deleteFormationPosition(condition: $condition, input: $input) {
+    abbreviation
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    id
+    positionName
+    sortOrder
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeleteGame(
+  $condition: ModelGameConditionInput
+  $input: DeleteGameInput!
+) {
+  deleteGame(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    currentHalf
+    elapsedSeconds
+    gameDate
+    gameNotes {
+      nextToken
+      __typename
+    }
+    gamePlan {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    goals {
+      nextToken
+      __typename
+    }
+    id
+    isHome
+    lastStartTime
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    opponent
+    opponentScore
+    ourScore
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    playerAvailability {
+      nextToken
+      __typename
+    }
+    status
+    substitutions {
+      nextToken
+      __typename
+    }
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeleteGameNote(
+  $condition: ModelGameNoteConditionInput
+  $input: DeleteGameNoteInput!
+) {
+  deleteGameNote(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    noteType
+    notes
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeleteGamePlan(
+  $condition: ModelGamePlanConditionInput
+  $input: DeleteGamePlanInput!
+) {
+  deleteGamePlan(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    plannedRotations {
+      nextToken
+      __typename
+    }
+    rotationIntervalMinutes
+    startingLineup
+    totalRotations
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeleteGoal(
+  $condition: ModelGoalConditionInput
+  $input: DeleteGoalInput!
+) {
+  deleteGoal(condition: $condition, input: $input) {
+    assist {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    assistId
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    notes
+    scoredByUs
+    scorer {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    scorerId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeleteIssue(
+  $condition: ModelIssueConditionInput
+  $input: DeleteIssueInput!
+) {
+  deleteIssue(condition: $condition, input: $input) {
+    closedAt
+    createdAt
+    description
+    id
+    issueNumber
+    resolution
+    severity
+    status
+    steps
+    systemInfo
+    type
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeleteIssueCounter(
+  $condition: ModelIssueCounterConditionInput
+  $input: DeleteIssueCounterInput!
+) {
+  deleteIssueCounter(condition: $condition, input: $input) {
+    counterName
+    createdAt
+    currentValue
+    id
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeleteLineupAssignment(
+  $condition: ModelLineupAssignmentConditionInput
+  $input: DeleteLineupAssignmentInput!
+) {
+  deleteLineupAssignment(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    isStarter
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeletePlannedRotation(
+  $condition: ModelPlannedRotationConditionInput
+  $input: DeletePlannedRotationInput!
+) {
+  deletePlannedRotation(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    gameMinute
+    gamePlan {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    gamePlanId
+    half
+    id
+    plannedSubstitutions
+    rotationNumber
+    updatedAt
+    viewedAt
+    __typename
+  }
+}
+
+mutation DeletePlayTimeRecord(
+  $condition: ModelPlayTimeRecordConditionInput
+  $input: DeletePlayTimeRecordInput!
+) {
+  deletePlayTimeRecord(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    endGameSeconds
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    startGameSeconds
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeletePlayer(
+  $condition: ModelPlayerConditionInput
+  $input: DeletePlayerInput!
+) {
+  deletePlayer(condition: $condition, input: $input) {
+    assists {
+      nextToken
+      __typename
+    }
+    coaches
+    createdAt
+    firstName
+    gameNotes {
+      nextToken
+      __typename
+    }
+    goalsScored {
+      nextToken
+      __typename
+    }
+    id
+    isActive
+    lastName
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    playerAvailabilities {
+      nextToken
+      __typename
+    }
+    substitutionsIn {
+      nextToken
+      __typename
+    }
+    substitutionsOut {
+      nextToken
+      __typename
+    }
+    teamRosters {
+      nextToken
+      __typename
+    }
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeletePlayerAvailability(
+  $condition: ModelPlayerAvailabilityConditionInput
+  $input: DeletePlayerAvailabilityInput!
+) {
+  deletePlayerAvailability(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    markedAt
+    notes
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    status
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeleteSubstitution(
+  $condition: ModelSubstitutionConditionInput
+  $input: DeleteSubstitutionInput!
+) {
+  deleteSubstitution(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    playerIn {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerInId
+    playerOut {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerOutId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeleteTeam(
+  $condition: ModelTeamConditionInput
+  $input: DeleteTeamInput!
+) {
+  deleteTeam(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    gameFormat
+    games {
+      nextToken
+      __typename
+    }
+    halfLengthMinutes
+    id
+    invitations {
+      nextToken
+      __typename
+    }
+    maxPlayersOnField
+    name
+    positions {
+      nextToken
+      __typename
+    }
+    roster {
+      nextToken
+      __typename
+    }
+    sport
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeleteTeamInvitation(
+  $condition: ModelTeamInvitationConditionInput
+  $input: DeleteTeamInvitationInput!
+) {
+  deleteTeamInvitation(condition: $condition, input: $input) {
+    acceptedAt
+    acceptedBy
+    coaches
+    createdAt
+    email
+    expiresAt
+    id
+    invitedAt
+    invitedBy
+    role
+    status
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    teamName
+    updatedAt
+    __typename
+  }
+}
+
+mutation DeleteTeamRoster(
+  $condition: ModelTeamRosterConditionInput
+  $input: DeleteTeamRosterInput!
+) {
+  deleteTeamRoster(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    id
+    isActive
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    playerNumber
+    preferredPositions
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+mutation SubmitBugReport(
+  $description: String!
+  $severity: String!
+  $steps: String
+  $systemInfo: String
+) {
+  submitBugReport(
+    description: $description
+    severity: $severity
+    steps: $steps
+    systemInfo: $systemInfo
+  )
+}
+
+mutation UpdateFieldPosition(
+  $condition: ModelFieldPositionConditionInput
+  $input: UpdateFieldPositionInput!
+) {
+  updateFieldPosition(condition: $condition, input: $input) {
+    abbreviation
+    coaches
+    createdAt
+    id
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    positionName
+    sortOrder
+    substitutions {
+      nextToken
+      __typename
+    }
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdateFormation(
+  $condition: ModelFormationConditionInput
+  $input: UpdateFormationInput!
+) {
+  updateFormation(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    id
+    name
+    playerCount
+    positions {
+      nextToken
+      __typename
+    }
+    sport
+    teams {
+      nextToken
+      __typename
+    }
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdateFormationPosition(
+  $condition: ModelFormationPositionConditionInput
+  $input: UpdateFormationPositionInput!
+) {
+  updateFormationPosition(condition: $condition, input: $input) {
+    abbreviation
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    id
+    positionName
+    sortOrder
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdateGame(
+  $condition: ModelGameConditionInput
+  $input: UpdateGameInput!
+) {
+  updateGame(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    currentHalf
+    elapsedSeconds
+    gameDate
+    gameNotes {
+      nextToken
+      __typename
+    }
+    gamePlan {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    goals {
+      nextToken
+      __typename
+    }
+    id
+    isHome
+    lastStartTime
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    opponent
+    opponentScore
+    ourScore
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    playerAvailability {
+      nextToken
+      __typename
+    }
+    status
+    substitutions {
+      nextToken
+      __typename
+    }
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdateGameNote(
+  $condition: ModelGameNoteConditionInput
+  $input: UpdateGameNoteInput!
+) {
+  updateGameNote(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    noteType
+    notes
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdateGamePlan(
+  $condition: ModelGamePlanConditionInput
+  $input: UpdateGamePlanInput!
+) {
+  updateGamePlan(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    plannedRotations {
+      nextToken
+      __typename
+    }
+    rotationIntervalMinutes
+    startingLineup
+    totalRotations
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdateGoal(
+  $condition: ModelGoalConditionInput
+  $input: UpdateGoalInput!
+) {
+  updateGoal(condition: $condition, input: $input) {
+    assist {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    assistId
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    notes
+    scoredByUs
+    scorer {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    scorerId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdateIssue(
+  $condition: ModelIssueConditionInput
+  $input: UpdateIssueInput!
+) {
+  updateIssue(condition: $condition, input: $input) {
+    closedAt
+    createdAt
+    description
+    id
+    issueNumber
+    resolution
+    severity
+    status
+    steps
+    systemInfo
+    type
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdateIssueCounter(
+  $condition: ModelIssueCounterConditionInput
+  $input: UpdateIssueCounterInput!
+) {
+  updateIssueCounter(condition: $condition, input: $input) {
+    counterName
+    createdAt
+    currentValue
+    id
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdateIssueStatus(
+  $issueNumber: Int!
+  $resolution: String
+  $status: String!
+) {
+  updateIssueStatus(
+    issueNumber: $issueNumber
+    resolution: $resolution
+    status: $status
+  )
+}
+
+mutation UpdateLineupAssignment(
+  $condition: ModelLineupAssignmentConditionInput
+  $input: UpdateLineupAssignmentInput!
+) {
+  updateLineupAssignment(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    isStarter
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdatePlannedRotation(
+  $condition: ModelPlannedRotationConditionInput
+  $input: UpdatePlannedRotationInput!
+) {
+  updatePlannedRotation(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    gameMinute
+    gamePlan {
+      coaches
+      createdAt
+      gameId
+      id
+      rotationIntervalMinutes
+      startingLineup
+      totalRotations
+      updatedAt
+      __typename
+    }
+    gamePlanId
+    half
+    id
+    plannedSubstitutions
+    rotationNumber
+    updatedAt
+    viewedAt
+    __typename
+  }
+}
+
+mutation UpdatePlayTimeRecord(
+  $condition: ModelPlayTimeRecordConditionInput
+  $input: UpdatePlayTimeRecordInput!
+) {
+  updatePlayTimeRecord(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    endGameSeconds
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    startGameSeconds
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdatePlayer(
+  $condition: ModelPlayerConditionInput
+  $input: UpdatePlayerInput!
+) {
+  updatePlayer(condition: $condition, input: $input) {
+    assists {
+      nextToken
+      __typename
+    }
+    coaches
+    createdAt
+    firstName
+    gameNotes {
+      nextToken
+      __typename
+    }
+    goalsScored {
+      nextToken
+      __typename
+    }
+    id
+    isActive
+    lastName
+    lineupAssignments {
+      nextToken
+      __typename
+    }
+    playTimeRecords {
+      nextToken
+      __typename
+    }
+    playerAvailabilities {
+      nextToken
+      __typename
+    }
+    substitutionsIn {
+      nextToken
+      __typename
+    }
+    substitutionsOut {
+      nextToken
+      __typename
+    }
+    teamRosters {
+      nextToken
+      __typename
+    }
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdatePlayerAvailability(
+  $condition: ModelPlayerAvailabilityConditionInput
+  $input: UpdatePlayerAvailabilityInput!
+) {
+  updatePlayerAvailability(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    id
+    markedAt
+    notes
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    status
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdateSubstitution(
+  $condition: ModelSubstitutionConditionInput
+  $input: UpdateSubstitutionInput!
+) {
+  updateSubstitution(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    game {
+      coaches
+      createdAt
+      currentHalf
+      elapsedSeconds
+      gameDate
+      id
+      isHome
+      lastStartTime
+      opponent
+      opponentScore
+      ourScore
+      status
+      teamId
+      updatedAt
+      __typename
+    }
+    gameId
+    gameSeconds
+    half
+    id
+    playerIn {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerInId
+    playerOut {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerOutId
+    position {
+      abbreviation
+      coaches
+      createdAt
+      id
+      positionName
+      sortOrder
+      teamId
+      updatedAt
+      __typename
+    }
+    positionId
+    timestamp
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdateTeam(
+  $condition: ModelTeamConditionInput
+  $input: UpdateTeamInput!
+) {
+  updateTeam(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    formation {
+      coaches
+      createdAt
+      id
+      name
+      playerCount
+      sport
+      updatedAt
+      __typename
+    }
+    formationId
+    gameFormat
+    games {
+      nextToken
+      __typename
+    }
+    halfLengthMinutes
+    id
+    invitations {
+      nextToken
+      __typename
+    }
+    maxPlayersOnField
+    name
+    positions {
+      nextToken
+      __typename
+    }
+    roster {
+      nextToken
+      __typename
+    }
+    sport
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdateTeamInvitation(
+  $condition: ModelTeamInvitationConditionInput
+  $input: UpdateTeamInvitationInput!
+) {
+  updateTeamInvitation(condition: $condition, input: $input) {
+    acceptedAt
+    acceptedBy
+    coaches
+    createdAt
+    email
+    expiresAt
+    id
+    invitedAt
+    invitedBy
+    role
+    status
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    teamName
+    updatedAt
+    __typename
+  }
+}
+
+mutation UpdateTeamRoster(
+  $condition: ModelTeamRosterConditionInput
+  $input: UpdateTeamRosterInput!
+) {
+  updateTeamRoster(condition: $condition, input: $input) {
+    coaches
+    createdAt
+    id
+    isActive
+    player {
+      coaches
+      createdAt
+      firstName
+      id
+      isActive
+      lastName
+      updatedAt
+      __typename
+    }
+    playerId
+    playerNumber
+    preferredPositions
+    team {
+      coaches
+      createdAt
+      formationId
+      gameFormat
+      halfLengthMinutes
+      id
+      maxPlayersOnField
+      name
+      sport
+      updatedAt
+      __typename
+    }
+    teamId
+    updatedAt
+    __typename
+  }
+}

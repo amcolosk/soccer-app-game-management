@@ -8,6 +8,7 @@ import { sendInvitationEmail } from './functions/send-invitation-email/resource'
 import { acceptInvitation } from './functions/accept-invitation/resource';
 import { getUserInvitations } from './functions/get-user-invitations/resource';
 import { sendBugReport } from './functions/send-bug-report/resource';
+import { updateIssueStatus } from './functions/update-issue-status/resource';
 
 const backend = defineBackend({
   auth,
@@ -16,6 +17,7 @@ const backend = defineBackend({
   acceptInvitation,
   getUserInvitations,
   sendBugReport,
+  updateIssueStatus,
 });
 
 // Add deployment ID to outputs
@@ -36,18 +38,23 @@ if (gaMeasurementId) {
   });
 }
 
+// SES identity ARN for scoped email permissions
+const region = backend.stack.region;
+const accountId = backend.stack.account;
+const sesIdentityArn = `arn:aws:ses:${region}:${accountId}:identity/coachteamtrack.com`;
+
 // Grant the Lambda functions permission to send emails via SES
 backend.sendInvitationEmail.resources.lambda.addToRolePolicy(
   new PolicyStatement({
     actions: ['ses:SendEmail', 'ses:SendRawEmail'],
-    resources: ['*'],
+    resources: [sesIdentityArn],
   })
 );
 
 backend.sendBugReport.resources.lambda.addToRolePolicy(
   new PolicyStatement({
     actions: ['ses:SendEmail'],
-    resources: ['*'],
+    resources: [sesIdentityArn],
   })
 );
 
@@ -97,3 +104,21 @@ backend.sendInvitationEmail.addEnvironment('APP_URL', appUrl);
 // Add bug report email from environment variable
 const bugReportEmail = process.env.BUG_REPORT_EMAIL || 'admin@coachteamtrack.com';
 backend.sendBugReport.addEnvironment('TO_EMAIL', bugReportEmail);
+
+// Grant sendBugReport Lambda access to Issue and IssueCounter tables
+const issueTable = backend.data.resources.tables['Issue'];
+const issueCounterTable = backend.data.resources.tables['IssueCounter'];
+issueTable.grantReadWriteData(backend.sendBugReport.resources.lambda);
+issueCounterTable.grantReadWriteData(backend.sendBugReport.resources.lambda);
+backend.sendBugReport.addEnvironment('ISSUE_TABLE_NAME', issueTable.tableName);
+backend.sendBugReport.addEnvironment('ISSUE_COUNTER_TABLE_NAME', issueCounterTable.tableName);
+
+// Grant updateIssueStatus Lambda access to Issue table only
+issueTable.grantReadWriteData(backend.updateIssueStatus.resources.lambda);
+backend.updateIssueStatus.addEnvironment('ISSUE_TABLE_NAME', issueTable.tableName);
+
+// Agent API secret for updateIssueStatus authentication
+const agentApiSecret = process.env.AGENT_API_SECRET || '';
+if (agentApiSecret) {
+  backend.updateIssueStatus.addEnvironment('AGENT_API_SECRET', agentApiSecret);
+}

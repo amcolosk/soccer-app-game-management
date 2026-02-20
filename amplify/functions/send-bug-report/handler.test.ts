@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   escapeHtml,
   buildSubject,
@@ -6,6 +6,8 @@ import {
   buildHtmlBody,
   resolveUserEmail,
   parseSystemInfo,
+  sanitizeSeverity,
+  getNextIssueNumber,
   type BugReportInput,
 } from './handler';
 import type { AppSyncIdentityCognito } from 'aws-lambda';
@@ -183,5 +185,27 @@ describe('parseSystemInfo', () => {
   it('returns empty object for null/undefined', () => {
     expect(parseSystemInfo(null)).toEqual({});
     expect(parseSystemInfo(undefined)).toEqual({});
+  });
+});
+
+describe('sanitizeSeverity', () => {
+  it('accepts valid severities', () => {
+    expect(sanitizeSeverity('low')).toBe('low');
+    expect(sanitizeSeverity('medium')).toBe('medium');
+    expect(sanitizeSeverity('high')).toBe('high');
+    expect(sanitizeSeverity('feature-request')).toBe('feature-request');
+  });
+
+  it('falls back to medium for invalid values', () => {
+    expect(sanitizeSeverity('critical')).toBe('medium');
+    expect(sanitizeSeverity('')).toBe('medium');
+    expect(sanitizeSeverity('HIGH')).toBe('medium');
+    expect(sanitizeSeverity('<script>alert(1)</script>')).toBe('medium');
+  });
+});
+
+describe('getNextIssueNumber', () => {
+  it('is exported as a function', () => {
+    expect(typeof getNextIssueNumber).toBe('function');
   });
 });
