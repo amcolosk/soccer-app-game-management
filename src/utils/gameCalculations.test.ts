@@ -5,6 +5,8 @@ import {
   calculatePlayerGoldStars,
   calculatePlayerYellowCards,
   calculatePlayerRedCards,
+  calculateRecord,
+  togglePreferredPosition,
 } from './gameCalculations';
 import type { Goal, GameNote } from '../types/schema';
 
@@ -103,5 +105,70 @@ describe('Player Note Calculations', () => {
     expect(calculatePlayerGoldStars('player-4', mockNotes)).toBe(0);
     expect(calculatePlayerYellowCards('player-4', mockNotes)).toBe(0);
     expect(calculatePlayerRedCards('player-4', mockNotes)).toBe(0);
+  });
+});
+
+describe('calculateRecord', () => {
+  it('should count wins, losses, and ties from completed games', () => {
+    const games = [
+      { status: 'completed', ourScore: 3, opponentScore: 1 },
+      { status: 'completed', ourScore: 0, opponentScore: 2 },
+      { status: 'completed', ourScore: 1, opponentScore: 1 },
+      { status: 'completed', ourScore: 4, opponentScore: 0 },
+    ];
+    expect(calculateRecord(games)).toEqual({ wins: 2, losses: 1, ties: 1 });
+  });
+
+  it('should ignore non-completed games', () => {
+    const games = [
+      { status: 'completed', ourScore: 2, opponentScore: 1 },
+      { status: 'scheduled', ourScore: null, opponentScore: null },
+      { status: 'in-progress', ourScore: 0, opponentScore: 0 },
+    ];
+    expect(calculateRecord(games)).toEqual({ wins: 1, losses: 0, ties: 0 });
+  });
+
+  it('should treat null scores as 0', () => {
+    const games = [
+      { status: 'completed', ourScore: null, opponentScore: null },
+      { status: 'completed', ourScore: 1, opponentScore: null },
+      { status: 'completed', ourScore: null, opponentScore: 2 },
+    ];
+    expect(calculateRecord(games)).toEqual({ wins: 1, losses: 1, ties: 1 });
+  });
+
+  it('should return all zeros for empty array', () => {
+    expect(calculateRecord([])).toEqual({ wins: 0, losses: 0, ties: 0 });
+  });
+});
+
+describe('togglePreferredPosition', () => {
+  it('should add a position to empty preferences', () => {
+    expect(togglePreferredPosition(null, 'pos-1', true)).toBe('pos-1');
+    expect(togglePreferredPosition(undefined, 'pos-1', true)).toBe('pos-1');
+  });
+
+  it('should add a position to existing preferences', () => {
+    expect(togglePreferredPosition('pos-1', 'pos-2', true)).toBe('pos-1, pos-2');
+  });
+
+  it('should not duplicate an existing position', () => {
+    expect(togglePreferredPosition('pos-1, pos-2', 'pos-1', true)).toBe('pos-1, pos-2');
+  });
+
+  it('should remove a position from preferences', () => {
+    expect(togglePreferredPosition('pos-1, pos-2, pos-3', 'pos-2', false)).toBe('pos-1, pos-3');
+  });
+
+  it('should return undefined when removing the last position', () => {
+    expect(togglePreferredPosition('pos-1', 'pos-1', false)).toBeUndefined();
+  });
+
+  it('should handle removing a position that is not present', () => {
+    expect(togglePreferredPosition('pos-1', 'pos-99', false)).toBe('pos-1');
+  });
+
+  it('should return undefined when removing from empty string', () => {
+    expect(togglePreferredPosition('', 'pos-1', false)).toBeUndefined();
   });
 });

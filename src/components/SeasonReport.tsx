@@ -17,6 +17,7 @@ import {
   calculatePlayerGoldStars,
   calculatePlayerYellowCards,
   calculatePlayerRedCards,
+  calculateRecord,
 } from "../utils/gameCalculations";
 import { useAmplifyQuery } from "../hooks/useAmplifyQuery";
 
@@ -436,10 +437,7 @@ export function TeamReport({ team }: TeamReportProps) {
         <div className="report-content">
           <div className="report-summary">
             {(() => {
-              const completedGames = allGames.filter(g => g.status === 'completed');
-              const wins = completedGames.filter(g => (g.ourScore ?? 0) > (g.opponentScore ?? 0)).length;
-              const losses = completedGames.filter(g => (g.ourScore ?? 0) < (g.opponentScore ?? 0)).length;
-              const ties = completedGames.filter(g => (g.ourScore ?? 0) === (g.opponentScore ?? 0)).length;
+              const { wins, losses, ties } = calculateRecord(allGames);
               return (
                 <div className="summary-card">
                   <div className="summary-label">Record</div>

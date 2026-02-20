@@ -9,6 +9,7 @@ import { FORMATION_TEMPLATES } from '../../amplify/data/formation-templates';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { showError, showWarning } from '../utils/toast';
 import { handleApiError, logError } from '../utils/errorHandler';
+import { togglePreferredPosition } from '../utils/gameCalculations';
 import { useConfirm } from './ConfirmModal';
 import { deleteTeamCascade, deletePlayerCascade, deleteFormationCascade } from '../services/cascadeDeleteService';
 import { useSwipeDelete } from '../hooks/useSwipeDelete';
@@ -357,18 +358,10 @@ export function Management() {
     const roster = teamRosters.find(r => r.id === rosterId);
     if (!roster) return;
 
-    const current = roster.preferredPositions
-      ? roster.preferredPositions.split(', ').filter(Boolean)
-      : [];
-
-    const updated = add
-      ? [...current, positionId]
-      : current.filter(id => id !== positionId);
-
     try {
       await client.models.TeamRoster.update({
         id: rosterId,
-        preferredPositions: updated.length > 0 ? updated.join(', ') : undefined,
+        preferredPositions: togglePreferredPosition(roster.preferredPositions, positionId, add),
       });
     } catch (error) {
       handleApiError(error, 'Failed to update position assignment');
