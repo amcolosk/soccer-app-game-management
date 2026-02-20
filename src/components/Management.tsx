@@ -138,6 +138,8 @@ export function Management() {
   const [showBugReport, setShowBugReport] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>('');
 
+  const [rosterView, setRosterView] = useState<'roster' | 'positions'>('roster');
+
   // Sharing state
   const [sharingResourceType, setSharingResourceType] = useState<'team' | null>(null);
   const [sharingResourceId, setSharingResourceId] = useState<string>('');
@@ -350,6 +352,28 @@ export function Management() {
     deleteFn: () => deletePlayerCascade(id),
     entityName: 'player',
   });
+
+  const handleTogglePlayerPosition = async (rosterId: string, positionId: string, add: boolean) => {
+    const roster = teamRosters.find(r => r.id === rosterId);
+    if (!roster) return;
+
+    const current = roster.preferredPositions
+      ? roster.preferredPositions.split(', ').filter(Boolean)
+      : [];
+
+    const updated = add
+      ? [...current, positionId]
+      : current.filter(id => id !== positionId);
+
+    try {
+      await client.models.TeamRoster.update({
+        id: rosterId,
+        preferredPositions: updated.length > 0 ? updated.join(', ') : undefined,
+      });
+    } catch (error) {
+      handleApiError(error, 'Failed to update position assignment');
+    }
+  };
 
   const getTeamFormationPositions = (teamId: string) => {
     const team = teams.find(t => t.id === teamId);
@@ -800,8 +824,90 @@ export function Management() {
                     
                     {isExpanded && (
                       <div className="team-roster-section">
-                        <h4>Team Roster</h4>
-                        
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                          <h4 style={{ margin: 0 }}>Team Roster</h4>
+                          {getTeamFormationPositions(team.id).length > 0 && (
+                            <div className="view-toggle">
+                              <button
+                                className={rosterView === 'roster' ? 'active' : ''}
+                                onClick={() => setRosterView('roster')}
+                              >
+                                Roster
+                              </button>
+                              <button
+                                className={rosterView === 'positions' ? 'active' : ''}
+                                onClick={() => setRosterView('positions')}
+                              >
+                                Positions
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {rosterView === 'positions' && getTeamFormationPositions(team.id).length > 0 ? (
+                          <div className="position-assignments">
+                            {getTeamFormationPositions(team.id).map(position => {
+                              const assignedRosters = teamRosterList.filter(r =>
+                                r.preferredPositions?.split(', ').includes(position.id)
+                              );
+                              const unassignedRosters = teamRosterList.filter(r =>
+                                !r.preferredPositions?.split(', ').includes(position.id)
+                              );
+
+                              return (
+                                <div key={position.id} className="position-assignment-card">
+                                  <div className="position-assignment-header">
+                                    <strong>{position.abbreviation} — {position.positionName}</strong>
+                                    <span className="position-count">{assignedRosters.length}</span>
+                                  </div>
+                                  {assignedRosters.length > 0 && (
+                                    <div className="position-assigned-players">
+                                      {assignedRosters.map(roster => {
+                                        const player = players.find(p => p.id === roster.playerId);
+                                        if (!player) return null;
+                                        return (
+                                          <div key={roster.id} className="position-player-tag">
+                                            <span>#{roster.playerNumber} {player.firstName} {player.lastName}</span>
+                                            <button
+                                              onClick={() => handleTogglePlayerPosition(roster.id, position.id, false)}
+                                              className="btn-remove-tag"
+                                              aria-label={`Remove ${player.firstName} from ${position.abbreviation}`}
+                                            >
+                                              ✕
+                                            </button>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                  {unassignedRosters.length > 0 && (
+                                    <select
+                                      className="player-select"
+                                      value=""
+                                      onChange={(e) => {
+                                        if (e.target.value) {
+                                          handleTogglePlayerPosition(e.target.value, position.id, true);
+                                        }
+                                      }}
+                                    >
+                                      <option value="">+ Add player...</option>
+                                      {unassignedRosters.map(roster => {
+                                        const player = players.find(p => p.id === roster.playerId);
+                                        if (!player) return null;
+                                        return (
+                                          <option key={roster.id} value={roster.id}>
+                                            #{roster.playerNumber} {player.firstName} {player.lastName}
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                        <>
                         {!rosterForm.isAdding && !rosterForm.editing && (
                           <button
                             onClick={() => rosterDispatch({ type: 'START_ADD' })}
@@ -981,6 +1087,8 @@ export function Management() {
                               );
                             })}
                           </div>
+                        )}
+                        </>
                         )}
                       </div>
                     )}
