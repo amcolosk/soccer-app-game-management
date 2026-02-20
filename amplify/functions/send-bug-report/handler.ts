@@ -19,6 +19,7 @@ const SEVERITY_EMOJI: Record<string, string> = {
   low: '🟢',
   medium: '🟡',
   high: '🔴',
+  'feature-request': '💡',
 };
 
 export function escapeHtml(str: string): string {
@@ -31,13 +32,14 @@ export function escapeHtml(str: string): string {
 
 export function buildSubject(input: BugReportInput): string {
   const emoji = SEVERITY_EMOJI[input.severity] || '🟡';
+  const label = input.severity === 'feature-request' ? 'Feature Request' : 'Bug';
   const desc = input.description.replace(/[\r\n]+/g, ' ').slice(0, 80);
-  return `${emoji} TeamTrack Bug: ${desc}`;
+  return `${emoji} TeamTrack ${label}: ${desc}`;
 }
 
 export function buildTextBody(input: BugReportInput): string {
   return [
-    `Bug Report — ${input.severity.toUpperCase()}`,
+    input.severity === 'feature-request' ? 'Feature Request' : `Bug Report — ${input.severity.toUpperCase()}`,
     '',
     `Description: ${input.description}`,
     input.steps ? `Steps: ${input.steps}` : '',
@@ -74,7 +76,7 @@ export function buildHtmlBody(input: BugReportInput): string {
     </head>
     <body>
       <div class="header">
-        <h2 style="margin:0">${emoji} Bug Report — ${severity.toUpperCase()}</h2>
+        <h2 style="margin:0">${emoji} ${severity === 'feature-request' ? 'Feature Request' : `Bug Report — ${severity.toUpperCase()}`}</h2>
       </div>
       <div class="content">
         <div class="field">

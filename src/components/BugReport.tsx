@@ -13,7 +13,7 @@ interface BugReportProps {
 export function BugReport({ onClose }: BugReportProps) {
   const [description, setDescription] = useState('');
   const [steps, setSteps] = useState('');
-  const [severity, setSeverity] = useState<'low' | 'medium' | 'high'>('medium');
+  const [severity, setSeverity] = useState<'low' | 'medium' | 'high' | 'feature-request'>('medium');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
@@ -116,12 +116,13 @@ export function BugReport({ onClose }: BugReportProps) {
             <select
               id="severity"
               value={severity}
-              onChange={(e) => setSeverity(e.target.value as 'low' | 'medium' | 'high')}
+              onChange={(e) => setSeverity(e.target.value as 'low' | 'medium' | 'high' | 'feature-request')}
               disabled={isSubmitting}
             >
               <option value="low">Low - Minor inconvenience</option>
               <option value="medium">Medium - Affects functionality</option>
               <option value="high">High - Blocks usage</option>
+              <option value="feature-request">Feature Request</option>
             </select>
           </div>
 

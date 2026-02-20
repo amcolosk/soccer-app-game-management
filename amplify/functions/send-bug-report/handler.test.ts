@@ -61,6 +61,13 @@ describe('buildSubject', () => {
     expect(buildSubject(makeInput({ severity: 'low' }))).toContain('🟢');
     expect(buildSubject(makeInput({ severity: 'medium' }))).toContain('🟡');
     expect(buildSubject(makeInput({ severity: 'high' }))).toContain('🔴');
+    expect(buildSubject(makeInput({ severity: 'feature-request' }))).toContain('💡');
+  });
+
+  it('uses "Feature Request" label for feature-request severity', () => {
+    const subject = buildSubject(makeInput({ severity: 'feature-request' }));
+    expect(subject).toContain('TeamTrack Feature Request:');
+    expect(subject).not.toContain('Bug');
   });
 });
 
@@ -76,6 +83,12 @@ describe('buildTextBody', () => {
   it('includes severity header', () => {
     const text = buildTextBody(makeInput({ severity: 'high' }));
     expect(text).toContain('Bug Report — HIGH');
+  });
+
+  it('uses Feature Request header for feature-request severity', () => {
+    const text = buildTextBody(makeInput({ severity: 'feature-request' }));
+    expect(text).toContain('Feature Request');
+    expect(text).not.toContain('Bug Report');
   });
 
   it('includes steps when provided', () => {
