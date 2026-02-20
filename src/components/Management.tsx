@@ -871,70 +871,6 @@ export function Management() {
                           </div>
                         )}
 
-                        {rosterForm.editing && rosterForm.editing.teamId === team.id && (
-                          <div className="create-form" style={{ marginBottom: '1rem' }}>
-                            <h5>Edit Roster Entry</h5>
-                            <label>
-                              First Name *
-                              <input
-                                type="text"
-                                placeholder="Enter first name"
-                                value={rosterForm.editFirstName}
-                                onChange={(e) => rosterDispatch({ type: 'SET_FIELD', field: 'editFirstName', value: e.target.value })}
-                              />
-                            </label>
-                            <label>
-                              Last Name *
-                              <input
-                                type="text"
-                                placeholder="Enter last name"
-                                value={rosterForm.editLastName}
-                                onChange={(e) => rosterDispatch({ type: 'SET_FIELD', field: 'editLastName', value: e.target.value })}
-                              />
-                            </label>
-                            <label>
-                              Player Number *
-                              <input
-                                type="number"
-                                placeholder="Player Number"
-                                value={rosterForm.playerNumber}
-                                onChange={(e) => rosterDispatch({ type: 'SET_FIELD', field: 'playerNumber', value: e.target.value })}
-                                min="1"
-                                max="99"
-                              />
-                            </label>
-                            {getTeamFormationPositions(team.id).length > 0 && (
-                              <div className="checkbox-group">
-                                <label className="group-label">Preferred Positions (optional)</label>
-                                {getTeamFormationPositions(team.id).map((position) => (
-                                  <label key={position.id} className="checkbox-label">
-                                    <input
-                                      type="checkbox"
-                                      checked={rosterForm.preferredPositions.includes(position.id)}
-                                      onChange={(e) => {
-                                        if (e.target.checked) {
-                                          rosterDispatch({ type: 'SET_PREFERRED_POSITIONS', positions: [...rosterForm.preferredPositions, position.id] });
-                                        } else {
-                                          rosterDispatch({ type: 'SET_PREFERRED_POSITIONS', positions: rosterForm.preferredPositions.filter(id => id !== position.id) });
-                                        }
-                                      }}
-                                    />
-                                    {position.abbreviation} - {position.positionName}
-                                  </label>
-                                ))}
-                              </div>
-                            )}
-                            <div className="form-actions">
-                              <button onClick={handleUpdateRoster} className="btn-primary">
-                                Update
-                              </button>
-                              <button onClick={handleCancelRosterEdit} className="btn-secondary">
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                        
                         {teamRosterList.length === 0 ? (
                           <p className="empty-message" style={{ fontSize: '0.9em' }}>No players on roster yet.</p>
                         ) : (
@@ -942,11 +878,79 @@ export function Management() {
                             {teamRosterList.map((roster) => {
                               const player = players.find(p => p.id === roster.playerId);
                               if (!player) return null;
-                              
+
+                              const isEditingRoster = rosterForm.editing?.id === roster.id;
+
+                              if (isEditingRoster) {
+                                return (
+                                  <div key={roster.id} className="create-form" style={{ marginBottom: '0.25rem' }}>
+                                    <h5>Edit Roster Entry</h5>
+                                    <label>
+                                      First Name *
+                                      <input
+                                        type="text"
+                                        placeholder="Enter first name"
+                                        value={rosterForm.editFirstName}
+                                        onChange={(e) => rosterDispatch({ type: 'SET_FIELD', field: 'editFirstName', value: e.target.value })}
+                                      />
+                                    </label>
+                                    <label>
+                                      Last Name *
+                                      <input
+                                        type="text"
+                                        placeholder="Enter last name"
+                                        value={rosterForm.editLastName}
+                                        onChange={(e) => rosterDispatch({ type: 'SET_FIELD', field: 'editLastName', value: e.target.value })}
+                                      />
+                                    </label>
+                                    <label>
+                                      Player Number *
+                                      <input
+                                        type="number"
+                                        placeholder="Player Number"
+                                        value={rosterForm.playerNumber}
+                                        onChange={(e) => rosterDispatch({ type: 'SET_FIELD', field: 'playerNumber', value: e.target.value })}
+                                        min="1"
+                                        max="99"
+                                      />
+                                    </label>
+                                    {getTeamFormationPositions(team.id).length > 0 && (
+                                      <div className="checkbox-group">
+                                        <label className="group-label">Preferred Positions (optional)</label>
+                                        {getTeamFormationPositions(team.id).map((position) => (
+                                          <label key={position.id} className="checkbox-label">
+                                            <input
+                                              type="checkbox"
+                                              checked={rosterForm.preferredPositions.includes(position.id)}
+                                              onChange={(e) => {
+                                                if (e.target.checked) {
+                                                  rosterDispatch({ type: 'SET_PREFERRED_POSITIONS', positions: [...rosterForm.preferredPositions, position.id] });
+                                                } else {
+                                                  rosterDispatch({ type: 'SET_PREFERRED_POSITIONS', positions: rosterForm.preferredPositions.filter(id => id !== position.id) });
+                                                }
+                                              }}
+                                            />
+                                            {position.abbreviation} - {position.positionName}
+                                          </label>
+                                        ))}
+                                      </div>
+                                    )}
+                                    <div className="form-actions">
+                                      <button onClick={handleUpdateRoster} className="btn-primary">
+                                        Update
+                                      </button>
+                                      <button onClick={handleCancelRosterEdit} className="btn-secondary">
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              }
+
                               return (
-                                <div key={roster.id} className="roster-item" style={{ 
-                                  display: 'flex', 
-                                  justifyContent: 'space-between', 
+                                <div key={roster.id} className="roster-item" style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
                                   alignItems: 'center',
                                   padding: '0.5rem',
                                   background: '#f5f5f5',
@@ -1223,32 +1227,6 @@ export function Management() {
             </div>
           )}
 
-          {playerForm.editing && (
-            <div className="create-form">
-              <h3>Edit Player</h3>
-              <input
-                type="text"
-                placeholder="First Name *"
-                value={playerForm.firstName}
-                onChange={(e) => playerDispatch({ type: 'SET_FIELD', field: 'firstName', value: e.target.value })}
-              />
-              <input
-                type="text"
-                placeholder="Last Name *"
-                value={playerForm.lastName}
-                onChange={(e) => playerDispatch({ type: 'SET_FIELD', field: 'lastName', value: e.target.value })}
-              />
-              <div className="form-actions">
-                <button onClick={handleUpdatePlayer} className="btn-primary">
-                  Save
-                </button>
-                <button onClick={handleCancelPlayerEdit} className="btn-secondary">
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
           <div className="items-list">
             {accessiblePlayers.length === 0 ? (
               <p className="empty-message">No players yet. Add your first player!</p>
@@ -1261,6 +1239,35 @@ export function Management() {
                   return team ? `${team.name} #${r.playerNumber}` : '';
                 }).filter(Boolean).join(', ');
                 const isSwiped = swipedItemId === player.id;
+                const isEditing = playerForm.editing?.id === player.id;
+
+                if (isEditing) {
+                  return (
+                    <div key={player.id} className="create-form" style={{ marginBottom: '0.5rem' }}>
+                      <h4>Edit Player</h4>
+                      <input
+                        type="text"
+                        placeholder="First Name *"
+                        value={playerForm.firstName}
+                        onChange={(e) => playerDispatch({ type: 'SET_FIELD', field: 'firstName', value: e.target.value })}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Last Name *"
+                        value={playerForm.lastName}
+                        onChange={(e) => playerDispatch({ type: 'SET_FIELD', field: 'lastName', value: e.target.value })}
+                      />
+                      <div className="form-actions">
+                        <button onClick={handleUpdatePlayer} className="btn-primary">
+                          Save
+                        </button>
+                        <button onClick={handleCancelPlayerEdit} className="btn-secondary">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
 
                 return (
                   <div key={player.id} className="swipeable-item-container">
