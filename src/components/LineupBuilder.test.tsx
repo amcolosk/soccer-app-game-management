@@ -256,6 +256,66 @@ describe("LineupBuilder", () => {
     });
   });
 
+  // ---------- Preferred positions: space-after-comma delimiter (regression) ----------
+  // Management.tsx saves preferredPositions with join(', '), producing "pos1, pos2".
+  // The split must trim whitespace so "pos2" and " pos2" both match.
+
+  describe("preferred positions with space-after-comma delimiter", () => {
+    const spacedPlayers = [
+      { id: "p1", firstName: "Alice", lastName: "Smith", playerNumber: 10, preferredPositions: "pos1" },
+      { id: "p2", firstName: "Bob", lastName: "Jones", playerNumber: 3, preferredPositions: "pos2, pos3" }, // space after comma
+      { id: "p3", firstName: "Charlie", lastName: "Brown", playerNumber: 7, preferredPositions: "" },
+      { id: "p4", firstName: "Diana", lastName: "Lee", playerNumber: 1, preferredPositions: "pos1" },
+    ];
+
+    it("sorts players with spaced preferredPositions to the top of the dropdown", () => {
+      render(
+        <LineupBuilder
+          positions={positions}
+          availablePlayers={spacedPlayers}
+          lineup={emptyLineup}
+          onLineupChange={() => {}}
+        />
+      );
+      const selects = screen.getAllByRole("combobox");
+      // DEF (pos2) dropdown — Bob prefers "pos2, pos3" and should appear first
+      const defOptions = Array.from(selects[1].querySelectorAll("option")).slice(1);
+      expect(defOptions[0].textContent).toContain("Bob");
+    });
+
+    it("shows star prefix when preferredPositions uses space-after-comma format", () => {
+      render(
+        <LineupBuilder
+          positions={positions}
+          availablePlayers={spacedPlayers}
+          lineup={emptyLineup}
+          onLineupChange={() => {}}
+        />
+      );
+      const selects = screen.getAllByRole("combobox");
+      // DEF (pos2) dropdown — Bob has "pos2, pos3"
+      const defOptions = Array.from(selects[1].querySelectorAll("option")).slice(1);
+      const bobOption = defOptions.find((o) => o.textContent?.includes("Bob"));
+      expect(bobOption?.textContent).toMatch(/^⭐/);
+    });
+
+    it("shows preferred position abbreviations when delimiter includes a space", () => {
+      render(
+        <LineupBuilder
+          positions={positions}
+          availablePlayers={spacedPlayers}
+          lineup={emptyLineup}
+          onLineupChange={() => {}}
+        />
+      );
+      const selects = screen.getAllByRole("combobox");
+      // DEF (pos2) dropdown — Bob prefers both DEF and FW
+      const defOptions = Array.from(selects[1].querySelectorAll("option")).slice(1);
+      const bobOption = defOptions.find((o) => o.textContent?.includes("Bob"));
+      expect(bobOption?.textContent).toContain("(DEF, FW)");
+    });
+  });
+
   // ---------- Disabled state ----------
 
   describe("disabled state", () => {

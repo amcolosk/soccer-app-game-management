@@ -66,12 +66,13 @@ export function LineupBuilder({
 
   const getPreferredPositionsText = (player: Player) => {
     if (!showPreferredPositions || !player.preferredPositions) return '';
-    
+
+    const preferredIds = player.preferredPositions.split(',').map(s => s.trim());
     const preferredPos = positions
-      .filter((pos) => player.preferredPositions?.split(',').includes(pos.id))
+      .filter((pos) => preferredIds.includes(pos.id))
       .map((pos) => pos.abbreviation)
       .join(', ');
-    
+
     return preferredPos ? ` (${preferredPos})` : '';
   };
 
@@ -142,8 +143,8 @@ export function LineupBuilder({
                     .slice()
                     .sort((a, b) => {
                       // Sort players with this position as preferred to the top
-                      const aPreferred = a.preferredPositions?.split(',').includes(position.id) || false;
-                      const bPreferred = b.preferredPositions?.split(',').includes(position.id) || false;
+                      const aPreferred = a.preferredPositions?.split(',').map(s => s.trim()).includes(position.id) || false;
+                      const bPreferred = b.preferredPositions?.split(',').map(s => s.trim()).includes(position.id) || false;
                       if (aPreferred && !bPreferred) return -1;
                       if (!aPreferred && bPreferred) return 1;
                       // Then sort by player number
@@ -151,7 +152,7 @@ export function LineupBuilder({
                     })
                     .map((player) => {
                       const preferredPos = getPreferredPositionsText(player);
-                      const isPreferredForPosition = player.preferredPositions?.split(',').includes(position.id);
+                      const isPreferredForPosition = player.preferredPositions?.split(',').map(s => s.trim()).includes(position.id);
                       return (
                         <option key={player.id} value={player.id}>
                           {isPreferredForPosition ? '⭐ ' : ''}#{player.playerNumber || 0} {player.firstName} {player.lastName}
