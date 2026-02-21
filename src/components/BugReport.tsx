@@ -10,6 +10,10 @@ interface BugReportProps {
   onClose: () => void;
 }
 
+// Character limits for input validation
+const MAX_DESCRIPTION_LENGTH = 5000;
+const MAX_STEPS_LENGTH = 3000;
+
 export function BugReport({ onClose }: BugReportProps) {
   const [description, setDescription] = useState('');
   const [steps, setSteps] = useState('');
@@ -104,6 +108,9 @@ export function BugReport({ onClose }: BugReportProps) {
           <div className="form-group">
             <label htmlFor="description">
               What went wrong? <span className="required">*</span>
+              <span className="char-count">
+                {description.length}/{MAX_DESCRIPTION_LENGTH}
+              </span>
             </label>
             <textarea
               id="description"
@@ -111,6 +118,7 @@ export function BugReport({ onClose }: BugReportProps) {
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Describe the issue you encountered..."
               rows={4}
+              maxLength={MAX_DESCRIPTION_LENGTH}
               required
               disabled={isSubmitting}
             />
@@ -119,6 +127,9 @@ export function BugReport({ onClose }: BugReportProps) {
           <div className="form-group">
             <label htmlFor="steps">
               Steps to reproduce (optional)
+              <span className="char-count">
+                {steps.length}/{MAX_STEPS_LENGTH}
+              </span>
             </label>
             <textarea
               id="steps"
@@ -126,6 +137,7 @@ export function BugReport({ onClose }: BugReportProps) {
               onChange={(e) => setSteps(e.target.value)}
               placeholder="1. Go to...&#10;2. Click on...&#10;3. See error..."
               rows={3}
+              maxLength={MAX_STEPS_LENGTH}
               disabled={isSubmitting}
             />
           </div>

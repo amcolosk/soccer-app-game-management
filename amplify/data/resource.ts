@@ -311,9 +311,12 @@ const schema = a.schema({
       systemInfo: a.string(),
       resolution: a.string(),
       closedAt: a.datetime(),
+      reporterEmail: a.string(),
+      reporterUserId: a.string(),
     })
     .secondaryIndexes((index) => [
       index('issueNumber').queryField('getIssueByNumber'),
+      index('reporterUserId'), // For rate limiting queries
     ])
     .authorization((allow) => [
       allow.authenticated().to(['read']),

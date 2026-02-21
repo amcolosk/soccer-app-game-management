@@ -2,7 +2,7 @@ import type { Schema } from '../../data/resource';
 import type { AppSyncIdentityCognito } from 'aws-lambda';
 import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, UpdateCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, UpdateCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { randomUUID } from 'crypto';
 
 const ses = new SESClient({ region: process.env.AWS_REGION });
@@ -11,6 +11,14 @@ const FROM_EMAIL = process.env.FROM_EMAIL || 'admin@coachteamtrack.com';
 const TO_EMAIL = process.env.TO_EMAIL || 'admin@coachteamtrack.com';
 const ISSUE_TABLE = process.env.ISSUE_TABLE_NAME;
 const ISSUE_COUNTER_TABLE = process.env.ISSUE_COUNTER_TABLE_NAME;
+
+// Input validation limits
+const MAX_DESCRIPTION_LENGTH = 5000;
+const MAX_STEPS_LENGTH = 3000;
+
+// Rate limiting configuration
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const MAX_REPORTS_PER_WINDOW = 5;
 
 export interface BugReportInput {
   description: string;
@@ -158,11 +166,72 @@ export async function getNextIssueNumber(): Promise<number> {
   return result.Attributes!.currentValue as number;
 }
 
+/**
+ * Validates input lengths to prevent storage abuse and DoS attacks
+ */
+export function validateInputLengths(description: string, steps?: string): void {
+  if (description.length > MAX_DESCRIPTION_LENGTH) {
+    throw new Error(`Description exceeds maximum length of ${MAX_DESCRIPTION_LENGTH} characters`);
+  }
+  if (steps && steps.length > MAX_STEPS_LENGTH) {
+    throw new Error(`Steps exceed maximum length of ${MAX_STEPS_LENGTH} characters`);
+  }
+}
+
+/**
+ * Checks rate limiting to prevent spam/abuse
+ * Allows MAX_REPORTS_PER_WINDOW reports per user within RATE_LIMIT_WINDOW_MS
+ */
+export async function checkRateLimit(userId: string): Promise<void> {
+  const now = Date.now();
+  const windowStart = new Date(now - RATE_LIMIT_WINDOW_MS).toISOString();
+
+  try {
+    // Query all issues created by this user in the time window
+    const result = await ddb.send(new QueryCommand({
+      TableName: ISSUE_TABLE!,
+      IndexName: 'byReporterUserId',
+      KeyConditionExpression: 'reporterUserId = :userId',
+      FilterExpression: 'createdAt > :windowStart',
+      ExpressionAttributeValues: {
+        ':userId': userId,
+        ':windowStart': windowStart,
+      },
+      Select: 'COUNT',
+    }));
+
+    const recentReports = result.Count || 0;
+
+    if (recentReports >= MAX_REPORTS_PER_WINDOW) {
+      throw new Error(
+        `Rate limit exceeded. You can submit up to ${MAX_REPORTS_PER_WINDOW} reports per hour. Please try again later.`
+      );
+    }
+
+    console.log(`Rate limit check passed: ${recentReports}/${MAX_REPORTS_PER_WINDOW} reports in last hour`);
+  } catch (error) {
+    // If the query fails (e.g., GSI doesn't exist yet), log but allow the request
+    // This prevents breaking existing functionality if the GSI isn't deployed yet
+    if ((error as Error).message.includes('Rate limit exceeded')) {
+      throw error; // Re-throw rate limit errors
+    }
+    console.warn('Rate limit check failed (allowing request):', error);
+  }
+}
+
 export const handler: Schema['submitBugReport']['functionHandler'] = async (event) => {
   console.log('Bug report submission received');
 
   const identity = event.identity as AppSyncIdentityCognito;
   const { description, steps, severity, systemInfo } = event.arguments;
+
+  // Validate input lengths to prevent storage abuse
+  validateInputLengths(description, steps || undefined);
+
+  const userId = identity?.sub || 'unknown';
+
+  // Check rate limiting to prevent spam/abuse
+  await checkRateLimit(userId);
 
   const input: BugReportInput = {
     description,
@@ -170,7 +239,7 @@ export const handler: Schema['submitBugReport']['functionHandler'] = async (even
     severity: sanitizeSeverity(severity || 'medium'),
     systemInfo: parseSystemInfo(systemInfo),
     userEmail: resolveUserEmail(identity),
-    userId: identity?.sub || 'unknown',
+    userId,
   };
 
   // Get sequential issue number

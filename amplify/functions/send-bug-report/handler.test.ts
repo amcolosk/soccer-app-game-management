@@ -8,6 +8,8 @@ import {
   parseSystemInfo,
   sanitizeSeverity,
   getNextIssueNumber,
+  validateInputLengths,
+  checkRateLimit,
   type BugReportInput,
 } from './handler';
 import type { AppSyncIdentityCognito } from 'aws-lambda';
@@ -207,5 +209,53 @@ describe('sanitizeSeverity', () => {
 describe('getNextIssueNumber', () => {
   it('is exported as a function', () => {
     expect(typeof getNextIssueNumber).toBe('function');
+  });
+});
+
+describe('validateInputLengths', () => {
+  it('accepts valid description length', () => {
+    expect(() => validateInputLengths('Valid description', undefined)).not.toThrow();
+  });
+
+  it('accepts valid description and steps length', () => {
+    expect(() => validateInputLengths('Valid description', 'Valid steps')).not.toThrow();
+  });
+
+  it('throws error when description exceeds max length', () => {
+    const longDescription = 'x'.repeat(5001);
+    expect(() => validateInputLengths(longDescription, undefined)).toThrow(
+      'Description exceeds maximum length'
+    );
+  });
+
+  it('throws error when steps exceed max length', () => {
+    const longSteps = 'x'.repeat(3001);
+    expect(() => validateInputLengths('Valid description', longSteps)).toThrow(
+      'Steps exceed maximum length'
+    );
+  });
+
+  it('accepts description at exactly max length', () => {
+    const maxDescription = 'x'.repeat(5000);
+    expect(() => validateInputLengths(maxDescription, undefined)).not.toThrow();
+  });
+
+  it('accepts steps at exactly max length', () => {
+    const maxSteps = 'x'.repeat(3000);
+    expect(() => validateInputLengths('Valid description', maxSteps)).not.toThrow();
+  });
+
+  it('handles undefined steps', () => {
+    expect(() => validateInputLengths('Valid description', undefined)).not.toThrow();
+  });
+
+  it('handles empty steps', () => {
+    expect(() => validateInputLengths('Valid description', '')).not.toThrow();
+  });
+});
+
+describe('checkRateLimit', () => {
+  it('is exported as a function', () => {
+    expect(typeof checkRateLimit).toBe('function');
   });
 });

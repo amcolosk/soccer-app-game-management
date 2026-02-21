@@ -416,10 +416,19 @@
   font-weight: 600;
   color: var(--text-primary);
   font-size: 0.9rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .form-group .required {
   color: #d32f2f;
+}
+
+.form-group .char-count {
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
 
 .form-group textarea,
