@@ -10,6 +10,13 @@ import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { showError, showWarning } from '../utils/toast';
 import { handleApiError, logError } from '../utils/errorHandler';
 import { togglePreferredPosition } from '../utils/gameCalculations';
+import {
+  BIRTH_YEAR_MIN,
+  BIRTH_YEAR_MAX_FN,
+  parseBirthYear,
+  validateTeamFormData,
+  validateFormationFormData,
+} from '../utils/validation';
 import { useConfirm } from './ConfirmModal';
 import { deleteTeamCascade, deletePlayerCascade, deleteFormationCascade } from '../services/cascadeDeleteService';
 import { useSwipeDelete } from '../hooks/useSwipeDelete';
@@ -41,33 +48,12 @@ async function confirmAndDelete(
   }
 }
 
-const BIRTH_YEAR_MIN = 1990;
-const BIRTH_YEAR_MAX = new Date().getFullYear();
-
-/** Returns the validated integer, undefined (field left blank), or null on invalid input. */
-function parseBirthYear(raw: string): number | undefined | null {
-  if (!raw.trim()) return undefined;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < BIRTH_YEAR_MIN || n > BIRTH_YEAR_MAX) return null;
-  return n;
-}
+const BIRTH_YEAR_MAX = BIRTH_YEAR_MAX_FN();
 
 function validateTeamForm(form: { name: string; maxPlayers: string; halfLength: string }) {
-  if (!form.name.trim()) {
-    showWarning('Please enter team name');
-    return null;
-  }
-  const maxPlayersNum = parseInt(form.maxPlayers);
-  if (isNaN(maxPlayersNum) || maxPlayersNum < 1) {
-    showWarning('Please enter a valid number of players');
-    return null;
-  }
-  const halfLengthNum = parseInt(form.halfLength);
-  if (isNaN(halfLengthNum) || halfLengthNum < 1) {
-    showWarning('Please enter a valid half length');
-    return null;
-  }
-  return { maxPlayersNum, halfLengthNum };
+  const result = validateTeamFormData(form);
+  if ('error' in result) { showWarning(result.error); return null; }
+  return result;
 }
 
 async function resolveFormationId(selectedFormation: string, currentUserId: string) {
@@ -100,26 +86,9 @@ async function resolveFormationId(selectedFormation: string, currentUserId: stri
 }
 
 function validateFormationForm(form: { name: string; playerCount: string; positions: { positionName: string; abbreviation: string }[] }) {
-  if (!form.name.trim() || !form.playerCount.trim()) {
-    showWarning('Please enter formation name and specify player count');
-    return null;
-  }
-  const count = parseInt(form.playerCount);
-  if (isNaN(count) || count < 1) {
-    showWarning('Please enter a valid player count');
-    return null;
-  }
-  if (form.positions.length !== count) {
-    showWarning(`Expected ${count} positions but found ${form.positions.length}`);
-    return null;
-  }
-  // Ensure all positions have both name and abbreviation
-  const incomplete = form.positions.some(p => !p.positionName.trim() || !p.abbreviation.trim());
-  if (incomplete) {
-    showWarning('Please fill in the name and abbreviation for every position');
-    return null;
-  }
-  return { count };
+  const result = validateFormationFormData(form);
+  if ('error' in result) { showWarning(result.error); return null; }
+  return result;
 }
 
 async function createFormationPositions(

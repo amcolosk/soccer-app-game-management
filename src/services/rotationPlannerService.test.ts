@@ -674,6 +674,72 @@ describe('rotationPlannerService', () => {
       // p7: 20-40 = 20 min
       expect(playTimeMap.get('p7')?.totalMinutes).toBe(20);
     });
+
+    it('should match the game-planner E2E scenario: 7 players, 5 positions, multi-stint play times', () => {
+      // This test mirrors the exact rotation plan verified in game-planner.spec.ts:
+      //
+      // Starting lineup: P1(pos1), P2(pos2), P3(pos3), P4(pos4), P5(pos5)
+      // Rotation 1 at 10':  P6 in for P1
+      // Rotation 2 at 20':  P1 in for P6 (auto-reverse), P7 (late) in for P2
+      // Rotation 3 at 30':  P2 in for P7 (auto-reverse)
+      //
+      // Expected play times (40 min game):
+      //   P1 : 0-10 + 20-40 = 30 min
+      //   P2 : 0-20 + 30-40 = 30 min
+      //   P3 : 0-40          = 40 min
+      //   P4 : 0-40          = 40 min
+      //   P5 : 0-40          = 40 min
+      //   P6 : 10-20         = 10 min
+      //   P7 : 20-30         = 10 min
+      const rotations = [
+        {
+          id: 'rot1',
+          rotationNumber: 1,
+          gameMinute: 10,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p1', playerInId: 'p6', positionId: 'pos1' },
+          ]),
+        },
+        {
+          id: 'rot2',
+          rotationNumber: 2,
+          gameMinute: 20,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p6', playerInId: 'p1', positionId: 'pos1' },
+            { playerOutId: 'p2', playerInId: 'p7', positionId: 'pos2' },
+          ]),
+        },
+        {
+          id: 'rot3',
+          rotationNumber: 3,
+          gameMinute: 30,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p7', playerInId: 'p2', positionId: 'pos2' },
+          ]),
+        },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+        { playerId: 'p4', positionId: 'pos4' },
+        { playerId: 'p5', positionId: 'pos5' },
+      ];
+
+      const playTimeMap = calculatePlayTime(rotations as any, startingLineup, 10, 40);
+
+      // Two-stint players
+      expect(playTimeMap.get('p1')?.totalMinutes).toBe(30); // 0-10 + 20-40
+      expect(playTimeMap.get('p2')?.totalMinutes).toBe(30); // 0-20 + 30-40
+      // Full-game players
+      expect(playTimeMap.get('p3')?.totalMinutes).toBe(40);
+      expect(playTimeMap.get('p4')?.totalMinutes).toBe(40);
+      expect(playTimeMap.get('p5')?.totalMinutes).toBe(40);
+      // Short-stint players
+      expect(playTimeMap.get('p6')?.totalMinutes).toBe(10); // 10-20
+      expect(playTimeMap.get('p7')?.totalMinutes).toBe(10); // 20-30
+    });
   });
 
   describe('validateRotationPlan', () => {

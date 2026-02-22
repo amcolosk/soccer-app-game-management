@@ -138,6 +138,129 @@ describe('formationFormReducer', () => {
     const result = formationFormReducer(dirty, { type: 'RESET' });
     expect(result).toEqual(initialFormationForm);
   });
+
+  // -------------------------------------------------------------------------
+  // SET_FIELD playerCount — position auto-population
+  // -------------------------------------------------------------------------
+
+  it('SET_FIELD playerCount populates empty positions when starting from zero', () => {
+    const result = formationFormReducer(initialFormationForm, {
+      type: 'SET_FIELD',
+      field: 'playerCount',
+      value: '3',
+    });
+    expect(result.playerCount).toBe('3');
+    expect(result.positions).toHaveLength(3);
+    result.positions.forEach(p => expect(p).toEqual({ positionName: '', abbreviation: '' }));
+  });
+
+  it('SET_FIELD playerCount appends new empty slots when count increases', () => {
+    const state = {
+      ...initialFormationForm,
+      playerCount: '2',
+      positions: [
+        { positionName: 'GK', abbreviation: 'GK' },
+        { positionName: 'CB', abbreviation: 'CB' },
+      ],
+    };
+    const result = formationFormReducer(state, {
+      type: 'SET_FIELD',
+      field: 'playerCount',
+      value: '5',
+    });
+    expect(result.positions).toHaveLength(5);
+    // Existing positions are preserved
+    expect(result.positions[0]).toEqual({ positionName: 'GK', abbreviation: 'GK' });
+    expect(result.positions[1]).toEqual({ positionName: 'CB', abbreviation: 'CB' });
+    // New slots are empty
+    expect(result.positions[2]).toEqual({ positionName: '', abbreviation: '' });
+    expect(result.positions[3]).toEqual({ positionName: '', abbreviation: '' });
+    expect(result.positions[4]).toEqual({ positionName: '', abbreviation: '' });
+  });
+
+  it('SET_FIELD playerCount truncates positions when count decreases', () => {
+    const state = {
+      ...initialFormationForm,
+      playerCount: '4',
+      positions: [
+        { positionName: 'GK', abbreviation: 'GK' },
+        { positionName: 'CB', abbreviation: 'CB' },
+        { positionName: 'MF', abbreviation: 'MF' },
+        { positionName: 'FW', abbreviation: 'FW' },
+      ],
+    };
+    const result = formationFormReducer(state, {
+      type: 'SET_FIELD',
+      field: 'playerCount',
+      value: '2',
+    });
+    expect(result.positions).toHaveLength(2);
+    // First two positions are preserved
+    expect(result.positions[0]).toEqual({ positionName: 'GK', abbreviation: 'GK' });
+    expect(result.positions[1]).toEqual({ positionName: 'CB', abbreviation: 'CB' });
+  });
+
+  it('SET_FIELD playerCount clears positions when value is non-numeric', () => {
+    const state = {
+      ...initialFormationForm,
+      positions: [{ positionName: 'GK', abbreviation: 'GK' }],
+    };
+    const result = formationFormReducer(state, {
+      type: 'SET_FIELD',
+      field: 'playerCount',
+      value: 'abc',
+    });
+    expect(result.positions).toHaveLength(0);
+  });
+
+  it('SET_FIELD playerCount clears positions when value is zero', () => {
+    const state = {
+      ...initialFormationForm,
+      positions: [{ positionName: 'GK', abbreviation: 'GK' }],
+    };
+    const result = formationFormReducer(state, {
+      type: 'SET_FIELD',
+      field: 'playerCount',
+      value: '0',
+    });
+    expect(result.positions).toHaveLength(0);
+  });
+
+  it('SET_FIELD playerCount clears positions when value exceeds maximum (>30)', () => {
+    const state = {
+      ...initialFormationForm,
+      positions: [{ positionName: 'GK', abbreviation: 'GK' }],
+    };
+    const result = formationFormReducer(state, {
+      type: 'SET_FIELD',
+      field: 'playerCount',
+      value: '31',
+    });
+    expect(result.positions).toHaveLength(0);
+  });
+
+  it('SET_FIELD playerCount accepts the maximum boundary value of 30', () => {
+    const result = formationFormReducer(initialFormationForm, {
+      type: 'SET_FIELD',
+      field: 'playerCount',
+      value: '30',
+    });
+    expect(result.positions).toHaveLength(30);
+  });
+
+  it('SET_FIELD on a non-playerCount field does not change positions', () => {
+    const state = {
+      ...initialFormationForm,
+      positions: [{ positionName: 'GK', abbreviation: 'GK' }],
+    };
+    const result = formationFormReducer(state, {
+      type: 'SET_FIELD',
+      field: 'name',
+      value: 'New Name',
+    });
+    expect(result.positions).toHaveLength(1);
+    expect(result.positions[0]).toEqual({ positionName: 'GK', abbreviation: 'GK' });
+  });
 });
 
 describe('teamFormReducer', () => {
