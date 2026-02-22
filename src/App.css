@@ -1624,6 +1624,23 @@
   color: var(--text-secondary);
 }
 
+.halftime-planned-subs {
+  width: 100%;
+}
+
+.halftime-subs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.halftime-subs-header h4 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
 .halftime-lineup-hint {
   background: rgba(25, 118, 210, 0.1);
   padding: 1rem;
@@ -4124,7 +4141,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  min-width: 200px;
+  min-width: 0;
 }
 
 .sub-player {
@@ -4272,4 +4289,46 @@
 .game-option span {
   color: var(--text-secondary);
   font-size: 0.9rem;
+}
+
+/* Rotation modal – mobile layout */
+@media (max-width: 500px) {
+  .planned-sub-item {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+    gap: 0.5rem 0.75rem;
+    align-items: start;
+  }
+
+  .sub-position-label {
+    grid-column: 1;
+    grid-row: 1;
+    padding-top: 0.15rem;
+  }
+
+  .sub-players {
+    grid-column: 2;
+    grid-row: 1;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+
+  .sub-player {
+    width: 100%;
+  }
+
+  .sub-arrow {
+    font-size: 1rem;
+    padding-left: 0.25rem;
+  }
+
+  .btn-queue-sub {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    text-align: center;
+    padding: 0.5rem;
+  }
 }

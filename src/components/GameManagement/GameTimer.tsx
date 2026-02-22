@@ -1,8 +1,10 @@
+import { useState } from "react";
 import {
   formatPlayTime,
 } from "../../utils/playTimeCalculations";
 import { PlayerAvailabilityGrid } from "../PlayerAvailabilityGrid";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
+import { useAvailability } from "../../contexts/AvailabilityContext";
 import type {
   Game,
   Team,
@@ -10,6 +12,7 @@ import type {
   FormationPosition,
   GamePlan,
   PlannedRotation,
+  LineupAssignment,
 } from "./types";
 
 interface GameTimerProps {
@@ -23,6 +26,7 @@ interface GameTimerProps {
   halfLengthSeconds: number;
   gamePlan: GamePlan | null;
   plannedRotations: PlannedRotation[];
+  lineup: LineupAssignment[];
   isRecalculating: boolean;
   onStartGame: () => void;
   onPauseTimer: () => void;
@@ -32,6 +36,7 @@ interface GameTimerProps {
   onEndGame: () => void;
   onAddTestTime: (minutes: number) => void;
   onRecalculateRotations: () => void;
+  onApplyHalftimeSub: (sub: PlannedSubstitution) => Promise<void>;
   getPlanConflicts: () => Array<{
     type: 'starter' | 'rotation';
     playerId: string;
@@ -52,6 +57,7 @@ export function GameTimer({
   halfLengthSeconds,
   gamePlan,
   plannedRotations,
+  lineup,
   isRecalculating,
   onStartGame,
   onPauseTimer,
@@ -61,8 +67,40 @@ export function GameTimer({
   onEndGame,
   onAddTestTime,
   onRecalculateRotations,
+  onApplyHalftimeSub,
   getPlanConflicts,
 }: GameTimerProps) {
+  const { getPlayerAvailability } = useAvailability();
+  const [isApplyingAll, setIsApplyingAll] = useState(false);
+
+  // Planned subs for the start of the second half
+  const halftimeSubs = (() => {
+    const rotation = plannedRotations.find(r => r.half === 2);
+    if (!rotation) return [];
+    try {
+      return JSON.parse(rotation.plannedSubstitutions as string) as PlannedSubstitution[];
+    } catch { return []; }
+  })();
+
+  const getHalftimeSubState = (sub: PlannedSubstitution) => {
+    const inAvailability = getPlayerAvailability(sub.playerInId);
+    const isApplied = lineup.find(l => l.positionId === sub.positionId && l.isStarter)?.playerId === sub.playerInId;
+    const canApply = !isApplied && inAvailability !== 'absent' && inAvailability !== 'injured';
+    return { isApplied, canApply, inAvailability };
+  };
+
+  const canApplyAll = halftimeSubs.some(sub => getHalftimeSubState(sub).canApply);
+
+  const handleApplyAll = async () => {
+    setIsApplyingAll(true);
+    try {
+      const pending = halftimeSubs.filter(sub => getHalftimeSubState(sub).canApply);
+      await Promise.all(pending.map(sub => onApplyHalftimeSub(sub)));
+    } finally {
+      setIsApplyingAll(false);
+    }
+  };
+
   return (
     <div className="game-timer-card">
       <div className="timer-display">
@@ -170,49 +208,67 @@ export function GameTimer({
           <div className="halftime-controls">
             <div className="halftime-message">
               <h3>⏸️ Halftime</h3>
-              <p>Adjust your lineup below if needed, then start the second half</p>
+              <p>Apply 2nd half lineup changes, then start the second half</p>
             </div>
 
-            {/* Show planned halftime substitutions */}
-            {(() => {
-              const halftimeRotation = plannedRotations.find(r => r.half === 2);
-              if (!halftimeRotation) return null;
-              const subs: PlannedSubstitution[] = JSON.parse(halftimeRotation.plannedSubstitutions as string);
-              if (subs.length === 0) return null;
-              return (
-                <div className="halftime-planned-subs">
-                  <h4>🔄 Planned Substitutions</h4>
-                  <div className="planned-subs-list">
-                    {subs.map((sub, idx) => {
-                      const playerOut = players.find(p => p.id === sub.playerOutId);
-                      const playerIn = players.find(p => p.id === sub.playerInId);
-                      const position = positions.find(p => p.id === sub.positionId);
+            {halftimeSubs.length > 0 && (
+              <div className="halftime-planned-subs">
+                <div className="halftime-subs-header">
+                  <h4>🔄 2nd Half Lineup Changes</h4>
+                  <button
+                    onClick={handleApplyAll}
+                    disabled={!canApplyAll || isApplyingAll}
+                    className="btn-secondary"
+                  >
+                    {isApplyingAll ? 'Applying...' : 'Apply All'}
+                  </button>
+                </div>
+                <div className="planned-subs-list">
+                  {halftimeSubs.map((sub, idx) => {
+                    const playerOut = players.find(p => p.id === sub.playerOutId);
+                    const playerIn = players.find(p => p.id === sub.playerInId);
+                    const position = positions.find(p => p.id === sub.positionId);
+                    const { isApplied, canApply, inAvailability } = getHalftimeSubState(sub);
 
-                      return (
-                        <div key={idx} className="planned-sub-item" style={{ background: '#fff9c4', border: '2px solid #fdd835' }}>
-                          <div className="sub-position-label">{position?.abbreviation}</div>
-                          <div className="sub-players">
-                            <div className="sub-player sub-out">
-                              <span className="player-number">#{playerOut?.playerNumber}</span>
-                              <span className="player-name">
-                                {playerOut?.firstName} {playerOut?.lastName}
-                              </span>
-                            </div>
-                            <div className="sub-arrow">→</div>
-                            <div className="sub-player sub-in">
-                              <span className="player-number">#{playerIn?.playerNumber}</span>
-                              <span className="player-name">
-                                {playerIn?.firstName} {playerIn?.lastName}
-                              </span>
-                            </div>
+                    return (
+                      <div key={idx} className="planned-sub-item">
+                        <div className="sub-position-label">{position?.abbreviation}</div>
+                        <div className="sub-players">
+                          <div className="sub-player sub-out">
+                            <span className="player-number">#{playerOut?.playerNumber}</span>
+                            <span className="player-name">
+                              {playerOut?.firstName} {playerOut?.lastName}
+                            </span>
+                          </div>
+                          <div className="sub-arrow">→</div>
+                          <div className="sub-player sub-in">
+                            <span className="player-number">#{playerIn?.playerNumber}</span>
+                            <span className="player-name">
+                              {playerIn?.firstName} {playerIn?.lastName}
+                            </span>
+                            {(inAvailability === 'absent' || inAvailability === 'injured') && (
+                              <span className="availability-badge unavailable">⚠️ {inAvailability}</span>
+                            )}
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
+                        <button
+                          onClick={() => onApplyHalftimeSub(sub)}
+                          className={`btn-queue-sub ${isApplied ? 'queued' : ''}`}
+                          disabled={!canApply}
+                          title={
+                            isApplied ? 'Already applied' :
+                            canApply ? 'Apply this substitution to the lineup' :
+                            `${playerIn?.firstName} is ${inAvailability}`
+                          }
+                        >
+                          {isApplied ? '✓ Applied' : 'Apply'}
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })()}
+              </div>
+            )}
 
             <button onClick={onStartSecondHalf} className="btn-primary btn-large">
               Start Second Half

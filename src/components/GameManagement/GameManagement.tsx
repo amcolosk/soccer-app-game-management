@@ -404,6 +404,34 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }
   };
 
+  const handleApplyHalftimeSub = async (sub: PlannedSubstitution) => {
+    try {
+      const currentAssignment = lineup.find(l => l.positionId === sub.positionId && l.isStarter);
+      if (!currentAssignment) return;
+      if (currentAssignment.playerId === sub.playerInId) return; // already applied
+
+      await client.models.LineupAssignment.delete({ id: currentAssignment.id });
+      await client.models.LineupAssignment.create({
+        gameId: game.id,
+        playerId: sub.playerInId,
+        positionId: sub.positionId,
+        isStarter: true,
+        coaches: team.coaches,
+      });
+      await client.models.Substitution.create({
+        gameId: game.id,
+        positionId: sub.positionId,
+        playerOutId: sub.playerOutId,
+        playerInId: sub.playerInId,
+        half: 1,
+        gameSeconds: currentTime,
+        coaches: team.coaches,
+      });
+    } catch (error) {
+      handleApiError(error, 'Failed to apply halftime substitution');
+    }
+  };
+
   const handleStartSecondHalf = async () => {
     try {
       const startTime = new Date().toISOString();
@@ -600,6 +628,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         halfLengthSeconds={halfLengthSeconds}
         gamePlan={gamePlan}
         plannedRotations={plannedRotations}
+        lineup={lineup}
         isRecalculating={isRecalculating}
         onStartGame={handleStartGame}
         onPauseTimer={handlePauseTimer}
@@ -609,6 +638,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         onEndGame={handleEndGame}
         onAddTestTime={handleAddTestTime}
         onRecalculateRotations={handleRecalculateRotations}
+        onApplyHalftimeSub={handleApplyHalftimeSub}
         getPlanConflicts={getPlanConflicts}
       />
 

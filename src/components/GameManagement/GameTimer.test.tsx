@@ -1,11 +1,21 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GameTimer } from "./GameTimer";
+
+// GameTimer calls useAvailability internally – mock the context
+const mockGetPlayerAvailability = vi.fn().mockReturnValue("available");
+vi.mock("../../contexts/AvailabilityContext", () => ({
+  useAvailability: () => ({ getPlayerAvailability: mockGetPlayerAvailability }),
+}));
 
 vi.mock("../PlayerAvailabilityGrid", () => ({
   PlayerAvailabilityGrid: () => <div data-testid="availability-grid" />,
 }));
+
+// ---------------------------------------------------------------------------
+// Shared fixtures
+// ---------------------------------------------------------------------------
 
 const makeGameState = (overrides = {}) => ({
   id: "game-1",
@@ -19,11 +29,14 @@ const makeGameState = (overrides = {}) => ({
 
 const players = [
   { id: "p1", playerNumber: 10, firstName: "Alice", lastName: "Smith", isActive: true },
-  { id: "p2", playerNumber: 7, firstName: "Bob", lastName: "Jones", isActive: true },
+  { id: "p2", playerNumber: 7,  firstName: "Bob",   lastName: "Jones", isActive: true },
+  { id: "p3", playerNumber: 5,  firstName: "Carol", lastName: "Davis", isActive: true },
+  { id: "p4", playerNumber: 3,  firstName: "Dan",   lastName: "Evans", isActive: true },
 ] as any[];
 
 const positions = [
-  { id: "pos1", positionName: "Forward", abbreviation: "FW" },
+  { id: "pos1", positionName: "Forward",    abbreviation: "FW" },
+  { id: "pos2", positionName: "Midfielder", abbreviation: "MF" },
 ] as any[];
 
 const noopCallbacks = {
@@ -35,6 +48,7 @@ const noopCallbacks = {
   onEndGame: vi.fn(),
   onAddTestTime: vi.fn(),
   onRecalculateRotations: vi.fn(),
+  onApplyHalftimeSub: vi.fn().mockResolvedValue(undefined),
   getPlanConflicts: () => [],
 };
 
@@ -49,11 +63,42 @@ const defaultProps = {
   halfLengthSeconds: 1800,
   gamePlan: null,
   plannedRotations: [] as any[],
+  lineup: [] as any[],
   isRecalculating: false,
   ...noopCallbacks,
 };
 
+// Planned rotation fixtures
+const oneSubRotation = [{
+  id: "rot1", half: 2, gameMinute: 30, rotationNumber: 1,
+  plannedSubstitutions: JSON.stringify([
+    { playerOutId: "p1", playerInId: "p2", positionId: "pos1" },
+  ]),
+}] as any[];
+
+const twoSubRotation = [{
+  id: "rot1", half: 2, gameMinute: 30, rotationNumber: 1,
+  plannedSubstitutions: JSON.stringify([
+    { playerOutId: "p1", playerInId: "p2", positionId: "pos1" },
+    { playerOutId: "p3", playerInId: "p4", positionId: "pos2" },
+  ]),
+}] as any[];
+
+const makeHalftimeProps = (overrides: Record<string, unknown> = {}) => ({
+  ...defaultProps,
+  gameState: makeGameState({ status: "halftime", currentHalf: 1 }) as any,
+  ...overrides,
+});
+
+// ---------------------------------------------------------------------------
+
 describe("GameTimer", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetPlayerAvailability.mockReturnValue("available");
+  });
+
+  // -------------------------------------------------------------------------
   describe("rendering", () => {
     it("shows First Half when currentHalf is 1", () => {
       render(<GameTimer {...defaultProps} />);
@@ -62,15 +107,13 @@ describe("GameTimer", () => {
 
     it("shows Second Half when currentHalf is 2", () => {
       render(
-        <GameTimer
-          {...defaultProps}
-          gameState={makeGameState({ currentHalf: 2 }) as any}
-        />
+        <GameTimer {...defaultProps} gameState={makeGameState({ currentHalf: 2 }) as any} />
       );
       expect(screen.getByText("Second Half")).toBeInTheDocument();
     });
   });
 
+  // -------------------------------------------------------------------------
   describe("scheduled status", () => {
     it("shows Start Game button", () => {
       render(<GameTimer {...defaultProps} />);
@@ -88,11 +131,7 @@ describe("GameTimer", () => {
         { type: "starter" as const, playerId: "p1", playerName: "#10 Alice Smith", status: "absent", rotationNumbers: [] },
       ];
       render(
-        <GameTimer
-          {...defaultProps}
-          gamePlan={{ id: "gp1" } as any}
-          getPlanConflicts={() => conflicts}
-        />
+        <GameTimer {...defaultProps} gamePlan={{ id: "gp1" } as any} getPlanConflicts={() => conflicts} />
       );
       expect(screen.getByText("Plan Conflicts", { exact: false })).toBeInTheDocument();
       expect(screen.getByText("#10 Alice Smith")).toBeInTheDocument();
@@ -101,11 +140,7 @@ describe("GameTimer", () => {
 
     it("does not show conflict banner when no conflicts", () => {
       render(
-        <GameTimer
-          {...defaultProps}
-          gamePlan={{ id: "gp1" } as any}
-          getPlanConflicts={() => []}
-        />
+        <GameTimer {...defaultProps} gamePlan={{ id: "gp1" } as any} getPlanConflicts={() => []} />
       );
       expect(screen.queryByText("Plan Conflicts", { exact: false })).not.toBeInTheDocument();
     });
@@ -133,22 +168,13 @@ describe("GameTimer", () => {
         { type: "rotation" as const, playerId: "p1", playerName: "#10 Alice", status: "absent", rotationNumbers: [1, 3] },
       ];
       render(
-        <GameTimer
-          {...defaultProps}
-          gamePlan={{ id: "gp1" } as any}
-          getPlanConflicts={() => conflicts}
-        />
+        <GameTimer {...defaultProps} gamePlan={{ id: "gp1" } as any} getPlanConflicts={() => conflicts} />
       );
       expect(screen.getByText(/Rotations 1, 3/)).toBeInTheDocument();
     });
 
     it("renders PlayerAvailabilityGrid when gamePlan exists", () => {
-      render(
-        <GameTimer
-          {...defaultProps}
-          gamePlan={{ id: "gp1" } as any}
-        />
-      );
+      render(<GameTimer {...defaultProps} gamePlan={{ id: "gp1" } as any} />);
       expect(screen.getByTestId("availability-grid")).toBeInTheDocument();
     });
 
@@ -158,6 +184,7 @@ describe("GameTimer", () => {
     });
   });
 
+  // -------------------------------------------------------------------------
   describe("in-progress status", () => {
     const inProgressProps = {
       ...defaultProps,
@@ -236,58 +263,193 @@ describe("GameTimer", () => {
     });
   });
 
+  // -------------------------------------------------------------------------
   describe("halftime status", () => {
-    const halftimeProps = {
-      ...defaultProps,
-      gameState: makeGameState({ status: "halftime", currentHalf: 1 }) as any,
-    };
-
     it("shows halftime message", () => {
-      render(<GameTimer {...halftimeProps} />);
+      render(<GameTimer {...makeHalftimeProps()} />);
       expect(screen.getByText("Halftime", { exact: false })).toBeInTheDocument();
     });
 
     it("shows Start Second Half button", () => {
-      render(<GameTimer {...halftimeProps} />);
+      render(<GameTimer {...makeHalftimeProps()} />);
       expect(screen.getByText("Start Second Half")).toBeInTheDocument();
     });
 
     it("calls onStartSecondHalf when button clicked", async () => {
       const user = userEvent.setup();
       const onStartSecondHalf = vi.fn();
-      render(<GameTimer {...halftimeProps} onStartSecondHalf={onStartSecondHalf} />);
+      render(<GameTimer {...makeHalftimeProps({ onStartSecondHalf })} />);
       await user.click(screen.getByText("Start Second Half"));
       expect(onStartSecondHalf).toHaveBeenCalled();
     });
 
-    it("shows planned halftime substitutions when rotation data exists", () => {
-      const plannedRotations = [{
-        id: "rot1",
-        half: 2,
-        gameMinute: 30,
-        rotationNumber: 1,
-        plannedSubstitutions: JSON.stringify([
-          { playerOutId: "p1", playerInId: "p2", positionId: "pos1" },
-        ]),
-      }] as any[];
+    it("shows 2nd Half Lineup Changes heading when rotation data exists", () => {
+      render(<GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation })} />);
+      expect(screen.getByRole("heading", { name: /2nd Half Lineup Changes/i })).toBeInTheDocument();
+    });
 
-      render(
-        <GameTimer
-          {...halftimeProps}
-          plannedRotations={plannedRotations}
-        />
-      );
-      expect(screen.getByText("Planned Substitutions", { exact: false })).toBeInTheDocument();
+    it("does not show lineup changes section when no halftime rotation exists", () => {
+      render(<GameTimer {...makeHalftimeProps()} />);
+      expect(screen.queryByRole("heading", { name: /2nd Half Lineup Changes/i })).not.toBeInTheDocument();
+    });
+
+    it("renders an Apply button for each planned substitution", () => {
+      render(<GameTimer {...makeHalftimeProps({ plannedRotations: twoSubRotation })} />);
+      expect(screen.getAllByRole("button", { name: /^apply$/i })).toHaveLength(2);
+    });
+
+    it("shows player names for each planned sub", () => {
+      render(<GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation })} />);
       expect(screen.getByText(/Alice/)).toBeInTheDocument();
       expect(screen.getByText(/Bob/)).toBeInTheDocument();
     });
 
-    it("does not show substitutions when no halftime rotation", () => {
-      render(<GameTimer {...halftimeProps} />);
-      expect(screen.queryByText("Planned Substitutions", { exact: false })).not.toBeInTheDocument();
+    // --- Apply button enabled/disabled states ---
+
+    it("Apply button is enabled when incoming player is available", () => {
+      render(<GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation })} />);
+      expect(screen.getByRole("button", { name: /^apply$/i })).not.toBeDisabled();
+    });
+
+    it("Apply button is disabled when incoming player is absent", () => {
+      mockGetPlayerAvailability.mockImplementation((id: string) =>
+        id === "p2" ? "absent" : "available"
+      );
+      render(<GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation })} />);
+      expect(screen.getByRole("button", { name: /^apply$/i })).toBeDisabled();
+    });
+
+    it("Apply button is disabled when incoming player is injured", () => {
+      mockGetPlayerAvailability.mockImplementation((id: string) =>
+        id === "p2" ? "injured" : "available"
+      );
+      render(<GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation })} />);
+      expect(screen.getByRole("button", { name: /^apply$/i })).toBeDisabled();
+    });
+
+    it("shows availability badge when incoming player is absent", () => {
+      mockGetPlayerAvailability.mockImplementation((id: string) =>
+        id === "p2" ? "absent" : "available"
+      );
+      render(<GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation })} />);
+      expect(screen.getByText(/absent/i)).toBeInTheDocument();
+    });
+
+    it("Apply button shows '✓ Applied' and is disabled when incoming player is already in lineup", () => {
+      const appliedLineup = [
+        { id: "la-1", gameId: "game-1", playerId: "p2", positionId: "pos1", isStarter: true },
+      ] as any[];
+      render(
+        <GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation, lineup: appliedLineup })} />
+      );
+      expect(screen.getByText("✓ Applied")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /applied/i })).toBeDisabled();
+    });
+
+    it("calls onApplyHalftimeSub with the correct sub when Apply is clicked", async () => {
+      const user = userEvent.setup();
+      const onApplyHalftimeSub = vi.fn().mockResolvedValue(undefined);
+      render(
+        <GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation, onApplyHalftimeSub })} />
+      );
+      await user.click(screen.getByRole("button", { name: /^apply$/i }));
+      expect(onApplyHalftimeSub).toHaveBeenCalledWith({
+        playerOutId: "p1",
+        playerInId: "p2",
+        positionId: "pos1",
+      });
+    });
+
+    // --- Apply All ---
+
+    it("shows Apply All button when planned subs exist", () => {
+      render(<GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation })} />);
+      expect(screen.getByRole("button", { name: /apply all/i })).toBeInTheDocument();
+    });
+
+    it("Apply All is enabled when at least one sub is pending", () => {
+      render(<GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation })} />);
+      expect(screen.getByRole("button", { name: /apply all/i })).not.toBeDisabled();
+    });
+
+    it("Apply All is disabled when all subs are already applied", () => {
+      const fullyAppliedLineup = [
+        { id: "la-1", gameId: "game-1", playerId: "p2", positionId: "pos1", isStarter: true },
+        { id: "la-2", gameId: "game-1", playerId: "p4", positionId: "pos2", isStarter: true },
+      ] as any[];
+      render(
+        <GameTimer
+          {...makeHalftimeProps({ plannedRotations: twoSubRotation, lineup: fullyAppliedLineup })}
+        />
+      );
+      expect(screen.getByRole("button", { name: /apply all/i })).toBeDisabled();
+    });
+
+    it("Apply All is disabled when all incoming players are unavailable", () => {
+      mockGetPlayerAvailability.mockImplementation((id: string) =>
+        id === "p2" ? "absent" : "available"
+      );
+      render(<GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation })} />);
+      expect(screen.getByRole("button", { name: /apply all/i })).toBeDisabled();
+    });
+
+    it("Apply All calls onApplyHalftimeSub for each pending sub", async () => {
+      const user = userEvent.setup();
+      const onApplyHalftimeSub = vi.fn().mockResolvedValue(undefined);
+      render(
+        <GameTimer {...makeHalftimeProps({ plannedRotations: twoSubRotation, onApplyHalftimeSub })} />
+      );
+      await user.click(screen.getByRole("button", { name: /apply all/i }));
+      await waitFor(() => expect(onApplyHalftimeSub).toHaveBeenCalledTimes(2));
+      expect(onApplyHalftimeSub).toHaveBeenCalledWith({ playerOutId: "p1", playerInId: "p2", positionId: "pos1" });
+      expect(onApplyHalftimeSub).toHaveBeenCalledWith({ playerOutId: "p3", playerInId: "p4", positionId: "pos2" });
+    });
+
+    it("Apply All skips subs where the incoming player is already in the lineup", async () => {
+      const user = userEvent.setup();
+      const onApplyHalftimeSub = vi.fn().mockResolvedValue(undefined);
+      const partialLineup = [
+        { id: "la-1", gameId: "game-1", playerId: "p2", positionId: "pos1", isStarter: true },
+      ] as any[];
+      render(
+        <GameTimer
+          {...makeHalftimeProps({
+            plannedRotations: twoSubRotation,
+            lineup: partialLineup,
+            onApplyHalftimeSub,
+          })}
+        />
+      );
+      await user.click(screen.getByRole("button", { name: /apply all/i }));
+      await waitFor(() => expect(onApplyHalftimeSub).toHaveBeenCalledTimes(1));
+      expect(onApplyHalftimeSub).toHaveBeenCalledWith({ playerOutId: "p3", playerInId: "p4", positionId: "pos2" });
+    });
+
+    it("Apply All shows 'Applying...' while in progress and re-enables on completion", async () => {
+      const user = userEvent.setup();
+      let resolveApply!: () => void;
+      const onApplyHalftimeSub = vi.fn().mockReturnValue(
+        new Promise<void>(r => { resolveApply = r; })
+      );
+      render(
+        <GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation, onApplyHalftimeSub })} />
+      );
+
+      user.click(screen.getByRole("button", { name: /apply all/i }));
+
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /applying/i })).toBeDisabled()
+      );
+
+      resolveApply();
+
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /apply all/i })).toBeInTheDocument()
+      );
     });
   });
 
+  // -------------------------------------------------------------------------
   describe("completed status", () => {
     const completedProps = {
       ...defaultProps,

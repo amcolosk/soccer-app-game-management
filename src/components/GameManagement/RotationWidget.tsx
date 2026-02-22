@@ -59,6 +59,35 @@ export function RotationWidget({
     }) || null;
   };
 
+  const handleQueueAll = () => {
+    if (!currentRotation) return;
+    try {
+      const subs: PlannedSubstitution[] = JSON.parse(currentRotation.plannedSubstitutions as string);
+      subs.forEach(sub => {
+        const inAvailability = getPlayerAvailability(sub.playerInId);
+        const isQueued = substitutionQueue.some(
+          q => q.playerId === sub.playerInId && q.positionId === sub.positionId
+        );
+        if (inAvailability === 'available' && !isQueued) {
+          onQueueSubstitution(sub.playerInId, sub.positionId);
+        }
+      });
+    } catch { /* ignore parse errors */ }
+  };
+
+  const canQueueAll = currentRotation ? (() => {
+    try {
+      const subs: PlannedSubstitution[] = JSON.parse(currentRotation.plannedSubstitutions as string);
+      return subs.some(sub => {
+        const inAvailability = getPlayerAvailability(sub.playerInId);
+        const isQueued = substitutionQueue.some(
+          q => q.playerId === sub.playerInId && q.positionId === sub.positionId
+        );
+        return inAvailability === 'available' && !isQueued;
+      });
+    } catch { return false; }
+  })() : false;
+
   const handleLateArrival = async (playerId: string) => {
     try {
       await updatePlayerAvailability(
@@ -127,14 +156,19 @@ export function RotationWidget({
         return null;
       })()}
 
-      <div className="planner-actions">
-        <button
-          onClick={() => setShowLateArrivalModal(true)}
-          className="btn-secondary"
-        >
-          + Add Late Arrival
-        </button>
-      </div>
+      {players.some(p => {
+        const status = getPlayerAvailability(p.id);
+        return status === 'absent' || status === 'late-arrival';
+      }) && (
+        <div className="planner-actions">
+          <button
+            onClick={() => setShowLateArrivalModal(true)}
+            className="btn-secondary"
+          >
+            + Add Late Arrival
+          </button>
+        </div>
+      )}
 
       {/* Rotation Modal */}
       {showRotationModal && currentRotation && (
@@ -210,6 +244,14 @@ export function RotationWidget({
             </div>
 
             <div className="form-actions">
+              <button
+                onClick={handleQueueAll}
+                className="btn-secondary"
+                disabled={!canQueueAll}
+                title={canQueueAll ? 'Queue all available substitutions' : 'No available substitutions to queue'}
+              >
+                Queue All
+              </button>
               <button
                 onClick={() => setShowRotationModal(false)}
                 className="btn-primary"
