@@ -469,20 +469,19 @@ export function TeamReport({ team }: TeamReportProps) {
             <table className="stats-table">
               <thead>
                 <tr>
-                  <th className="player-number-cell">#</th>
                   <th className="player-name">Player</th>
-                  <th>Games</th>
-                  <th>Play Time</th>
-                  <th>⚽ Goals</th>
-                  <th>🎯 Assists</th>
-                  <th>⭐ Stars</th>
-                  <th>🟨 Yellow</th>
-                  <th>🟥 Red</th>
+                  <th>GP</th>
+                  <th>Time</th>
+                  <th>⚽<span className="col-label"> Goals</span></th>
+                  <th>🎯<span className="col-label"> Assists</span></th>
+                  <th>⭐<span className="col-label"> Stars</span></th>
+                  <th>🟨<span className="col-label"> Yellow</span></th>
+                  <th>🟥<span className="col-label"> Red</span></th>
                 </tr>
               </thead>
               <tbody>
                 {playerStats.map((stat) => (
-                  <tr 
+                  <tr
                     key={stat.player.id}
                     onClick={() => {
                       setSelectedRoster(stat.roster);
@@ -490,12 +489,8 @@ export function TeamReport({ team }: TeamReportProps) {
                     }}
                     className={`clickable-row ${selectedPlayer?.id === stat.player.id ? 'selected' : ''}`}
                   >
-                    <td className="player-number-cell">
-                      <div className="player-number">
-                        {stat.roster.playerNumber !== undefined ? `#${stat.roster.playerNumber}` : '-'}
-                      </div>
-                    </td>
                     <td className="player-name">
+                      {stat.roster.playerNumber !== undefined ? `#${stat.roster.playerNumber} ` : ''}
                       {stat.player.firstName} {stat.player.lastName}
                     </td>
                     <td>{stat.gamesPlayed}</td>

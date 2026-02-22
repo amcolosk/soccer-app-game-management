@@ -2864,32 +2864,15 @@
   background: rgba(76, 175, 80, 0.05);
 }
 
-.stats-table tbody tr:hover td.player-number-cell,
 .stats-table tbody tr:hover td.player-name {
   background: #e8f5e9;
 }
 
-.stats-table td.player-number-cell,
-.stats-table th.player-number-cell {
-  position: sticky;
-  left: 0;
-  z-index: 2;
-  background: var(--card-background);
-  transition: background 0.2s;
-  padding: 0.5rem 1rem;
-}
-
-.stats-table thead th.player-number-cell {
-  background: var(--primary-green);
-  color: white;
-  z-index: 3;
-}
-
 .player-name {
   font-weight: 600;
-  min-width: 150px;
+  min-width: 130px;
   position: sticky;
-  left: 80px;
+  left: 0;
   z-index: 2;
   background: var(--card-background);
   transition: background 0.2s;
@@ -2897,7 +2880,26 @@
 
 .stats-table thead th.player-name {
   background: var(--primary-green);
+  color: white;
   z-index: 3;
+}
+
+@media (max-width: 480px) {
+  .stats-table th,
+  .stats-table td {
+    padding: 0.5rem 0.4rem;
+    font-size: 0.85em;
+  }
+
+  .stats-table td.player-name,
+  .stats-table th.player-name {
+    padding: 0.5rem 0.6rem;
+    min-width: 100px;
+  }
+
+  .col-label {
+    display: none;
+  }
 }
 
 .stat-goals,
