@@ -1204,10 +1204,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                     #{player.playerNumber} {player.firstName} {player.lastName?.charAt(0)}.
                   </div>
                   <div className="playtime-bar-wrapper">
-                    <div className="playtime-bar" style={{ width: `${percentage}%` }}>
-                      {totalMinutes}min
-                    </div>
+                    <div className="playtime-bar" style={{ width: `${percentage}%` }} />
                   </div>
+                  <div className="playtime-minutes">{totalMinutes}m</div>
                 </div>
               ))}
           </div>

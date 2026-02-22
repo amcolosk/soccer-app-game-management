@@ -1905,11 +1905,11 @@
 
   /* Game Planner mobile */
   .game-planner-container {
-    padding: 0.5rem;
+    padding: 0.25rem;
   }
 
   .planner-section {
-    padding: 1rem;
+    padding: 0.75rem;
   }
 
   .planner-header {
@@ -1932,14 +1932,22 @@
     text-align: center;
   }
 
+  /* Availability grid: 3 compact columns to reduce scrolling for large rosters */
   .availability-grid {
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-    gap: 0.5rem;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.4rem;
   }
 
   .availability-card {
-    padding: 0.5rem;
-    gap: 0.5rem;
+    padding: 0.4rem 0.5rem;
+    gap: 0.4rem;
+  }
+
+  .availability-status {
+    width: 26px;
+    height: 26px;
+    font-size: 0.85rem;
+    flex-shrink: 0;
   }
 
   .position-lineup-grid,
@@ -1949,7 +1957,7 @@
   }
 
   .rotation-details-panel {
-    padding: 1rem;
+    padding: 0.75rem;
   }
 
   .panel-header {
@@ -1968,18 +1976,53 @@
     width: 100%;
   }
 
+  /* Playtime bars: keep horizontal, truncate label, show minutes outside bar */
   .playtime-bar-container {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.25rem;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.4rem;
   }
 
   .playtime-label {
+    min-width: 80px;
+    max-width: 80px;
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .playtime-bar-wrapper {
+    height: 20px;
+  }
+
+  .playtime-minutes {
+    min-width: 32px;
+    font-size: 0.78rem;
+  }
+
+  /* Bench players: 2-column grid to prevent overflow */
+  .bench-players {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4rem;
+  }
+
+  .bench-player {
+    padding: 0.4rem 0.5rem;
     min-width: 0;
+  }
+
+  .bench-player .player-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .bench-area {
     padding: 0.75rem;
+    min-height: auto;
   }
 }
 
@@ -3425,6 +3468,8 @@
   border-radius: 6px;
   cursor: move;
   transition: all 0.2s;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .bench-player:hover {
@@ -3825,14 +3870,17 @@
 .playtime-bar {
   height: 100%;
   background: linear-gradient(90deg, var(--primary-green), #4caf50);
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 0.5rem;
-  color: white;
-  font-weight: bold;
-  font-size: 0.85rem;
+  border-radius: 4px;
   transition: width 0.3s ease;
+}
+
+.playtime-minutes {
+  min-width: 36px;
+  text-align: right;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  flex-shrink: 0;
 }
 
 .validation-errors {
