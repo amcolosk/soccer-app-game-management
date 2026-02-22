@@ -6,13 +6,17 @@ import { VitePWA } from 'vite-plugin-pwa'
 const packageJson = await import('./package.json', { with: { type: 'json' } });
 const version = packageJson.default.version;
 
+// Append Amplify build job ID when available (e.g. "1.1.0-42")
+const buildId = process.env.AWS_JOB_ID;
+const fullVersion = buildId ? `${version}-${buildId}` : version;
+
 // Generate build timestamp
 const buildTimestamp = new Date().toISOString();
 
 // https://vitejs.dev/config/
 export default defineConfig({
   define: {
-    'import.meta.env.VITE_APP_VERSION': JSON.stringify(version),
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(fullVersion),
     'import.meta.env.VITE_BUILD_TIMESTAMP': JSON.stringify(buildTimestamp),
     'import.meta.env.VITE_DEPLOYMENT_ID': JSON.stringify(process.env.AWS_DEPLOYMENT_ID || process.env.AWS_BRANCH || 'local'),
     'import.meta.env.VITE_APP_ID': JSON.stringify(process.env.AWS_APP_ID || ''),

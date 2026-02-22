@@ -300,8 +300,6 @@ export function UserProfile() {
       <div className="profile-section version-info">
         <small style={{ color: '#666', fontSize: '0.85rem' }}>
           Version {import.meta.env.VITE_APP_VERSION || '1.1.0'}
-          {import.meta.env.VITE_DEPLOYMENT_ID && import.meta.env.VITE_DEPLOYMENT_ID !== 'local' && `-${import.meta.env.VITE_DEPLOYMENT_ID}`}
-          {import.meta.env.VITE_APP_ID && ` (${import.meta.env.VITE_APP_ID})`}
         </small>
       </div>
     </div>

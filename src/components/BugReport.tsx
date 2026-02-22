@@ -40,7 +40,7 @@ export function BugReport({ onClose }: BugReportProps) {
         viewport: `${window.innerWidth}x${window.innerHeight}`,
         timestamp: new Date().toISOString(),
         url: window.location.origin + window.location.pathname,
-        version: import.meta.env.VITE_APP_VERSION || '1.0.0',
+        version: import.meta.env.VITE_APP_VERSION || '1.1.0',
       };
 
       // Send bug report via email (Lambda + SES) and create Issue record
