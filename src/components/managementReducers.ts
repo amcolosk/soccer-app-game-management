@@ -10,11 +10,12 @@ export interface PlayerFormState {
   editing: Player | null;
   firstName: string;
   lastName: string;
+  birthYear: string; // '' means not set
 }
 
 export type PlayerFormAction =
   | { type: 'START_CREATE' }
-  | { type: 'SET_FIELD'; field: 'firstName' | 'lastName'; value: string }
+  | { type: 'SET_FIELD'; field: 'firstName' | 'lastName' | 'birthYear'; value: string }
   | { type: 'EDIT_PLAYER'; player: Player }
   | { type: 'RESET' };
 
@@ -23,6 +24,7 @@ export const initialPlayerForm: PlayerFormState = {
   editing: null,
   firstName: '',
   lastName: '',
+  birthYear: '',
 };
 
 export function playerFormReducer(state: PlayerFormState, action: PlayerFormAction): PlayerFormState {
@@ -37,6 +39,7 @@ export function playerFormReducer(state: PlayerFormState, action: PlayerFormActi
         editing: action.player,
         firstName: action.player.firstName,
         lastName: action.player.lastName,
+        birthYear: action.player.birthYear != null ? String(action.player.birthYear) : '',
       };
     case 'RESET':
       return initialPlayerForm;

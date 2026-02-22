@@ -41,6 +41,17 @@ async function confirmAndDelete(
   }
 }
 
+const BIRTH_YEAR_MIN = 1990;
+const BIRTH_YEAR_MAX = new Date().getFullYear();
+
+/** Returns the validated integer, undefined (field left blank), or null on invalid input. */
+function parseBirthYear(raw: string): number | undefined | null {
+  if (!raw.trim()) return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < BIRTH_YEAR_MIN || n > BIRTH_YEAR_MAX) return null;
+  return n;
+}
+
 function validateTeamForm(form: { name: string; maxPlayers: string; halfLength: string }) {
   if (!form.name.trim()) {
     showWarning('Please enter team name');
@@ -140,6 +151,7 @@ export function Management() {
   const [currentUserId, setCurrentUserId] = useState<string>('');
 
   const [rosterView, setRosterView] = useState<'roster' | 'positions'>('roster');
+  const [birthYearFilter, setBirthYearFilter] = useState<string>('');
 
   // Sharing state
   const [sharingResourceType, setSharingResourceType] = useState<'team' | null>(null);
@@ -272,6 +284,7 @@ export function Management() {
       });
 
       rosterDispatch({ type: 'RESET' });
+      setBirthYearFilter('');
     } catch (error) {
       handleApiError(error, 'Failed to add player to roster');
     }
@@ -345,6 +358,7 @@ export function Management() {
 
   const handleCancelRosterEdit = () => {
     rosterDispatch({ type: 'RESET' });
+    setBirthYearFilter('');
   };
 
   const handleDeletePlayer = (id: string) => confirmAndDelete(confirm, {
@@ -381,6 +395,12 @@ export function Management() {
       return;
     }
 
+    const birthYear = parseBirthYear(playerForm.birthYear);
+    if (birthYear === null) {
+      showWarning(`Birth year must be between ${BIRTH_YEAR_MIN} and ${BIRTH_YEAR_MAX}`);
+      return;
+    }
+
     if (!currentUserId) {
       showError('User not authenticated');
       return;
@@ -390,6 +410,7 @@ export function Management() {
       await client.models.Player.create({
         firstName: playerForm.firstName,
         lastName: playerForm.lastName,
+        birthYear,
         coaches: [currentUserId],
       });
 
@@ -412,11 +433,18 @@ export function Management() {
       return;
     }
 
+    const birthYear = parseBirthYear(playerForm.birthYear);
+    if (birthYear === null) {
+      showWarning(`Birth year must be between ${BIRTH_YEAR_MIN} and ${BIRTH_YEAR_MAX}`);
+      return;
+    }
+
     try {
       await client.models.Player.update({
         id: playerForm.editing.id,
         firstName: playerForm.firstName,
         lastName: playerForm.lastName,
+        birthYear,
       });
 
       playerDispatch({ type: 'RESET' });
@@ -914,6 +942,16 @@ export function Management() {
                         {rosterForm.isAdding && (
                           <div className="create-form" style={{ marginBottom: '1rem' }}>
                             <h5>Add Player to Roster</h5>
+                            {(() => {
+                              const availablePlayers = players.filter(p => !teamRosterList.some(r => r.playerId === p.id));
+                              const years = [...new Set(availablePlayers.map(p => p.birthYear).filter(Boolean))].sort() as number[];
+                              return years.length > 0 ? (
+                                <select value={birthYearFilter} onChange={(e) => setBirthYearFilter(e.target.value)}>
+                                  <option value="">All Birth Years</option>
+                                  {years.map(y => <option key={y} value={String(y)}>{y}</option>)}
+                                </select>
+                              ) : null;
+                            })()}
                             <select
                               value={rosterForm.selectedPlayer}
                               onChange={(e) => rosterDispatch({ type: 'SET_FIELD', field: 'selectedPlayer', value: e.target.value })}
@@ -921,9 +959,11 @@ export function Management() {
                               <option value="">Select Player *</option>
                               {players
                                 .filter(p => !teamRosterList.some(r => r.playerId === p.id))
+                                .filter(p => !birthYearFilter || String(p.birthYear) === birthYearFilter)
                                 .map(player => (
                                   <option key={player.id} value={player.id}>
                                     {player.firstName} {player.lastName}
+                                    {player.birthYear ? ` (${player.birthYear})` : ''}
                                   </option>
                                 ))}
                             </select>
@@ -961,7 +1001,7 @@ export function Management() {
                                 Add
                               </button>
                               <button
-                                onClick={() => rosterDispatch({ type: 'RESET' })}
+                                onClick={() => { rosterDispatch({ type: 'RESET' }); setBirthYearFilter(''); }}
                                 className="btn-secondary"
                               >
                                 Cancel
@@ -1313,6 +1353,14 @@ export function Management() {
                 value={playerForm.lastName}
                 onChange={(e) => playerDispatch({ type: 'SET_FIELD', field: 'lastName', value: e.target.value })}
               />
+              <input
+                type="number"
+                placeholder="Birth Year (optional, e.g. 2015)"
+                value={playerForm.birthYear}
+                onChange={(e) => playerDispatch({ type: 'SET_FIELD', field: 'birthYear', value: e.target.value })}
+                min={BIRTH_YEAR_MIN}
+                max={BIRTH_YEAR_MAX}
+              />
               <p className="form-hint">Players can be assigned to teams in the Team Management section.</p>
               <div className="form-actions">
                 <button onClick={handleCreatePlayer} className="btn-primary">
@@ -1358,6 +1406,14 @@ export function Management() {
                         value={playerForm.lastName}
                         onChange={(e) => playerDispatch({ type: 'SET_FIELD', field: 'lastName', value: e.target.value })}
                       />
+                      <input
+                        type="number"
+                        placeholder="Birth Year (optional, e.g. 2015)"
+                        value={playerForm.birthYear}
+                        onChange={(e) => playerDispatch({ type: 'SET_FIELD', field: 'birthYear', value: e.target.value })}
+                        min={BIRTH_YEAR_MIN}
+                        max={BIRTH_YEAR_MAX}
+                      />
                       <div className="form-actions">
                         <button onClick={handleUpdatePlayer} className="btn-primary">
                           Save
@@ -1378,7 +1434,7 @@ export function Management() {
                       {...getSwipeProps(player.id)}
                     >
                       <div className="item-info">
-                        <h3>{player.firstName} {player.lastName}</h3>
+                        <h3>{player.firstName} {player.lastName}{player.birthYear ? ` (${player.birthYear})` : ''}</h3>
                         <p className="item-meta">
                           {teamsList || 'Not assigned to any team'}
                         </p>

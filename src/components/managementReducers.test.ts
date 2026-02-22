@@ -18,6 +18,7 @@ describe('playerFormReducer', () => {
       editing: null,
       firstName: '',
       lastName: '',
+      birthYear: '',
     });
   });
 

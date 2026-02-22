@@ -61,6 +61,7 @@ const schema = a.schema({
       firstName: a.string().required(),
       lastName: a.string().required(),
       isActive: a.boolean().default(true),
+      birthYear: a.integer(), // Optional. birthMonth (1-12) can be added later for Aug 1 school-year cohort (US youth soccer 2026-27 transition)
       coaches: a.string().array(), // Team coaches who can access this player
       teamRosters: a.hasMany('TeamRoster', 'playerId'),
       lineupAssignments: a.hasMany('LineupAssignment', 'playerId'),
