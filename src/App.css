@@ -2819,6 +2819,13 @@
   color: var(--primary-green);
 }
 
+.summary-sublabel {
+  font-size: 0.75em;
+  color: var(--text-secondary);
+  margin-top: 0.2rem;
+  letter-spacing: 0.15em;
+}
+
 .stats-table-container {
   overflow-x: auto;
   border-radius: 12px;

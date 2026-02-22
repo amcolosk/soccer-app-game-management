@@ -441,7 +441,8 @@ export function TeamReport({ team }: TeamReportProps) {
               return (
                 <div className="summary-card">
                   <div className="summary-label">Record</div>
-                  <div className="summary-value">{wins}W - {losses}L - {ties}T</div>
+                  <div className="summary-value">{wins}-{losses}-{ties}</div>
+                  <div className="summary-sublabel">W - L - T</div>
                 </div>
               );
             })()}
