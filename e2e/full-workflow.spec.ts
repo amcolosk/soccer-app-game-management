@@ -708,7 +708,7 @@ async function verifyTeamTotals(page: Page, gameData: any) {
   // Click on Diana Davis to see her details
   // First, wait for Diana's play time in the table to be correct (confirms full data sync)
   const dianaRow = page.locator('tr').filter({ hasText: 'Diana Davis' });
-  await expect(dianaRow.locator('td').nth(3)).toContainText('40m', { timeout: 15000 });
+  await expect(dianaRow.locator('td').nth(2)).toContainText('40m', { timeout: 15000 });
   await dianaRow.click();
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   

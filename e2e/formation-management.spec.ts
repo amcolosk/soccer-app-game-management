@@ -165,22 +165,15 @@ test.describe('Formation Management CRUD', () => {
     await fillInput(page, 'input[placeholder*="Number of Players"]', TEST_DATA.formation1.playerCount);
     console.log('  ✓ Basic form filled');
     
-    // Add positions
+    // Positions auto-populate when playerCount is set — fill each slot by index
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+    const positionRows = page.locator('.position-row');
     for (let i = 0; i < TEST_DATA.formation1.positions.length; i++) {
       const pos = TEST_DATA.formation1.positions[i];
-      
-      // Click Add Position button
-      await clickButton(page, '+ Add Position');
-      await page.waitForTimeout(UI_TIMING.QUICK);
-      
-      // Fill in position details - target the last position row
-      const positionRows = page.locator('.position-row');
-      const lastRow = positionRows.last();
-      
-      await lastRow.locator('input[placeholder*="Position Name"]').fill(pos.name);
-      await lastRow.locator('input[placeholder*="Abbreviation"]').fill(pos.abbreviation);
-      
-      console.log(`  ✓ Added position ${i + 1}: ${pos.abbreviation}`);
+      const row = positionRows.nth(i);
+      await row.locator('input[placeholder*="Position Name"]').fill(pos.name);
+      await row.locator('input[placeholder*="Abbr"]').fill(pos.abbreviation);
+      console.log(`  ✓ Filled position ${i + 1}: ${pos.abbreviation}`);
     }
     
     // Submit

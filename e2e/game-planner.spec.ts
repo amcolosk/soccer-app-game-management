@@ -569,7 +569,7 @@ async function verifyPlayTimeReport(page: Page) {
     
     // Get time from the .playtime-bar element, not .playtime-label
     const timeText = await playerBar.locator('.playtime-bar').textContent();
-    const minutes = parseInt(timeText?.match(/(\d+)\s*min/)?.[1] || '0');
+    const minutes = parseInt(timeText?.match(/(\d+)\s*m(?:in)?/)?.[1] || '0');
     
     console.log(`${playerName}: ${minutes} min (expected: ${expectedTime.min}-${expectedTime.max} min)`);
     
