@@ -251,6 +251,148 @@ describe('rotationPlannerService', () => {
       }
     });
 
+    it('should never auto-sub the goalkeeper in regular rotations', () => {
+      // 8 players, pos1 = GK, all others are outfield
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' }, // GK
+        { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: 'pos2' },
+        { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: 'pos3' },
+        { id: 'r4', playerId: 'p4', playerNumber: 4, preferredPositions: 'pos4' },
+        { id: 'r5', playerId: 'p5', playerNumber: 5, preferredPositions: 'pos5' },
+        { id: 'r6', playerId: 'p6', playerNumber: 6, preferredPositions: 'pos6' },
+        { id: 'r7', playerId: 'p7', playerNumber: 7, preferredPositions: 'pos2' },
+        { id: 'r8', playerId: 'p8', playerNumber: 8, preferredPositions: 'pos3' },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' }, // GK
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+        { playerId: 'p4', positionId: 'pos4' },
+        { playerId: 'p5', positionId: 'pos5' },
+        { playerId: 'p6', positionId: 'pos6' },
+      ];
+
+      const rotations = calculateFairRotations(
+        players, startingLineup, 4, 2, 6,
+        'pos1' // goaliePositionId
+      );
+
+      // In every rotation, p1 (GK) must never appear as playerOutId
+      rotations.forEach((rotation, idx) => {
+        const isHalftime = idx === 2; // rotNum 3 = rotationsPerHalf + 1
+        if (!isHalftime) {
+          rotation.substitutions.forEach(sub => {
+            expect(sub.playerOutId).not.toBe('p1');
+            expect(sub.positionId).not.toBe('pos1');
+          });
+        }
+      });
+    });
+
+    it('should allow goalkeeper swap at halftime when auto-computing', () => {
+      // 12 players; GK is pos1/p1 — at halftime auto-compute the GK can be swapped
+      const players: SimpleRoster[] = Array.from({ length: 12 }, (_, i) => ({
+        id: `r${i + 1}`,
+        playerId: `p${i + 1}`,
+        playerNumber: i + 1,
+        preferredPositions: `pos${(i % 6) + 1}`,
+      }));
+
+      const startingLineup = players.slice(0, 6).map((p, i) => ({
+        playerId: p.playerId,
+        positionId: `pos${i + 1}`,
+      }));
+
+      // With goaliePositionId set but NO halftimeLineup, the auto-compute at halftime
+      // may still swap the GK (halftime is the exception)
+      const rotations = calculateFairRotations(
+        players, startingLineup, 4, 2, 6,
+        'pos1' // goaliePositionId
+      );
+
+      // Halftime is rotation index 2 (rotNum 3)
+      const halftimeSubs = rotations[2].substitutions;
+      // It should have produced some subs (auto-compute swaps benched players)
+      expect(halftimeSubs.length).toBeGreaterThan(0);
+    });
+
+    it('should use coach-set halftime lineup and plan second-half rotations from it', () => {
+      // Use rotationsPerHalf = 0 so there are no first-half rotations; the only
+      // rotation is the halftime (rotNum 1 = rotationsPerHalf + 1 = 1).
+      // This makes the before-halftime field state deterministic (= startingLineup).
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1 },
+        { id: 'r2', playerId: 'p2', playerNumber: 2 },
+        { id: 'r3', playerId: 'p3', playerNumber: 3 },
+        { id: 'r4', playerId: 'p4', playerNumber: 4 },
+        { id: 'r5', playerId: 'p5', playerNumber: 5 },
+        { id: 'r6', playerId: 'p6', playerNumber: 6 },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+      ];
+
+      // Coach sets halftime lineup: p4 replaces p1, p5 replaces p2, p6 replaces p3
+      const halftimeLineup = [
+        { playerId: 'p4', positionId: 'pos1' },
+        { playerId: 'p5', positionId: 'pos2' },
+        { playerId: 'p6', positionId: 'pos3' },
+      ];
+
+      // totalRotations = 1, rotationsPerHalf = 0 → rotNum 1 is halftime
+      const rotations = calculateFairRotations(
+        players, startingLineup, 1, 0, 3,
+        undefined,
+        halftimeLineup
+      );
+
+      expect(rotations).toHaveLength(1);
+
+      // The single rotation is halftime; it must produce exactly the coach's subs
+      const halftimeSubs = rotations[0].substitutions;
+      expect(halftimeSubs).toHaveLength(3);
+
+      const sub1 = halftimeSubs.find(s => s.positionId === 'pos1');
+      const sub2 = halftimeSubs.find(s => s.positionId === 'pos2');
+      const sub3 = halftimeSubs.find(s => s.positionId === 'pos3');
+      expect(sub1?.playerOutId).toBe('p1');
+      expect(sub1?.playerInId).toBe('p4');
+      expect(sub2?.playerOutId).toBe('p2');
+      expect(sub2?.playerInId).toBe('p5');
+      expect(sub3?.playerOutId).toBe('p3');
+      expect(sub3?.playerInId).toBe('p6');
+    });
+
+    it('should produce no halftime subs when halftimeLineup matches the current field state', () => {
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1 },
+        { id: 'r2', playerId: 'p2', playerNumber: 2 },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+      ];
+
+      // Halftime lineup is identical to starting — no subs needed
+      const halftimeLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+      ];
+
+      const rotations = calculateFairRotations(
+        players, startingLineup, 1, 0, 2,
+        undefined,
+        halftimeLineup
+      );
+
+      expect(rotations[0].substitutions).toHaveLength(0);
+    });
+
     it('should fall back to time-based ordering when no preferred positions match', () => {
       // Bench players have no preferred positions — should still work
       const players: SimpleRoster[] = [

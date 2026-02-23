@@ -466,12 +466,38 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
       const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
 
+      // Identify the goalkeeper position (never auto-subbed in regular rotations)
+      const goaliePos = positions.find(p => {
+        const abbr = p.abbreviation?.toUpperCase();
+        return abbr === 'GK' || abbr === 'G';
+      });
+      const goaliePositionId = goaliePos?.id;
+
+      // If the coach has already set the halftime lineup, keep it and build
+      // second-half rotations from that fixed starting point
+      let halftimeLineupArray: Array<{ playerId: string; positionId: string }> | undefined;
+      if (halftimeRotationNumber !== undefined) {
+        const halftimeRotation = rotations.find(r => r.rotationNumber === halftimeRotationNumber);
+        if (halftimeRotation) {
+          const halftimeSubs: PlannedSubstitution[] = JSON.parse(halftimeRotation.plannedSubstitutions as string);
+          if (halftimeSubs.length > 0) {
+            const halftimeLineupMap = getLineupAtRotation(halftimeRotationNumber);
+            halftimeLineupArray = Array.from(halftimeLineupMap.entries()).map(([positionId, playerId]) => ({
+              playerId,
+              positionId,
+            }));
+          }
+        }
+      }
+
       const generatedRotations = calculateFairRotations(
         availableRoster,
         lineupArray,
         rotations.length,
         rotationsPerHalf,
-        team.maxPlayersOnField || positions.length
+        team.maxPlayersOnField || positions.length,
+        goaliePositionId,
+        halftimeLineupArray,
       );
 
       // Update each rotation with generated substitutions

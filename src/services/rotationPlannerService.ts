@@ -55,7 +55,11 @@ export function calculateFairRotations(
   startingLineup: Array<{ playerId: string; positionId: string }>,
   totalRotations: number,
   rotationsPerHalf: number,
-  maxPlayersOnField: number
+  maxPlayersOnField: number,
+  /** Position ID of the goalkeeper slot — never auto-subbed in regular rotations */
+  goaliePositionId?: string,
+  /** If the coach has already set a halftime lineup, keep it and plan second-half rotations from it */
+  halftimeLineup?: Array<{ playerId: string; positionId: string }>
 ): Array<{ substitutions: PlannedSubstitution[] }> {
   const playerIds = availablePlayers.map(p => p.playerId);
   const rotations: Array<{ substitutions: PlannedSubstitution[] }> = [];
@@ -134,51 +138,87 @@ export function calculateFairRotations(
   for (let rotNum = 1; rotNum <= totalRotations; rotNum++) {
     const substitutions: PlannedSubstitution[] = [];
     
-    // At halftime, swap entire lineup for fresh legs
+    // At halftime, either apply coach-set lineup or auto-swap fresh legs
     if (rotNum === rotationsPerHalf + 1) {
-      const benchPlayers = Array.from(playerIds).filter(id => !currentField.has(id));
-      const benchWithTime = benchPlayers.map(id => ({
-        id,
-        time: playTimeRotations.get(id) || 0,
-      })).sort((a, b) => a.time - b.time);
-      
-      const fieldPlayers = Array.from(currentField);
-      const subsNeeded = Math.min(maxPlayersOnField, benchWithTime.length);
-      
-      // Collect which positions will be vacated
-      const positionsToFill = fieldPlayers.slice(0, subsNeeded).map(pid => positionMap.get(pid)!);
-      const playersOut = fieldPlayers.slice(0, subsNeeded);
-      
-      // Match bench players to positions using preferred positions
-      const assignments = assignPlayersToPositions(positionsToFill, benchWithTime);
-      
-      for (let i = 0; i < playersOut.length; i++) {
-        const playerOut = playersOut[i];
-        const position = positionMap.get(playerOut)!;
-        // Find which bench player was assigned to this position
-        const assignment = assignments.find(a => a.positionId === position);
-        if (!assignment) continue;
-        
-        substitutions.push({
-          playerOutId: playerOut,
-          playerInId: assignment.playerId,
-          positionId: position,
-        });
-        
-        currentField.delete(playerOut);
-        currentField.add(assignment.playerId);
-        positionMap.set(assignment.playerId, position);
-      }
-    } else {
-      // Regular rotation - sub players with most time for those with least
-      const benchPlayers = Array.from(playerIds).filter(id => !currentField.has(id));
-      
-      if (benchPlayers.length > 0) {
-        // Find players on field with most time
-        const fieldWithTime = Array.from(currentField).map(id => ({
+      if (halftimeLineup && halftimeLineup.length > 0) {
+        // Coach has set the halftime lineup — diff current state to target and apply it
+        const currentPosToPlayer = new Map<string, string>();
+        for (const [playerId, positionId] of positionMap.entries()) {
+          if (currentField.has(playerId)) {
+            currentPosToPlayer.set(positionId, playerId);
+          }
+        }
+
+        const prevField = new Set(currentField);
+        currentField.clear();
+
+        for (const { positionId, playerId: newPlayerId } of halftimeLineup) {
+          const currentPlayerId = currentPosToPlayer.get(positionId);
+          if (currentPlayerId && currentPlayerId !== newPlayerId) {
+            substitutions.push({
+              playerOutId: currentPlayerId,
+              playerInId: newPlayerId,
+              positionId,
+            });
+          }
+          currentField.add(newPlayerId);
+          positionMap.set(newPlayerId, positionId);
+        }
+
+        // Remove stale positionMap entries for players who left the field
+        for (const pid of prevField) {
+          if (!currentField.has(pid)) {
+            positionMap.delete(pid);
+          }
+        }
+      } else {
+        // Auto-compute halftime: swap in bench players with least time
+        const benchPlayers = Array.from(playerIds).filter(id => !currentField.has(id));
+        const benchWithTime = benchPlayers.map(id => ({
           id,
           time: playTimeRotations.get(id) || 0,
-        })).sort((a, b) => b.time - a.time);
+        })).sort((a, b) => a.time - b.time);
+
+        const fieldPlayers = Array.from(currentField);
+        const subsNeeded = Math.min(maxPlayersOnField, benchWithTime.length);
+
+        // Collect which positions will be vacated
+        const positionsToFill = fieldPlayers.slice(0, subsNeeded).map(pid => positionMap.get(pid)!);
+        const playersOut = fieldPlayers.slice(0, subsNeeded);
+
+        // Match bench players to positions using preferred positions
+        const assignments = assignPlayersToPositions(positionsToFill, benchWithTime);
+
+        for (let i = 0; i < playersOut.length; i++) {
+          const playerOut = playersOut[i];
+          const position = positionMap.get(playerOut)!;
+          const assignment = assignments.find(a => a.positionId === position);
+          if (!assignment) continue;
+
+          substitutions.push({
+            playerOutId: playerOut,
+            playerInId: assignment.playerId,
+            positionId: position,
+          });
+
+          currentField.delete(playerOut);
+          currentField.add(assignment.playerId);
+          positionMap.set(assignment.playerId, position);
+        }
+      }
+    } else {
+      // Regular rotation - sub players with most time for those with least.
+      // The goalkeeper is never rotated out here; only halftime allows that.
+      const benchPlayers = Array.from(playerIds).filter(id => !currentField.has(id));
+
+      if (benchPlayers.length > 0) {
+        // Find players on field with most time, excluding the goalkeeper
+        const fieldWithTime = Array.from(currentField)
+          .filter(id => !goaliePositionId || positionMap.get(id) !== goaliePositionId)
+          .map(id => ({
+            id,
+            time: playTimeRotations.get(id) || 0,
+          })).sort((a, b) => b.time - a.time);
         
         // Find bench players with least time
         const benchWithTime = benchPlayers.map(id => ({
