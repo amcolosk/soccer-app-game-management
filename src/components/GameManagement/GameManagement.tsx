@@ -669,6 +669,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           substitutionQueue={substitutionQueue}
           onQueueSubstitution={handleQueueSubstitution}
           isRotationModalOpen={rotationModalOpen}
+          onOpenRotationModal={() => setRotationModalOpen(true)}
           onCloseRotationModal={() => setRotationModalOpen(false)}
         />
 

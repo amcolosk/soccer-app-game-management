@@ -31,6 +31,7 @@ interface RotationWidgetProps {
   substitutionQueue: SubQueue[];
   onQueueSubstitution: (playerId: string, positionId: string) => void;
   isRotationModalOpen?: boolean;
+  onOpenRotationModal?: () => void;
   onCloseRotationModal?: () => void;
 }
 
@@ -46,6 +47,7 @@ export function RotationWidget({
   substitutionQueue,
   onQueueSubstitution,
   isRotationModalOpen,
+  onOpenRotationModal,
   onCloseRotationModal,
 }: RotationWidgetProps) {
   const { getPlayerAvailability } = useAvailability();
@@ -168,7 +170,11 @@ export function RotationWidget({
               <button
                 onClick={() => {
                   setCurrentRotation(nextRotation);
-                  setShowRotationModal(true);
+                  if (onOpenRotationModal) {
+                    onOpenRotationModal();
+                  } else {
+                    setShowRotationModal(true);
+                  }
                 }}
                 className="btn-view-rotation"
               >
