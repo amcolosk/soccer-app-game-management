@@ -557,21 +557,40 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     const secondHalfRotation = rotations.find(r => r.rotationNumber === halftimeRotationNumber);
     if (!secondHalfRotation) return;
 
-    const currentLineup = getLineupAtRotation(secondHalfRotation.rotationNumber);
-    const newLineup = new Map(currentLineup);
+    // Work from the subs-only map (positionId → playerInId for each explicit sub).
+    // Missing positions mean "first-half player continues" — no sub needed.
+    const currentSubs: PlannedSubstitution[] = JSON.parse(secondHalfRotation.plannedSubstitutions as string);
+    const newSubsLineup = new Map<string, string>(currentSubs.map(s => [s.positionId, s.playerInId]));
 
     if (playerId === "") {
-      newLineup.delete(positionId);
+      // Remove this sub — position reverts to first-half player
+      newSubsLineup.delete(positionId);
     } else {
-      for (const [pos, pid] of newLineup.entries()) {
+      // Check if the player is already in another sub position (field-to-field move)
+      let playerCurrentPosition: string | undefined;
+      for (const [pos, pid] of newSubsLineup.entries()) {
         if (pid === playerId) {
-          newLineup.delete(pos);
+          playerCurrentPosition = pos;
+          break;
         }
       }
-      newLineup.set(positionId, playerId);
+
+      if (playerCurrentPosition) {
+        // Swap: put target's occupant (if any) at the player's old position
+        const targetOccupant = newSubsLineup.get(positionId);
+        if (targetOccupant) {
+          newSubsLineup.set(playerCurrentPosition, targetOccupant);
+        } else {
+          newSubsLineup.delete(playerCurrentPosition);
+        }
+      }
+
+      newSubsLineup.set(positionId, playerId);
     }
 
-    handleRotationLineupChange(secondHalfRotation.rotationNumber, newLineup);
+    // handleRotationLineupChange fills positions missing from newSubsLineup
+    // with the first-half player (correct: no sub = player continues).
+    handleRotationLineupChange(secondHalfRotation.rotationNumber, newSubsLineup);
   };
 
   const handleRotationClick = (rotationNumber: number | 'starting' | 'halftime') => {
@@ -909,20 +928,35 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       }
 
       if (selectedRotation === 'halftime') {
-        // Get the halftime rotation (first rotation of second half)
         const secondHalfStartRotation = halftimeRotationNumber
           ? rotations.find(r => r.rotationNumber === halftimeRotationNumber)
           : undefined;
 
-        // Show the lineup AFTER the halftime rotation's subs are applied,
-        // consistent with how regular rotations display their result lineup.
-        // This ensures handleSwapPlayer (which uses getLineupAtRotation(rotationNumber))
-        // starts from the same lineup the user sees.
-        const halfTimeLineup = secondHalfStartRotation
-          ? getLineupAtRotation(secondHalfStartRotation.rotationNumber)
-          : (rotations.length > 0
-              ? getLineupAtRotation(rotations[rotations.length - 1].rotationNumber)
-              : new Map(startingLineup));
+        // Build a subs-only lineup: only positions with an explicit halftime change.
+        // Positions without a sub show as empty → the dropdown appears so the coach
+        // can pick a replacement, just like on the starting-lineup screen.
+        const halftimeSubs: PlannedSubstitution[] = secondHalfStartRotation
+          ? JSON.parse(secondHalfStartRotation.plannedSubstitutions as string)
+          : [];
+        const halftimeSubsLineup = new Map<string, string>(
+          halftimeSubs.map(s => [s.positionId, s.playerInId])
+        );
+
+        // Players who are on the field at end of the first half (they "continue" unless subbed).
+        const firstHalfFieldLineup = halftimeRotationNumber && halftimeRotationNumber > 1
+          ? getLineupAtRotation(halftimeRotationNumber - 1)
+          : startingLineup;
+        const firstHalfFieldPlayerIds = new Set(firstHalfFieldLineup.values());
+
+        // Players being explicitly subbed OUT are available to be reassigned elsewhere.
+        const halftimeSubOutIds = new Set(halftimeSubs.map(s => s.playerOutId));
+
+        // Bench = first-half bench players + anyone being subbed out at halftime.
+        // First-half field players who are NOT being subbed out are already on the
+        // field (continuing) and should not clutter the bench.
+        const halftimeAvailablePlayers = rotationPlayers.filter(
+          p => !firstHalfFieldPlayerIds.has(p.id) || halftimeSubOutIds.has(p.id)
+        );
 
         return (
           <div className="rotation-details-panel">
@@ -934,16 +968,16 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                   className="secondary-button"
                   style={{ padding: '0.25rem 0.75rem', fontSize: '0.85rem' }}
                 >
-                  Copy from First Half
+                  Clear halftime changes
                 </button>
               )}
             </div>
-            
+
             {secondHalfStartRotation ? (
               <LineupBuilder
                 positions={positions}
-                availablePlayers={rotationPlayers}
-                lineup={halfTimeLineup}
+                availablePlayers={halftimeAvailablePlayers}
+                lineup={halftimeSubsLineup}
                 onLineupChange={handleHalftimeLineupChange}
                 showPreferredPositions={true}
               />

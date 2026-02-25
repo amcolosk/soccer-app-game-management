@@ -23,6 +23,8 @@ interface LineupBuilderProps {
   onLineupChange: (positionId: string, playerId: string) => void;
   disabled?: boolean;
   showPreferredPositions?: boolean;
+  /** When provided, the ✕ remove button is only shown for positions in this set */
+  removablePositionIds?: Set<string>;
 }
 
 export function LineupBuilder({
@@ -32,6 +34,7 @@ export function LineupBuilder({
   onLineupChange,
   disabled = false,
   showPreferredPositions = true,
+  removablePositionIds,
 }: LineupBuilderProps) {
   const { getPlayerAvailability } = useAvailability();
   const [draggedPlayer, setDraggedPlayer] = useState<Player | null>(null);
@@ -106,7 +109,7 @@ export function LineupBuilder({
                     <span className="player-name-short">
                       {assignedPlayer.firstName.charAt(0)}. {assignedPlayer.lastName}
                     </span>
-                    {!disabled && (
+                    {!disabled && (!removablePositionIds || removablePositionIds.has(position.id)) && (
                       <button
                         className="remove-player"
                         onClick={(e) => {
