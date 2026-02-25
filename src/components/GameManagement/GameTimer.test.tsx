@@ -275,6 +275,20 @@ describe("GameTimer", () => {
       expect(screen.getByText("Start Second Half")).toBeInTheDocument();
     });
 
+    it("hides Start Second Half button when hidePrimaryCta is true", () => {
+      render(<GameTimer {...makeHalftimeProps({ hidePrimaryCta: true })} />);
+      expect(screen.queryByText("Start Second Half")).not.toBeInTheDocument();
+    });
+
+    it("still shows planned subs section when hidePrimaryCta is true", () => {
+      render(
+        <GameTimer
+          {...makeHalftimeProps({ hidePrimaryCta: true, plannedRotations: oneSubRotation })}
+        />
+      );
+      expect(screen.getByRole("heading", { name: /2nd Half Lineup Changes/i })).toBeInTheDocument();
+    });
+
     it("calls onStartSecondHalf when button clicked", async () => {
       const user = userEvent.setup();
       const onStartSecondHalf = vi.fn();

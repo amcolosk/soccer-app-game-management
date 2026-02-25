@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
@@ -12,13 +12,16 @@ import { updatePlayerAvailability, calculateFairRotations, type PlannedSubstitut
 import { useTeamData } from "../../hooks/useTeamData";
 import { useGameSubscriptions } from "./hooks/useGameSubscriptions";
 import { useGameTimer } from "./hooks/useGameTimer";
-import { GameHeader } from "./GameHeader";
+import { CommandBand } from "./CommandBand";
+import { TabNav, type GameTab } from "./TabNav";
+import { BenchTab } from "./BenchTab";
 import { GameTimer } from "./GameTimer";
 import { GoalTracker } from "./GoalTracker";
 import { PlayerNotesPanel } from "./PlayerNotesPanel";
 import { RotationWidget } from "./RotationWidget";
 import { SubstitutionPanel } from "./SubstitutionPanel";
 import { LineupPanel } from "./LineupPanel";
+import { PlayerAvailabilityGrid } from "../PlayerAvailabilityGrid";
 import type { Game, Team, FormationPosition, SubQueue } from "./types";
 import { AvailabilityProvider } from "../../contexts/AvailabilityContext";
 
@@ -38,6 +41,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [currentTime, setCurrentTime] = useState(game.elapsedSeconds || 0);
   const [isRunning, setIsRunning] = useState(false);
   const [substitutionRequest, setSubstitutionRequest] = useState<FormationPosition | null>(null);
+
+  // Mobile tab navigation (in-progress state only)
+  const [activeTab, setActiveTab] = useState<GameTab>("field");
+  // Controlled state for rotation modal (opened from CommandBand)
+  const [rotationModalOpen, setRotationModalOpen] = useState(false);
 
   // Game planner integration
   const [isRecalculating, setIsRecalculating] = useState(false);
@@ -531,6 +539,13 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     onEndGame: handleEndGame,
   });
 
+  // Reset tab to 'field' whenever the game leaves in-progress state
+  useEffect(() => {
+    if (gameState.status !== "in-progress") {
+      setActiveTab("field");
+    }
+  }, [gameState.status]);
+
   const handleSubstitute = (position: FormationPosition) => {
     setSubstitutionRequest(position);
   };
@@ -561,127 +576,293 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     setCurrentTime(newTime);
   };
 
+  const deleteGameButton = (
+    <div className="delete-game-section">
+      <button
+        onClick={async () => {
+          const confirmed = await confirm({
+            title: 'Delete Game',
+            message: 'Are you sure you want to delete this game? This action cannot be undone.',
+            confirmText: 'Delete',
+            variant: 'danger',
+          });
+          if (!confirmed) return;
+          try {
+            await deleteGameCascade(game.id);
+            onBack();
+          } catch (error) {
+            handleApiError(error, 'Failed to delete game');
+          }
+        }}
+        className="btn-delete-game"
+      >
+        Delete Game
+      </button>
+    </div>
+  );
+
+  const sharedLineupPanelProps = {
+    gameState,
+    game,
+    team,
+    players,
+    positions,
+    lineup,
+    playTimeRecords,
+    currentTime,
+    gamePlan,
+    onSubstitute: handleSubstitute,
+    onMarkInjured: handleMarkInjured,
+  };
+
+  const sharedGoalTrackerProps = {
+    gameState,
+    game,
+    team,
+    players,
+    goals,
+    currentTime,
+    onScoreUpdate: (ourScore: number, opponentScore: number) => {
+      setGameState({ ...gameState, ourScore, opponentScore });
+    },
+  };
+
+  const sharedNotesPanelProps = {
+    gameState,
+    game,
+    team,
+    players,
+    gameNotes,
+    currentTime,
+  };
+
   return (
     <AvailabilityProvider availabilities={playerAvailabilities}>
-    <div className="game-management">
-      <GameHeader gameState={gameState} onBack={onBack} />
+      <div className="game-management">
 
-      <GoalTracker
-        gameState={gameState}
-        game={game}
-        team={team}
-        players={players}
-        goals={goals}
-        currentTime={currentTime}
-        onScoreUpdate={(ourScore, opponentScore) => {
-          setGameState({ ...gameState, ourScore, opponentScore });
-        }}
-      />
+        {/* Always-visible sticky command band */}
+        <CommandBand
+          gameState={gameState}
+          onBack={onBack}
+          currentTime={currentTime}
+          isRunning={isRunning}
+          halfLengthSeconds={halfLengthSeconds}
+          gamePlan={gamePlan}
+          plannedRotations={plannedRotations}
+          onPauseTimer={handlePauseTimer}
+          onResumeTimer={handleResumeTimer}
+          onShowRotationModal={() => setRotationModalOpen(true)}
+        />
 
-      <PlayerNotesPanel
-        gameState={gameState}
-        game={game}
-        team={team}
-        players={players}
-        gameNotes={gameNotes}
-        currentTime={currentTime}
-      />
+        {/* Rotation and late-arrival modals (always mounted for in-progress) */}
+        <RotationWidget
+          gameState={gameState}
+          game={game}
+          team={team}
+          players={players}
+          positions={positions}
+          gamePlan={gamePlan}
+          plannedRotations={plannedRotations}
+          currentTime={currentTime}
+          lineup={lineup}
+          playTimeRecords={playTimeRecords}
+          substitutionQueue={substitutionQueue}
+          onQueueSubstitution={handleQueueSubstitution}
+          isRotationModalOpen={rotationModalOpen}
+          onCloseRotationModal={() => setRotationModalOpen(false)}
+        />
 
-      <RotationWidget
-        gameState={gameState}
-        game={game}
-        team={team}
-        players={players}
-        positions={positions}
-        gamePlan={gamePlan}
-        plannedRotations={plannedRotations}
-        currentTime={currentTime}
-        lineup={lineup}
-        playTimeRecords={playTimeRecords}
-        substitutionQueue={substitutionQueue}
-        onQueueSubstitution={handleQueueSubstitution}
-      />
+        {/* Substitution modal (always mounted) */}
+        <SubstitutionPanel
+          gameState={gameState}
+          game={game}
+          team={team}
+          players={players}
+          positions={positions}
+          lineup={lineup}
+          playTimeRecords={playTimeRecords}
+          currentTime={currentTime}
+          substitutionQueue={substitutionQueue}
+          onQueueChange={setSubstitutionQueue}
+          substitutionRequest={substitutionRequest}
+          onSubstitutionRequestHandled={() => setSubstitutionRequest(null)}
+        />
 
-      <SubstitutionPanel
-        gameState={gameState}
-        game={game}
-        team={team}
-        players={players}
-        positions={positions}
-        lineup={lineup}
-        playTimeRecords={playTimeRecords}
-        currentTime={currentTime}
-        substitutionQueue={substitutionQueue}
-        onQueueChange={setSubstitutionQueue}
-        substitutionRequest={substitutionRequest}
-        onSubstitutionRequestHandled={() => setSubstitutionRequest(null)}
-      />
+        {/* ── PRE-GAME ─────────────────────────────────────────────── */}
+        {gameState.status === 'scheduled' && (
+          <div className="pregame-layout">
+            {gamePlan && (() => {
+              const conflicts = getPlanConflicts();
+              if (conflicts.length === 0) return null;
+              return (
+                <div className="plan-conflict-banner">
+                  <h4>⚠️ Plan Conflicts</h4>
+                  <p>The following players are in the game plan but currently unavailable:</p>
+                  <ul>
+                    {conflicts.map(c => (
+                      <li key={c.playerId}>
+                        <strong>{c.playerName}</strong> — {c.status}
+                        {c.type === 'starter' && ' (starting lineup)'}
+                        {c.rotationNumbers.length > 0 && ` · Rotation${c.rotationNumbers.length > 1 ? 's' : ''} ${c.rotationNumbers.join(', ')}`}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="conflict-hint">Update availability or adjust the game plan before starting.</p>
+                  <button
+                    onClick={handleRecalculateRotations}
+                    disabled={isRecalculating}
+                    className="btn-secondary"
+                    style={{ marginTop: '8px' }}
+                  >
+                    {isRecalculating ? '⏳ Recalculating...' : '🔄 Recalculate Rotations'}
+                  </button>
+                </div>
+              );
+            })()}
 
-      <GameTimer
-        gameState={gameState}
-        game={game}
-        team={team}
-        players={players}
-        positions={positions}
-        currentTime={currentTime}
-        isRunning={isRunning}
-        halfLengthSeconds={halfLengthSeconds}
-        gamePlan={gamePlan}
-        plannedRotations={plannedRotations}
-        lineup={lineup}
-        isRecalculating={isRecalculating}
-        onStartGame={handleStartGame}
-        onPauseTimer={handlePauseTimer}
-        onResumeTimer={handleResumeTimer}
-        onHalftime={handleHalftime}
-        onStartSecondHalf={handleStartSecondHalf}
-        onEndGame={handleEndGame}
-        onAddTestTime={handleAddTestTime}
-        onRecalculateRotations={handleRecalculateRotations}
-        onApplyHalftimeSub={handleApplyHalftimeSub}
-        getPlanConflicts={getPlanConflicts}
-      />
+            {gamePlan && players.length > 0 && (
+              <PlayerAvailabilityGrid
+                players={players}
+                gameId={game.id}
+                coaches={team.coaches || []}
+              />
+            )}
 
-      <LineupPanel
-        gameState={gameState}
-        game={game}
-        team={team}
-        players={players}
-        positions={positions}
-        lineup={lineup}
-        playTimeRecords={playTimeRecords}
-        currentTime={currentTime}
-        gamePlan={gamePlan}
-        onSubstitute={handleSubstitute}
-        onMarkInjured={handleMarkInjured}
-      />
+            <LineupPanel {...sharedLineupPanelProps} />
 
-      {gameState.status !== 'in-progress' && (
-        <div className="delete-game-section">
-          <button
-            onClick={async () => {
-              const confirmed = await confirm({
-                title: 'Delete Game',
-                message: 'Are you sure you want to delete this game? This action cannot be undone.',
-                confirmText: 'Delete',
-                variant: 'danger',
-              });
-              if (!confirmed) return;
+            <div className="pregame-start-cta">
+              <button onClick={handleStartGame} className="btn-primary btn-large">
+                Start Game
+              </button>
+            </div>
 
-              try {
-                await deleteGameCascade(game.id);
-                onBack();
-              } catch (error) {
-                handleApiError(error, 'Failed to delete game');
-              }
-            }}
-            className="btn-delete-game"
-          >
-            Delete Game
-          </button>
-        </div>
-      )}
-    </div>
+            {deleteGameButton}
+          </div>
+        )}
+
+        {/* ── IN-PROGRESS ──────────────────────────────────────────── */}
+        {gameState.status === 'in-progress' && (
+          <>
+            <TabNav
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+              substitutionQueueCount={substitutionQueue.length}
+            />
+
+            {activeTab === 'field' && (
+              <div className="field-tab">
+                <LineupPanel
+                  {...sharedLineupPanelProps}
+                  hideAvailablePlayers={true}
+                />
+                {import.meta.env.DEV && (
+                  <div className="testing-controls">
+                    <span className="testing-label">Testing:</span>
+                    <button
+                      onClick={() => handleAddTestTime(1)}
+                      className="btn-test-time"
+                      title="Add 1 minute for testing"
+                    >
+                      +1 min
+                    </button>
+                    <button
+                      onClick={() => handleAddTestTime(5)}
+                      className="btn-test-time"
+                      title="Add 5 minutes for testing"
+                    >
+                      +5 min
+                    </button>
+                  </div>
+                )}
+                <div className="field-tab__action-bar">
+                  {gameState.currentHalf === 1 && (
+                    <button onClick={handleHalftime} className="btn-secondary">
+                      End First Half
+                    </button>
+                  )}
+                  {gameState.currentHalf === 2 && (
+                    <button onClick={handleEndGame} className="btn-secondary">
+                      End Game
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'bench' && (
+              <BenchTab
+                players={players}
+                lineup={lineup}
+                playTimeRecords={playTimeRecords}
+                currentTime={currentTime}
+                halfLengthSeconds={halfLengthSeconds}
+                onSelectPlayer={(_playerId) => {
+                  const emptyPosition = positions.find(
+                    pos => !lineup.some(l => l.positionId === pos.id && l.isStarter)
+                  );
+                  const targetPosition = emptyPosition ?? positions[0];
+                  if (targetPosition) setSubstitutionRequest(targetPosition);
+                }}
+              />
+            )}
+
+            {activeTab === 'goals' && (
+              <GoalTracker {...sharedGoalTrackerProps} />
+            )}
+
+            {activeTab === 'notes' && (
+              <PlayerNotesPanel {...sharedNotesPanelProps} />
+            )}
+          </>
+        )}
+
+        {/* ── HALFTIME ─────────────────────────────────────────────── */}
+        {gameState.status === 'halftime' && (
+          <div className="halftime-layout">
+            <GameTimer
+              gameState={gameState}
+              game={game}
+              team={team}
+              players={players}
+              positions={positions}
+              currentTime={currentTime}
+              isRunning={isRunning}
+              halfLengthSeconds={halfLengthSeconds}
+              gamePlan={gamePlan}
+              plannedRotations={plannedRotations}
+              lineup={lineup}
+              isRecalculating={isRecalculating}
+              hidePrimaryCta={true}
+              onStartGame={handleStartGame}
+              onPauseTimer={handlePauseTimer}
+              onResumeTimer={handleResumeTimer}
+              onHalftime={handleHalftime}
+              onStartSecondHalf={handleStartSecondHalf}
+              onEndGame={handleEndGame}
+              onAddTestTime={handleAddTestTime}
+              onRecalculateRotations={handleRecalculateRotations}
+              onApplyHalftimeSub={handleApplyHalftimeSub}
+              getPlanConflicts={getPlanConflicts}
+            />
+            <LineupPanel {...sharedLineupPanelProps} />
+            <div className="halftime-start-cta">
+              <button onClick={handleStartSecondHalf} className="btn-primary btn-large">
+                Start Second Half
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── COMPLETED ────────────────────────────────────────────── */}
+        {gameState.status === 'completed' && (
+          <div className="completed-layout">
+            <GoalTracker {...sharedGoalTrackerProps} />
+            <PlayerNotesPanel {...sharedNotesPanelProps} />
+            {deleteGameButton}
+          </div>
+        )}
+
+      </div>
     </AvailabilityProvider>
   );
 }

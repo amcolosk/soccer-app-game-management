@@ -28,6 +28,7 @@ interface GameTimerProps {
   plannedRotations: PlannedRotation[];
   lineup: LineupAssignment[];
   isRecalculating: boolean;
+  hidePrimaryCta?: boolean;
   onStartGame: () => void;
   onPauseTimer: () => void;
   onResumeTimer: () => void;
@@ -59,6 +60,7 @@ export function GameTimer({
   plannedRotations,
   lineup,
   isRecalculating,
+  hidePrimaryCta = false,
   onStartGame,
   onPauseTimer,
   onResumeTimer,
@@ -115,8 +117,8 @@ export function GameTimer({
         </div>
       </div>
 
-      {/* Testing Controls */}
-      {gameState.status === 'in-progress' && (
+      {/* Testing Controls — dev only */}
+      {import.meta.env.DEV && gameState.status === 'in-progress' && (
         <div className="testing-controls">
           <span className="testing-label">Testing:</span>
           <button
@@ -270,9 +272,11 @@ export function GameTimer({
               </div>
             )}
 
-            <button onClick={onStartSecondHalf} className="btn-primary btn-large">
-              Start Second Half
-            </button>
+            {!hidePrimaryCta && (
+              <button onClick={onStartSecondHalf} className="btn-primary btn-large">
+                Start Second Half
+              </button>
+            )}
           </div>
         )}
 

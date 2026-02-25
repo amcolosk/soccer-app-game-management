@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { updatePlayerAvailability } from "../../services/rotationPlannerService";
 import { showSuccess } from "../../utils/toast";
 import { handleApiError } from "../../utils/errorHandler";
@@ -30,6 +30,8 @@ interface RotationWidgetProps {
   playTimeRecords: PlayTimeRecord[];
   substitutionQueue: SubQueue[];
   onQueueSubstitution: (playerId: string, positionId: string) => void;
+  isRotationModalOpen?: boolean;
+  onCloseRotationModal?: () => void;
 }
 
 export function RotationWidget({
@@ -43,10 +45,23 @@ export function RotationWidget({
   currentTime,
   substitutionQueue,
   onQueueSubstitution,
+  isRotationModalOpen,
+  onCloseRotationModal,
 }: RotationWidgetProps) {
   const { getPlayerAvailability } = useAvailability();
-  const [showRotationModal, setShowRotationModal] = useState(false);
+  const [internalShowRotationModal, setInternalShowRotationModal] = useState(false);
   const [currentRotation, setCurrentRotation] = useState<PlannedRotation | null>(null);
+
+  // Support both controlled (isRotationModalOpen prop) and uncontrolled modal state.
+  const showRotationModal =
+    isRotationModalOpen !== undefined ? isRotationModalOpen : internalShowRotationModal;
+
+  const setShowRotationModal = (value: boolean) => {
+    setInternalShowRotationModal(value);
+    if (!value && onCloseRotationModal) {
+      onCloseRotationModal();
+    }
+  };
   const [showLateArrivalModal, setShowLateArrivalModal] = useState(false);
 
   const getNextRotation = (): PlannedRotation | null => {
@@ -58,6 +73,15 @@ export function RotationWidget({
              r.gameMinute >= currentMinutes - 2;
     }) || null;
   };
+
+  // When the modal is opened externally (via CommandBand tap), auto-select the next rotation.
+  useEffect(() => {
+    if (isRotationModalOpen && !currentRotation) {
+      const next = getNextRotation();
+      if (next) setCurrentRotation(next);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRotationModalOpen]);
 
   const handleQueueAll = () => {
     if (!currentRotation) return;
@@ -181,7 +205,12 @@ export function RotationWidget({
 
             <div className="planned-subs-list">
               {(() => {
-                const subs: PlannedSubstitution[] = JSON.parse(currentRotation.plannedSubstitutions as string);
+                let subs: PlannedSubstitution[] = [];
+                try {
+                  subs = JSON.parse(currentRotation.plannedSubstitutions as string);
+                } catch {
+                  return <p className="empty-state">Unable to load rotation data.</p>;
+                }
                 return subs.map((sub, idx) => {
                   const playerOut = players.find(p => p.id === sub.playerOutId);
                   const playerIn = players.find(p => p.id === sub.playerInId);

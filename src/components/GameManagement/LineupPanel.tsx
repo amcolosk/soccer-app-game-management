@@ -36,6 +36,7 @@ interface LineupPanelProps {
   playTimeRecords: PlayTimeRecord[];
   currentTime: number;
   gamePlan: GamePlan | null;
+  hideAvailablePlayers?: boolean;
   onSubstitute: (position: FormationPosition) => void;
   onMarkInjured: (playerId: string) => void;
 }
@@ -50,6 +51,7 @@ export function LineupPanel({
   playTimeRecords,
   currentTime,
   gamePlan,
+  hideAvailablePlayers = false,
   onSubstitute,
   onMarkInjured,
 }: LineupPanelProps) {
@@ -303,7 +305,7 @@ export function LineupPanel({
               })}
             </div>
 
-            {gameState.status !== 'scheduled' && (
+            {gameState.status !== 'scheduled' && !hideAvailablePlayers && (
               <>
                 <h3 style={{ marginTop: '2rem' }}>Available Players</h3>
                 <p className="lineup-hint">Click a player to assign them to a position</p>
