@@ -27,6 +27,7 @@ import {
   rosterFormReducer, initialRosterForm,
 } from './managementReducers';
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
+import { getAvailableBirthYears } from '../utils/rosterFilterUtils';
 
 const client = generateClient<Schema>();
 
@@ -120,7 +121,7 @@ export function Management() {
   const [currentUserId, setCurrentUserId] = useState<string>('');
 
   const [rosterView, setRosterView] = useState<'roster' | 'positions'>('roster');
-  const [birthYearFilter, setBirthYearFilter] = useState<string>('');
+  const [birthYearFilters, setBirthYearFilters] = useState<string[]>([]);
 
   // Sharing state
   const [sharingResourceType, setSharingResourceType] = useState<'team' | null>(null);
@@ -211,6 +212,25 @@ export function Management() {
     entityName: 'team',
   });
 
+  const toggleBirthYearFilter = (year: string) => {
+    setBirthYearFilters(prev => {
+      const next = prev.includes(year) ? prev.filter(y => y !== year) : [...prev, year];
+      // Deselect the currently chosen player if they no longer match the new filter
+      if (rosterForm.selectedPlayer) {
+        const selected = players.find(p => p.id === rosterForm.selectedPlayer);
+        // Deselect if: player has a birth year that doesn't match, OR player has no birth year
+        // (null-birthYear players are hidden by the filter predicate, so must also be deselected)
+        const stillVisible = selected &&
+          selected.birthYear != null &&
+          next.includes(String(selected.birthYear));
+        if (!stillVisible) {
+          rosterDispatch({ type: 'SET_FIELD', field: 'selectedPlayer', value: '' });
+        }
+      }
+      return next;
+    });
+  };
+
   const handleAddPlayerToRoster = async (teamId: string) => {
     if (!rosterForm.selectedPlayer || !rosterForm.playerNumber.trim()) {
       showWarning('Please select a player and enter a player number');
@@ -253,7 +273,7 @@ export function Management() {
       });
 
       rosterDispatch({ type: 'RESET' });
-      setBirthYearFilter('');
+      setBirthYearFilters([]);
     } catch (error) {
       handleApiError(error, 'Failed to add player to roster');
     }
@@ -327,7 +347,7 @@ export function Management() {
 
   const handleCancelRosterEdit = () => {
     rosterDispatch({ type: 'RESET' });
-    setBirthYearFilter('');
+    setBirthYearFilters([]);
   };
 
   const handleDeletePlayer = (id: string) => confirmAndDelete(confirm, {
@@ -913,12 +933,37 @@ export function Management() {
                             <h5>Add Player to Roster</h5>
                             {(() => {
                               const availablePlayers = players.filter(p => !teamRosterList.some(r => r.playerId === p.id));
-                              const years = [...new Set(availablePlayers.map(p => p.birthYear).filter(Boolean))].sort() as number[];
+                              const years = getAvailableBirthYears(availablePlayers);
                               return years.length > 0 ? (
-                                <select value={birthYearFilter} onChange={(e) => setBirthYearFilter(e.target.value)}>
-                                  <option value="">All Birth Years</option>
-                                  {years.map(y => <option key={y} value={String(y)}>{y}</option>)}
-                                </select>
+                                <div className="checkbox-group birth-year-filter">
+                                  <div className="birth-year-filter__header">
+                                    <label className="group-label">Filter by Birth Year</label>
+                                    {birthYearFilters.length > 0 && (
+                                      <button
+                                        type="button"
+                                        className="btn-link"
+                                        onClick={() => {
+                                          setBirthYearFilters([]);
+                                          rosterDispatch({ type: 'SET_FIELD', field: 'selectedPlayer', value: '' });
+                                        }}
+                                      >
+                                        Clear
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div className="birth-year-filter__options">
+                                    {years.map(year => (
+                                      <label key={year} className="checkbox-label">
+                                        <input
+                                          type="checkbox"
+                                          checked={birthYearFilters.includes(String(year))}
+                                          onChange={() => toggleBirthYearFilter(String(year))}
+                                        />
+                                        <span>{year}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
                               ) : null;
                             })()}
                             <select
@@ -928,7 +973,7 @@ export function Management() {
                               <option value="">Select Player *</option>
                               {players
                                 .filter(p => !teamRosterList.some(r => r.playerId === p.id))
-                                .filter(p => !birthYearFilter || String(p.birthYear) === birthYearFilter)
+                                .filter(p => birthYearFilters.length === 0 || (p.birthYear != null && birthYearFilters.includes(String(p.birthYear))))
                                 .map(player => (
                                   <option key={player.id} value={player.id}>
                                     {player.firstName} {player.lastName}
@@ -970,7 +1015,7 @@ export function Management() {
                                 Add
                               </button>
                               <button
-                                onClick={() => { rosterDispatch({ type: 'RESET' }); setBirthYearFilter(''); }}
+                                onClick={handleCancelRosterEdit}
                                 className="btn-secondary"
                               >
                                 Cancel
