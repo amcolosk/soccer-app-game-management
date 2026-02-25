@@ -1152,38 +1152,36 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           </div>
         )}
 
-        <details className="planner-playtime-details">
-          <summary>Projected Play Time</summary>
-          <div className="playtime-bars">
-            {rotationPlayers
-              .map((player) => {
-                const data = playTimeData.get(player.id);
-                const totalMinutes = data?.totalMinutes || 0;
-                const percentage = (totalMinutes / (halfLengthMinutes * 2)) * 100;
-
-                return {
-                  player,
-                  totalMinutes,
-                  percentage,
-                };
-              })
-              .sort((a, b) => b.totalMinutes - a.totalMinutes)
-              .map(({ player, totalMinutes, percentage }) => (
-                <div key={player.id} className="playtime-bar-container">
-                  <div className="playtime-label">
-                    #{player.playerNumber} {player.firstName} {player.lastName?.charAt(0)}.
-                  </div>
-                  <div className="playtime-bar-wrapper">
-                    <div className="playtime-bar" style={{ width: `${percentage}%` }} />
-                  </div>
-                  <div className="playtime-minutes">{totalMinutes}m</div>
-                </div>
-              ))}
-          </div>
-        </details>
       </div>
     );
   };
+
+  const renderPlayTime = () => (
+    <div className="projected-playtime">
+      <h4>Projected Play Time</h4>
+      <div className="playtime-bars">
+        {rotationPlayers
+          .map((player) => {
+            const data = playTimeData.get(player.id);
+            const totalMinutes = data?.totalMinutes || 0;
+            const percentage = (totalMinutes / (halfLengthMinutes * 2)) * 100;
+            return { player, totalMinutes, percentage };
+          })
+          .sort((a, b) => b.totalMinutes - a.totalMinutes)
+          .map(({ player, totalMinutes, percentage }) => (
+            <div key={player.id} className="playtime-bar-container">
+              <div className="playtime-label">
+                #{player.playerNumber} {player.firstName} {player.lastName?.charAt(0)}.
+              </div>
+              <div className="playtime-bar-wrapper">
+                <div className="playtime-bar" style={{ width: `${Math.min(100, percentage)}%` }} />
+              </div>
+              <div className="playtime-minutes">{totalMinutes}m</div>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
 
   return (
     <AvailabilityProvider availabilities={availabilities}>
@@ -1253,7 +1251,43 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
               </div>
             )}
 
-            {/* Setup card — always shown at top of lineup tab */}
+            {/* LineupBuilder — shown only when plan exists; otherwise prompt to go to Rotations */}
+            {gamePlan ? (
+              <div className="planner-section">
+                <div className="panel-header">
+                  <h4>Starting Lineup</h4>
+                  {rotations.length > 0 && (
+                    <button
+                      onClick={handleAutoGenerateRotations}
+                      className="secondary-button"
+                      disabled={isGenerating}
+                    >
+                      🔄 Auto-Generate
+                    </button>
+                  )}
+                </div>
+                <LineupBuilder
+                  positions={positions}
+                  availablePlayers={startingLineupPlayers}
+                  lineup={startingLineup}
+                  onLineupChange={handleLineupChange}
+                  showPreferredPositions={true}
+                />
+              </div>
+            ) : (
+              <div className="planner-empty-state">
+                <p>Set up your rotation schedule first.</p>
+                <button onClick={() => setPlannerTab('rotations')} className="btn-primary">
+                  Set up Rotations →
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {plannerTab === 'rotations' && (
+          <div className="planner-tab-panel">
+            {/* Rotation interval + create/update plan — always at the top */}
             <div className="planner-setup-card">
               <div className="planner-setup-label">Rotation every</div>
               <div className="interval-pill-group">
@@ -1276,48 +1310,18 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
               </button>
             </div>
 
-            {/* LineupBuilder — shown only when plan exists */}
-            {gamePlan && (
-              <div className="planner-section">
-                <div className="panel-header">
-                  <h4>Starting Lineup</h4>
-                  {rotations.length > 0 && (
-                    <button
-                      onClick={handleAutoGenerateRotations}
-                      className="secondary-button"
-                      disabled={isGenerating}
-                    >
-                      🔄 Auto-Generate
-                    </button>
-                  )}
-                </div>
-                <LineupBuilder
-                  positions={positions}
-                  availablePlayers={startingLineupPlayers}
-                  lineup={startingLineup}
-                  onLineupChange={handleLineupChange}
-                  showPreferredPositions={true}
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        {plannerTab === 'rotations' && (
-          <div className="planner-tab-panel">
+            {/* Timeline + selected detail + playtime */}
             {gamePlan && rotations.length > 0 ? (
               <>
                 {renderRotationTimeline()}
                 {renderSelectedDetails()}
+                {renderPlayTime()}
               </>
-            ) : (
+            ) : gamePlan ? (
               <div className="planner-empty-state">
-                <p>No rotations yet.</p>
-                <button onClick={() => setPlannerTab('lineup')} className="btn-primary">
-                  Set up Lineup →
-                </button>
+                <p>Click "Create Game Plan" above to generate rotations.</p>
               </div>
-            )}
+            ) : null}
           </div>
         )}
 
