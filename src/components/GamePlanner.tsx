@@ -893,13 +893,11 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         ? rotations.find(r => r.rotationNumber === halftimeRotationNumber)
         : undefined;
 
-      // Build a subs-only lineup: only positions with an explicit halftime change.
-      // Positions without a sub show as empty → the dropdown appears so the coach
-      // can pick a replacement, just like on the starting-lineup screen.
       let halftimeSubs: PlannedSubstitution[] = [];
       if (secondHalfStartRotation) {
         try { halftimeSubs = JSON.parse(secondHalfStartRotation.plannedSubstitutions as string); } catch (e) { logError('Parse halftime subs in renderSelectedDetails', e); }
       }
+      // Positions with an explicit halftime change (playerInId keyed by positionId).
       const halftimeSubsLineup = new Map<string, string>(
         halftimeSubs.map(s => [s.positionId, s.playerInId])
       );
@@ -920,6 +918,16 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         p => !firstHalfFieldPlayerIds.has(p.id) || halftimeSubOutIds.has(p.id)
       );
 
+      // Positions where the first-half player continues with no explicit sub.
+      // Shown as a read-only list so the coach can see the full second-half lineup.
+      const continuingEntries = Array.from(firstHalfFieldLineup.entries())
+        .filter(([posId]) => !halftimeSubsLineup.has(posId))
+        .map(([posId, playerId]) => ({
+          position: positions.find(p => p.id === posId),
+          player: rotationPlayers.find(p => p.id === playerId),
+        }))
+        .filter(e => e.position && e.player);
+
       return (
         <div className="rotation-details-panel">
           <div className="panel-header">
@@ -936,13 +944,40 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           </div>
 
           {secondHalfStartRotation ? (
-            <LineupBuilder
-              positions={positions}
-              availablePlayers={halftimeAvailablePlayers}
-              lineup={halftimeSubsLineup}
-              onLineupChange={handleHalftimeLineupChange}
-              showPreferredPositions={true}
-            />
+            // Split view when auto-generate created partial subs (some positions
+            // continue, some have explicit changes). Full LineupBuilder otherwise.
+            halftimeSubsLineup.size > 0 && continuingEntries.length > 0 ? (
+              <>
+                <div className="halftime-continuing-section">
+                  <p className="halftime-continuing-label">Continuing from first half:</p>
+                  <div className="halftime-continuing-list">
+                    {continuingEntries.map(({ position, player }) => (
+                      <div key={position!.id} className="halftime-continuing-row">
+                        <span className="continuing-position">{position!.abbreviation}</span>
+                        <span className="continuing-player">
+                          #{player!.playerNumber} {player!.firstName} {player!.lastName}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <LineupBuilder
+                  positions={positions.filter(p => halftimeSubsLineup.has(p.id))}
+                  availablePlayers={halftimeAvailablePlayers}
+                  lineup={halftimeSubsLineup}
+                  onLineupChange={handleHalftimeLineupChange}
+                  showPreferredPositions={true}
+                />
+              </>
+            ) : (
+              <LineupBuilder
+                positions={positions}
+                availablePlayers={halftimeAvailablePlayers}
+                lineup={halftimeSubsLineup}
+                onLineupChange={handleHalftimeLineupChange}
+                showPreferredPositions={true}
+              />
+            )
           ) : (
             <p>Create rotations first by clicking "Update Plan"</p>
           )}
@@ -1256,15 +1291,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
               <div className="planner-section">
                 <div className="panel-header">
                   <h4>Starting Lineup</h4>
-                  {rotations.length > 0 && (
-                    <button
-                      onClick={handleAutoGenerateRotations}
-                      className="secondary-button"
-                      disabled={isGenerating}
-                    >
-                      🔄 Auto-Generate
-                    </button>
-                  )}
                 </div>
                 <LineupBuilder
                   positions={positions}
@@ -1308,6 +1334,15 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
               >
                 {isGenerating ? 'Saving...' : gamePlan ? 'Update Plan' : 'Create Game Plan'}
               </button>
+              {rotations.length > 0 && (
+                <button
+                  onClick={handleAutoGenerateRotations}
+                  className="secondary-button planner-create-btn"
+                  disabled={isGenerating}
+                >
+                  🔄 Auto-Generate
+                </button>
+              )}
             </div>
 
             {/* Timeline + selected detail + playtime */}

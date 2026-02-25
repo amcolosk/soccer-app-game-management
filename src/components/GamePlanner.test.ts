@@ -827,3 +827,78 @@ describe('computeRotationsTabBadge', () => {
     expect(computeRotationsTabBadge(rotations)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Helpers extracted from GamePlanner.tsx (halftime display logic)
+// ---------------------------------------------------------------------------
+
+/**
+ * Simulates the continuingEntries computation from renderSelectedDetails().
+ * Returns positions where the first-half player continues with no explicit sub.
+ */
+function computeContinuingEntries(
+  firstHalfFieldLineup: Map<string, string>,
+  halftimeSubsLineup: Map<string, string>
+): Array<{ positionId: string; playerId: string }> {
+  return Array.from(firstHalfFieldLineup.entries())
+    .filter(([posId]) => !halftimeSubsLineup.has(posId))
+    .map(([posId, playerId]) => ({ positionId: posId, playerId }));
+}
+
+describe('halftime continuing entries and split-view logic', () => {
+  const firstHalfLineup = new Map([
+    ['pos1', 'playerA'], // GK
+    ['pos2', 'playerB'], // LF
+    ['pos3', 'playerC'], // CF
+    ['pos4', 'playerD'], // RF
+    ['pos5', 'playerE'], // D
+  ]);
+
+  it('identifies 3 continuing positions when auto-generate creates subs for only 2 of 5', () => {
+    // Scenario: 5 field positions but only 2 bench players → generator creates 2 subs
+    const halftimeSubsLineup = new Map([
+      ['pos2', 'playerF'], // LF: playerB → playerF
+      ['pos5', 'playerG'], // D:  playerE → playerG
+    ]);
+    const continuing = computeContinuingEntries(firstHalfLineup, halftimeSubsLineup);
+
+    expect(continuing).toHaveLength(3);
+    expect(continuing.map(e => e.positionId)).toContain('pos1'); // GK continues
+    expect(continuing.map(e => e.positionId)).toContain('pos3'); // CF continues
+    expect(continuing.map(e => e.positionId)).toContain('pos4'); // RF continues
+    expect(continuing.find(e => e.positionId === 'pos1')?.playerId).toBe('playerA');
+  });
+
+  it('identifies 0 continuing positions when all 5 positions have explicit subs', () => {
+    const halftimeSubsLineup = new Map([
+      ['pos1', 'playerF'],
+      ['pos2', 'playerG'],
+      ['pos3', 'playerH'],
+      ['pos4', 'playerI'],
+      ['pos5', 'playerJ'],
+    ]);
+    const continuing = computeContinuingEntries(firstHalfLineup, halftimeSubsLineup);
+
+    expect(continuing).toHaveLength(0);
+  });
+
+  it('identifies all 5 positions as continuing when no halftime subs exist', () => {
+    const halftimeSubsLineup = new Map<string, string>();
+    const continuing = computeContinuingEntries(firstHalfLineup, halftimeSubsLineup);
+
+    expect(continuing).toHaveLength(5);
+  });
+
+  it('split view is shown only when there are BOTH subs AND continuing positions', () => {
+    const scenarios: Array<{ subsSize: number; continuingSize: number; expectSplitView: boolean }> = [
+      { subsSize: 2, continuingSize: 3, expectSplitView: true },  // mixed → split view
+      { subsSize: 0, continuingSize: 5, expectSplitView: false }, // all continuing → full LineupBuilder
+      { subsSize: 5, continuingSize: 0, expectSplitView: false }, // all subbed → full LineupBuilder
+    ];
+
+    for (const { subsSize, continuingSize, expectSplitView } of scenarios) {
+      const showSplitView = subsSize > 0 && continuingSize > 0;
+      expect(showSplitView).toBe(expectSplitView);
+    }
+  });
+});

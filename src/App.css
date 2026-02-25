@@ -5087,3 +5087,40 @@
   border-top: 1px solid var(--border-color);
   flex-shrink: 0;
 }
+
+/* Halftime continuing players section */
+.halftime-continuing-section {
+  background: var(--hover-background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+.halftime-continuing-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 0.5rem;
+}
+.halftime-continuing-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.halftime-continuing-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+.continuing-position {
+  font-weight: 700;
+  color: var(--text-secondary);
+  min-width: 2.5rem;
+  font-size: 0.8rem;
+}
+.continuing-player {
+  color: var(--text-primary);
+}

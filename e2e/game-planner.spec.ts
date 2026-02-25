@@ -567,8 +567,8 @@ async function verifyPlayTimeReport(page: Page) {
     // Player must be found in the report
     await expect(playerBar).toBeVisible({ timeout: 5000 });
     
-    // Get time from the .playtime-bar element, not .playtime-label
-    const timeText = await playerBar.locator('.playtime-bar').textContent();
+    // Get time from the .playtime-minutes element (the text label, not the width bar)
+    const timeText = await playerBar.locator('.playtime-minutes').textContent();
     const minutes = parseInt(timeText?.match(/(\d+)\s*m(?:in)?/)?.[1] || '0');
     
     console.log(`${playerName}: ${minutes} min (expected: ${expectedTime.min}-${expectedTime.max} min)`);
