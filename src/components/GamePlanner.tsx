@@ -38,10 +38,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const confirm = useConfirm();
   // Load team roster and formation positions with real-time updates
   const { players: basePlayersData, positions } = useTeamData(team.id, team.formationId);
-  
+
   // Use a ref to store the current gamePlanId for use in subscriptions
   const gamePlanIdRef = useRef<string | null>(null);
-  
+
   // Track in-flight saves to prevent observeQuery from clobbering local state
   // with stale DynamoDB data while saves are pending.
   // When saves complete, we apply the latest buffered subscription data.
@@ -73,7 +73,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       bufferedRotationData.current = null;
     }
   };
-  
+
   // Extend players with availability data
   const [players, setPlayers] = useState<PlayerWithRoster[]>([]);
   const [gamePlan, setGamePlan] = useState<GamePlan | null>(null);
@@ -94,6 +94,11 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     currentPlayerId: string;
   } | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
+
+  // New tab state for mobile redesign
+  const [plannerTab, setPlannerTab] = useState<'availability' | 'lineup' | 'rotations'>('lineup');
+  const tabInitialized = useRef(false);
+  const prevGamePlanId = useRef<string | null>(null);
 
   const halfLengthMinutes = team.halfLengthMinutes || 30;
   const maxPlayersOnField = team.maxPlayersOnField || 11;
@@ -153,7 +158,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       next: (data) => {
         // Filter to only rotations for the current game plan using the ref
         const currentPlanId = gamePlanIdRef.current;
-        const currentPlanRotations = currentPlanId 
+        const currentPlanRotations = currentPlanId
           ? data.items.filter(r => r.gamePlanId === currentPlanId)
           : [];
         const sorted = [...currentPlanRotations].sort((a, b) => a.rotationNumber - b.rotationNumber);
@@ -219,6 +224,23 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }
   }, [gamePlan, selectedRotation]);
 
+  // Initial tab selection (runs once when data first loads)
+  useEffect(() => {
+    if (tabInitialized.current) return;
+    if (gamePlan !== null || players.length > 0) {
+      setPlannerTab(gamePlan ? 'rotations' : 'lineup');
+      tabInitialized.current = true;
+    }
+  }, [gamePlan, players]);
+
+  // Auto-jump to rotations when plan is first created
+  useEffect(() => {
+    if (gamePlan?.id && prevGamePlanId.current === null) {
+      setPlannerTab('rotations');
+    }
+    prevGamePlanId.current = gamePlan?.id ?? null;
+  }, [gamePlan?.id]);
+
   const getPlayerAvailability = (playerId: string): string => {
     const availability = availabilities.find((a) => a.playerId === playerId);
     return availability?.status || "available";
@@ -263,7 +285,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
   const handleLineupChange = async (positionId: string, playerId: string) => {
     const newLineup = new Map(startingLineup);
-    
+
     if (playerId === "") {
       newLineup.delete(positionId);
     } else {
@@ -275,7 +297,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       }
       newLineup.set(positionId, playerId);
     }
-    
+
     setStartingLineup(newLineup);
 
     // Auto-save starting lineup to GamePlan if it exists
@@ -286,7 +308,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           playerId,
           positionId,
         }));
-        
+
         await client.models.GamePlan.update({
           id: gamePlan.id,
           startingLineup: JSON.stringify(lineupArray),
@@ -323,7 +345,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
       // +1 for the halftime rotation itself (which sits at the half boundary)
       const totalRotations = rotationsPerHalf * 2 + 1;
-      
+
       let currentPlan = gamePlan;
 
       // Create or update plan
@@ -355,10 +377,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
       // Handle rotations (Smart Update)
       // Get existing rotations to determine what to keep/update/delete
-      // Note: we use the state 'rotations' which should be current, 
+      // Note: we use the state 'rotations' which should be current,
       // but to be safe against stale state during rapid updates, we could re-fetch,
       // but 'rotations' state is updated via loadData().
-      
+
       const existingRotationsMap = new Map(rotations.map(r => [r.rotationNumber, r]));
       const operations = [];
 
@@ -408,9 +430,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       }
 
       await Promise.all(operations);
-      
+
       // Data will update automatically via observeQuery subscriptions
-      
+
       showSuccess(gamePlan ? "Plan updated!" : "Plan created! Now set up each rotation.");
     } catch (error) {
       handleApiError(error, 'Failed to update rotation plan');
@@ -479,7 +501,8 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       if (halftimeRotationNumber !== undefined) {
         const halftimeRotation = rotations.find(r => r.rotationNumber === halftimeRotationNumber);
         if (halftimeRotation) {
-          const halftimeSubs: PlannedSubstitution[] = JSON.parse(halftimeRotation.plannedSubstitutions as string);
+          let halftimeSubs: PlannedSubstitution[] = [];
+          try { halftimeSubs = JSON.parse(halftimeRotation.plannedSubstitutions as string); } catch (e) { logError('Parse halftime subs', e); }
           if (halftimeSubs.length > 0) {
             const halftimeLineupMap = getLineupAtRotation(halftimeRotationNumber);
             halftimeLineupArray = Array.from(halftimeLineupMap.entries()).map(([positionId, playerId]) => ({
@@ -539,7 +562,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
       await copyGamePlan(sourceGameId, game.id, team.coaches || []);
       // Data will update automatically via observeQuery subscriptions
-      
+
       showSuccess("Plan copied successfully!");
     } catch (error) {
       handleApiError(error, 'Failed to copy game plan');
@@ -559,7 +582,8 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
     // Work from the subs-only map (positionId → playerInId for each explicit sub).
     // Missing positions mean "first-half player continues" — no sub needed.
-    const currentSubs: PlannedSubstitution[] = JSON.parse(secondHalfRotation.plannedSubstitutions as string);
+    let currentSubs: PlannedSubstitution[] = [];
+    try { currentSubs = JSON.parse(secondHalfRotation.plannedSubstitutions as string); } catch (e) { logError('Parse halftime rotation subs', e); }
     const newSubsLineup = new Map<string, string>(currentSubs.map(s => [s.positionId, s.playerInId]));
 
     if (playerId === "") {
@@ -633,7 +657,8 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         const subsJson = overrides.has(rot.rotationNumber)
           ? overrides.get(rot.rotationNumber)!
           : (rot.plannedSubstitutions as string);
-        const subs: PlannedSubstitution[] = JSON.parse(subsJson);
+        let subs: PlannedSubstitution[] = [];
+        try { subs = JSON.parse(subsJson); } catch (e) { logError('Parse rotation subs in recalculate', e); }
         subs.forEach(sub => {
           const tempLineup = new Map<string, string>();
           for (const [posId, pId] of lineup.entries()) {
@@ -705,8 +730,8 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     if (!rotation) return;
 
     // Get previous lineup
-    const previousLineup = rotationNumber === 1 
-      ? startingLineup 
+    const previousLineup = rotationNumber === 1
+      ? startingLineup
       : getLineupAtRotation(rotationNumber - 1);
 
     // Ensure all positions from previous lineup are accounted for in new lineup
@@ -772,7 +797,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         new Map([[rotationNumber, emptySubsJson]])
       );
       // Data will update automatically via observeQuery subscriptions
-      
+
       // Select this rotation to edit it
       setSelectedRotation(rotationNumber);
     } catch (error) {
@@ -810,7 +835,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
     // Close modal first to prevent UI issues
     setSwapModalData(null);
-    
+
     // Then save the changes
     await handleRotationLineupChange(rotationNumber, newLineup);
   };
@@ -833,7 +858,8 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     // Apply all substitutions up to this rotation
     for (let i = 0; i < rotations.length && rotations[i].rotationNumber <= rotationNumber; i++) {
       const rotation = rotations[i];
-      const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
+      let subs: PlannedSubstitution[] = [];
+      try { subs = JSON.parse(rotation.plannedSubstitutions as string); } catch (e) { logError('Parse rotation subs in getLineupAtRotation', e); }
 
       subs.forEach(sub => {
         // Simply swap the player at the position with the new player
@@ -863,7 +889,260 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     return lineup;
   };
 
+  // Render selected rotation details — defined at component level so it can be
+  // called from both renderRotationTimeline() and the bottom sheet.
+  const renderSelectedDetails = () => {
+    if (selectedRotation === null) return null;
 
+    if (selectedRotation === 'starting') {
+      return (
+        <div className="rotation-details-panel">
+          <div className="panel-header">
+            <h4>Starting Lineup</h4>
+            <div className="setup-controls">
+              <label className="interval-selector">
+                Rotation every:
+                <select
+                  value={rotationIntervalMinutes}
+                  onChange={(e) => setRotationIntervalMinutes(Number(e.target.value))}
+                >
+                  <option value={5}>5 min</option>
+                  <option value={10}>10 min</option>
+                  <option value={15}>15 min</option>
+                </select>
+              </label>
+              <button
+                onClick={handleUpdatePlan}
+                className="primary-button"
+                disabled={isGenerating}
+              >
+                {isGenerating ? "Updating..." : (gamePlan ? "Update Plan" : "Create Plan")}
+              </button>
+              {gamePlan && rotations.length > 0 && (
+                <button
+                  onClick={handleAutoGenerateRotations}
+                  className="secondary-button"
+                  disabled={isGenerating}
+                  title="Auto-generate fair rotation substitutions based on current availability"
+                >
+                  🔄 Auto-Generate Rotations
+                </button>
+              )}
+            </div>
+          </div>
+          <LineupBuilder
+            positions={positions}
+            availablePlayers={startingLineupPlayers}
+            lineup={startingLineup}
+            onLineupChange={handleLineupChange}
+            showPreferredPositions={true}
+          />
+        </div>
+      );
+    }
+
+    if (selectedRotation === 'halftime') {
+      const secondHalfStartRotation = halftimeRotationNumber
+        ? rotations.find(r => r.rotationNumber === halftimeRotationNumber)
+        : undefined;
+
+      // Build a subs-only lineup: only positions with an explicit halftime change.
+      // Positions without a sub show as empty → the dropdown appears so the coach
+      // can pick a replacement, just like on the starting-lineup screen.
+      let halftimeSubs: PlannedSubstitution[] = [];
+      if (secondHalfStartRotation) {
+        try { halftimeSubs = JSON.parse(secondHalfStartRotation.plannedSubstitutions as string); } catch (e) { logError('Parse halftime subs in renderSelectedDetails', e); }
+      }
+      const halftimeSubsLineup = new Map<string, string>(
+        halftimeSubs.map(s => [s.positionId, s.playerInId])
+      );
+
+      // Players who are on the field at end of the first half (they "continue" unless subbed).
+      const firstHalfFieldLineup = halftimeRotationNumber && halftimeRotationNumber > 1
+        ? getLineupAtRotation(halftimeRotationNumber - 1)
+        : startingLineup;
+      const firstHalfFieldPlayerIds = new Set(firstHalfFieldLineup.values());
+
+      // Players being explicitly subbed OUT are available to be reassigned elsewhere.
+      const halftimeSubOutIds = new Set(halftimeSubs.map(s => s.playerOutId));
+
+      // Bench = first-half bench players + anyone being subbed out at halftime.
+      // First-half field players who are NOT being subbed out are already on the
+      // field (continuing) and should not clutter the bench.
+      const halftimeAvailablePlayers = rotationPlayers.filter(
+        p => !firstHalfFieldPlayerIds.has(p.id) || halftimeSubOutIds.has(p.id)
+      );
+
+      return (
+        <div className="rotation-details-panel">
+          <div className="panel-header">
+            <h4>Lineup at Halftime</h4>
+            {secondHalfStartRotation && (
+              <button
+                onClick={() => handleCopyFromPreviousRotation(secondHalfStartRotation.rotationNumber)}
+                className="secondary-button"
+                style={{ padding: '0.25rem 0.75rem', fontSize: '0.85rem' }}
+              >
+                Clear halftime changes
+              </button>
+            )}
+          </div>
+
+          {secondHalfStartRotation ? (
+            <LineupBuilder
+              positions={positions}
+              availablePlayers={halftimeAvailablePlayers}
+              lineup={halftimeSubsLineup}
+              onLineupChange={handleHalftimeLineupChange}
+              showPreferredPositions={true}
+            />
+          ) : (
+            <p>Create rotations first by clicking "Update Plan"</p>
+          )}
+        </div>
+      );
+    }
+
+    // If the user somehow selects the halftime rotation as a number,
+    // redirect to the halftime panel to keep edits consistent.
+    if (selectedRotation === halftimeRotationNumber) {
+      setSelectedRotation('halftime');
+      return null;
+    }
+
+    // Rotation logic
+    const rotation = rotations.find(r => r.rotationNumber === selectedRotation);
+    if (!rotation) return null;
+
+    let subs: PlannedSubstitution[] = [];
+    try { subs = JSON.parse(rotation.plannedSubstitutions as string); } catch (e) { logError('Parse rotation subs in renderSelectedDetails', e); }
+    const currentLineup = getLineupAtRotation(rotation.rotationNumber);
+
+    return (
+      <div className="rotation-details-panel">
+        <div className="panel-header">
+          <h4>Rotation {rotation.rotationNumber} ({rotation.gameMinute}')</h4>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <span className="subs-count">{subs.length} Substitutions</span>
+            <button
+              onClick={() => handleCopyFromPreviousRotation(rotation.rotationNumber)}
+              className="secondary-button"
+              style={{ padding: '0.25rem 0.75rem', fontSize: '0.85rem' }}
+            >
+              Reset to Previous Lineup
+            </button>
+          </div>
+        </div>
+
+        {/* Substitutions List */}
+        {subs.length > 0 && (
+          <div style={{ marginBottom: '1rem' }}>
+            <h4 style={{ marginBottom: '0.5rem' }}>Planned Substitutions</h4>
+            <div className="planned-subs-list">
+              {subs.map((sub, idx) => {
+                const playerOut = rotationPlayers.find(p => p.id === sub.playerOutId);
+                const playerIn = rotationPlayers.find(p => p.id === sub.playerInId);
+                const position = positions.find(p => p.id === sub.positionId);
+
+                return (
+                  <div key={idx} className="planned-sub-item" style={{ background: '#fff9c4', border: '2px solid #fdd835' }}>
+                    <div className="sub-position-label">{position?.abbreviation}</div>
+                    <div className="sub-players">
+                      <div className="sub-player sub-out">
+                        <span className="player-number">#{playerOut?.playerNumber || 0}</span>
+                        <span className="player-name">
+                          {playerOut?.firstName} {playerOut?.lastName}
+                        </span>
+                      </div>
+                      <div className="sub-arrow">→</div>
+                      <div className="sub-player sub-in">
+                        <span className="player-number">#{playerIn?.playerNumber || 0}</span>
+                        <span className="player-name">
+                          {playerIn?.firstName} {playerIn?.lastName}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="rotation-lineup-custom">
+          <div className="position-lineup-grid">
+            {positions.map((position) => {
+              const assignedPlayerId = currentLineup.get(position.id);
+              const assignedPlayer = rotationPlayers.find((p) => p.id === assignedPlayerId);
+
+              return (
+                <div key={position.id} className="position-slot">
+                  <div className="position-label">{position.abbreviation}</div>
+                  {assignedPlayer ? (
+                    <button
+                      className="assigned-player clickable"
+                      onClick={() => setSwapModalData({
+                        rotationNumber: rotation.rotationNumber,
+                        positionId: position.id,
+                        currentPlayerId: assignedPlayer.id,
+                      })}
+                      style={{
+                        cursor: 'pointer',
+                        border: '2px solid var(--primary-green)',
+                        background: 'white'
+                      }}
+                    >
+                      <span style={{ fontSize: '0.85rem', opacity: 0.9, color: 'black' }}>#{assignedPlayer.playerNumber || 0}</span>
+                      <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'black' }}>
+                        {assignedPlayer.firstName} {assignedPlayer.lastName.charAt(0)}.
+                      </span>
+                      <span style={{ marginLeft: 'auto', fontSize: '0.8rem' }}>🔄</span>
+                    </button>
+                  ) : (
+                    <select
+                      className="player-select"
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          const newLineup = new Map(currentLineup);
+                          newLineup.set(position.id, e.target.value);
+                          handleRotationLineupChange(rotation.rotationNumber, newLineup);
+                        }
+                      }}
+                    >
+                      <option value="">Select player...</option>
+                      {rotationPlayers
+                        .filter((p) => !Array.from(currentLineup.values()).includes(p.id))
+                        .map((player) => (
+                          <option key={player.id} value={player.id}>
+                            #{player.playerNumber || 0} {player.firstName} {player.lastName}
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="bench-area">
+            <h4>Bench</h4>
+            <div className="bench-players">
+              {rotationPlayers
+                .filter((p) => !Array.from(currentLineup.values()).includes(p.id))
+                .map((player) => (
+                  <div key={player.id} className="bench-player">
+                    <span className="player-number">#{player.playerNumber || 0}</span>
+                    <span className="player-name">
+                      {player.firstName} {player.lastName}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderRotationTimeline = () => {
     // Create timeline items with starting lineup first, then all rotations.
@@ -877,373 +1156,72 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       });
     }
 
-    const renderSelectedDetails = () => {
-      if (selectedRotation === null) return null;
-
-      if (selectedRotation === 'starting') {
-        return (
-          <div className="rotation-details-panel">
-            <div className="panel-header">
-              <h4>Starting Lineup</h4>
-              <div className="setup-controls">
-                <label className="interval-selector">
-                  Rotation every:
-                  <select
-                    value={rotationIntervalMinutes}
-                    onChange={(e) => setRotationIntervalMinutes(Number(e.target.value))}
-                  >
-                    <option value={5}>5 min</option>
-                    <option value={10}>10 min</option>
-                    <option value={15}>15 min</option>
-                  </select>
-                </label>
-                <button
-                  onClick={handleUpdatePlan}
-                  className="primary-button"
-                  disabled={isGenerating}
-                >
-                  {isGenerating ? "Updating..." : (gamePlan ? "Update Plan" : "Create Plan")}
-                </button>
-                {gamePlan && rotations.length > 0 && (
-                  <button
-                    onClick={handleAutoGenerateRotations}
-                    className="secondary-button"
-                    disabled={isGenerating}
-                    title="Auto-generate fair rotation substitutions based on current availability"
-                  >
-                    🔄 Auto-Generate Rotations
-                  </button>
-                )}
-              </div>
-            </div>
-            <LineupBuilder
-              positions={positions}
-              availablePlayers={startingLineupPlayers}
-              lineup={startingLineup}
-              onLineupChange={handleLineupChange}
-              showPreferredPositions={true}
-            />
-          </div>
-        );
-      }
-
-      if (selectedRotation === 'halftime') {
-        const secondHalfStartRotation = halftimeRotationNumber
-          ? rotations.find(r => r.rotationNumber === halftimeRotationNumber)
-          : undefined;
-
-        // Build a subs-only lineup: only positions with an explicit halftime change.
-        // Positions without a sub show as empty → the dropdown appears so the coach
-        // can pick a replacement, just like on the starting-lineup screen.
-        const halftimeSubs: PlannedSubstitution[] = secondHalfStartRotation
-          ? JSON.parse(secondHalfStartRotation.plannedSubstitutions as string)
-          : [];
-        const halftimeSubsLineup = new Map<string, string>(
-          halftimeSubs.map(s => [s.positionId, s.playerInId])
-        );
-
-        // Players who are on the field at end of the first half (they "continue" unless subbed).
-        const firstHalfFieldLineup = halftimeRotationNumber && halftimeRotationNumber > 1
-          ? getLineupAtRotation(halftimeRotationNumber - 1)
-          : startingLineup;
-        const firstHalfFieldPlayerIds = new Set(firstHalfFieldLineup.values());
-
-        // Players being explicitly subbed OUT are available to be reassigned elsewhere.
-        const halftimeSubOutIds = new Set(halftimeSubs.map(s => s.playerOutId));
-
-        // Bench = first-half bench players + anyone being subbed out at halftime.
-        // First-half field players who are NOT being subbed out are already on the
-        // field (continuing) and should not clutter the bench.
-        const halftimeAvailablePlayers = rotationPlayers.filter(
-          p => !firstHalfFieldPlayerIds.has(p.id) || halftimeSubOutIds.has(p.id)
-        );
-
-        return (
-          <div className="rotation-details-panel">
-            <div className="panel-header">
-              <h4>Lineup at Halftime</h4>
-              {secondHalfStartRotation && (
-                <button
-                  onClick={() => handleCopyFromPreviousRotation(secondHalfStartRotation.rotationNumber)}
-                  className="secondary-button"
-                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.85rem' }}
-                >
-                  Clear halftime changes
-                </button>
-              )}
-            </div>
-
-            {secondHalfStartRotation ? (
-              <LineupBuilder
-                positions={positions}
-                availablePlayers={halftimeAvailablePlayers}
-                lineup={halftimeSubsLineup}
-                onLineupChange={handleHalftimeLineupChange}
-                showPreferredPositions={true}
-              />
-            ) : (
-              <p>Create rotations first by clicking "Update Plan"</p>
-            )}
-          </div>
-        );
-      }
-
-      // If the user somehow selects the halftime rotation as a number,
-      // redirect to the halftime panel to keep edits consistent.
-      if (selectedRotation === halftimeRotationNumber) {
-        setSelectedRotation('halftime');
-        return null;
-      }
-
-      // Rotation logic
-      const rotation = rotations.find(r => r.rotationNumber === selectedRotation);
-      if (!rotation) return null;
-
-      const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
-      const currentLineup = getLineupAtRotation(rotation.rotationNumber);
-
-      return (
-        <div className="rotation-details-panel">
-          <div className="panel-header">
-            <h4>Rotation {rotation.rotationNumber} ({rotation.gameMinute}')</h4>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <span className="subs-count">{subs.length} Substitutions</span>
-              <button
-                onClick={() => handleCopyFromPreviousRotation(rotation.rotationNumber)}
-                className="secondary-button"
-                style={{ padding: '0.25rem 0.75rem', fontSize: '0.85rem' }}
-              >
-                Copy from Previous
-              </button>
-            </div>
-          </div>
-
-          {/* Substitutions List */}
-          {subs.length > 0 && (
-            <div style={{ marginBottom: '1rem' }}>
-              <h4 style={{ marginBottom: '0.5rem' }}>Planned Substitutions</h4>
-              <div className="planned-subs-list">
-                {subs.map((sub, idx) => {
-                  const playerOut = rotationPlayers.find(p => p.id === sub.playerOutId);
-                  const playerIn = rotationPlayers.find(p => p.id === sub.playerInId);
-                  const position = positions.find(p => p.id === sub.positionId);
-                  
-                  return (
-                    <div key={idx} className="planned-sub-item" style={{ background: '#fff9c4', border: '2px solid #fdd835' }}>
-                      <div className="sub-position-label">{position?.abbreviation}</div>
-                      <div className="sub-players">
-                        <div className="sub-player sub-out">
-                          <span className="player-number">#{playerOut?.playerNumber || 0}</span>
-                          <span className="player-name">
-                            {playerOut?.firstName} {playerOut?.lastName}
-                          </span>
-                        </div>
-                        <div className="sub-arrow">→</div>
-                        <div className="sub-player sub-in">
-                          <span className="player-number">#{playerIn?.playerNumber || 0}</span>
-                          <span className="player-name">
-                            {playerIn?.firstName} {playerIn?.lastName}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-          
-          <div className="rotation-lineup-custom">
-            <div className="position-lineup-grid">
-              {positions.map((position) => {
-                const assignedPlayerId = currentLineup.get(position.id);
-                const assignedPlayer = rotationPlayers.find((p) => p.id === assignedPlayerId);
-
-                return (
-                  <div key={position.id} className="position-slot">
-                    <div className="position-label">{position.abbreviation}</div>
-                    {assignedPlayer ? (
-                      <button
-                        className="assigned-player clickable"
-                        onClick={() => setSwapModalData({
-                          rotationNumber: rotation.rotationNumber,
-                          positionId: position.id,
-                          currentPlayerId: assignedPlayer.id,
-                        })}
-                        style={{ 
-                          cursor: 'pointer', 
-                          border: '2px solid var(--primary-green)',
-                          background: 'white'
-                        }}
-                      >
-                        <span style={{ fontSize: '0.85rem', opacity: 0.9, color: 'black' }}>#{assignedPlayer.playerNumber || 0}</span>
-                        <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'black' }}>
-                          {assignedPlayer.firstName} {assignedPlayer.lastName.charAt(0)}.
-                        </span>
-                        <span style={{ marginLeft: 'auto', fontSize: '0.8rem' }}>🔄</span>
-                      </button>
-                    ) : (
-                      <select
-                        className="player-select"
-                        value=""
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            const newLineup = new Map(currentLineup);
-                            newLineup.set(position.id, e.target.value);
-                            handleRotationLineupChange(rotation.rotationNumber, newLineup);
-                          }
-                        }}
-                      >
-                        <option value="">Select player...</option>
-                        {rotationPlayers
-                          .filter((p) => !Array.from(currentLineup.values()).includes(p.id))
-                          .map((player) => (
-                            <option key={player.id} value={player.id}>
-                              #{player.playerNumber || 0} {player.firstName} {player.lastName}
-                            </option>
-                          ))}
-                      </select>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="bench-area">
-              <h4>Bench</h4>
-              <div className="bench-players">
-                {rotationPlayers
-                  .filter((p) => !Array.from(currentLineup.values()).includes(p.id))
-                  .map((player) => (
-                    <div key={player.id} className="bench-player">
-                      <span className="player-number">#{player.playerNumber || 0}</span>
-                      <span className="player-name">
-                        {player.firstName} {player.lastName}
-                      </span>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    };
-
     return (
-      <div className="planner-section">
-        <h3>Game Plan</h3>
+      <div className="planner-section" ref={timelineRef}>
         {timelineItems.length > 0 && (
-        <div className="timeline-container" ref={timelineRef}>
-          <div className="timeline-header">
-            <div className="timeline-labels">
-              {timelineItems.map((item) => {
-                const isHalftime = item.type === 'rotation' && item.rotation?.rotationNumber === halftimeRotationNumber;
-                const isSelected = item.type === 'starting'
-                  ? selectedRotation === 'starting'
-                  : isHalftime
-                    ? selectedRotation === 'halftime'
-                    : selectedRotation === item.rotation?.rotationNumber;
-
-                const activeClass = isSelected ? 'active' : '';
-
-                if (item.type === 'starting') {
-                  return (
-                    <div
-                      key="starting"
-                      className={`timeline-marker clickable ${activeClass}`}
-                      onClick={() => handleRotationClick('starting')}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      0'
-                    </div>
-                  );
-                }
-                if (isHalftime) {
-                  return (
-                    <div
-                      key={item.rotation!.id}
-                      className={`timeline-marker halftime-marker clickable ${activeClass}`}
-                      onClick={() => handleRotationClick('halftime')}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      HT
-                    </div>
-                  );
-                }
-                return (
-                  <div
-                    key={item.rotation!.id}
-                    className={`timeline-marker clickable ${activeClass}`}
-                    onClick={() => handleRotationClick(item.rotation!.rotationNumber)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    {item.rotation!.gameMinute}'
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="timeline-rotations">
+          <div className="planner-timeline-strip">
             {timelineItems.map((item) => {
               const isHalftime = item.type === 'rotation' && item.rotation?.rotationNumber === halftimeRotationNumber;
               const isSelected = item.type === 'starting'
                 ? selectedRotation === 'starting'
                 : isHalftime
                   ? selectedRotation === 'halftime'
-                  : selectedRotation === item.rotation!.rotationNumber;
+                  : selectedRotation === item.rotation?.rotationNumber;
 
-              const activeClass = isSelected ? 'active' : '';
+              let subsCount = 0;
+              if (item.type === 'rotation' && item.rotation) {
+                try {
+                  subsCount = JSON.parse(item.rotation.plannedSubstitutions as string).length;
+                } catch {
+                  subsCount = 0;
+                }
+              }
 
               if (item.type === 'starting') {
                 return (
-                  <div key="starting-column" className="rotation-column">
-                    <button
-                      className={`rotation-button ${activeClass}`}
-                      onClick={() => handleRotationClick('starting')}
-                    >
-                      Lineup
-                    </button>
-                  </div>
+                  <button
+                    key="starting"
+                    className={`planner-timeline-pill${isSelected ? ' planner-timeline-pill--active' : ''}`}
+                    onClick={() => handleRotationClick('starting')}
+                  >
+                    0'
+                  </button>
                 );
               }
 
               if (isHalftime) {
-                const rotation = item.rotation!;
-                const subsCount = JSON.parse(rotation.plannedSubstitutions as string).length;
                 return (
-                  <div key={rotation.id} className="rotation-column halftime-column">
-                    <button
-                      className={`rotation-button ${activeClass}`}
-                      onClick={() => handleRotationClick('halftime')}
-                    >
-                      {subsCount > 0 ? `${subsCount} subs` : 'Halftime'}
-                    </button>
-                  </div>
+                  <button
+                    key={item.rotation!.id}
+                    className={`planner-timeline-pill planner-timeline-pill--halftime${isSelected ? ' planner-timeline-pill--active' : ''}`}
+                    onClick={() => handleRotationClick('halftime')}
+                  >
+                    HT
+                    {subsCount > 0 && (
+                      <span className="planner-sub-badge">{subsCount}</span>
+                    )}
+                  </button>
                 );
               }
 
-              const rotation = item.rotation!;
-              const subsCount = JSON.parse(rotation.plannedSubstitutions as string).length;
-
               return (
-                <div key={rotation.id} className="rotation-column">
-                  <button
-                    className={`rotation-button ${activeClass}`}
-                    onClick={() => handleRotationClick(rotation.rotationNumber)}
-                  >
-                    {subsCount} subs
-                  </button>
-                </div>
+                <button
+                  key={item.rotation!.id}
+                  className={`planner-timeline-pill${isSelected ? ' planner-timeline-pill--active' : ''}`}
+                  onClick={() => handleRotationClick(item.rotation!.rotationNumber)}
+                >
+                  {item.rotation!.gameMinute}'
+                  {subsCount > 0 && (
+                    <span className="planner-sub-badge">{subsCount}</span>
+                  )}
+                </button>
               );
             })}
           </div>
-        </div>
         )}
 
-        {renderSelectedDetails()}
-
-        <div className="projected-playtime">
-          <h4>Projected Play Time</h4>
+        <details className="planner-playtime-details">
+          <summary>Projected Play Time</summary>
           <div className="playtime-bars">
             {rotationPlayers
               .map((player) => {
@@ -1270,125 +1248,251 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                 </div>
               ))}
           </div>
-        </div>
+        </details>
       </div>
     );
   };
 
   return (
     <AvailabilityProvider availabilities={availabilities}>
-    <div className="game-planner-container">
-      <div className="planner-header">
-        <button onClick={onBack} className="back-button">
-          ← Back
-        </button>
-        <h2>Game Plan: {game.opponent}</h2>
-        <div className="planner-actions">
-          <button onClick={() => setShowCopyModal(true)} className="secondary-button">
-            Copy from Previous
-          </button>
-        </div>
-      </div>
+      <div className="game-planner-container">
 
-      {validationErrors.length > 0 && (
-        <div className="validation-errors">
-          <h4>Validation Errors:</h4>
-          <ul>
-            {validationErrors.map((error, idx) => (
-              <li key={idx}>{error}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <PlayerAvailabilityGrid
-        players={players}
-        gameId={game.id}
-        coaches={team.coaches || []}
-      />
-      {renderRotationTimeline()}
-
-      {showCopyModal && (
-        <div className="modal-overlay" onClick={() => setShowCopyModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>Copy Plan from Previous Game</h3>
-            <div className="previous-games-list">
-              {previousGames.length === 0 ? (
-                <p>No previous games with plans found</p>
-              ) : (
-                previousGames.map((prevGame) => (
-                  <button
-                    key={prevGame.id}
-                    className="game-option"
-                    onClick={() => handleCopyFromGame(prevGame.id)}
-                  >
-                    <div className="game-info">
-                      <strong>{prevGame.opponent}</strong>
-                      <span>{new Date(prevGame.gameDate || "").toLocaleDateString()}</span>
-                    </div>
-                  </button>
-                ))
-              )}
+        {/* Sticky Header */}
+        <div className="planner-sticky-header">
+          <button onClick={onBack} className="planner-back-btn">←</button>
+          <span className="planner-title">vs {game.opponent}</span>
+          <details className="planner-overflow">
+            <summary className="planner-overflow-btn">⋮</summary>
+            <div className="planner-overflow-menu">
+              <button onClick={() => setShowCopyModal(true)} className="planner-overflow-item">
+                Copy from Previous Game
+              </button>
             </div>
-            <button onClick={() => setShowCopyModal(false)} className="secondary-button">
-              Cancel
-            </button>
-          </div>
+          </details>
         </div>
-      )}
 
-      {swapModalData && (() => {
-        // Get lineup BEFORE this rotation's subs are applied (to know who's on field)
-        const currentLineup = getLineupAtRotation(swapModalData.rotationNumber - 1);
-        const currentPlayer = players.find((p: PlayerWithRoster) => p.id === swapModalData.currentPlayerId);
-        const position = positions.find((p: FormationPosition) => p.id === swapModalData.positionId);
-        // For swaps in rotations/halftime, include late-arrival players
-        const availablePlayers = players.filter(
-          (p: PlayerWithRoster) => {
-            const status = getPlayerAvailability(p.id);
-            return status === "available" || status === "late-arrival";
-          }
-        );
-        
-        return (
-          <div className="modal-overlay" onClick={() => setSwapModalData(null)}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-              <h3>Swap Player</h3>
-              <p style={{ marginBottom: '1rem' }}>
-                <strong>{position?.abbreviation}</strong>: {currentPlayer?.firstName} {currentPlayer?.lastName} #{currentPlayer?.playerNumber}
-              </p>
-              <h4>Select replacement:</h4>
-              <div className="previous-games-list" style={{ maxHeight: '400px' }}>
-                {availablePlayers
-                  .filter((p: PlayerWithRoster) => p.id !== swapModalData.currentPlayerId)
-                  .map((player: PlayerWithRoster) => {
-                    const isOnField = Array.from(currentLineup.values()).includes(player.id);
-                    return (
-                      <button
-                        key={player.id}
-                        className="game-option"
-                        onClick={() => handleSwapPlayer(player.id)}
-                        style={{
-                          opacity: isOnField ? 0.6 : 1,
-                          background: isOnField ? '#fff3e0' : 'white',
-                        }}
-                      >
-                        <div className="game-info">
-                          <strong>#{player.playerNumber} {player.firstName} {player.lastName}</strong>
-                          {isOnField && <span style={{ color: '#ff9800', fontSize: '0.85rem' }}>Currently on field</span>}
-                        </div>
-                      </button>
-                    );
-                  })}
+        {/* Tab Nav */}
+        <nav className="planner-tab-nav" role="tablist">
+          {(['availability', 'lineup', 'rotations'] as const).map((tab) => {
+            const label = tab === 'availability' ? 'Availability' : tab === 'lineup' ? 'Lineup' : 'Rotations';
+            // Badge: lineup tab shows ✓ when all positions filled, rotations tab shows unfilled count
+            let badge: string | null = null;
+            if (tab === 'lineup' && gamePlan && startingLineup.size >= (positions.length)) {
+              badge = '✓';
+            }
+            if (tab === 'rotations' && rotations.length > 0) {
+              const unfilledCount = rotations.filter(r => {
+                try { return JSON.parse(r.plannedSubstitutions as string).length === 0; } catch { return true; }
+              }).length;
+              if (unfilledCount > 0) badge = String(unfilledCount);
+            }
+            return (
+              <button
+                key={tab}
+                role="tab"
+                aria-selected={plannerTab === tab}
+                className={`planner-tab ${plannerTab === tab ? 'planner-tab--active' : ''}`}
+                onClick={() => setPlannerTab(tab)}
+              >
+                {label}
+                {badge && <span className="planner-tab-badge">{badge}</span>}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Tab Panels */}
+        {plannerTab === 'availability' && (
+          <div className="planner-tab-panel">
+            <PlayerAvailabilityGrid
+              players={players}
+              gameId={game.id}
+              coaches={team.coaches || []}
+            />
+          </div>
+        )}
+
+        {plannerTab === 'lineup' && (
+          <div className="planner-tab-panel">
+            {/* Validation errors */}
+            {validationErrors.length > 0 && (
+              <div className="validation-errors">
+                <ul>{validationErrors.map((e, i) => <li key={i}>{e}</li>)}</ul>
               </div>
-              <button onClick={() => setSwapModalData(null)} className="secondary-button">
+            )}
+
+            {/* Setup card — always shown at top of lineup tab */}
+            <div className="planner-setup-card">
+              <div className="planner-setup-label">Rotation every</div>
+              <div className="interval-pill-group">
+                {[5, 10, 15].map(min => (
+                  <button
+                    key={min}
+                    className={`interval-pill ${rotationIntervalMinutes === min ? 'interval-pill--active' : ''}`}
+                    onClick={() => setRotationIntervalMinutes(min)}
+                  >
+                    {min} min
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={handleUpdatePlan}
+                className="btn-primary planner-create-btn"
+                disabled={isGenerating}
+              >
+                {isGenerating ? 'Saving...' : gamePlan ? 'Update Plan' : 'Create Game Plan'}
+              </button>
+            </div>
+
+            {/* LineupBuilder — shown only when plan exists */}
+            {gamePlan && (
+              <div className="planner-section">
+                <div className="panel-header">
+                  <h4>Starting Lineup</h4>
+                  {rotations.length > 0 && (
+                    <button
+                      onClick={handleAutoGenerateRotations}
+                      className="secondary-button"
+                      disabled={isGenerating}
+                    >
+                      🔄 Auto-Generate
+                    </button>
+                  )}
+                </div>
+                <LineupBuilder
+                  positions={positions}
+                  availablePlayers={startingLineupPlayers}
+                  lineup={startingLineup}
+                  onLineupChange={handleLineupChange}
+                  showPreferredPositions={true}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {plannerTab === 'rotations' && (
+          <div className="planner-tab-panel">
+            {/* Timeline pill strip */}
+            {gamePlan && rotations.length > 0 ? (
+              <>
+                {renderRotationTimeline()}
+              </>
+            ) : (
+              <div className="planner-empty-state">
+                <p>No rotations yet.</p>
+                <button onClick={() => setPlannerTab('lineup')} className="btn-primary">
+                  Set up Lineup →
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Bottom sheet for rotation details */}
+        {selectedRotation !== null && (
+          <>
+            <div className="planner-sheet-backdrop" onClick={() => setSelectedRotation(null)} />
+            <div className="planner-detail-sheet planner-detail-sheet--open">
+              <div className="planner-sheet-handle" />
+              <div className="planner-sheet-body">
+                {renderSelectedDetails()}
+              </div>
+              <div className="planner-sheet-footer">
+                <button
+                  className="btn-primary"
+                  style={{ flex: 1 }}
+                  onClick={() => setSelectedRotation(null)}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Existing modals (unchanged) */}
+        {showCopyModal && (
+          <div className="modal-overlay" onClick={() => setShowCopyModal(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <h3>Copy Plan from Previous Game</h3>
+              <div className="previous-games-list">
+                {previousGames.length === 0 ? (
+                  <p>No previous games with plans found</p>
+                ) : (
+                  previousGames.map((prevGame) => (
+                    <button
+                      key={prevGame.id}
+                      className="game-option"
+                      onClick={() => handleCopyFromGame(prevGame.id)}
+                    >
+                      <div className="game-info">
+                        <strong>{prevGame.opponent}</strong>
+                        <span>{new Date(prevGame.gameDate || "").toLocaleDateString()}</span>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+              <button onClick={() => setShowCopyModal(false)} className="secondary-button">
                 Cancel
               </button>
             </div>
           </div>
-        );
-      })()}
-    </div>
+        )}
+
+        {swapModalData && (() => {
+          // Get lineup BEFORE this rotation's subs are applied (to know who's on field)
+          const currentLineup = getLineupAtRotation(swapModalData.rotationNumber - 1);
+          const currentPlayer = players.find((p: PlayerWithRoster) => p.id === swapModalData.currentPlayerId);
+          const position = positions.find((p: FormationPosition) => p.id === swapModalData.positionId);
+          // For swaps in rotations/halftime, include late-arrival players
+          const availablePlayers = players.filter(
+            (p: PlayerWithRoster) => {
+              const status = getPlayerAvailability(p.id);
+              return status === "available" || status === "late-arrival";
+            }
+          );
+
+          return (
+            <div className="modal-overlay" onClick={() => setSwapModalData(null)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                <h3>Swap Player</h3>
+                <p style={{ marginBottom: '1rem' }}>
+                  <strong>{position?.abbreviation}</strong>: {currentPlayer?.firstName} {currentPlayer?.lastName} #{currentPlayer?.playerNumber}
+                </p>
+                <h4>Select replacement:</h4>
+                <div className="previous-games-list" style={{ maxHeight: '400px' }}>
+                  {availablePlayers
+                    .filter((p: PlayerWithRoster) => p.id !== swapModalData.currentPlayerId)
+                    .map((player: PlayerWithRoster) => {
+                      const isOnField = Array.from(currentLineup.values()).includes(player.id);
+                      return (
+                        <button
+                          key={player.id}
+                          className="game-option"
+                          onClick={() => handleSwapPlayer(player.id)}
+                          style={{
+                            opacity: isOnField ? 0.6 : 1,
+                            background: isOnField ? '#fff3e0' : 'white',
+                          }}
+                        >
+                          <div className="game-info">
+                            <strong>#{player.playerNumber} {player.firstName} {player.lastName}</strong>
+                            {isOnField && <span style={{ color: '#ff9800', fontSize: '0.85rem' }}>Currently on field</span>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                </div>
+                <button onClick={() => setSwapModalData(null)} className="secondary-button">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
     </AvailabilityProvider>
   );
 }

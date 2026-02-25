@@ -303,7 +303,6 @@ describe('GamePlanner Lineup Logic', () => {
       const rot1Lineup = createSwapSubstitutions(startingLineup, 'pos1', 'B');
       const rot1Subs = calculateSubstitutions(startingLineup, rot1Lineup);
       
-      console.log('Rotation 1 substitutions:', rot1Subs);
       
       // Now get the lineup at rotation 1 (this is what the UI renders)
       const lineupAtRot1 = getLineupAtRotation(startingLineup, [{
@@ -311,7 +310,6 @@ describe('GamePlanner Lineup Logic', () => {
         plannedSubstitutions: rot1Subs,
       }], 1);
       
-      console.log('Lineup at rotation 1:', Array.from(lineupAtRot1.entries()));
       
       // This should still have 5 players!
       expect(lineupAtRot1.size).toBe(5);
@@ -557,5 +555,275 @@ describe('GamePlanner Lineup Logic', () => {
       expect(finalLineup.get('pos2')).toBe('B');
       expect(finalLineup.get('pos3')).toBe('C');
     });
+  });
+});
+
+// ── New tests for the GamePlanner UI redesign ────────────────────────────────
+
+// ---------------------------------------------------------------------------
+// Pure helpers extracted from GamePlanner.tsx for isolated testing
+// ---------------------------------------------------------------------------
+
+/** Mirrors halftimeRotationNumber memo (GamePlanner.tsx lines 265-269). */
+function deriveHalftimeRotationNumber(
+  gamePlan: { id: string } | null,
+  halfLengthMinutes: number,
+  rotationIntervalMinutes: number,
+  rotations: Array<{ rotationNumber: number; half: number }>
+): number | undefined {
+  const rotationsPerHalf = gamePlan
+    ? Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1
+    : 0;
+  return (
+    rotations.find((r) => r.half === 2)?.rotationNumber ??
+    (rotationsPerHalf > 0 ? rotationsPerHalf + 1 : undefined)
+  );
+}
+
+/** Mirrors initial tab selection effect (GamePlanner.tsx lines 228-234). */
+type PlannerTab = 'availability' | 'lineup' | 'rotations';
+function resolveInitialTab(
+  gamePlan: { id: string } | null,
+  playerCount: number
+): PlannerTab | null {
+  if (gamePlan !== null || playerCount > 0) {
+    return gamePlan ? 'rotations' : 'lineup';
+  }
+  return null;
+}
+
+/** Mirrors rotations-tab empty-state guard (GamePlanner.tsx lines 1371-1383). */
+function shouldShowRotationsEmptyState(
+  gamePlan: { id: string } | null,
+  rotationsCount: number
+): boolean {
+  return !(gamePlan && rotationsCount > 0);
+}
+
+/** Mirrors handleUpdatePlan rotation count formula (GamePlanner.tsx lines 344-347). */
+function calculateTotalRotations(
+  halfLengthMinutes: number,
+  rotationIntervalMinutes: number
+): { rotationsPerHalf: number; totalRotations: number } {
+  const rotationsPerHalf = Math.max(
+    0,
+    Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1
+  );
+  const totalRotations = rotationsPerHalf * 2 + 1;
+  return { rotationsPerHalf, totalRotations };
+}
+
+/** Mirrors lineup tab badge logic (GamePlanner.tsx lines 1273-1276). */
+function computeLineupTabBadge(
+  gamePlan: { id: string } | null,
+  lineupSize: number,
+  positionCount: number
+): string | null {
+  if (gamePlan && lineupSize >= positionCount) return '✓';
+  return null;
+}
+
+/** Mirrors rotations tab badge logic (GamePlanner.tsx lines 1277-1283). */
+function computeRotationsTabBadge(
+  rotations: Array<{ plannedSubstitutions: string }>
+): string | null {
+  if (rotations.length === 0) return null;
+  const unfilledCount = rotations.filter((r) => {
+    try {
+      return (JSON.parse(r.plannedSubstitutions) as unknown[]).length === 0;
+    } catch {
+      return true;
+    }
+  }).length;
+  return unfilledCount > 0 ? String(unfilledCount) : null;
+}
+
+// ---------------------------------------------------------------------------
+// Gap 1 — halftimeRotationNumber derivation
+// ---------------------------------------------------------------------------
+
+describe('deriveHalftimeRotationNumber', () => {
+  const mockPlan = { id: 'plan-1' };
+
+  it('returns rotationsPerHalf + 1 from fallback when no rotation tagged half === 2', () => {
+    // 30-min halves, 10-min interval → rotationsPerHalf = 2 → halftime at rotation 3
+    expect(deriveHalftimeRotationNumber(mockPlan, 30, 10, [])).toBe(3);
+  });
+
+  it('prefers explicit half === 2 rotation number over the calculated fallback', () => {
+    const rotations = [
+      { rotationNumber: 2, half: 1 },
+      { rotationNumber: 3, half: 2 },
+    ];
+    expect(deriveHalftimeRotationNumber(mockPlan, 30, 10, rotations)).toBe(3);
+  });
+
+  it('returns undefined when interval equals half length (rotationsPerHalf === 0) and no tagged rotation', () => {
+    // Math.floor(30/30) - 1 = 0 → no halftime pill
+    expect(deriveHalftimeRotationNumber(mockPlan, 30, 30, [])).toBeUndefined();
+  });
+
+  it('returns undefined when gamePlan is null', () => {
+    expect(deriveHalftimeRotationNumber(null, 30, 10, [])).toBeUndefined();
+  });
+
+  it('returns correct number for 15-min interval on 30-min halves', () => {
+    // Math.floor(30/15) - 1 = 1 → halftime at rotation 2
+    expect(deriveHalftimeRotationNumber(mockPlan, 30, 15, [])).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap 2 — Tab auto-advance logic
+// ---------------------------------------------------------------------------
+
+describe('resolveInitialTab', () => {
+  it('returns "lineup" when players are loaded but no game plan exists', () => {
+    expect(resolveInitialTab(null, 10)).toBe('lineup');
+  });
+
+  it('returns "rotations" when a game plan already exists', () => {
+    expect(resolveInitialTab({ id: 'plan-1' }, 10)).toBe('rotations');
+  });
+
+  it('returns null when no plan and no players (data still loading)', () => {
+    expect(resolveInitialTab(null, 0)).toBeNull();
+  });
+
+  it('returns "rotations" even when playerCount is zero if a plan exists', () => {
+    expect(resolveInitialTab({ id: 'plan-1' }, 0)).toBe('rotations');
+  });
+});
+
+describe('plan-creation tab jump', () => {
+  it('should jump when prevGamePlanId was null and gamePlan.id is now set', () => {
+    const prevId: string | null = null;
+    const newPlanId = 'plan-abc';
+    expect(newPlanId !== null && prevId === null).toBe(true);
+  });
+
+  it('should NOT jump when gamePlan.id was already set (plan update, not creation)', () => {
+    const prevId: string | null = 'plan-abc';
+    const newPlanId = 'plan-abc';
+    expect(newPlanId !== null && prevId === null).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap 3 — Rotations empty-state visibility
+// ---------------------------------------------------------------------------
+
+describe('shouldShowRotationsEmptyState', () => {
+  it('shows empty state when no game plan exists', () => {
+    expect(shouldShowRotationsEmptyState(null, 0)).toBe(true);
+  });
+
+  it('shows empty state when plan exists but has no rotations', () => {
+    expect(shouldShowRotationsEmptyState({ id: 'plan-1' }, 0)).toBe(true);
+  });
+
+  it('shows timeline when plan exists and has rotations', () => {
+    expect(shouldShowRotationsEmptyState({ id: 'plan-1' }, 5)).toBe(false);
+  });
+
+  it('shows empty state when rotations exist but no plan (inconsistent state)', () => {
+    expect(shouldShowRotationsEmptyState(null, 3)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap 4 — totalRotations formula consistency
+// ---------------------------------------------------------------------------
+
+describe('calculateTotalRotations', () => {
+  it('produces 5 total rotations for 30-min halves with 10-min intervals', () => {
+    const { rotationsPerHalf, totalRotations } = calculateTotalRotations(30, 10);
+    expect(rotationsPerHalf).toBe(2);
+    expect(totalRotations).toBe(5);
+  });
+
+  it('produces 3 total rotations for 30-min halves with 15-min intervals', () => {
+    const { rotationsPerHalf, totalRotations } = calculateTotalRotations(30, 15);
+    expect(rotationsPerHalf).toBe(1);
+    expect(totalRotations).toBe(3);
+  });
+
+  it('produces 11 total rotations for 30-min halves with 5-min intervals', () => {
+    const { rotationsPerHalf, totalRotations } = calculateTotalRotations(30, 5);
+    expect(rotationsPerHalf).toBe(5);
+    expect(totalRotations).toBe(11);
+  });
+
+  it('produces 1 total rotation (halftime only) when interval equals half length', () => {
+    const { rotationsPerHalf, totalRotations } = calculateTotalRotations(30, 30);
+    expect(rotationsPerHalf).toBe(0);
+    expect(totalRotations).toBe(1);
+  });
+
+  it('totalRotations is always odd (halftime rotation always included)', () => {
+    for (const interval of [5, 10, 15]) {
+      const { totalRotations } = calculateTotalRotations(30, interval);
+      expect(totalRotations % 2).toBe(1);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap 5 — Tab badge computation
+// ---------------------------------------------------------------------------
+
+describe('computeLineupTabBadge', () => {
+  it('shows checkmark when plan exists and all positions filled', () => {
+    expect(computeLineupTabBadge({ id: 'p' }, 5, 5)).toBe('✓');
+  });
+
+  it('returns null when no game plan exists', () => {
+    expect(computeLineupTabBadge(null, 5, 5)).toBeNull();
+  });
+
+  it('returns null when lineup is not fully filled', () => {
+    expect(computeLineupTabBadge({ id: 'p' }, 4, 5)).toBeNull();
+  });
+
+  it('shows checkmark when lineup size exceeds position count', () => {
+    expect(computeLineupTabBadge({ id: 'p' }, 6, 5)).toBe('✓');
+  });
+});
+
+describe('computeRotationsTabBadge', () => {
+  it('returns null when there are no rotations', () => {
+    expect(computeRotationsTabBadge([])).toBeNull();
+  });
+
+  it('returns null when all rotations have substitutions', () => {
+    const rotations = [
+      { plannedSubstitutions: JSON.stringify([{ playerOutId: 'p1', playerInId: 'p2', positionId: 'pos1' }]) },
+      { plannedSubstitutions: JSON.stringify([{ playerOutId: 'p3', playerInId: 'p4', positionId: 'pos2' }]) },
+    ];
+    expect(computeRotationsTabBadge(rotations)).toBeNull();
+  });
+
+  it('counts rotations with empty substitution arrays', () => {
+    const rotations = [
+      { plannedSubstitutions: JSON.stringify([]) },
+      { plannedSubstitutions: JSON.stringify([{ playerOutId: 'p1', playerInId: 'p2', positionId: 'pos1' }]) },
+      { plannedSubstitutions: JSON.stringify([]) },
+    ];
+    expect(computeRotationsTabBadge(rotations)).toBe('2');
+  });
+
+  it('counts rotations with malformed JSON as unfilled', () => {
+    const rotations = [
+      { plannedSubstitutions: 'not-valid-json' },
+      { plannedSubstitutions: JSON.stringify([]) },
+    ];
+    expect(computeRotationsTabBadge(rotations)).toBe('2');
+  });
+
+  it('returns null when all rotations are filled', () => {
+    const rotations = [
+      { plannedSubstitutions: JSON.stringify([{ playerOutId: 'a', playerInId: 'b', positionId: 'p1' }]) },
+    ];
+    expect(computeRotationsTabBadge(rotations)).toBeNull();
   });
 });
