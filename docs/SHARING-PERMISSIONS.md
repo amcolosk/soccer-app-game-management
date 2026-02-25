@@ -1,66 +1,56 @@
-# Sharing & Permissions Feature
+# Sharing & Permissions
 
 ## Overview
 
-The TeamTrack app supports multi-user collaboration through a team-based sharing and permissions system. Team owners can invite other coaches to help manage their teams, or add parents for read-only access.
+TeamTrack supports multi-coach collaboration. Team owners can invite other coaches by email to co-manage a team, or add parents for read-only access.
 
-## Key Features
+## Roles
 
-### 1. **Permission Roles**
+| Role | Description |
+|---|---|
+| `OWNER` | Full control — create, edit, delete, manage invitations |
+| `COACH` | Can edit and manage the team, cannot delete or manage invitations |
+| `PARENT` | View-only access — can see team data and reports but cannot edit anything |
 
-- **OWNER**: Full control over the team (create, edit, delete, manage permissions)
-- **COACH**: Can edit and manage the team, but cannot delete or manage permissions
-- **READ_ONLY** (Parents): Can only view information, no editing capabilities
+## How the Authorization Model Works
 
-### 2. **Team-Level Sharing**
+There is no separate "TeamPermission" table. Instead, every record in the database has a `coaches: string[]` field containing the user IDs of everyone authorized to access it. Amplify's `allow.ownersDefinedIn('coaches')` rule grants full CRUD access to any user whose ID appears in that array.
 
-When you share a team with someone, they get access to:
-- **Team information** (name, formation, settings)
-- **All players** on the team roster
-- **All games** for that team
-- **Team reports** with player statistics
-- **Formation** used by the team (if any)
-- **All game data** (lineups, substitutions, play time records, goals, notes)
+When a coach accepts an invitation, the `accept-invitation` Lambda function appends their user ID to the `coaches` array on the `Team` and all its related records (games, roster, positions, etc.).
 
-**Important:** Users can only see players and formations that are either:
-- Owned by them (they created it), OR
-- Associated with a team they have access to
+```typescript
+// Every model uses this pattern
+.authorization((allow) => [allow.ownersDefinedIn('coaches')])
+```
 
-### 4. **Invitation System**
-
-- Send invitations via email address
-- Invitations expire after 7 days
-- Recipients see pending invitations in their Profile page
-- Accept or decline with one click
-- Email notifications sent via AWS SES (Lambda function)
+**Implication**: Role enforcement (COACH vs PARENT) is currently UI-only. All users in the `coaches` array have full backend access. A PARENT with direct GraphQL access could technically write data. This is an accepted tradeoff for the app's low-sensitivity use case.
 
 ## What Shared Users Can See
 
-### Data Visibility by Access Level
+### Data Visibility
 
-When a user has access to a team (as OWNER, COACH, or READ_ONLY):
+When a user has access to a team:
 
-**✅ They CAN see:**
+**They CAN see:**
 - The team and its configuration
 - All players on the team roster
 - All games for that team
-- Game lineups, substitutions, and play time
+- Game lineups, substitutions, and play time records
 - Goals, assists, and game notes
 - Team reports and player statistics
 - The formation used by the team
-- Their own created players (even if not on roster)
-- Their own created formations
+- Their own created players and formations (even if not on this team)
 
-**❌ They CANNOT see:**
-- Teams they don't own or haven't been shared with
+**They CANNOT see:**
+- Teams they don't own and haven't been invited to
 - Players only on other teams' rosters
 - Formations only used by other teams
 - Games for teams they don't have access to
 
-### Permission Level Capabilities
+### Permission Capabilities
 
-| Action | OWNER | COACH | READ_ONLY |
-|--------|-------|-------|-----------|
+| Action | OWNER | COACH | PARENT |
+|---|---|---|---|
 | View team & games | ✅ | ✅ | ✅ |
 | View reports | ✅ | ✅ | ✅ |
 | Edit team settings | ✅ | ✅ | ❌ |
@@ -68,300 +58,94 @@ When a user has access to a team (as OWNER, COACH, or READ_ONLY):
 | Manage roster | ✅ | ✅ | ❌ |
 | Create/edit games | ✅ | ✅ | ❌ |
 | Manage lineups | ✅ | ✅ | ❌ |
+| Pre-game planning | ✅ | ✅ | ❌ |
 | Delete team | ✅ | ❌ | ❌ |
-| Manage permissions | ✅ | ❌ | ❌ |
 | Send invitations | ✅ | ❌ | ❌ |
 
 ## How to Use
 
-### As a Team Owner
+### Sending an Invitation (Owner)
 
-1. **Navigate to Sharing Tab**
-   - Go to Management → Sharing
-   - Select the team you want to share
+1. Go to **Manage** tab → expand a team → **Sharing**
+2. Enter the invitee's email address
+3. Select their role (Coach or Parent)
+4. Click **Send Invitation** — they receive an email with an accept link
+5. Invitations expire after 7 days
 
-2. **Send an Invitation**
-   - Enter the email address of the person
-   - Select their role (Coach or Parent)
-   - Click "Send Invitation"
-   - An email will be sent to the recipient
+### Accepting an Invitation (Invitee)
 
-3. **Manage Members**
-   - View all current members and their roles
-   - Remove members if needed
-   - Cancel pending invitations
-
-### As an Invited User
-
-1. **Check Your Email**
-   - Look for invitation email from TeamTrack
-   - Email includes team name and inviter's information
-
-2. **Check Your Profile**
-   - Open Profile from the bottom navigation
-   - Pending invitations appear at the top
-
-3. **Accept or Decline**
-   - Click "Accept" to join the team
-   - Click "Decline" to reject the invitation
-
-4. **Access Shared Teams**
-   - Once accepted, shared teams appear in your Management tab
-   - Your access level determines what you can do
-   - You can create your own players and formations
-   - You can view all data for the shared team
-
-## Data Models
-
-### TeamPermission
-```typescript
-{
-  id: string
-  teamId: string  // Reference to the team
-  team: Team
-  userId: string  // User who has permission
-  role: 'OWNER' | 'COACH' | 'READ_ONLY'
-  grantedAt: DateTime
-  grantedBy: string  // User ID who granted permission
-}
-```
-
-### TeamInvitation
-```typescript
-{
-  id: string
-  teamId: string  // Reference to the team
-  team: Team
-  email: string  // Email address of invitee
-  role: 'COACH' | 'READ_ONLY'
-  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED'
-  invitedBy: string  // User ID who sent invitation
-  invitedAt: DateTime
-  expiresAt: DateTime  // 7 days from invitedAt
-}
-```
+1. Check the **Profile** tab — pending invitations appear at the top
+2. Click **Accept** to join the team or **Decline** to reject
+3. Once accepted, the shared team appears in your **Manage** and **Games** tabs
 
 ## Technical Implementation
 
-### Database Schema
+### Invitation Flow
+
+1. Team owner creates a `TeamInvitation` record (status: `PENDING`)
+2. DynamoDB Stream triggers the `send-invitation-email` Lambda, which sends an HTML email via SES
+3. Invitee accepts via the Profile tab, which calls the `acceptInvitation` custom GraphQL mutation
+4. The `accept-invitation` Lambda (running with elevated IAM permissions) appends the invitee's user ID to the `coaches` array on the `Team` and all related records
+5. `TeamInvitation` status is updated to `ACCEPTED`
+
+### Data Model
 
 ```typescript
-// Team model with sharing support
-Team {
-  id, name, ownerId, formationId, maxPlayersOnField, halfLengthMinutes
-  roster: TeamRoster[]
-  positions: FieldPosition[]
-  games: Game[]
-  permissions: TeamPermission[]
-  invitations: TeamInvitation[]
+TeamInvitation {
+  id: string
+  teamId: string
+  teamName: string       // denormalized for display
+  email: string          // invitee's email
+  role: 'OWNER' | 'COACH' | 'PARENT'
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED'
+  invitedBy: string      // userId of sender
+  invitedAt: DateTime
+  expiresAt: DateTime    // 7 days from invitedAt
+  acceptedAt: DateTime
+  acceptedBy: string     // userId of accepter
+  coaches: string[]      // team coaches who can manage invitations
 }
 ```
 
-### Authorization Model
+Secondary index on `email + status` enables efficient lookup of all pending invitations for a given email.
 
-**Approach:** Hybrid client-side and server-side authorization
-
-**Server-Side (AWS AppSync/DynamoDB):**
-- All authenticated users can READ most data (Team, Player, Game, etc.)
-- Only owners can CREATE, UPDATE, DELETE resources
-- This enables data sharing while preventing unauthorized modifications
-
-**Client-Side (UI Filtering):**
-- UI filters displayed data based on team access
-- Shows only players on accessible teams + user's own players
-- Shows only formations used by accessible teams + user's own formations
-- Prevents UI clutter from other users' data
-
-### Permission Checking
+### Sending Invitations in Code
 
 ```typescript
-import { hasTeamPermission } from '@/utils/permissions';
+import { invitationService } from '../services/invitationService';
 
-// Check if user can edit a team
-const canEdit = await hasTeamPermission(userId, teamId, 'COACH');
-
-// Check if user can only view a team  
-const canView = await hasTeamPermission(userId, teamId, 'READ_ONLY');
-
-// Load teams with user's permissions
-const teams = await loadTeamsWithPermissions(userId);
+// Sends invitation and triggers email Lambda via DynamoDB Stream
+await invitationService.sendInvitation(teamId, 'coach@example.com', 'COACH');
 ```
 
-### Sending Invitations
+## Security Model
 
-```typescript
-import { sendTeamInvitation } from '@/services/invitationService';
+**Backend-enforced:**
+- Authentication required (Cognito)
+- All data access limited to users in the `coaches` array
+- The `accept-invitation` Lambda is the only path to add a new user to a team (direct writes to `coaches` are blocked by the authorization rule for non-owners)
 
-await sendTeamInvitation(teamId, 'coach@example.com', 'COACH');
-// Sends email via Lambda + SES
-```
+**UI-only (not backend-enforced):**
+- COACH vs PARENT role distinction — the UI hides edit controls for PARENT users, but all users in `coaches` have equal backend write access
+- This is acceptable given the app's low-sensitivity data (soccer game stats, not financial or health data)
 
-### UI Data Filtering
+### Known Limitation
 
-Players and formations are filtered to show only accessible items:
-
-```typescript
-// Filter formations: owned by user OR used by accessible teams
-const accessibleFormations = formations.filter(formation => 
-  formation.owner === currentUserId || 
-  teams.some(team => team.formationId === formation.id)
-);
-
-// Filter players: owned by user OR on rosters for accessible teams
-const accessiblePlayers = players.filter(player => 
-  player.owner === currentUserId || 
-  accessiblePlayerIds.has(player.id)
-);
-```
-
-## Security Considerations
-
-### Current Security Model
-
-**✅ Enforced at Backend:**
-- Authentication (must be signed in)
-- Ownership verification (only owner can delete/modify owned resources)
-- Write protection (no unauthorized updates)
-
-**⚠️ Client-Side Only:**
-- Data visibility filtering (UI hides unrelated data)
-- Permission level enforcement (COACH vs READ_ONLY)
-
-### Known Limitations
-
-1. **Data Leakage via GraphQL API:**
-   - Technically, any authenticated user can query all players/formations via direct GraphQL queries
-   - UI filtering prevents accidental viewing but doesn't prevent intentional API access
-   - **Risk Level:** Low for trusted coaching applications
-   - **Mitigation:** Users are expected to be coaches/parents, not adversarial
-
-2. **Performance:**
-   - All players and formations are loaded into memory, then filtered client-side
-   - Works fine for typical team sizes (hundreds of players)
-   - May need optimization for very large databases (thousands of teams)
-
-3. **Permission Level Enforcement:**
-   - COACH vs READ_ONLY distinction is enforced in UI only
-   - A determined user could bypass by calling GraphQL API directly
-   - **Mitigation:** Amplify owner-based auth prevents data corruption; at worst, a coach could modify their own team data
-
-### Why This Approach?
-
-**AWS Amplify Gen 2 Limitations:**
-- Does not support relationship-based authorization (e.g., "allow if user has TeamPermission")
-- Cannot enforce "user can read Player if Player is on a Team they have access to"
-- Available options: owner, authenticated, groups, custom Lambda
-
-**Alternative Solutions Considered:**
-
-1. **Cognito Groups per Team**
-   - Create a Cognito group for each team
-   - **Problems:** 100 groups/user limit, complex sync, management overhead
-
-2. **Custom Lambda Authorizer**
-   - Write custom authorization logic checking TeamPermission relationships
-   - **Problems:** High complexity, harder to maintain, slower queries
-
-3. **Custom Resolvers with Filtering**
-   - Keep current auth, add Lambda resolvers to filter results
-   - **Problems:** Additional Lambda costs, complexity
-
-4. **Current Hybrid Approach** ✅
-   - Simple to implement and maintain
-   - Acceptable security for typical use case
-   - Can be enhanced later if needed
-
-### Best Practices
-
-- **Trust Model:** App assumes users (coaches/parents) are not malicious
-- **Data Sensitivity:** Soccer game data is low-sensitivity (not financial/health data)
-- **Future Enhancement:** Could add custom Lambda authorizer if needed for stricter enforcement
-- **Audit Trail:** Consider adding audit logging for sensitive operations
-
-## Future Enhancements
-
-### Planned Improvements
-
-1. **Backend Authorization**
-   - Implement custom Lambda authorizer for relationship-based permissions
-   - Server-side filtering of players/formations based on team access
-   - Stricter enforcement of permission levels
-
-2. **Advanced Features**
-   - **Bulk Invitations**: Invite multiple users at once
-   - **Custom Roles**: More granular permissions (e.g., can manage rosters but not formations)
-   - **Audit Log**: Track who made what changes
-   - **Notification System**: In-app notifications for new invitations and changes
-   - **Team Templates**: Share team configurations without sharing actual game data
-
-3. **Performance Optimizations**
-   - Server-side pagination for large datasets
-   - Lazy loading of game data
-   - GraphQL query optimization with selective field fetching
-
-## Testing
-
-### Manual Testing Checklist
-
-1. **Invitation Flow**
-   - [ ] Create a team as User A
-   - [ ] Go to Sharing tab and invite User B as COACH
-   - [ ] Verify email is sent
-   - [ ] Sign in as User B
-   - [ ] Check Profile for pending invitation
-   - [ ] Accept invitation
-   - [ ] Verify User B can see and edit the team
-
-2. **Data Visibility**
-   - [ ] User B can see all players on shared team
-   - [ ] User B can see team's formation
-   - [ ] User B can see all games and reports
-   - [ ] User B cannot see other teams
-   - [ ] User B can create their own players
-   - [ ] User B's created players appear in their list
-
-3. **Permission Enforcement**
-   - [ ] COACH can edit team settings
-   - [ ] READ_ONLY cannot edit anything
-   - [ ] Only OWNER can delete team
-   - [ ] Only OWNER can manage permissions
-
-### E2E Testing
-- Test invitation creation and email sending
-- Test invitation acceptance/decline
-- Test permission enforcement
-- Test expiration handling
-- Test data visibility filtering
+Any authenticated user can technically query any player, formation, or game if they know the ID, because global player/formation data uses the same `coaches` auth but a newly shared user's ID might not be on old global records. The UI filters displayed data to only show items connected to accessible teams. A determined user with direct API access could see more. See AWS Amplify Gen2 limitations for why relationship-based server-side authorization (e.g., "allow if user has access to this player's team") is not straightforward to implement.
 
 ## Troubleshooting
 
-### Common Issues
-
 **Shared team not appearing:**
 - Verify invitation was accepted
-- Check that invitation hasn't expired
-- Refresh the Management page
-
-**Can't see players after creating them:**
-- Players are filtered by team access
-- Ensure you have access to at least one team
-- Your own created players should always appear
+- Check that invitation hasn't expired (7 days)
+- Refresh the Manage page
 
 **Email not received:**
 - Check spam folder
-- Verify SES is configured and sandbox mode approved
-- Check Lambda function logs in CloudWatch
+- Verify SES is configured (see `INVITATION-EMAIL-SETUP.md`)
+- Check Lambda logs: `aws logs tail /aws/lambda/send-invitation-email --follow`
 
-**Permission denied errors:**
-- Verify user has appropriate role (COACH or higher)
-- Owner field must be set correctly
-- Check console for detailed error messages
-
-## Support
-
-For issues or questions about the sharing feature:
-- Check browser console logs for detailed error messages
-- Verify user is authenticated
-- Confirm email addresses match exactly
-- Check invitation hasn't expired (7 days)
-- Review CloudWatch logs for Lambda/SES errors
+**Can't see players after joining a team:**
+- Players are shown based on team access
+- Your own created players always appear regardless of team membership
+- Refresh the page after accepting an invitation

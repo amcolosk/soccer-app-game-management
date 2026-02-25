@@ -1,134 +1,117 @@
 # E2E Test Suite
 
-This directory contains end-to-end tests for the Soccer App Game Management application using Playwright.
+End-to-end tests for TeamTrack using Playwright.
 
-## Overview
+## Test Files
 
-The test suite validates the complete user workflow:
-1. **Login** - Authenticate with AWS Cognito
-2. **Create Season** - Set up a new season
-3. **Create Team** - Add a team to the season
-4. **Create Positions** - Define field positions (GK, DEF, MID, FWD)
-5. **Create Players** - Add players with preferred positions
-6. **Create Game** - Schedule a match
-7. **Run Game** - Simulate a full game with:
-   - Starting lineup
-   - Timer management
-   - Goal recording
-   - Substitutions
-   - Notes/gold stars
-   - Halftime transition
-8. **Verify Season Report** - Confirm all statistics match
+| File | Coverage |
+|---|---|
+| `auth.spec.ts` | Sign up, sign in, sign out flows |
+| `team-management.spec.ts` | Create teams, formations, edit rosters |
+| `player-management.spec.ts` | Add players, assign to roster, birth year filter |
+| `formation-management.spec.ts` | Create and manage formation templates |
+| `game-planner.spec.ts` | Pre-game planning, player availability, rotation builder |
+| `full-workflow.spec.ts` | Full game day workflow (lineup → timer → subs → report) |
+| `team-sharing.spec.ts` | Invite coaches, accept/decline invitations |
+| `data-isolation.spec.ts` | Verify users can only see their own teams/data |
+| `profile.spec.ts` | Profile page, pending invitations |
+| `issue-tracking.spec.ts` | Bug report submission |
 
 ## Prerequisites
 
-1. **AWS Sandbox Running**: The tests connect to your local AWS Amplify sandbox
-   ```powershell
-   npx ampx sandbox
-   ```
+### 1. Start the AWS Sandbox
+In a separate terminal, start the Amplify sandbox backend:
+```bash
+npx ampx sandbox
+```
+Wait for the success message before running tests.
 
-2. **Test User**: Automatically created with the setup script
-   ```powershell
-   npm run test:e2e:setup
-   ```
+### 2. Start the Dev Server
+In another terminal:
+```bash
+npm run dev
+```
 
-3. **Clean Database**: Tests create new data, so start with a fresh sandbox for best results
+### 3. Install Playwright Browsers (first time only)
+```bash
+npx playwright install --with-deps
+```
 
 ## Running Tests
 
-### Run all E2E tests
-```powershell
+```bash
+# Run all E2E tests
 npm run test:e2e
-```
 
-### Run tests with UI (interactive mode)
-```powershell
+# Open interactive Playwright UI
 npm run test:e2e:ui
-```
 
-### Run tests in headed mode (see the browser)
-```powershell
+# Run with visible browser window
 npm run test:e2e:headed
-```
 
-### Debug a specific test
-```powershell
+# Debug a specific test
 npm run test:e2e:debug
+
+# Run a single spec file
+npx playwright test e2e/team-management.spec.ts
 ```
 
 ## Test Configuration
 
-- **Browser**: Chromium (can be extended to Firefox/Safari in `playwright.config.ts`)
-- **Base URL**: `http://localhost:5173` (Vite dev server)
-- **Timeout**: 3 minutes per test (configurable)
+- **Browser**: Chromium (default)
+- **Base URL**: `http://localhost:5173`
+- **Timeout**: 3 minutes per test
 - **Retries**: 2 on CI, 0 locally
-- **Screenshots**: Captured on failure
-- **Videos**: Recorded on failure
-- **Trace**: Generated on first retry
+- **Artifacts on failure**: screenshots, videos, traces (in `test-results/`)
+
+## Viewing Results
+
+```bash
+# Open HTML report after a run
+npx playwright show-report
+
+# View a trace file
+npx playwright show-trace test-results/<test-name>/trace.zip
+```
 
 ## Test Data
 
-The test uses predefined data:
-- **Season**: Fall 2025
+Tests create their own data and are designed to be repeatable. The full-workflow test uses:
 - **Team**: Thunder FC U10 (7 players, 25-minute halves)
 - **Players**: 8 players (Alice through Hannah)
 - **Positions**: GK, DEF, MID, FWD
-- **Game**: vs Lightning FC (Home game)
-
-## Customizing Tests
-
-### Adjusting Test Data
-Edit the `TEST_DATA` object in `full-workflow.spec.ts`:
-```typescript
-const TEST_DATA = {
-  season: { name: 'Your Season', year: '2025' },
-  team: { name: 'Your Team', halfLength: '30', maxPlayers: '11' },
-  // ... etc
-};
-```
-
-### Authentication
-The test assumes email/password authentication. Update the `login()` function if you use:
-- Social providers (Google, Facebook)
-- Custom authentication flow
-- Different credential storage
-
-### Selectors
-If your UI changes, update the selectors in helper functions to match your component structure.
+- **Game**: vs Lightning FC (Home)
 
 ## Troubleshooting
 
-### Test fails at login
+**Login fails:**
 - Ensure sandbox is running: `npx ampx sandbox`
-- Verify test user credentials exist in Cognito
-- Check the authentication UI selectors match your setup
+- Confirm `amplify_outputs.json` is present in the project root
 
-### Timeout errors
-- Increase timeout in `playwright.config.ts`
-- Check network speed (sandbox database operations)
-- Ensure dev server is running properly
+**Element not found / timeout:**
+- Run in headed mode to watch the browser: `npm run test:e2e:headed`
+- Check the HTML report and screenshots in `test-results/`
+- Increase timeout in `e2e/playwright.config.ts` if network is slow
 
-### Element not found
-- Run in headed mode to see the browser: `npm run test:e2e:headed`
-- Check console logs for component errors
-- Verify CSS classes and text content match expectations
+**Stale data from previous runs:**
+- Delete the sandbox and recreate: `npx ampx sandbox delete` then `npx ampx sandbox`
 
-### Data persistence issues
-- Clear sandbox data: `npx ampx sandbox delete` then `npx ampx sandbox`
-- Check AWS credentials are configured
-- Verify amplify_outputs.json is present
+## Adding New Tests
 
-## Reports
+Create a new file in `e2e/`:
+```typescript
+import { test, expect } from '@playwright/test';
 
-After running tests:
-- **HTML Report**: `npx playwright show-report`
-- **Screenshots**: `test-results/` directory
-- **Videos**: `test-results/` directory (on failure)
-- **Traces**: View with `npx playwright show-trace`
+test('your test name', async ({ page }) => {
+  await page.goto('/');
+  // ...
+});
+```
 
-## CI/CD Integration
+Use the helper functions in `e2e/helpers.ts` (e.g., `fillInput`, `clickButton`) to keep tests consistent.
 
-To run tests in CI:
+## CI/CD
+
 ```yaml
 - name: Install Playwright
   run: npx playwright install --with-deps
@@ -137,29 +120,4 @@ To run tests in CI:
   run: npm run test:e2e
   env:
     CI: true
-```
-
-## Best Practices
-
-1. **Run tests in order**: Tests are not parallel to avoid data conflicts
-2. **Clean state**: Start each test run with a fresh sandbox
-3. **Explicit waits**: Use `waitForPageLoad()` and `waitForTimeout()` for stability
-4. **Descriptive logs**: Console logs help debug issues
-5. **Visual verification**: Check screenshots/videos when tests fail
-
-## Adding New Tests
-
-Create a new test file in `e2e/`:
-```typescript
-import { test, expect } from '@playwright/test';
-import { waitForPageLoad, clickButton } from './helpers';
-
-test('your test name', async ({ page }) => {
-  // Your test code
-});
-```
-
-Run specific test file:
-```powershell
-npx playwright test e2e/your-test.spec.ts
 ```

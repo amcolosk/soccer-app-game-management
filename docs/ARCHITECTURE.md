@@ -1,585 +1,424 @@
 # TeamTrack Architecture
 
-**Last Updated**: December 12, 2025
+**Last Updated**: February 2026
 
 ## Table of Contents
 - [System Overview](#system-overview)
+- [Authorization Model](#authorization-model)
 - [Data Architecture](#data-architecture)
 - [Frontend Architecture](#frontend-architecture)
 - [Backend Architecture](#backend-architecture)
-- [Navigation Flow](#navigation-flow)
 - [Key Design Decisions](#key-design-decisions)
 - [Technology Stack](#technology-stack)
 
 ## System Overview
 
-TeamTrack is a Progressive Web App (PWA) designed for soccer coaches to manage teams, track player participation, and run games from the sideline. The application uses a formation-based architecture with a global player pool, enabling efficient team management across multiple seasons.
+TeamTrack is a Progressive Web App (PWA) for soccer coaches to manage teams, track player participation, and run games from the sideline. The application uses a formation-based architecture with a global player pool, enabling efficient team management and fair play time distribution.
 
 ### Core Capabilities
-- **Multi-season Management**: Coaches can organize teams across different seasons
-- **Formation Templates**: Reusable position configurations shared across teams
-- **Global Player Pool**: Central player database that can be assigned to multiple teams
+- **Team & Roster Management**: Create teams, assign players with jersey numbers and preferred positions
+- **Pre-Game Planning**: Mark player availability, build rotation plans, drag-and-drop lineup builder
 - **Real-time Game Management**: Live lineup management, substitutions, and play time tracking
-- **Statistics & Reporting**: Comprehensive season reports with play time distribution
+- **Statistics & Reporting**: Season reports with play time distribution by player and position
+- **Multi-Coach Collaboration**: Invite other coaches to co-manage teams via email invitations
+
+## Authorization Model
+
+All data models use `allow.ownersDefinedIn('coaches')` — every record has a `coaches: string[]` field containing the user IDs of coaches who can access it. This enables multi-coach team sharing: when a second coach accepts an invitation, their user ID is appended to the `coaches` array on the team and all related records.
+
+```typescript
+// Pattern used on every model
+.authorization((allow) => [allow.ownersDefinedIn('coaches')])
+```
+
+When creating any record, always populate `coaches` with the current user's ID:
+```typescript
+await client.models.Team.create({
+  name: "Eagles",
+  coaches: [currentUserId],
+  // ...
+});
+```
 
 ## Data Architecture
 
 ### Entity Relationship Model
 
 ```
-Season (1) ──────< (Many) Team
-                           │
-Formation (1) ────< (Many) Team
-    │
-    └──────< (Many) FormationPosition
-                           
-Player (Global Pool)
-    │
-    └──────< (Many) TeamRoster >────── (Many) Team
-                           │
-                           └──────< (Many) LineupAssignment >────── (Many) Game
-                                                                        │
-                                                                        ├──< Goal
-                                                                        ├──< GameNote
-                                                                        └──< PlayTimeRecord
+Formation ──────< FormationPosition   (reusable position templates)
+Formation <────── Team
+                  Team ──────< TeamRoster >────── Player
+                  Team ──────< FieldPosition      (team-specific positions)
+                  Team ──────< Game
+                                 │
+                                 ├──< PlayerAvailability >────── Player
+                                 ├──< GamePlan ──────< PlannedRotation
+                                 ├──< LineupAssignment >──── Player, FieldPosition
+                                 ├──< Substitution >──── Player (in/out), FieldPosition
+                                 ├──< PlayTimeRecord >──── Player, FieldPosition
+                                 ├──< Goal >──── Player (scorer, assist)
+                                 └──< GameNote >──── Player
+                  Team ──────< TeamInvitation
 ```
 
 ### Data Models
 
-#### **Season**
-Top-level organizational container for teams within a coaching period.
-- `id`: String (Primary Key)
-- `name`: String
-- `userId`: String (Owner)
-- `createdAt`: DateTime
-- `updatedAt`: DateTime
-
-**Relationships**: Has many Teams
-
----
-
 #### **Formation**
 Reusable position template (e.g., "4-3-3", "3-3-1") that can be assigned to multiple teams.
-- `id`: String (Primary Key)
-- `name`: String
-- `playersOnField`: Int (number of positions)
-- `userId`: String (Owner)
-- `createdAt`: DateTime
-- `updatedAt`: DateTime
+- `name`: String — e.g., "4-3-3"
+- `playerCount`: Int — number of field players
+- `sport`: String — default "Soccer"
+- `coaches`: String[] — user IDs with access
 
-**Relationships**: 
-- Has many FormationPositions
-- Has many Teams (that reference this formation)
+**Relationships**: Has many `FormationPosition`, has many `Team`
 
 ---
 
 #### **FormationPosition**
 Individual position within a formation template.
-- `id`: String (Primary Key)
-- `formationId`: String (Foreign Key)
-- `abbreviation`: String (e.g., "GK", "CB", "FWD")
-- `name`: String (e.g., "Goalkeeper", "Center Back")
-- `createdAt`: DateTime
-- `updatedAt`: DateTime
+- `formationId`: ID (FK)
+- `positionName`: String — e.g., "Left Forward"
+- `abbreviation`: String — e.g., "LF"
+- `sortOrder`: Int
+- `coaches`: String[]
 
-**Relationships**: Belongs to Formation
+**Note**: This is the *template* position. `FieldPosition` (below) is the team-specific runtime position.
 
 ---
 
 #### **Team**
-Represents a team within a season with configuration and formation reference.
-- `id`: String (Primary Key)
-- `seasonId`: String (Foreign Key)
-- `formationId`: String (Foreign Key)
+A team with formation reference and configuration.
 - `name`: String
-- `playersOnField`: Int
-- `halfLength`: Int (minutes)
-- `userId`: String (Owner)
-- `createdAt`: DateTime
-- `updatedAt`: DateTime
+- `formationId`: ID (FK, optional)
+- `maxPlayersOnField`: Int
+- `halfLengthMinutes`: Int — default 30
+- `sport`: String — default "Soccer"
+- `gameFormat`: String — default "Halves"
+- `coaches`: String[] — all coaches with access
 
-**Relationships**: 
-- Belongs to Season
-- References Formation
-- Has many TeamRoster entries
-- Has many Games
+**Relationships**: Belongs to `Formation`, has many `TeamRoster`, `FieldPosition`, `Game`, `TeamInvitation`
 
 ---
 
 #### **Player**
-Global player pool accessible across all teams and seasons.
-- `id`: String (Primary Key)
-- `firstName`: String
-- `lastName`: String
-- `userId`: String (Owner)
-- `createdAt`: DateTime
-- `updatedAt`: DateTime
+Global player pool — players are not scoped to a team, they're shared via `TeamRoster`.
+- `firstName`, `lastName`: String
+- `isActive`: Boolean — default true
+- `birthYear`: Int — optional (used for age-group filtering on roster)
+- `coaches`: String[]
 
-**Relationships**: Has many TeamRoster entries (many-to-many with Teams)
+**Relationships**: Has many `TeamRoster`, `LineupAssignment`, `Substitution` (in/out), `PlayTimeRecord`, `Goal` (scorer/assist), `GameNote`, `PlayerAvailability`
 
 ---
 
 #### **TeamRoster**
-Junction table linking Players to Teams with team-specific data.
-- `id`: String (Primary Key)
-- `teamId`: String (Foreign Key)
-- `playerId`: String (Foreign Key)
-- `playerNumber`: Int (jersey number)
-- `preferredPositions`: String[] (array of position abbreviations)
-- `userId`: String (Owner)
-- `createdAt`: DateTime
-- `updatedAt`: DateTime
+Junction table linking a `Player` to a `Team` with team-specific data.
+- `teamId`, `playerId`: ID (FKs)
+- `playerNumber`: Int — jersey number
+- `preferredPositions`: String — comma-separated `FieldPosition` IDs
+- `isActive`: Boolean
+- `coaches`: String[]
 
-**Relationships**: 
-- Belongs to Team
-- Belongs to Player
-- Has many LineupAssignments
+---
+
+#### **FieldPosition**
+Team-specific positions used for lineups and play time tracking. Unlike `FormationPosition` (which is a reusable template), these are created per team.
+- `teamId`: ID (FK)
+- `positionName`: String — e.g., "Forward"
+- `abbreviation`: String — e.g., "FW"
+- `sortOrder`: Int
+- `coaches`: String[]
+
+**Relationships**: Has many `LineupAssignment`, `Substitution`, `PlayTimeRecord`
 
 ---
 
 #### **Game**
-Scheduled match with opponent and timing information.
-- `id`: String (Primary Key)
-- `teamId`: String (Foreign Key)
+Scheduled match with opponent info and live timer state.
+- `teamId`: ID (FK)
 - `opponent`: String
-- `date`: String (ISO date)
-- `location`: String (enum: "home" | "away")
-- `status`: String (enum: "scheduled" | "in-progress" | "completed")
-- `userId`: String (Owner)
-- `createdAt`: DateTime
-- `updatedAt`: DateTime
+- `isHome`: Boolean
+- `gameDate`: DateTime
+- `status`: String — `scheduled | in-progress | halftime | completed`
+- `currentHalf`: Int — 1 or 2
+- `elapsedSeconds`: Int — paused elapsed game time
+- `lastStartTime`: String — ISO timestamp when timer last started (null = paused)
+- `ourScore`, `opponentScore`: Int
+- `coaches`: String[]
 
-**Relationships**: 
-- Belongs to Team
-- Has many LineupAssignments
-- Has many Goals
-- Has many GameNotes
-- Has many PlayTimeRecords
+**Timer logic**: Current game time = `elapsedSeconds + (now - lastStartTime)` when running; `elapsedSeconds` alone when paused.
+
+---
+
+#### **PlayerAvailability**
+Records each player's availability status for a specific game.
+- `gameId`, `playerId`: ID (FKs)
+- `status`: String — `available | absent | injured | late-arrival`
+- `markedAt`: DateTime
+- `notes`: String (optional)
+- `coaches`: String[]
+
+---
+
+#### **GamePlan**
+Pre-game rotation strategy.
+- `gameId`: ID (FK)
+- `rotationIntervalMinutes`: Int
+- `totalRotations`: Int
+- `startingLineup`: JSON — array of `{playerId, positionId}`
+- `coaches`: String[]
+
+**Relationships**: Has many `PlannedRotation`
+
+---
+
+#### **PlannedRotation**
+One planned substitution interval within a `GamePlan`.
+- `gamePlanId`: ID (FK)
+- `rotationNumber`: Int
+- `gameMinute`: Int — when this rotation should occur
+- `half`: Int — 1 or 2
+- `plannedSubstitutions`: JSON — array of `{playerOutId, playerInId, positionId}`
+- `viewedAt`: DateTime — when coach last viewed this during the game
+- `coaches`: String[]
 
 ---
 
 #### **LineupAssignment**
-Current player-to-position assignment for a game (active lineup).
-- `id`: String (Primary Key)
-- `gameId`: String (Foreign Key)
-- `teamRosterId`: String (Foreign Key)
-- `formationPositionId`: String (Foreign Key)
-- `userId`: String (Owner)
-- `createdAt`: DateTime
-- `updatedAt`: DateTime
-
-**Relationships**: 
-- Belongs to Game
-- References TeamRoster
-- References FormationPosition
+Tracks which player is assigned to which position in a game (active lineup).
+- `gameId`, `playerId`, `positionId`: ID (FKs)
+- `isStarter`: Boolean
+- `coaches`: String[]
 
 ---
 
-#### **Goal**
-Goal scored during a game.
-- `id`: String (Primary Key)
-- `gameId`: String (Foreign Key)
-- `scorerId`: String (Foreign Key to TeamRoster)
-- `assistId`: String (Optional, Foreign Key to TeamRoster)
-- `gameSeconds`: Int (time in game when scored)
-- `userId`: String (Owner)
-- `createdAt`: DateTime
-- `updatedAt`: DateTime
-
-**Relationships**: 
-- Belongs to Game
-- References TeamRoster (scorer)
-- Optionally references TeamRoster (assist)
-
----
-
-#### **GameNote**
-Special events during a game (gold stars, cards).
-- `id`: String (Primary Key)
-- `gameId`: String (Foreign Key)
-- `teamRosterId`: String (Foreign Key)
-- `type`: String (enum: "gold-star" | "yellow-card" | "red-card")
-- `note`: String (optional description)
-- `gameSeconds`: Int (time in game)
-- `userId`: String (Owner)
-- `createdAt`: DateTime
-- `updatedAt`: DateTime
-
-**Relationships**: 
-- Belongs to Game
-- References TeamRoster
+#### **Substitution**
+Records an actual substitution event during a game.
+- `gameId`: ID (FK)
+- `playerOutId`, `playerInId`: ID (FKs to Player)
+- `positionId`: ID (FK to FieldPosition)
+- `gameSeconds`: Int
+- `half`: Int
+- `timestamp`: DateTime
+- `coaches`: String[]
 
 ---
 
 #### **PlayTimeRecord**
-Granular tracking of when a player entered/exited a position.
-- `id`: String (Primary Key)
-- `gameId`: String (Foreign Key)
-- `teamRosterId`: String (Foreign Key)
-- `formationPositionId`: String (Foreign Key)
-- `startSeconds`: Int (game time when player entered position)
-- `endSeconds`: Int (Optional, game time when player left position)
-- `userId`: String (Owner)
-- `createdAt`: DateTime
-- `updatedAt`: DateTime
+Granular tracking of when a player entered/exited a position. This is the source of truth for all play time calculations.
+- `gameId`, `playerId`, `positionId`: ID (FKs)
+- `startGameSeconds`: Int — game clock when player entered
+- `endGameSeconds`: Int — game clock when player left (null if still playing)
+- `coaches`: String[]
 
-**Relationships**: 
-- Belongs to Game
-- References TeamRoster
-- References FormationPosition
+Secondary index: `gameId` → `listPlayTimeRecordsByGameId`
+
+---
+
+#### **Goal**
+A goal scored during a game.
+- `gameId`: ID (FK)
+- `scoredByUs`: Boolean — true = our team scored, false = opponent
+- `gameSeconds`: Int
+- `half`: Int
+- `scorerId`, `assistId`: ID (FKs to Player, both optional)
+- `notes`: String
+- `timestamp`: DateTime
+- `coaches`: String[]
+
+---
+
+#### **GameNote**
+A notable event during a game (gold star, card, etc.).
+- `gameId`: ID (FK)
+- `noteType`: String — `gold-star | yellow-card | red-card | other`
+- `playerId`: ID (FK, optional)
+- `gameSeconds`, `half`: Int
+- `notes`: String
+- `timestamp`: DateTime
+- `coaches`: String[]
+
+---
+
+#### **TeamInvitation**
+Email-based invitation for a coach to join a team.
+- `teamId`: ID (FK)
+- `teamName`: String — denormalized for display during acceptance
+- `email`: String
+- `role`: Enum — `OWNER | COACH | PARENT`
+- `status`: Enum — `PENDING | ACCEPTED | DECLINED | EXPIRED`
+- `invitedBy`: String — userId of sender
+- `invitedAt`, `expiresAt`: DateTime — invitations expire after 7 days
+- `acceptedAt`: DateTime, `acceptedBy`: String
+- `coaches`: String[]
+
+Secondary index: `email + status` → `listInvitationsByEmail`
+
+---
+
+#### **Issue** / **IssueCounter**
+In-app bug/feature request tracking. `IssueCounter` is Lambda-only (no client access). `Issue` is read-only for authenticated users and allows public API key reads.
+
+---
 
 ## Frontend Architecture
 
-### Component Hierarchy
+### Navigation Structure
 
+Tab-based navigation with four top-level tabs:
 ```
-App.tsx (Root)
-├── Authenticator (AWS Cognito)
-└── Main Application
-    ├── Header (with Logout)
-    ├── Home (Game List)
-    │   ├── SeasonSelector
-    │   ├── TeamSelector
-    │   └── GameList
-    │       └── [Click Game] → GameManagement
-    │
-    ├── GameManagement (In-game operations)
-    │   ├── Lineup Management
-    │   ├── Game Timer
-    │   ├── Substitution Interface
-    │   ├── Goal Tracking
-    │   └── Game Notes
-    │
-    ├── Management (Admin Interface)
-    │   ├── Seasons Tab
-    │   ├── Teams Tab (with expandable rosters)
-    │   ├── Formations Tab
-    │   └── Players Tab
-    │
-    ├── Reports (Season Statistics)
-    │   └── SeasonReport
-    │       ├── Team Statistics
-    │       └── Player Details (expandable)
-    │
-    ├── Profile (User Settings)
-    └── Bottom Navigation
+App.tsx
+└── Authenticator (AWS Cognito)
+    └── Main Application
+        ├── Games Tab (default)
+        │   ├── Team selector
+        │   ├── Game list (upcoming + completed)
+        │   ├── Schedule new game
+        │   └── [Click game] → GameManagement
+        │
+        ├── Reports Tab
+        │   └── SeasonReport
+        │
+        ├── Manage Tab
+        │   └── Management
+        │       ├── Teams (expandable: roster, sharing)
+        │       ├── Formations
+        │       └── Players
+        │
+        └── Profile Tab
+            ├── User settings
+            └── Pending invitations
 ```
 
-### Key Components
+Active game state is persisted to `localStorage` so a page refresh returns to the open game.
 
-#### **Home.tsx**
-Entry point showing game list with season/team filtering.
-- Displays upcoming and completed games
-- "Schedule New Game" button
-- Click game → navigates to GameManagement
+### Component Overview
 
-#### **GameManagement.tsx**
-Core game day operations component.
-- **Lineup Management**: Drag players to positions using team's formation
-- **Game Timer**: Automatic timer with half-time pause
-- **Substitutions**: Click position to substitute with play time tracking
-- **Goals & Notes**: Record scoring and special events
-- **Real-time PlayTimeRecords**: Creates records when players enter/exit positions
+| Component | Description |
+|---|---|
+| `GameManagement.tsx` | Live game operations: timer, lineup, substitutions, goals, notes |
+| `GamePlanner.tsx` | Pre-game rotation planning interface |
+| `LineupBuilder.tsx` | Drag-and-drop lineup assignment for each rotation slot |
+| `PlayerAvailabilityGrid.tsx` | Mark players available/absent/late before a game |
+| `SeasonReport.tsx` | Team stats and play time reports |
+| `Management.tsx` | Team/player/formation administration |
+| `InvitationManagement.tsx` | Send and manage team sharing invitations |
 
-**Data Loading**:
-- Uses `observeQuery()` for reactive game data updates
-- Loads FormationPositions from team's formation
+### Services (Business Logic)
 
-#### **Management.tsx**
-Administrative interface with tabs for different entity types.
-- **Seasons**: Create/delete seasons
-- **Teams**: Create teams, expand to edit rosters
-  - Inline editing of player names, numbers, positions
-  - Delete players from roster
-- **Formations**: Create formation templates with positions
-- **Players**: Global player pool management
-
-#### **SeasonReport.tsx**
-Statistics and analytics for completed games.
-- **Data Loading**: Uses `observeQuery()` for reactive PlayTimeRecords
-- **Calculations**: Aggregates play time, goals, assists by player
-- **Display**: Expandable player cards showing position breakdowns
-- **Real-time**: Automatically updates as games complete
-
-**Important**: Uses `observeQuery()` instead of `.list()` to handle DynamoDB eventual consistency.
-
-### State Management
-
-#### Local Component State (useState)
-Most components use React's `useState` for:
-- Form inputs
-- UI toggles (modals, accordions)
-- Temporary edit states
-
-#### AWS Amplify DataStore Queries
-Data fetching patterns:
-- **`.list()`**: Snapshot queries for initial loads
-- **`observeQuery()`**: Reactive queries that re-fire when data changes
-  - Used in GameManagement for real-time game updates
-  - Used in SeasonReport for live statistics
-  - Critical for handling DynamoDB eventual consistency
+| Service | Description |
+|---|---|
+| `rotationPlannerService.ts` | Fair rotation algorithm based on player availability and preferred positions |
+| `substitutionService.ts` | Manages substitutions and play time records |
+| `invitationService.ts` | Team invitation workflow |
 
 ### Utility Functions
 
-Located in `src/utils/`:
-- **gameCalculations.ts**: Play time calculations, time formatting
-- **gameTimeUtils.ts**: Game timer utilities, seconds conversion
-- **lineupUtils.ts**: Lineup validation and management
-- **playerUtils.ts**: Player name formatting, jersey numbers
-- **playTimeCalculations.ts**: Aggregate play time statistics
-- **validation.ts**: Form validation helpers
+Pure functions in `src/utils/`, each with a colocated `.test.ts` file:
+
+| File | Purpose |
+|---|---|
+| `gameCalculations.ts` | Game timer, half detection, score tracking |
+| `playTimeCalculations.ts` | Aggregate play time per player |
+| `lineupUtils.ts` | Lineup validation and transformations |
+| `gameTimeUtils.ts` | Convert between real time and game seconds |
+| `validation.ts` | Form validation helpers |
+| `playerUtils.ts` | Player name formatting, jersey number sorting |
+| `rosterFilterUtils.ts` | Filter players by birth year |
+
+### State Management
+
+- **Component state** (`useState`): Form inputs, UI toggles, ephemeral filter state
+- **Reducers** (`useReducer`): Complex forms like roster management
+- **Custom hooks**: `useTeamData.ts` loads team with roster, positions, and games
+- **Amplify client**: `generateClient<Schema>()` for all data operations
+- **`localStorage`**: Active game/team persistence across page refreshes
 
 ## Backend Architecture
 
 ### AWS Amplify Gen2
 
-The backend uses AWS Amplify Gen2 with Infrastructure as Code (IaC) approach.
+Infrastructure as code defined in the `amplify/` directory.
 
-**Configuration Location**: `amplify/backend.ts`
+**Configuration files:**
+- `amplify/backend.ts` — wires up all backend resources and Lambda functions
+- `amplify/data/resource.ts` — complete GraphQL schema with all data models
+- `amplify/auth/resource.ts` — Cognito authentication configuration
 
-#### Authentication
-- **Provider**: Amazon Cognito
-- **Configuration**: `amplify/auth/resource.ts`
-- **Features**: 
-  - Email/password authentication
-  - User registration and sign-in
-  - Password reset flows
+### Lambda Functions
 
-#### Data Layer
-- **API**: GraphQL via AWS AppSync
-- **Database**: Amazon DynamoDB
-- **Configuration**: `amplify/data/resource.ts`
-- **Schema**: Defined with `a.schema()` in TypeScript
+| Function | Trigger | Purpose |
+|---|---|---|
+| `send-invitation-email` | DynamoDB Stream on `TeamInvitation` | Sends styled HTML invitation emails via SES |
+| `accept-invitation` | Custom GraphQL mutation | Adds accepting user's ID to `coaches` array on team and all related records (requires elevated IAM permissions) |
+| `get-user-invitations` | Custom GraphQL query | Returns all invitations for the current user's email |
+| `send-bug-report` | Custom GraphQL mutation | Creates an `Issue` record and sends notification email |
+| `update-issue-status` | Custom GraphQL mutation | Updates issue status (accessible to both authenticated users and public API key) |
 
-**Authorization Rules**:
-```typescript
-// All models use owner-based authorization
-.authorization((allow) => [allow.owner()])
-```
-Each user can only access their own data via `userId` field.
+### GraphQL Operations
 
-#### Schema Definition Pattern
-```typescript
-const schema = a.schema({
-  Season: a.model({
-    name: a.string().required(),
-    userId: a.string().required(),
-    teams: a.hasMany('Team', 'seasonId'),
-  }).authorization((allow) => [allow.owner()]),
-  
-  // ... other models
-});
-```
-
-#### GraphQL Operations
-Auto-generated by Amplify:
-- **Queries**: `list<Model>`, `get<Model>`
-- **Mutations**: `create<Model>`, `update<Model>`, `delete<Model>`
-- **Subscriptions**: `onCreate<Model>`, `onUpdate<Model>`, `onDelete<Model>`
+Standard CRUDL auto-generated by Amplify (`list`, `get`, `create`, `update`, `delete`) plus custom operations:
+- `acceptInvitation` mutation — adds user to team coaches
+- `getUserInvitations` query — fetches invitations by email
+- `submitBugReport` mutation — creates issue with email notification
+- `updateIssueStatus` mutation — updates issue status
 
 ### Data Consistency
 
-**Challenge**: DynamoDB uses eventual consistency, which can cause:
-- Newly created records not immediately appearing in queries
-- Race conditions in rapid create-then-read operations
-
-**Solution**: 
-- Use `observeQuery()` for components that need real-time data
+DynamoDB uses eventual consistency. Mitigations in place:
+- `observeQuery()` used in `GameManagement` and `SeasonReport` for reactive real-time updates
+- `PlayTimeRecord` has a secondary index on `gameId` for efficient per-game queries
 - E2E tests include wait times for data propagation
-- SeasonReport uses `observeQuery()` to catch late-arriving PlayTimeRecords
-
-## Navigation Flow
-
-### Primary User Journey
-
-```
-1. Login/Signup (Authenticator)
-   ↓
-2. Home Page
-   ├─→ Select Season (dropdown)
-   ├─→ Select Team (dropdown)
-   └─→ View Games List
-       │
-       ├─→ [Click "Schedule New Game"]
-       │   ├─→ Fill form (opponent, date, location)
-       │   ├─→ Submit
-       │   └─→ Return to Home
-       │
-       └─→ [Click Game Card]
-           ↓
-3. Game Management
-   ├─→ Set Lineup (drag players to positions)
-   ├─→ Start Game Timer
-   ├─→ Make Substitutions (click position, select player)
-   ├─→ Record Goals (scorer, assist)
-   ├─→ Record Notes (gold stars, cards)
-   ├─→ End Game
-   └─→ [Back Button] → Home
-
-4. Bottom Navigation (always accessible)
-   ├─→ Home
-   ├─→ Management
-   │   ├─→ Seasons Tab
-   │   ├─→ Teams Tab (expand for roster editing)
-   │   ├─→ Formations Tab
-   │   └─→ Players Tab
-   ├─→ Reports
-   │   └─→ Season Statistics (select season/team)
-   └─→ Profile
-```
-
-### Removed Components
-- **TeamManagement.tsx**: Previously existed but removed as redundant
-  - Originally had tabs for Players/Positions/Games
-  - After architecture change, functionality merged into Home and Management
-
-### App State Management
-
-**Selected Game/Team** stored in:
-- `App.tsx` component state
-- `localStorage` for persistence across refreshes
-
-**Navigation Logic**:
-```typescript
-// Selecting a game
-setSelectedGame(game);
-setSelectedTeam(team);
-localStorage.setItem('activeGame', JSON.stringify({ game, team }));
-
-// Back from game
-setSelectedGame(null);
-setSelectedTeam(null);
-localStorage.removeItem('activeGame');
-```
 
 ## Key Design Decisions
 
-### 1. Formation-Based Architecture
-**Decision**: Use reusable formation templates instead of team-specific positions
+### 1. `coaches` Array for Multi-User Authorization
+Every model carries a `coaches: string[]` field. This enables Amplify's `ownersDefinedIn` authorization to work for shared teams without a separate permission table. When a coach accepts an invitation, the `accept-invitation` Lambda appends their user ID to every relevant record.
 
-**Rationale**:
-- Reduces data duplication (same formation used by multiple teams)
-- Easier to manage positions centrally
-- Allows teams to switch formations mid-season
-- Simplifies position consistency across teams
+### 2. Two Position Models: FormationPosition vs FieldPosition
+- **`FormationPosition`**: Template positions in a reusable formation (e.g., the "GK" in the "4-3-3" template).
+- **`FieldPosition`**: Team-specific runtime positions used for actual lineups, substitutions, and play time tracking.
 
-### 2. Global Player Pool
-**Decision**: Players are global entities linked to teams via TeamRoster junction table
+This separation allows formation templates to be shared and reused while giving each team control over their actual playing positions.
 
-**Rationale**:
-- Players can be reused across seasons (e.g., travel team + recreational team)
-- Easier to track player history across multiple teams
-- Single source of truth for player identity
-- Team-specific data (jersey number, preferred positions) stored in TeamRoster
+### 3. Global Player Pool
+Players are global entities linked to teams via `TeamRoster`. A player can appear on multiple teams without duplication. Team-specific data (jersey number, preferred positions) lives on the `TeamRoster` record.
 
-### 3. Direct Game Navigation
-**Decision**: Home → GameManagement (direct) without intermediate team page
+### 4. Client-Side Timer
+The game timer runs client-side and syncs to DynamoDB periodically:
+- `lastStartTime` (ISO string) + `elapsedSeconds` = current game time when running
+- `lastStartTime = null` = timer paused; `elapsedSeconds` is the ground truth
+- Auto-pauses when `elapsedSeconds` reaches `halfLengthMinutes * 60`
 
-**Rationale**:
-- Faster workflow for coaches (one less click)
-- Most common use case is clicking a game to start managing it
-- Team management moved to dedicated Management section
-- Cleaner separation of concerns (operations vs. admin)
+### 5. Granular PlayTimeRecord
+Individual enter/exit records rather than aggregated totals. This provides a complete audit trail, enables per-position breakdowns, and powers the fair play algorithm. Records store game clock seconds (not wall clock) for accuracy across pauses.
 
-### 4. Reactive Data with observeQuery()
-**Decision**: Use `observeQuery()` in GameManagement and SeasonReport
+### 6. Pre-Game Rotation Planning
+`GamePlan` and `PlannedRotation` store a complete rotation schedule before the game starts. The `rotationPlannerService` generates balanced rotations that equalize play time across available players while respecting preferred positions. Coaches can accept, modify, or ignore the plan during the game.
 
-**Rationale**:
-- DynamoDB eventual consistency requires reactive patterns
-- Game data changes frequently during active games
-- Season reports need to update as games complete
-- Prevents stale data issues in critical views
-
-### 5. Position References via FormationPosition
-**Decision**: LineupAssignment and PlayTimeRecord reference FormationPosition, not custom positions
-
-**Rationale**:
-- Ensures consistency with team's formation
-- Position data persists even if formation is modified later
-- Enables accurate reporting of which position player occupied
-- Simplifies lineup validation (can only assign to formation positions)
-
-### 6. PlayTimeRecord Granularity
-**Decision**: Store individual enter/exit records rather than aggregated totals
-
-**Rationale**:
-- Provides complete audit trail of all substitutions
-- Enables detailed analysis (when did player play, how long in each position)
-- Supports future features (substitution patterns, position heatmaps)
-- Can aggregate for summary views in reports
-
-### 7. Progressive Web App (PWA)
-**Decision**: Build as installable PWA with offline capabilities
-
-**Rationale**:
-- Coaches need access on sideline (potentially poor connectivity)
-- Mobile-first design for phone/tablet use
-- Native app experience without app store complexity
-- Service worker caching for offline game management
-
-### 8. Mobile-First Responsive Design
-**Decision**: Horizontally scrollable tabs with hidden scrollbar on mobile
-
-**Rationale**:
-- Limited screen width on phones requires space-efficient navigation
-- Swipe gestures natural on mobile devices
-- Hidden scrollbar reduces visual clutter while maintaining functionality
-- Negative margins provide edge-to-edge feel
+### 7. Progressive Web App
+Installable on mobile and desktop. Service worker caching via Workbox enables offline access for in-progress games. Coaches often have limited connectivity on the sideline.
 
 ## Technology Stack
 
 ### Frontend
-- **React**: 18.2.0
-- **TypeScript**: 5.5.3
-- **Vite**: 5.4.10 (build tool)
-- **PWA Plugin**: @vite-pwa/vite-plugin
-- **Service Worker**: Workbox
+- **React 18** + **TypeScript**
+- **Vite** — build tool with PWA plugin (Workbox)
+- **AWS Amplify JS** — data client and authentication
 
-### Backend (AWS Amplify Gen2)
-- **Authentication**: Amazon Cognito
-- **API**: AWS AppSync (GraphQL)
-- **Database**: Amazon DynamoDB
-- **Hosting**: AWS Amplify Hosting
-- **File Storage**: Amazon S3 (for static assets)
+### Backend
+- **Amazon Cognito** — authentication
+- **AWS AppSync** — GraphQL API
+- **Amazon DynamoDB** — database (with Streams for Lambda triggers)
+- **AWS Lambda** — custom business logic
+- **Amazon SES** — transactional email
+- **AWS Amplify Hosting** — CI/CD and hosting at coachteamtrack.com
 
-### Development Tools
-- **Testing**: 
-  - Vitest (unit tests)
-  - Playwright (E2E tests)
-- **Linting**: ESLint
-- **Package Manager**: npm
-
-### Deployment
-- **CI/CD**: AWS Amplify Hosting (automatic deploys from git)
-- **Environments**: Separate backend environments per git branch
-- **Domain**: Custom domain support via Amplify Hosting
+### Testing
+- **Vitest** — unit tests (colocated with source)
+- **Playwright** — E2E tests (`e2e/` directory)
+- **ESLint** — linting
 
 ---
 
-## Future Considerations
-
-### Potential Enhancements
-1. **Multi-user Teams**: Allow assistant coaches to collaborate on team management
-2. **Advanced Analytics**: Heat maps, substitution patterns, position optimization
-3. **Export/Import**: Season data backup and migration
-4. **Offline Sync**: Full offline game management with background sync
-5. **Communication**: Team announcements, game reminders
-6. **Photo Upload**: Player photos, action shots during games
-
-### Scalability Notes
-- Current architecture supports unlimited users (data isolated by userId)
-- DynamoDB auto-scales with usage
-- Cognito handles authentication at scale
-- AppSync provides GraphQL query optimization and caching
-
-### Technical Debt
-- **PlayTime Calculation**: 45m + 45m currently shows 50m instead of 1h 30m (needs investigation)
-- **TeamManagement.tsx**: File exists but redundant, consider removal
-- **Debug Logging**: Some console.log statements remain in SeasonReport
-- **Test Flakiness**: E2E tests require explicit waits for eventual consistency
-
----
-
-**Document Maintained By**: Development Team  
-**Last Review**: December 12, 2025  
-**Next Review**: As needed for major architectural changes
+**Last Review**: February 2026

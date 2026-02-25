@@ -41,8 +41,8 @@ For production with a custom domain:
 ### 4. Testing
 
 After verification, test by:
-1. Creating a season/team
-2. Sending an invitation from the Sharing tab
+1. Creating a team
+2. Sending an invitation from Manage → [team] → Sharing
 3. Check the invitee's email inbox
 
 ### Email Template
