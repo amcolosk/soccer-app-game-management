@@ -1305,10 +1305,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
         {plannerTab === 'rotations' && (
           <div className="planner-tab-panel">
-            {/* Timeline pill strip */}
             {gamePlan && rotations.length > 0 ? (
               <>
                 {renderRotationTimeline()}
+                {renderSelectedDetails()}
               </>
             ) : (
               <div className="planner-empty-state">
@@ -1319,28 +1319,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
               </div>
             )}
           </div>
-        )}
-
-        {/* Bottom sheet for rotation details */}
-        {selectedRotation !== null && (
-          <>
-            <div className="planner-sheet-backdrop" onClick={() => setSelectedRotation(null)} />
-            <div className="planner-detail-sheet planner-detail-sheet--open">
-              <div className="planner-sheet-handle" />
-              <div className="planner-sheet-body">
-                {renderSelectedDetails()}
-              </div>
-              <div className="planner-sheet-footer">
-                <button
-                  className="btn-primary"
-                  style={{ flex: 1 }}
-                  onClick={() => setSelectedRotation(null)}
-                >
-                  Done
-                </button>
-              </div>
-            </div>
-          </>
         )}
 
         {/* Existing modals (unchanged) */}
