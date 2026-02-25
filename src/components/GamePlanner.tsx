@@ -217,12 +217,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }
   };
 
-  // Auto-select 'starting' when there's no game plan yet to show setup immediately
-  useEffect(() => {
-    if (gamePlan === null && selectedRotation === null) {
-      setSelectedRotation('starting');
-    }
-  }, [gamePlan, selectedRotation]);
 
   // Initial tab selection (runs once when data first loads)
   useEffect(() => {
@@ -894,53 +888,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const renderSelectedDetails = () => {
     if (selectedRotation === null) return null;
 
-    if (selectedRotation === 'starting') {
-      return (
-        <div className="rotation-details-panel">
-          <div className="panel-header">
-            <h4>Starting Lineup</h4>
-            <div className="setup-controls">
-              <label className="interval-selector">
-                Rotation every:
-                <select
-                  value={rotationIntervalMinutes}
-                  onChange={(e) => setRotationIntervalMinutes(Number(e.target.value))}
-                >
-                  <option value={5}>5 min</option>
-                  <option value={10}>10 min</option>
-                  <option value={15}>15 min</option>
-                </select>
-              </label>
-              <button
-                onClick={handleUpdatePlan}
-                className="primary-button"
-                disabled={isGenerating}
-              >
-                {isGenerating ? "Updating..." : (gamePlan ? "Update Plan" : "Create Plan")}
-              </button>
-              {gamePlan && rotations.length > 0 && (
-                <button
-                  onClick={handleAutoGenerateRotations}
-                  className="secondary-button"
-                  disabled={isGenerating}
-                  title="Auto-generate fair rotation substitutions based on current availability"
-                >
-                  🔄 Auto-Generate Rotations
-                </button>
-              )}
-            </div>
-          </div>
-          <LineupBuilder
-            positions={positions}
-            availablePlayers={startingLineupPlayers}
-            lineup={startingLineup}
-            onLineupChange={handleLineupChange}
-            showPreferredPositions={true}
-          />
-        </div>
-      );
-    }
-
     if (selectedRotation === 'halftime') {
       const secondHalfStartRotation = halftimeRotationNumber
         ? rotations.find(r => r.rotationNumber === halftimeRotationNumber)
@@ -1147,10 +1094,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const renderRotationTimeline = () => {
     // Create timeline items with starting lineup first, then all rotations.
     // The halftime rotation is displayed as "HT" in the timeline but is still a rotation item.
-    const timelineItems: Array<{ type: 'starting' | 'rotation'; rotation?: PlannedRotation; minute?: number }> = [];
+    const timelineItems: Array<{ type: 'rotation'; rotation?: PlannedRotation; minute?: number }> = [];
 
     if (gamePlan && rotations.length > 0) {
-      timelineItems.push({ type: 'starting', minute: 0 });
       rotations.forEach((rotation) => {
         timelineItems.push({ type: 'rotation', rotation });
       });
@@ -1162,11 +1108,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           <div className="planner-timeline-strip">
             {timelineItems.map((item) => {
               const isHalftime = item.type === 'rotation' && item.rotation?.rotationNumber === halftimeRotationNumber;
-              const isSelected = item.type === 'starting'
-                ? selectedRotation === 'starting'
-                : isHalftime
-                  ? selectedRotation === 'halftime'
-                  : selectedRotation === item.rotation?.rotationNumber;
+              const isSelected = isHalftime
+                ? selectedRotation === 'halftime'
+                : selectedRotation === item.rotation?.rotationNumber;
 
               let subsCount = 0;
               if (item.type === 'rotation' && item.rotation) {
@@ -1175,18 +1119,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                 } catch {
                   subsCount = 0;
                 }
-              }
-
-              if (item.type === 'starting') {
-                return (
-                  <button
-                    key="starting"
-                    className={`planner-timeline-pill${isSelected ? ' planner-timeline-pill--active' : ''}`}
-                    onClick={() => handleRotationClick('starting')}
-                  >
-                    0'
-                  </button>
-                );
               }
 
               if (isHalftime) {
