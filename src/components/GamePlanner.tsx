@@ -20,6 +20,7 @@ import { handleApiError, logError } from "../utils/errorHandler";
 import { useConfirm } from "./ConfirmModal";
 import { UI_CONSTANTS } from "../constants/ui";
 import { useAmplifyQuery } from "../hooks/useAmplifyQuery";
+import { computeLineupAtRotation, computeLineupDiff } from "../utils/gamePlannerUtils";
 
 const client = generateClient<Schema>();
 
@@ -50,6 +51,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const bufferedLineupData = useRef<string | null>(null);
   const bufferedRotationData = useRef<PlannedRotation[] | null>(null);
 
+  // Halftime lineup save tracking (mirrors the startingLineup pattern)
+  const pendingHalftimeSaves = useRef(0);
+  const bufferedHalftimeData = useRef<string | null>(null);
+
   // Apply any buffered subscription data when pending saves finish
   const flushBufferedLineup = () => {
     if (pendingLineupSaves.current === 0 && bufferedLineupData.current) {
@@ -74,6 +79,22 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }
   };
 
+  const flushBufferedHalftimeLineup = () => {
+    if (pendingHalftimeSaves.current === 0 && bufferedHalftimeData.current) {
+      try {
+        const lineupArray = JSON.parse(bufferedHalftimeData.current) as Array<{ positionId: string; playerId: string }>;
+        const lineup = new Map<string, string>();
+        lineupArray.forEach(({ positionId, playerId }) => {
+          lineup.set(positionId, playerId);
+        });
+        setHalftimeLineup(lineup);
+      } catch (error) {
+        logError('Parse buffered halftime lineup', error);
+      }
+      bufferedHalftimeData.current = null;
+    }
+  };
+
   // Extend players with availability data
   const [players, setPlayers] = useState<PlayerWithRoster[]>([]);
   const [gamePlan, setGamePlan] = useState<GamePlan | null>(null);
@@ -82,6 +103,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     filter: { gameId: { eq: game.id } },
   }, [game.id]);
   const [startingLineup, setStartingLineup] = useState<Map<string, string>>(new Map()); // positionId -> playerId
+  const [halftimeLineup, setHalftimeLineup] = useState<Map<string, string> | null>(null); // positionId -> playerId for H2; null = not explicitly set (use fallback)
   const [rotationIntervalMinutes, setRotationIntervalMinutes] = useState(10);
   const [selectedRotation, setSelectedRotation] = useState<number | 'starting' | 'halftime' | null>(null);
   const [showCopyModal, setShowCopyModal] = useState(false);
@@ -143,10 +165,29 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
               }
             }
           }
+
+          // Load halftime lineup from GamePlan
+          if (plan.halftimeLineup) {
+            if (pendingHalftimeSaves.current > 0) {
+              bufferedHalftimeData.current = plan.halftimeLineup as string;
+            } else {
+              try {
+                const htLineupArray = JSON.parse(plan.halftimeLineup as string) as Array<{ positionId: string; playerId: string }>;
+                const htLineup = new Map<string, string>();
+                htLineupArray.forEach(({ positionId, playerId }) => {
+                  htLineup.set(positionId, playerId);
+                });
+                setHalftimeLineup(htLineup);
+              } catch (error) {
+                logError('Parse halftime lineup', error);
+              }
+            }
+          }
         } else {
           setGamePlan(null);
           gamePlanIdRef.current = null;
           setStartingLineup(new Map());
+          setHalftimeLineup(null);
         }
       },
     });
@@ -255,12 +296,14 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     });
   }, [players, availabilities]);
 
-  // Identify the halftime rotation number (first rotation of second half)
+  // Identify the halftime rotation number (first rotation of second half).
+  // Always derived from the plan settings — never from the half field on individual
+  // PlannedRotation records, which can be stale after a rotation-interval change.
   const halftimeRotationNumber = useMemo(() => {
-    const rotationsPerHalf = gamePlan ? Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1 : 0;
-    return rotations.find(r => r.half === 2)?.rotationNumber
-      ?? (rotationsPerHalf > 0 ? rotationsPerHalf + 1 : undefined);
-  }, [gamePlan, halfLengthMinutes, rotationIntervalMinutes, rotations]);
+    if (!gamePlan) return undefined;
+    const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
+    return rotationsPerHalf > 0 ? rotationsPerHalf + 1 : undefined;
+  }, [gamePlan, halfLengthMinutes, rotationIntervalMinutes]);
 
   // Memoize play time calculation which is expensive
   const playTimeData = useMemo(() => {
@@ -276,6 +319,12 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       halfLengthMinutes * 2
     );
   }, [gamePlan, rotations, startingLineup, rotationIntervalMinutes, halfLengthMinutes]);
+
+  const halftimeLineupForDisplay = useMemo(() => {
+    if (halftimeLineup !== null) return halftimeLineup;
+    if (!halftimeRotationNumber || rotations.length === 0) return startingLineup;
+    return computeLineupAtRotation(startingLineup, rotations, halftimeRotationNumber - 1);
+  }, [halftimeLineup, halftimeRotationNumber, startingLineup, rotations]);
 
   const handleLineupChange = async (positionId: string, playerId: string) => {
     const newLineup = new Map(startingLineup);
@@ -342,6 +391,11 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
       let currentPlan = gamePlan;
 
+      // Serialize halftime lineup for persistence (null state → omit field; explicitly-set map → always persist, even if empty)
+      const halftimeLineupJson = halftimeLineup !== null
+        ? JSON.stringify(Array.from(halftimeLineup.entries()).map(([posId, pid]) => ({ positionId: posId, playerId: pid })))
+        : undefined;
+
       // Create or update plan
       if (!currentPlan) {
         const gamePlanResult = await client.models.GamePlan.create({
@@ -349,6 +403,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           rotationIntervalMinutes,
           totalRotations,
           startingLineup: JSON.stringify(lineupArray),
+          halftimeLineup: halftimeLineupJson,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           coaches: team.coaches || [],
@@ -360,6 +415,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           rotationIntervalMinutes,
           totalRotations,
           startingLineup: JSON.stringify(lineupArray),
+          halftimeLineup: halftimeLineupJson,
           updatedAt: new Date().toISOString(),
         });
         currentPlan = gamePlanResult.data;
@@ -402,12 +458,13 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         const existingRotation = existingRotationsMap.get(i);
 
         if (existingRotation) {
-          // Update gameMinute if it changed due to interval change
-          // We preserve plannedSubstitutions!
-          if (existingRotation.gameMinute !== gameMinute) {
+          // Update gameMinute and half if either changed due to interval change.
+          // We preserve plannedSubstitutions.
+          if (existingRotation.gameMinute !== gameMinute || existingRotation.half !== half) {
             operations.push(client.models.PlannedRotation.update({
               id: existingRotation.id,
               gameMinute,
+              half,
             }));
           }
         } else {
@@ -423,7 +480,55 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         }
       }
 
-      await Promise.all(operations);
+      const operationResults = await Promise.all(operations);
+
+      // If we have an explicit H2 lineup, repopulate the halftime rotation's subs
+      // from the diff of (end-of-H1 lineup) vs (halftimeLineup).
+      // This is needed when creating a brand-new plan (rotations were just created above).
+      if (halftimeLineup !== null && halftimeLineup.size > 0) {
+        const htRotNum = rotationsPerHalf + 1; // 1-based rotation number for halftime
+        // Collect newly-created rotations from operation results
+        const newlyCreatedRotations: PlannedRotation[] = [];
+        for (const result of operationResults) {
+          if (result && 'data' in result && result.data && 'rotationNumber' in result.data) {
+            newlyCreatedRotations.push(result.data as PlannedRotation);
+          }
+        }
+
+        // Build the combined list of rotations (existing + newly created)
+        const allRotations = [
+          ...rotations.filter(r => r.rotationNumber <= totalRotations),
+          ...newlyCreatedRotations,
+        ].sort((a, b) => a.rotationNumber - b.rotationNumber);
+
+        // De-duplicate (prefer newly created over existing for same rotationNumber)
+        const rotationsByNum = new Map<number, PlannedRotation>();
+        for (const rot of allRotations) {
+          rotationsByNum.set(rot.rotationNumber, rot);
+        }
+
+        const htRotation = rotationsByNum.get(htRotNum);
+        if (htRotation) {
+          // Compute end-of-H1 lineup from startingLineup + first-half rotations
+          const firstHalfRotationsList = Array.from(rotationsByNum.values())
+            .filter(r => r.rotationNumber < htRotNum)
+            .sort((a, b) => a.rotationNumber - b.rotationNumber)
+            .map(r => ({ rotationNumber: r.rotationNumber, plannedSubstitutions: r.plannedSubstitutions as string }));
+
+          const endOfH1 = computeLineupAtRotation(
+            new Map(lineupArray.map(({ positionId, playerId }) => [positionId, playerId])),
+            firstHalfRotationsList,
+            htRotNum - 1
+          );
+
+          const htSubs = computeLineupDiff(endOfH1, halftimeLineup);
+
+          await client.models.PlannedRotation.update({
+            id: htRotation.id,
+            plannedSubstitutions: JSON.stringify(htSubs),
+          });
+        }
+      }
 
       // Data will update automatically via observeQuery subscriptions
 
@@ -435,6 +540,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       pendingLineupSaves.current--;
       pendingRotationSaves.current--;
       flushBufferedLineup();
+      flushBufferedHalftimeLineup();
       flushBufferedRotations();
     }
   };
@@ -489,22 +595,11 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       });
       const goaliePositionId = goaliePos?.id;
 
-      // If the coach has already set the halftime lineup, keep it and build
+      // If the coach has already set the halftime lineup explicitly, keep it and build
       // second-half rotations from that fixed starting point
       let halftimeLineupArray: Array<{ playerId: string; positionId: string }> | undefined;
-      if (halftimeRotationNumber !== undefined) {
-        const halftimeRotation = rotations.find(r => r.rotationNumber === halftimeRotationNumber);
-        if (halftimeRotation) {
-          let halftimeSubs: PlannedSubstitution[] = [];
-          try { halftimeSubs = JSON.parse(halftimeRotation.plannedSubstitutions as string); } catch (e) { logError('Parse halftime subs', e); }
-          if (halftimeSubs.length > 0) {
-            const halftimeLineupMap = getLineupAtRotation(halftimeRotationNumber);
-            halftimeLineupArray = Array.from(halftimeLineupMap.entries()).map(([positionId, playerId]) => ({
-              playerId,
-              positionId,
-            }));
-          }
-        }
+      if (halftimeLineup !== null && halftimeLineup.size > 0) {
+        halftimeLineupArray = Array.from(halftimeLineup.entries()).map(([positionId, playerId]) => ({ playerId, positionId }));
       }
 
       const generatedRotations = calculateFairRotations(
@@ -569,46 +664,53 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }
   };
 
-  const handleHalftimeLineupChange = (positionId: string, playerId: string) => {
-    if (!halftimeRotationNumber) return;
-    const secondHalfRotation = rotations.find(r => r.rotationNumber === halftimeRotationNumber);
-    if (!secondHalfRotation) return;
+  const handleHalftimeLineupChange = async (positionId: string, playerId: string) => {
+    // Start from current displayed lineup (fallback already computed)
+    const baseLineup = halftimeLineupForDisplay;
+    const newLineup = new Map(baseLineup);
 
-    // Work from the subs-only map (positionId → playerInId for each explicit sub).
-    // Missing positions mean "first-half player continues" — no sub needed.
-    let currentSubs: PlannedSubstitution[] = [];
-    try { currentSubs = JSON.parse(secondHalfRotation.plannedSubstitutions as string); } catch (e) { logError('Parse halftime rotation subs', e); }
-    const newSubsLineup = new Map<string, string>(currentSubs.map(s => [s.positionId, s.playerInId]));
-
-    if (playerId === "") {
-      // Remove this sub — position reverts to first-half player
-      newSubsLineup.delete(positionId);
+    if (playerId === '') {
+      // Clearing a position reverts to H1 player — remove from explicit H2 lineup
+      newLineup.delete(positionId);
     } else {
-      // Check if the player is already in another sub position (field-to-field move)
-      let playerCurrentPosition: string | undefined;
-      for (const [pos, pid] of newSubsLineup.entries()) {
-        if (pid === playerId) {
-          playerCurrentPosition = pos;
+      // Swap semantics: remove player from their old H2 position if they're already assigned
+      for (const [pos, pid] of newLineup.entries()) {
+        if (pid === playerId && pos !== positionId) {
+          newLineup.delete(pos);
           break;
         }
       }
-
-      if (playerCurrentPosition) {
-        // Swap: put target's occupant (if any) at the player's old position
-        const targetOccupant = newSubsLineup.get(positionId);
-        if (targetOccupant) {
-          newSubsLineup.set(playerCurrentPosition, targetOccupant);
-        } else {
-          newSubsLineup.delete(playerCurrentPosition);
-        }
-      }
-
-      newSubsLineup.set(positionId, playerId);
+      newLineup.set(positionId, playerId);
     }
 
-    // handleRotationLineupChange fills positions missing from newSubsLineup
-    // with the first-half player (correct: no sub = player continues).
-    handleRotationLineupChange(secondHalfRotation.rotationNumber, newSubsLineup);
+    setHalftimeLineup(newLineup);
+
+    if (!gamePlan || halftimeRotationNumber === undefined) return;
+    const halftimeRotation = rotations.find(r => r.rotationNumber === halftimeRotationNumber);
+    if (!halftimeRotation) return;
+
+    pendingHalftimeSaves.current++;
+    pendingRotationSaves.current++;
+    try {
+      // Serialize and save full H2 lineup to GamePlan
+      const lineupArray = Array.from(newLineup.entries()).map(([posId, pid]) => ({ positionId: posId, playerId: pid }));
+      await client.models.GamePlan.update({ id: gamePlan.id, halftimeLineup: JSON.stringify(lineupArray) });
+
+      // Compute diff: end-of-H1 lineup vs new H2 lineup
+      const endOfH1 = computeLineupAtRotation(startingLineup, rotations, halftimeRotationNumber - 1);
+      const subs = computeLineupDiff(endOfH1, newLineup);
+
+      const subsJson = JSON.stringify(subs);
+      await client.models.PlannedRotation.update({ id: halftimeRotation.id, plannedSubstitutions: subsJson });
+      await recalculateDownstreamRotations(halftimeRotationNumber, new Map([[halftimeRotationNumber, subsJson]]));
+    } catch (error) {
+      handleApiError(error, 'Failed to save halftime lineup');
+    } finally {
+      pendingHalftimeSaves.current--;
+      pendingRotationSaves.current--;
+      flushBufferedHalftimeLineup();
+      flushBufferedRotations();
+    }
   };
 
   const handleRotationClick = (rotationNumber: number | 'starting' | 'halftime') => {
@@ -785,6 +887,12 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         plannedSubstitutions: emptySubsJson,
       });
 
+      // If clearing the halftime rotation, also clear the GamePlan halftimeLineup field
+      if (rotationNumber === halftimeRotationNumber && gamePlan) {
+        await client.models.GamePlan.update({ id: gamePlan.id, halftimeLineup: null });
+        setHalftimeLineup(null);
+      }
+
       // Recalculate downstream rotations so their subs stay consistent
       await recalculateDownstreamRotations(
         rotationNumber,
@@ -931,23 +1039,44 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       return (
         <div className="rotation-details-panel">
           <div className="panel-header">
-            <h4>Lineup at Halftime</h4>
-            {secondHalfStartRotation && (
-              <button
-                onClick={() => handleCopyFromPreviousRotation(secondHalfStartRotation.rotationNumber)}
-                className="secondary-button"
-                style={{ padding: '0.25rem 0.75rem', fontSize: '0.85rem' }}
-              >
-                Clear halftime changes
-              </button>
-            )}
+            <h4>Halftime</h4>
+            <button
+              className="ht-edit-link"
+              onClick={() => setPlannerTab('lineup')}
+              aria-label="Edit halftime lineup in the Lineup tab"
+            >
+              Edit in Lineup tab →
+            </button>
           </div>
 
-          {secondHalfStartRotation ? (
-            // Split view when auto-generate created partial subs (some positions
-            // continue, some have explicit changes). Full LineupBuilder otherwise.
-            halftimeSubsLineup.size > 0 && continuingEntries.length > 0 ? (
-              <>
+          {halftimeSubs.length === 0 ? (
+            <p className="ht-readonly-empty">No halftime changes — first half lineup continues.</p>
+          ) : (
+            <>
+              <div className="planned-subs-list">
+                {halftimeSubs.map((sub, idx) => {
+                  const playerOut = rotationPlayers.find(p => p.id === sub.playerOutId);
+                  const playerIn = rotationPlayers.find(p => p.id === sub.playerInId);
+                  const position = positions.find(p => p.id === sub.positionId);
+                  return (
+                    <div key={idx} className="planned-sub-item planned-sub-item--halftime">
+                      <div className="sub-position-label">{position?.abbreviation}</div>
+                      <div className="sub-players">
+                        <div className="sub-player sub-out">
+                          <span className="player-number">#{playerOut?.playerNumber || 0}</span>
+                          <span className="player-name">{playerOut?.firstName} {playerOut?.lastName}</span>
+                        </div>
+                        <div className="sub-arrow">→</div>
+                        <div className="sub-player sub-in">
+                          <span className="player-number">#{playerIn?.playerNumber || 0}</span>
+                          <span className="player-name">{playerIn?.firstName} {playerIn?.lastName}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {continuingEntries.length > 0 && (
                 <div className="halftime-continuing-section">
                   <p className="halftime-continuing-label">Continuing from first half:</p>
                   <div className="halftime-continuing-list">
@@ -961,25 +1090,8 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                     ))}
                   </div>
                 </div>
-                <LineupBuilder
-                  positions={positions.filter(p => halftimeSubsLineup.has(p.id))}
-                  availablePlayers={halftimeAvailablePlayers}
-                  lineup={halftimeSubsLineup}
-                  onLineupChange={handleHalftimeLineupChange}
-                  showPreferredPositions={true}
-                />
-              </>
-            ) : (
-              <LineupBuilder
-                positions={positions}
-                availablePlayers={halftimeAvailablePlayers}
-                lineup={halftimeSubsLineup}
-                onLineupChange={handleHalftimeLineupChange}
-                showPreferredPositions={true}
-              />
-            )
-          ) : (
-            <p>Create rotations first by clicking "Update Plan"</p>
+              )}
+            </>
           )}
         </div>
       );
@@ -1242,8 +1354,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
             const label = tab === 'availability' ? 'Availability' : tab === 'lineup' ? 'Lineup' : 'Rotations';
             // Badge: lineup tab shows ✓ when all positions filled, rotations tab shows unfilled count
             let badge: string | null = null;
-            if (tab === 'lineup' && gamePlan && startingLineup.size >= (positions.length)) {
-              badge = '✓';
+            if (tab === 'lineup' && gamePlan) {
+              const firstHalfFull = startingLineup.size >= positions.length;
+              const secondHalfFull = rotations.length === 0 || halftimeLineupForDisplay.size >= positions.length;
+              if (firstHalfFull && secondHalfFull) badge = '✓';
             }
             if (tab === 'rotations' && rotations.length > 0) {
               const unfilledCount = rotations.filter(r => {
@@ -1279,27 +1393,49 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
         {plannerTab === 'lineup' && (
           <div className="planner-tab-panel">
-            {/* Validation errors */}
             {validationErrors.length > 0 && (
               <div className="validation-errors">
                 <ul>{validationErrors.map((e, i) => <li key={i}>{e}</li>)}</ul>
               </div>
             )}
-
-            {/* LineupBuilder — shown only when plan exists; otherwise prompt to go to Rotations */}
             {gamePlan ? (
-              <div className="planner-section">
-                <div className="panel-header">
-                  <h4>Starting Lineup</h4>
+              <>
+                <div className="planner-section">
+                  <div className="panel-header">
+                    <h4>First Half Starting Lineup</h4>
+                  </div>
+                  <LineupBuilder
+                    positions={positions}
+                    availablePlayers={startingLineupPlayers}
+                    lineup={startingLineup}
+                    onLineupChange={handleLineupChange}
+                    showPreferredPositions={true}
+                  />
                 </div>
-                <LineupBuilder
-                  positions={positions}
-                  availablePlayers={startingLineupPlayers}
-                  lineup={startingLineup}
-                  onLineupChange={handleLineupChange}
-                  showPreferredPositions={true}
-                />
-              </div>
+
+                {rotations.length > 0 && (
+                  <>
+                    <div className="lineup-halftime-divider">
+                      <span>Half Time</span>
+                    </div>
+                    <div className="planner-section planner-section--second-half">
+                      <div className="panel-header">
+                        <h4>Second Half Starting Lineup</h4>
+                      </div>
+                      <p className="planner-section-subtitle">
+                        Changes here update the Rotations tab automatically
+                      </p>
+                      <LineupBuilder
+                        positions={positions}
+                        availablePlayers={rotationPlayers}
+                        lineup={halftimeLineupForDisplay}
+                        onLineupChange={handleHalftimeLineupChange}
+                        showPreferredPositions={true}
+                      />
+                    </div>
+                  </>
+                )}
+              </>
             ) : (
               <div className="planner-empty-state">
                 <p>Set up your rotation schedule first.</p>

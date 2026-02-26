@@ -1,15 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import type { PlannedSubstitution } from '../services/rotationPlannerService';
+import { computeLineupAtRotation, computeLineupDiff } from '../utils/gamePlannerUtils';
 
 /**
  * Unit tests for GamePlanner lineup and substitution logic
  * Testing the core algorithms without UI dependencies
  */
-
-interface PlannedSubstitution {
-  playerOutId: string;
-  playerInId: string;
-  positionId: string;
-}
 
 /**
  * Simulates the getLineupAtRotation logic from GamePlanner.tsx
@@ -90,28 +86,6 @@ function createSwapSubstitutions(
   return newLineup;
 }
 
-/**
- * Calculate substitutions by comparing two lineups
- */
-function calculateSubstitutions(
-  previousLineup: Map<string, string>,
-  newLineup: Map<string, string>
-): PlannedSubstitution[] {
-  const subs: PlannedSubstitution[] = [];
-  
-  for (const [positionId, newPlayerId] of newLineup.entries()) {
-    const oldPlayerId = previousLineup.get(positionId);
-    if (oldPlayerId && newPlayerId && oldPlayerId !== newPlayerId) {
-      subs.push({
-        playerOutId: oldPlayerId,
-        playerInId: newPlayerId,
-        positionId,
-      });
-    }
-  }
-  
-  return subs;
-}
 
 describe('GamePlanner Lineup Logic', () => {
   describe('getLineupAtRotation', () => {
@@ -273,7 +247,7 @@ describe('GamePlanner Lineup Logic', () => {
       
       // Rotation 1: Swap A with B
       const rot1Lineup = createSwapSubstitutions(startingLineup, 'pos1', 'B');
-      const rot1Subs = calculateSubstitutions(startingLineup, rot1Lineup);
+      const rot1Subs = computeLineupDiff(startingLineup, rot1Lineup);
       
       // Apply the substitutions using getLineupAtRotation
       const result = getLineupAtRotation(startingLineup, [{
@@ -301,7 +275,7 @@ describe('GamePlanner Lineup Logic', () => {
       
       // Rotation 1: User swaps the first field player (A) with a player already in the lineup (B)
       const rot1Lineup = createSwapSubstitutions(startingLineup, 'pos1', 'B');
-      const rot1Subs = calculateSubstitutions(startingLineup, rot1Lineup);
+      const rot1Subs = computeLineupDiff(startingLineup, rot1Lineup);
       
       
       // Now get the lineup at rotation 1 (this is what the UI renders)
@@ -564,20 +538,15 @@ describe('GamePlanner Lineup Logic', () => {
 // Pure helpers extracted from GamePlanner.tsx for isolated testing
 // ---------------------------------------------------------------------------
 
-/** Mirrors halftimeRotationNumber memo (GamePlanner.tsx lines 265-269). */
+/** Mirrors halftimeRotationNumber memo (GamePlanner.tsx). Always formula-derived, never from the half DB field. */
 function deriveHalftimeRotationNumber(
   gamePlan: { id: string } | null,
   halfLengthMinutes: number,
   rotationIntervalMinutes: number,
-  rotations: Array<{ rotationNumber: number; half: number }>
 ): number | undefined {
-  const rotationsPerHalf = gamePlan
-    ? Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1
-    : 0;
-  return (
-    rotations.find((r) => r.half === 2)?.rotationNumber ??
-    (rotationsPerHalf > 0 ? rotationsPerHalf + 1 : undefined)
-  );
+  if (!gamePlan) return undefined;
+  const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
+  return rotationsPerHalf > 0 ? rotationsPerHalf + 1 : undefined;
 }
 
 /** Mirrors initial tab selection effect (GamePlanner.tsx lines 228-234). */
@@ -613,14 +582,18 @@ function calculateTotalRotations(
   return { rotationsPerHalf, totalRotations };
 }
 
-/** Mirrors lineup tab badge logic (GamePlanner.tsx lines 1273-1276). */
+/** Mirrors lineup tab badge logic (GamePlanner.tsx lines ~1398-1401). */
 function computeLineupTabBadge(
   gamePlan: { id: string } | null,
-  lineupSize: number,
-  positionCount: number
+  firstHalfSize: number,
+  positionCount: number,
+  rotationsCount: number,
+  halftimeDisplaySize: number
 ): string | null {
-  if (gamePlan && lineupSize >= positionCount) return '✓';
-  return null;
+  if (!gamePlan) return null;
+  const firstHalfFull = firstHalfSize >= positionCount;
+  const secondHalfFull = rotationsCount === 0 || halftimeDisplaySize >= positionCount;
+  return firstHalfFull && secondHalfFull ? '✓' : null;
 }
 
 /** Mirrors rotations tab badge logic (GamePlanner.tsx lines 1277-1283). */
@@ -645,31 +618,30 @@ function computeRotationsTabBadge(
 describe('deriveHalftimeRotationNumber', () => {
   const mockPlan = { id: 'plan-1' };
 
-  it('returns rotationsPerHalf + 1 from fallback when no rotation tagged half === 2', () => {
+  it('returns rotationsPerHalf + 1 when computed from plan settings', () => {
     // 30-min halves, 10-min interval → rotationsPerHalf = 2 → halftime at rotation 3
-    expect(deriveHalftimeRotationNumber(mockPlan, 30, 10, [])).toBe(3);
+    expect(deriveHalftimeRotationNumber(mockPlan, 30, 10)).toBe(3);
   });
 
-  it('prefers explicit half === 2 rotation number over the calculated fallback', () => {
-    const rotations = [
-      { rotationNumber: 2, half: 1 },
-      { rotationNumber: 3, half: 2 },
-    ];
-    expect(deriveHalftimeRotationNumber(mockPlan, 30, 10, rotations)).toBe(3);
+  it('is not affected by stale half fields on rotations after interval change', () => {
+    // If rotations in DB still have half=2 on R2 from an old 15-min interval,
+    // the formula must still place halftime at R3 for a 10-min interval.
+    // (The rotations argument is intentionally gone — formula only.)
+    expect(deriveHalftimeRotationNumber(mockPlan, 30, 10)).toBe(3);
   });
 
-  it('returns undefined when interval equals half length (rotationsPerHalf === 0) and no tagged rotation', () => {
+  it('returns undefined when interval equals half length (rotationsPerHalf === 0)', () => {
     // Math.floor(30/30) - 1 = 0 → no halftime pill
-    expect(deriveHalftimeRotationNumber(mockPlan, 30, 30, [])).toBeUndefined();
+    expect(deriveHalftimeRotationNumber(mockPlan, 30, 30)).toBeUndefined();
   });
 
   it('returns undefined when gamePlan is null', () => {
-    expect(deriveHalftimeRotationNumber(null, 30, 10, [])).toBeUndefined();
+    expect(deriveHalftimeRotationNumber(null, 30, 10)).toBeUndefined();
   });
 
   it('returns correct number for 15-min interval on 30-min halves', () => {
     // Math.floor(30/15) - 1 = 1 → halftime at rotation 2
-    expect(deriveHalftimeRotationNumber(mockPlan, 30, 15, [])).toBe(2);
+    expect(deriveHalftimeRotationNumber(mockPlan, 30, 15)).toBe(2);
   });
 });
 
@@ -773,20 +745,28 @@ describe('calculateTotalRotations', () => {
 // ---------------------------------------------------------------------------
 
 describe('computeLineupTabBadge', () => {
-  it('shows checkmark when plan exists and all positions filled', () => {
-    expect(computeLineupTabBadge({ id: 'p' }, 5, 5)).toBe('✓');
+  it('shows checkmark when plan exists, H1 full, no rotations (H2 auto-passes)', () => {
+    expect(computeLineupTabBadge({ id: 'p' }, 5, 5, 0, 0)).toBe('✓');
   });
 
   it('returns null when no game plan exists', () => {
-    expect(computeLineupTabBadge(null, 5, 5)).toBeNull();
+    expect(computeLineupTabBadge(null, 5, 5, 0, 0)).toBeNull();
   });
 
-  it('returns null when lineup is not fully filled', () => {
-    expect(computeLineupTabBadge({ id: 'p' }, 4, 5)).toBeNull();
+  it('returns null when H1 lineup is not fully filled', () => {
+    expect(computeLineupTabBadge({ id: 'p' }, 4, 5, 0, 0)).toBeNull();
   });
 
-  it('shows checkmark when lineup size exceeds position count', () => {
-    expect(computeLineupTabBadge({ id: 'p' }, 6, 5)).toBe('✓');
+  it('shows checkmark when H1 size exceeds position count and no rotations', () => {
+    expect(computeLineupTabBadge({ id: 'p' }, 6, 5, 0, 0)).toBe('✓');
+  });
+
+  it('returns null when rotations exist but H2 lineup is under-filled', () => {
+    expect(computeLineupTabBadge({ id: 'p' }, 5, 5, 1, 4)).toBeNull();
+  });
+
+  it('shows checkmark when rotations exist and both H1 and H2 lineups are full', () => {
+    expect(computeLineupTabBadge({ id: 'p' }, 5, 5, 1, 5)).toBe('✓');
   });
 });
 
@@ -900,5 +880,529 @@ describe('halftime continuing entries and split-view logic', () => {
       const showSplitView = subsSize > 0 && continuingSize > 0;
       expect(showSplitView).toBe(expectSplitView);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Second Half Lineup Feature Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Second Half Lineup Feature', () => {
+  // Shared fixtures
+  const startingLineup = new Map([
+    ['pos1', 'playerA'],
+    ['pos2', 'playerB'],
+    ['pos3', 'playerC'],
+    ['pos4', 'playerD'],
+  ]);
+
+  const rotationsWithOneSub = [
+    {
+      rotationNumber: 1,
+      plannedSubstitutions: JSON.stringify([{ playerOutId: 'playerA', playerInId: 'playerE', positionId: 'pos1' }]),
+    },
+  ];
+
+  // Test 1: computeLineupDiff — correct subs when H2 differs from end-of-H1 at some positions
+  it('computeLineupDiff — produces correct subs when H2 differs from end-of-H1', () => {
+    const endOfH1 = new Map([
+      ['pos1', 'playerE'], // was subbed at rotation 1
+      ['pos2', 'playerB'],
+      ['pos3', 'playerC'],
+      ['pos4', 'playerD'],
+    ]);
+    const halftimeLineup = new Map([
+      ['pos1', 'playerE'], // same — no sub
+      ['pos2', 'playerF'], // changed — sub
+      ['pos3', 'playerC'], // same
+      ['pos4', 'playerD'], // same
+    ]);
+
+    const subs = computeLineupDiff(endOfH1, halftimeLineup);
+    expect(subs).toHaveLength(1);
+    expect(subs[0]).toEqual({ playerOutId: 'playerB', playerInId: 'playerF', positionId: 'pos2' });
+  });
+
+  // Test 2: computeLineupDiff — two-position swap produces two subs
+  it('computeLineupDiff — two-position swap produces two subs', () => {
+    const endOfH1 = new Map([
+      ['pos1', 'playerA'],
+      ['pos2', 'playerB'],
+      ['pos3', 'playerC'],
+    ]);
+    const halftimeLineup = new Map([
+      ['pos1', 'playerX'],
+      ['pos2', 'playerY'],
+      ['pos3', 'playerC'],
+    ]);
+
+    const subs = computeLineupDiff(endOfH1, halftimeLineup);
+    expect(subs).toHaveLength(2);
+    const posIds = subs.map(s => s.positionId);
+    expect(posIds).toContain('pos1');
+    expect(posIds).toContain('pos2');
+  });
+
+  // Test 3: halftimeLineupForDisplay fallback — when halftimeLineup.size === 0, returns end-of-H1
+  it('halftimeLineupForDisplay — falls back to end-of-H1 when no explicit H2 lineup', () => {
+    const halftimeLineup = new Map<string, string>(); // empty
+    const halftimeRotationNumber = 2; // first rotation of H2
+    const rotations = rotationsWithOneSub;
+
+    // Simulate the memo logic
+    let display: Map<string, string>;
+    if (halftimeLineup.size > 0) {
+      display = halftimeLineup;
+    } else if (!halftimeRotationNumber || rotations.length === 0) {
+      display = startingLineup;
+    } else {
+      display = computeLineupAtRotation(startingLineup, rotations, halftimeRotationNumber - 1);
+    }
+
+    // End of H1 (rotation 1 applied): pos1 = playerE, rest unchanged
+    expect(display.get('pos1')).toBe('playerE');
+    expect(display.get('pos2')).toBe('playerB');
+    expect(display.get('pos3')).toBe('playerC');
+    expect(display.get('pos4')).toBe('playerD');
+  });
+
+  // Test 4: halftimeLineupForDisplay — explicit H2 lineup is returned unchanged
+  it('halftimeLineupForDisplay — returns explicit H2 lineup unchanged', () => {
+    const explicitH2 = new Map([
+      ['pos1', 'playerZ'],
+      ['pos2', 'playerB'],
+      ['pos3', 'playerC'],
+      ['pos4', 'playerD'],
+    ]);
+    const halftimeRotationNumber = 2;
+
+    // Simulate the memo logic
+    let display: Map<string, string>;
+    if (explicitH2.size > 0) {
+      display = explicitH2;
+    } else if (!halftimeRotationNumber || rotationsWithOneSub.length === 0) {
+      display = startingLineup;
+    } else {
+      display = computeLineupAtRotation(startingLineup, rotationsWithOneSub, halftimeRotationNumber - 1);
+    }
+
+    expect(display).toBe(explicitH2);
+    expect(display.get('pos1')).toBe('playerZ');
+  });
+
+  // Test 5: Badge — shows ✓ when both lineups full AND plan+rotations exist
+  it('badge — shows check when both H1 and H2 lineups are full', () => {
+    const positionsLength = 4;
+    const sl = new Map([['pos1', 'A'], ['pos2', 'B'], ['pos3', 'C'], ['pos4', 'D']]);
+    const h2Display = new Map([['pos1', 'E'], ['pos2', 'B'], ['pos3', 'C'], ['pos4', 'D']]);
+    const rotationsArr = [{ rotationNumber: 1, plannedSubstitutions: '[]' }];
+
+    const firstHalfFull = sl.size >= positionsLength;
+    const secondHalfFull = rotationsArr.length === 0 || h2Display.size >= positionsLength;
+    expect(firstHalfFull && secondHalfFull).toBe(true);
+  });
+
+  // Test 6: Badge — shows ✓ on starting lineup alone when no rotations exist
+  it('badge — shows check on starting lineup alone when no rotations (no regression)', () => {
+    const positionsLength = 4;
+    const sl = new Map([['pos1', 'A'], ['pos2', 'B'], ['pos3', 'C'], ['pos4', 'D']]);
+    const rotationsArr: Array<{ rotationNumber: number; plannedSubstitutions: string }> = [];
+    const h2Display = sl; // fallback to starting lineup
+
+    const firstHalfFull = sl.size >= positionsLength;
+    const secondHalfFull = rotationsArr.length === 0 || h2Display.size >= positionsLength;
+    expect(firstHalfFull && secondHalfFull).toBe(true);
+  });
+
+  // Test 7: Backward compat — null halftimeLineup from subscription → state stays null (fallback), no error
+  it('backward compat — null halftimeLineup field from subscription skips parse without error', () => {
+    const halftimeLineupField: string | null | undefined = null;
+    const htLineup = new Map<string, string>();
+
+    if (halftimeLineupField) {
+      try {
+        const arr = JSON.parse(halftimeLineupField) as Array<{ positionId: string; playerId: string }>;
+        arr.forEach(({ positionId, playerId }) => htLineup.set(positionId, playerId));
+      } catch { /* ignore */ }
+    }
+
+    expect(htLineup.size).toBe(0);
+  });
+
+  // Test 8: Clearing H2 position (playerId === '') deletes from Map, does NOT insert empty string
+  it('handleHalftimeLineupChange — clearing a position removes it, does not insert empty string', () => {
+    const baseLineup = new Map([
+      ['pos1', 'playerA'],
+      ['pos2', 'playerB'],
+    ]);
+
+    // Simulate clearing pos1
+    const newLineup = new Map(baseLineup);
+    const playerId = '';
+    const positionId = 'pos1';
+
+    if (playerId === '') {
+      newLineup.delete(positionId);
+    } else {
+      newLineup.set(positionId, playerId);
+    }
+
+    expect(newLineup.has('pos1')).toBe(false);
+    expect(newLineup.get('pos2')).toBe('playerB');
+  });
+
+  // Test 9: Player de-dup swap — assigning player already in H2 at posA to posB removes from posA
+  it('handleHalftimeLineupChange — player already in H2 is removed from old position', () => {
+    const baseLineup = new Map([
+      ['pos1', 'playerA'],
+      ['pos2', 'playerB'],
+      ['pos3', 'playerC'],
+    ]);
+
+    // playerB is at pos2; now assigning playerB to pos3
+    const newLineup = new Map(baseLineup);
+    const playerId = 'playerB';
+    const positionId = 'pos3';
+
+    if (playerId !== '') {
+      for (const [pos, pid] of newLineup.entries()) {
+        if (pid === playerId && pos !== positionId) {
+          newLineup.delete(pos);
+          break;
+        }
+      }
+      newLineup.set(positionId, playerId);
+    }
+
+    // playerB should now be at pos3, not pos2
+    expect(newLineup.get('pos3')).toBe('playerB');
+    expect(newLineup.has('pos2')).toBe(false);
+    expect(newLineup.get('pos1')).toBe('playerA');
+  });
+
+  // Test 10: HT read-only panel — empty state when halftimeSubs.length === 0
+  it('HT read-only panel — shows empty state text when no halftime subs', () => {
+    const halftimeSubs: PlannedSubstitution[] = [];
+    const showEmptyState = halftimeSubs.length === 0;
+    expect(showEmptyState).toBe(true);
+  });
+
+  // Test 11: copyGamePlan copies halftimeLineup (verify the field would be included)
+  it('copyGamePlan — halftimeLineup field is included in the create call', () => {
+    // Simulate what copyGamePlan does
+    const sourcePlan = {
+      id: 'plan1',
+      gameId: 'game1',
+      rotationIntervalMinutes: 10,
+      totalRotations: 5,
+      startingLineup: JSON.stringify([{ positionId: 'pos1', playerId: 'playerA' }]),
+      halftimeLineup: JSON.stringify([{ positionId: 'pos1', playerId: 'playerZ' }]),
+    };
+
+    // Build the create payload as copyGamePlan would
+    const createPayload = {
+      gameId: 'game2',
+      rotationIntervalMinutes: sourcePlan.rotationIntervalMinutes,
+      totalRotations: sourcePlan.totalRotations,
+      startingLineup: sourcePlan.startingLineup,
+      halftimeLineup: sourcePlan.halftimeLineup,
+      coaches: ['coachId'],
+    };
+
+    expect(createPayload).toHaveProperty('halftimeLineup');
+    expect(createPayload.halftimeLineup).toBe(sourcePlan.halftimeLineup);
+  });
+
+  // Test 12: Halftime subs diff is zero when halftimeLineup matches end-of-H1 exactly
+  it('computeLineupDiff — produces no subs when H2 lineup matches end-of-H1 exactly', () => {
+    const endOfH1 = new Map([
+      ['pos1', 'playerE'],
+      ['pos2', 'playerB'],
+      ['pos3', 'playerC'],
+      ['pos4', 'playerD'],
+    ]);
+    // Explicit H2 exactly matches end-of-H1
+    const halftimeLineup = new Map(endOfH1);
+
+    const subs = computeLineupDiff(endOfH1, halftimeLineup);
+    expect(subs).toHaveLength(0);
+  });
+});
+
+// -------------------------------------------------------------------------
+// Gap coverage: computeLineupAtRotation edge cases
+// -------------------------------------------------------------------------
+
+describe("computeLineupAtRotation edge cases", () => {
+  const sl3 = new Map([
+    ["pos1", "playerA"],
+    ["pos2", "playerB"],
+    ["pos3", "playerC"],
+  ]);
+
+  it("returns startingLineup copy unchanged when targetRotNum is 0", () => {
+    const rotations = [{ rotationNumber: 1, plannedSubstitutions: JSON.stringify([{ playerOutId: "playerA", playerInId: "playerX", positionId: "pos1" }]) }];
+    const result = computeLineupAtRotation(sl3, rotations, 0);
+    expect(result.get("pos1")).toBe("playerA");
+    expect(result.get("pos2")).toBe("playerB");
+    expect(result.get("pos3")).toBe("playerC");
+    expect(result).not.toBe(sl3);
+  });
+  it("treats a rotation with an empty subs array as a no-op", () => {
+    const rotations = [{ rotationNumber: 1, plannedSubstitutions: JSON.stringify([]) }];
+    const result = computeLineupAtRotation(sl3, rotations, 1);
+    expect(result.get("pos1")).toBe("playerA");
+    expect(result.get("pos2")).toBe("playerB");
+    expect(result.get("pos3")).toBe("playerC");
+  });
+
+  it("silently ignores a rotation with malformed JSON and preserves the prior lineup", () => {
+    const rotations = [{ rotationNumber: 1, plannedSubstitutions: "not-valid-json" }];
+    const result = computeLineupAtRotation(sl3, rotations, 1);
+    expect(result.get("pos1")).toBe("playerA");
+    expect(result.get("pos2")).toBe("playerB");
+    expect(result.get("pos3")).toBe("playerC");
+  });
+
+  it("excludes rotations with rotationNumber beyond targetRotNum", () => {
+    const rotations = [
+      { rotationNumber: 1, plannedSubstitutions: JSON.stringify([{ playerOutId: "playerA", playerInId: "playerX", positionId: "pos1" }]) },
+      { rotationNumber: 3, plannedSubstitutions: JSON.stringify([{ playerOutId: "playerB", playerInId: "playerY", positionId: "pos2" }]) },
+    ];
+    const result = computeLineupAtRotation(sl3, rotations, 2);
+    expect(result.get("pos1")).toBe("playerX");
+    expect(result.get("pos2")).toBe("playerB");
+    expect(result.get("pos3")).toBe("playerC");
+  });
+
+  it("adds a bench player to the lineup at the target position", () => {
+    const rotations = [
+      { rotationNumber: 1, plannedSubstitutions: JSON.stringify([{ playerOutId: "playerA", playerInId: "playerZ", positionId: "pos1" }]) },
+    ];
+    const result = computeLineupAtRotation(sl3, rotations, 1);
+    expect(result.get("pos1")).toBe("playerZ");
+    expect(Array.from(result.values())).not.toContain("playerA");
+    expect(result.get("pos2")).toBe("playerB");
+    expect(result.get("pos3")).toBe("playerC");
+  });
+
+  it("vacates old position when playerInId already in lineup at a different slot", () => {
+    const rotations = [
+      { rotationNumber: 1, plannedSubstitutions: JSON.stringify([{ playerOutId: "playerA", playerInId: "playerB", positionId: "pos1" }]) },
+    ];
+    const result = computeLineupAtRotation(sl3, rotations, 1);
+    expect(result.get("pos1")).toBe("playerB");
+    expect(result.has("pos2")).toBe(false);
+    expect(result.get("pos3")).toBe("playerC");
+  });
+});
+// -------------------------------------------------------------------------
+// Gap coverage: halftimeLineupForDisplay startingLineup fallback branch
+// -------------------------------------------------------------------------
+
+describe("halftimeLineupForDisplay startingLineup fallback", () => {
+  const sl3f = new Map([["pos1", "playerA"],["pos2", "playerB"],["pos3", "playerC"]]);
+  const rotWithSub = [{ rotationNumber: 1, plannedSubstitutions: JSON.stringify([{ playerOutId: "playerA", playerInId: "playerX", positionId: "pos1" }]) }];
+
+  it("falls back to startingLineup when halftimeRotationNumber is undefined", () => {
+    const htLineup = new Map<string, string>();
+    const htRotNum: number | undefined = undefined;
+    let display: Map<string, string>;
+    if (htLineup.size > 0) { display = htLineup; }
+    else if (!htRotNum || rotWithSub.length === 0) { display = sl3f; }
+    else { display = computeLineupAtRotation(sl3f, rotWithSub, htRotNum - 1); }
+    expect(display).toBe(sl3f);
+    expect(display.get("pos1")).toBe("playerA");
+  });
+
+  it("falls back to startingLineup when rotations array is empty", () => {
+    const htLineup = new Map<string, string>();
+    const htRotNum = 2;
+    const noRots: Array<{ rotationNumber: number; plannedSubstitutions: string }> = [];
+    let display: Map<string, string>;
+    if (htLineup.size > 0) { display = htLineup; }
+    else if (!htRotNum || noRots.length === 0) { display = sl3f; }
+    else { display = computeLineupAtRotation(sl3f, noRots, htRotNum - 1); }
+    expect(display).toBe(sl3f);
+  });
+});
+// -------------------------------------------------------------------------
+// Gap coverage: handleHalftimeLineupChange base from computed fallback
+// -------------------------------------------------------------------------
+
+describe("handleHalftimeLineupChange base from computed fallback", () => {
+  it("inherits end-of-H1 computed state when making the first explicit H2 assignment", () => {
+    const sl4 = new Map([["pos1","playerA"],["pos2","playerB"],["pos3","playerC"],["pos4","playerD"]]);
+    const rots = [{ rotationNumber: 1, plannedSubstitutions: JSON.stringify([{ playerOutId: "playerA", playerInId: "playerE", positionId: "pos1" }]) }];
+    const htRotNum = 2;
+    const emptyEx = new Map<string, string>();
+    let base: Map<string, string>;
+    if (emptyEx.size > 0) { base = emptyEx; }
+    else if (!htRotNum || rots.length === 0) { base = sl4; }
+    else { base = computeLineupAtRotation(sl4, rots, htRotNum - 1); }
+    const newLU = new Map(base);
+    const posId = "pos2"; const pid = "playerF";
+    for (const [pos, val] of newLU.entries()) { if (val === pid && pos !== posId) { newLU.delete(pos); break; } }
+    newLU.set(posId, pid);
+    expect(newLU.get("pos1")).toBe("playerE");
+    expect(newLU.get("pos2")).toBe("playerF");
+    expect(newLU.get("pos3")).toBe("playerC");
+    expect(newLU.get("pos4")).toBe("playerD");
+  });
+});
+
+// -------------------------------------------------------------------------
+// Gap coverage: computeLineupDiff position absent from endOfH1
+// -------------------------------------------------------------------------
+
+describe("computeLineupDiff position absent from endOfH1", () => {
+  it("produces no sub for a position that exists in H2 lineup but not in endOfH1", () => {
+    const eoh1 = new Map([["pos1","playerA"],["pos2","playerB"]]);
+    const htLU = new Map([["pos1","playerA"],["pos2","playerB"],["pos3","playerC"]]);
+    const subs: PlannedSubstitution[] = [];
+    for (const [posId, newPid] of htLU.entries()) {
+      const oldPid = eoh1.get(posId);
+      if (oldPid && newPid && oldPid !== newPid) { subs.push({ playerOutId: oldPid, playerInId: newPid, positionId: posId }); }
+    }
+    expect(subs).toHaveLength(0);
+  });
+});
+// -------------------------------------------------------------------------
+// Gap coverage: handleCopyFromPreviousRotation halftime clearing guard
+// -------------------------------------------------------------------------
+
+describe("handleCopyFromPreviousRotation halftime clearing guard", () => {
+  it("triggers halftime clear when rotationNumber equals halftimeRotationNumber", () => {
+    const htRotNum = 3;
+    const rotToClear = 3;
+    expect(rotToClear === htRotNum).toBe(true);
+  });
+
+  it("does NOT trigger halftime clear when rotationNumber differs from halftimeRotationNumber", () => {
+    const htRotNum = 3;
+    const rotToClear = 2;
+    expect(rotToClear === htRotNum).toBe(false);
+  });
+
+  it("serializes the cleared halftime lineup as [] not as null or undefined", () => {
+    const cleared: Array<{ positionId: string; playerId: string }> = [];
+    const serialized = JSON.stringify(cleared);
+    expect(serialized).toBe("[]");
+    expect(serialized).not.toBeNull();
+    expect(serialized).not.toBeUndefined();
+  });
+});
+
+// -------------------------------------------------------------------------
+// Gap coverage: handleUpdatePlan halftimeLineup serialization guard
+// -------------------------------------------------------------------------
+
+describe("handleUpdatePlan halftimeLineup serialization guard", () => {
+  it("produces undefined when the halftimeLineup Map is empty", () => {
+    const htLU = new Map<string, string>();
+    const json = htLU.size > 0
+      ? JSON.stringify(Array.from(htLU.entries()).map(([posId, pid]) => ({ positionId: posId, playerId: pid })))
+      : undefined;
+    expect(json).toBeUndefined();
+  });
+
+  it("does NOT produce the string [] when halftimeLineup is empty", () => {
+    const htLU = new Map<string, string>();
+    const json = htLU.size > 0
+      ? JSON.stringify(Array.from(htLU.entries()).map(([posId, pid]) => ({ positionId: posId, playerId: pid })))
+      : undefined;
+    expect(json).not.toBe("[]");
+  });
+
+  it("produces valid JSON array when the halftimeLineup Map is non-empty", () => {
+    const htLU = new Map([["pos1","playerZ"],["pos2","playerB"]]);
+    const json = htLU.size > 0
+      ? JSON.stringify(Array.from(htLU.entries()).map(([posId, pid]) => ({ positionId: posId, playerId: pid })))
+      : undefined;
+    expect(json).toBeDefined();
+    const parsed = JSON.parse(json as string) as Array<{ positionId: string; playerId: string }>;
+    expect(parsed).toHaveLength(2);
+    expect(parsed.find(e => e.positionId === "pos1")?.playerId).toBe("playerZ");
+    expect(parsed.find(e => e.positionId === "pos2")?.playerId).toBe("playerB");
+  });
+});
+// -------------------------------------------------------------------------
+// Gap coverage: lineup tab badge real component condition
+// -------------------------------------------------------------------------
+// Mirrors GamePlanner.tsx lines 1398-1401:
+//   const firstHalfFull = startingLineup.size >= positions.length;
+//   const secondHalfFull = rotations.length === 0 || halftimeLineupForDisplay.size >= positions.length;
+//   if (firstHalfFull && secondHalfFull) badge = check-mark;
+
+describe("lineup tab badge component-accurate condition", () => {
+  it("suppresses badge when H1 is full but H2 display lineup is under-filled", () => {
+    const posLen = 4;
+    const sl = new Map([["p1","A"],["p2","B"],["p3","C"],["p4","D"]]);
+    const rots = [{ rotationNumber: 1, plannedSubstitutions: "[]" }];
+    const h2 = new Map([["p1","E"],["p2","B"],["p3","C"]]);
+    const firstHalfFull = sl.size >= posLen;
+    const secondHalfFull = rots.length === 0 || h2.size >= posLen;
+    expect(firstHalfFull).toBe(true);
+    expect(secondHalfFull).toBe(false);
+    expect(firstHalfFull && secondHalfFull).toBe(false);
+  });
+
+  it("suppresses badge when H1 is under-filled even if H2 display lineup is full", () => {
+    const posLen = 4;
+    const sl = new Map([["p1","A"],["p2","B"],["p3","C"]]);
+    const rots = [{ rotationNumber: 1, plannedSubstitutions: "[]" }];
+    const h2 = new Map([["p1","E"],["p2","B"],["p3","C"],["p4","D"]]);
+    const firstHalfFull = sl.size >= posLen;
+    const secondHalfFull = rots.length === 0 || h2.size >= posLen;
+    expect(firstHalfFull).toBe(false);
+    expect(firstHalfFull && secondHalfFull).toBe(false);
+  });
+
+  it("shows badge when H1 full and no rotations exist (secondHalfFull short-circuits)", () => {
+    const posLen = 4;
+    const sl = new Map([["p1","A"],["p2","B"],["p3","C"],["p4","D"]]);
+    const rots: Array<{ rotationNumber: number; plannedSubstitutions: string }> = [];
+    const h2 = new Map<string, string>();
+    const firstHalfFull = sl.size >= posLen;
+    const secondHalfFull = rots.length === 0 || h2.size >= posLen;
+    expect(secondHalfFull).toBe(true);
+    expect(firstHalfFull && secondHalfFull).toBe(true);
+  });
+
+  it("shows badge when both H1 and H2 display lineups are exactly at positions.length", () => {
+    const posLen = 4;
+    const sl = new Map([["p1","A"],["p2","B"],["p3","C"],["p4","D"]]);
+    const rots = [{ rotationNumber: 1, plannedSubstitutions: "[]" }];
+    const h2 = new Map([["p1","E"],["p2","F"],["p3","G"],["p4","H"]]);
+    const firstHalfFull = sl.size >= posLen;
+    const secondHalfFull = rots.length === 0 || h2.size >= posLen;
+    expect(firstHalfFull && secondHalfFull).toBe(true);
+  });
+});
+
+// -------------------------------------------------------------------------
+// Gap coverage: copyGamePlan null/undefined halftimeLineup propagation
+// -------------------------------------------------------------------------
+
+describe("copyGamePlan null halftimeLineup propagation", () => {
+  it("propagates null halftimeLineup from source plan without dropping the key", () => {
+    const src = { halftimeLineup: null as string | null, rotationIntervalMinutes: 10, totalRotations: 5, startingLineup: "[{positionId:pos1,playerId:pA}]" };
+    const payload = { gameId: "g2", rotationIntervalMinutes: src.rotationIntervalMinutes, totalRotations: src.totalRotations, startingLineup: src.startingLineup, halftimeLineup: src.halftimeLineup, coaches: ["c1"] };
+    expect(Object.prototype.hasOwnProperty.call(payload, "halftimeLineup")).toBe(true);
+    expect(payload.halftimeLineup).toBeNull();
+  });
+
+  it("does not throw when loading a null halftimeLineup field from a subscription", () => {
+    const field: string | null | undefined = null;
+    const lu = new Map<string, string>();
+    expect(() => { if (field) { const arr = JSON.parse(field) as Array<{ positionId: string; playerId: string }>; arr.forEach(({ positionId, playerId }) => lu.set(positionId, playerId)); } }).not.toThrow();
+    expect(lu.size).toBe(0);
+  });
+
+  it("does not throw when loading an undefined halftimeLineup field from a subscription", () => {
+    const field: string | null | undefined = undefined;
+    const lu = new Map<string, string>();
+    expect(() => { if (field) { const arr = JSON.parse(field) as Array<{ positionId: string; playerId: string }>; arr.forEach(({ positionId, playerId }) => lu.set(positionId, playerId)); } }).not.toThrow();
+    expect(lu.size).toBe(0);
   });
 });

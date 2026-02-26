@@ -5124,3 +5124,66 @@
 .continuing-player {
   color: var(--text-primary);
 }
+
+/* ── Second Half Lineup Section ── */
+.lineup-halftime-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+  color: #ff9800;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.lineup-halftime-divider::before,
+.lineup-halftime-divider::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  background: #ff9800;
+  border-radius: 1px;
+  opacity: 0.4;
+}
+.planner-section--second-half {
+  border-left: 4px solid #ff9800;
+  padding-left: 0.75rem;
+  background: #fffdf7;
+}
+.planner-section--second-half .panel-header h4 {
+  color: #e65100;
+}
+.planner-section-subtitle {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin: -0.75rem 0 0.75rem;
+  font-style: italic;
+}
+/* ── HT Read-Only Panel ── */
+.ht-edit-link {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #e65100;
+  background: #fff3e0;
+  border: 1px solid #ffcc80;
+  border-radius: 6px;
+  padding: 0.25rem 0.65rem;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ht-edit-link:hover { background: #ffe0b2; }
+.planned-sub-item--halftime {
+  background: #fff9c4;
+  border-color: #fdd835;
+}
+.ht-readonly-empty {
+  padding: 1.5rem 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-style: italic;
+}

@@ -156,6 +156,7 @@ const schema = a.schema({
       rotationIntervalMinutes: a.integer().required(), // e.g., 5, 10, 15
       totalRotations: a.integer().required(), // Calculated based on half length
       startingLineup: a.json(), // Array of {playerId, positionId} for the starting lineup
+      halftimeLineup: a.json(), // Array of {playerId, positionId} for the second-half starting lineup
       createdAt: a.datetime().required(),
       updatedAt: a.datetime().required(),
       coaches: a.string().array(), // Team coaches who can access this plan

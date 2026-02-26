@@ -912,10 +912,9 @@ describe('rotationPlannerService', () => {
         },
       ];
 
-      // Should throw or catch the error
-      expect(() => {
-        validateRotationPlan(rotations as any, 6);
-      }).toThrow();
+      // Should return a parse error rather than throwing
+      const errors = validateRotationPlan(rotations as any, 6);
+      expect(errors.some(e => e.includes('Failed to parse substitutions data'))).toBe(true);
     });
 
     it('should detect same player subbed in and out simultaneously', () => {

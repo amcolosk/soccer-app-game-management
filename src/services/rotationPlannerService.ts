@@ -307,8 +307,14 @@ export function calculatePlayTime(
   const sortedRotations = [...rotations].sort((a, b) => a.rotationNumber - b.rotationNumber);
   
   sortedRotations.forEach((rotation) => {
-    const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
-    
+    let subs: PlannedSubstitution[] = [];
+    try {
+      subs = JSON.parse(rotation.plannedSubstitutions as string);
+    } catch (e) {
+      console.error('[calculatePlayTime] Failed to parse plannedSubstitutions for rotation', rotation.rotationNumber, e);
+      return;
+    }
+
     // Apply substitutions
     subs.forEach(sub => {
       currentField.delete(sub.playerOutId);
@@ -395,8 +401,14 @@ export function validateRotationPlan(
   const fieldState = new Set<string>();
   
   rotations.forEach((rotation, index) => {
-    const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
-    
+    let subs: PlannedSubstitution[] = [];
+    try {
+      subs = JSON.parse(rotation.plannedSubstitutions as string);
+    } catch (e) {
+      errors.push(`Rotation ${rotation.rotationNumber}: Failed to parse substitutions data`);
+      return;
+    }
+
     // Check for duplicate subs in same rotation
     const playerOutIds = subs.map(s => s.playerOutId);
     const playerInIds = subs.map(s => s.playerInId);
@@ -465,6 +477,7 @@ export async function copyGamePlan(
     rotationIntervalMinutes: sourcePlan.rotationIntervalMinutes,
     totalRotations: sourcePlan.totalRotations,
     startingLineup: sourcePlan.startingLineup,
+    halftimeLineup: sourcePlan.halftimeLineup,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     coaches,
