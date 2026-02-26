@@ -323,7 +323,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const halftimeLineupForDisplay = useMemo(() => {
     if (halftimeLineup !== null) return halftimeLineup;
     if (!halftimeRotationNumber || rotations.length === 0) return startingLineup;
-    return computeLineupAtRotation(startingLineup, rotations, halftimeRotationNumber - 1);
+    return computeLineupAtRotation(startingLineup, rotations as Array<{ rotationNumber: number; plannedSubstitutions: string }>, halftimeRotationNumber - 1);
   }, [halftimeLineup, halftimeRotationNumber, startingLineup, rotations]);
 
   const handleLineupChange = async (positionId: string, playerId: string) => {
@@ -697,7 +697,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       await client.models.GamePlan.update({ id: gamePlan.id, halftimeLineup: JSON.stringify(lineupArray) });
 
       // Compute diff: end-of-H1 lineup vs new H2 lineup
-      const endOfH1 = computeLineupAtRotation(startingLineup, rotations, halftimeRotationNumber - 1);
+      const endOfH1 = computeLineupAtRotation(startingLineup, rotations as Array<{ rotationNumber: number; plannedSubstitutions: string }>, halftimeRotationNumber - 1);
       const subs = computeLineupDiff(endOfH1, newLineup);
 
       const subsJson = JSON.stringify(subs);
@@ -1014,18 +1014,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       const firstHalfFieldLineup = halftimeRotationNumber && halftimeRotationNumber > 1
         ? getLineupAtRotation(halftimeRotationNumber - 1)
         : startingLineup;
-      const firstHalfFieldPlayerIds = new Set(firstHalfFieldLineup.values());
-
-      // Players being explicitly subbed OUT are available to be reassigned elsewhere.
-      const halftimeSubOutIds = new Set(halftimeSubs.map(s => s.playerOutId));
-
-      // Bench = first-half bench players + anyone being subbed out at halftime.
-      // First-half field players who are NOT being subbed out are already on the
-      // field (continuing) and should not clutter the bench.
-      const halftimeAvailablePlayers = rotationPlayers.filter(
-        p => !firstHalfFieldPlayerIds.has(p.id) || halftimeSubOutIds.has(p.id)
-      );
-
       // Positions where the first-half player continues with no explicit sub.
       // Shown as a read-only list so the coach can see the full second-half lineup.
       const continuingEntries = Array.from(firstHalfFieldLineup.entries())
