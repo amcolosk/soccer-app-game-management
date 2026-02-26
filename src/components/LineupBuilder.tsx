@@ -107,7 +107,7 @@ export function LineupBuilder({
                   >
                     <span className="player-number">#{assignedPlayer.playerNumber || 0}</span>
                     <span className="player-name-short">
-                      {assignedPlayer.firstName.charAt(0)}. {assignedPlayer.lastName}
+                      {assignedPlayer.firstName} {assignedPlayer.lastName}
                     </span>
                     {!disabled && (!removablePositionIds || removablePositionIds.has(position.id)) && (
                       <button
