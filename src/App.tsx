@@ -25,6 +25,11 @@ const SeasonReportRoute = lazy(() =>
     default: m.SeasonReportRoute,
   }))
 );
+const DevDashboardRoute = lazy(() =>
+  import("./components/routes/DevDashboardRoute").then((m) => ({
+    default: m.DevDashboardRoute,
+  }))
+);
 
 function App() {
   return (
@@ -32,6 +37,9 @@ function App() {
       <Routes>
         {/* Invitation flow — full-screen, outside AppLayout */}
         <Route path="/invite/:invitationId" element={<InvitationRoute />} />
+
+        {/* Developer dashboard — full-screen, outside AppLayout */}
+        <Route path="/dev" element={<DevDashboardRoute />} />
 
         {/* Main app shell with bottom nav */}
         <Route element={<AppLayout />}>

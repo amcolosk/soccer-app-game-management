@@ -4,6 +4,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_APP_VERSION: string;
+  readonly VITE_DEVELOPER_EMAILS: string;
 }
 
 interface ImportMeta {

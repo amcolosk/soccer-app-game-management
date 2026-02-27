@@ -6,6 +6,7 @@ import { DynamoDBDocumentClient, QueryCommand, UpdateCommand } from '@aws-sdk/li
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: process.env.AWS_REGION }));
 const ISSUE_TABLE = process.env.ISSUE_TABLE_NAME!;
 const AGENT_API_SECRET = process.env.AGENT_API_SECRET;
+const DEVELOPER_EMAILS = process.env.DEVELOPER_EMAILS;
 
 const VALID_STATUSES = ['OPEN', 'IN_PROGRESS', 'FIXED', 'DEPLOYED', 'CLOSED'] as const;
 
@@ -29,6 +30,19 @@ export const handler: Schema['updateIssueStatus']['functionHandler'] = async (ev
     const secretPrefix = `SECRET:${AGENT_API_SECRET}`;
     if (!resolution?.startsWith(secretPrefix)) {
       throw new Error('Unauthorized: invalid agent credentials');
+    }
+  }
+
+  if (isAuthenticated) {
+    // Fail-closed: if DEVELOPER_EMAILS is not configured, deny all authenticated callers.
+    // This prevents a misconfigured deployment from silently granting all users write access.
+    if (!DEVELOPER_EMAILS) {
+      throw new Error('Unauthorized: developer access is not configured');
+    }
+    const allowlist = DEVELOPER_EMAILS.split(',').map(e => e.trim().toLowerCase());
+    const callerEmail = ((event.identity as AppSyncIdentityCognito).claims?.email as string ?? '').toLowerCase();
+    if (!allowlist.includes(callerEmail)) {
+      throw new Error('Unauthorized: developer access required');
     }
   }
 
@@ -73,7 +87,7 @@ export const handler: Schema['updateIssueStatus']['functionHandler'] = async (ev
     exprValues[':resolution'] = cleanResolution;
   }
 
-  if (status === 'CLOSED' || status === 'FIXED' || status === 'DEPLOYED') {
+  if (status === 'CLOSED') {
     updateExprParts.push('#closedAt = :closedAt');
     exprNames['#closedAt'] = 'closedAt';
     exprValues[':closedAt'] = new Date().toISOString();

@@ -122,3 +122,9 @@ const agentApiSecret = process.env.AGENT_API_SECRET || '';
 if (agentApiSecret) {
   backend.updateIssueStatus.addEnvironment('AGENT_API_SECRET', agentApiSecret);
 }
+
+// Developer emails allowlist for updateIssueStatus authentication
+const developerEmails = process.env.DEVELOPER_EMAILS || '';
+if (developerEmails) {
+  backend.updateIssueStatus.addEnvironment('DEVELOPER_EMAILS', developerEmails);
+}
