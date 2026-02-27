@@ -17,7 +17,7 @@ Use the `Task` tool to invoke each agent in sequence, passing the outputs from p
 
 ## Project Overview
 
-TeamTrack is a progressive web app for coaches to manage teams, players, and game day operations. It tracks lineups, play time, substitutions, and ensures fair playing time distribution. Built with React, TypeScript, Vite, and AWS Amplify Gen2.
+TeamTrack is a progressive web app for coaches to manage teams, players, and game day operations. It tracks lineups, play time, substitutions, and ensures fair playing time distribution. Built with React 19, TypeScript, Vite, and AWS Amplify Gen2.
 
 ## Common Development Commands
 
@@ -34,8 +34,11 @@ npm test                  # Run unit tests in watch mode (Vitest)
 npm run test:run          # Run unit tests once
 npm run test:ui           # Open Vitest UI
 npm run test:e2e          # Run E2E tests (Playwright)
+npm run test:e2e:headed   # Run E2E tests with browser visible
 npm run test:e2e:ui       # Open Playwright UI
 npm run test:e2e:debug    # Debug E2E tests
+npm run test:e2e:report   # Show Playwright HTML report
+npm run test:e2e:setup    # Creates test user/data
 ```
 
 ### Code Quality
@@ -48,7 +51,7 @@ npm run knip:fix          # Auto-fix unused exports
 
 ### Database
 ```bash
-npx ampx seed             # Seed the database with sample data
+npm run seed              # Seed the database with sample data
 ```
 
 ## Architecture
@@ -57,33 +60,88 @@ npx ampx seed             # Seed the database with sample data
 
 **Main Application Flow:**
 - `src/App.tsx` - Root component with tab-based navigation (Games, Reports, Manage, Profile)
+- `src/components/AppLayout.tsx` - Main app layout wrapper
+- `src/components/Home.tsx` - Home/dashboard page
+- `src/components/LandingPage.tsx` - Unauthenticated landing page
 - Navigation persists active game state in localStorage for page refresh recovery
 - GraphQL client generated from schema: `generateClient<Schema>()`
 
 **Component Organization:**
-- `src/components/` - Feature components
-  - `GameManagement.tsx` - Live game management with timer and substitutions
-  - `GamePlanner.tsx` - Pre-game rotation planning interface
-  - `LineupBuilder.tsx` - Drag-and-drop lineup assignment
-  - `PlayerAvailabilityGrid.tsx` - Mark players available/absent before games
-  - `SeasonReport.tsx` - Team statistics and play time reports
-  - `Management.tsx` - Team/player/formation administration
-  - `InvitationManagement.tsx` - Share teams with other coaches
 
-- `src/services/` - Business logic (should be pure functions, testable)
-  - `rotationPlannerService.ts` - Fair rotation algorithm based on player availability
-  - `substitutionService.ts` - Manages substitutions and play time records
-  - `invitationService.ts` - Team invitation workflow
+`src/components/` - Feature components
+- `GameManagement/` - Live game management (directory, not single file)
+  - `GameManagement.tsx` - Main orchestrator; renders 4 state blocks: `scheduled`, `in-progress`, `halftime`, `completed`
+  - `CommandBand.tsx` - Sticky score/timer/rotation info band (z-index 200), always visible during active game
+  - `TabNav.tsx` - Tab navigation for in-progress state (Lineup, Bench, Notes tabs)
+  - `BenchTab.tsx` - Bench player view tab
+  - `GameHeader.tsx` - Game info header
+  - `GameTimer.tsx` - Timer control (only rendered in halftime state; supports `hidePrimaryCta` prop)
+  - `GoalTracker.tsx` - Score tracking
+  - `LineupPanel.tsx` - Lineup display (supports `hideAvailablePlayers` prop)
+  - `RotationWidget.tsx` - Rotation preview modal (controlled via props)
+  - `SubstitutionPanel.tsx` - Substitution control
+  - `PlayerNotesPanel.tsx` - Game notes (gold-star, yellow-card, red-card)
+  - `hooks/useGameSubscriptions.ts` - Real-time DynamoDB subscriptions
+  - `hooks/useGameTimer.ts` - Timer logic
+  - `types.ts` - Local types (re-exports from `src/types/schema.ts`)
+- `GamePlanner.tsx` - Pre-game rotation planning interface
+- `LineupBuilder.tsx` - Drag-and-drop lineup assignment
+- `PlayerAvailabilityGrid.tsx` - Mark players available/absent before games
+- `SeasonReport.tsx` - Team statistics and play time reports
+- `Management.tsx` - Team/player/formation administration
+- `InvitationManagement.tsx` - Share teams with other coaches
+- `BugReport.tsx` - Bug/feedback report submission UI
+- `ConfirmModal.tsx` - Reusable confirmation dialog
+- `UpdatePrompt.tsx` - PWA update notification
+- `PlayerSelect.tsx` - Player selection dropdown
+- `DevDashboard/` - Developer issue tracking dashboard
+  - `DevDashboard.tsx` - Dashboard main view
+  - `IssueList.tsx` - Issue list with filtering
+  - `IssueDetailModal.tsx` - Issue detail view
+  - `IssueStatusBadge.tsx` - Status indicator badge
+- `routes/` - Route wrapper components
+  - `GameManagementRoute.tsx`
+  - `GamePlannerRoute.tsx`
+  - `SeasonReportRoute.tsx`
+  - `InvitationRoute.tsx`
+  - `DevDashboardRoute.tsx`
 
-- `src/utils/` - Pure utility functions (all have corresponding .test.ts files)
-  - `gameCalculations.ts` - Game timer, half detection, score tracking
-  - `playTimeCalculations.ts` - Calculate total play time per player
-  - `lineupUtils.ts` - Lineup validation and transformations
-  - `gameTimeUtils.ts` - Convert between real time and game seconds
-  - `validation.ts` - Form validation helpers
+`src/services/` - Business logic (should be pure functions, testable)
+- `rotationPlannerService.ts` - Fair rotation algorithm based on player availability
+- `substitutionService.ts` - Manages substitutions and play time records
+- `cascadeDeleteService.ts` - Handles cascade deletion of related records
+- `invitationService.ts` - Team invitation workflow
 
-- `src/hooks/` - Custom React hooks
-  - `useTeamData.ts` - Loads team with roster, positions, and games
+`src/utils/` - Pure utility functions (most have corresponding `.test.ts` files)
+- `gameCalculations.ts` - Game timer, half detection, score tracking
+- `playTimeCalculations.ts` - Calculate total play time per player
+- `lineupUtils.ts` - Lineup validation and transformations
+- `gameTimeUtils.ts` - Convert between real time and game seconds
+- `gamePlannerUtils.ts` - Rotation planning helpers
+- `playerUtils.ts` - Player-related helpers
+- `rosterFilterUtils.ts` - Roster filtering and sorting
+- `validation.ts` - Form validation helpers
+- `analytics.ts` - Google Analytics 4 integration
+- `errorHandler.ts` - Error handling utilities
+- `toast.ts` - Toast notification helpers
+- `viteVersion.ts` - Version info from Vite build
+
+`src/hooks/` - Custom React hooks
+- `useTeamData.ts` - Loads team with roster, positions, and games
+- `useAmplifyQuery.ts` - Generic Amplify query wrapper
+- `useBugReports.ts` - Bug report submission and issue management
+- `useDeveloperAccess.ts` - Developer mode access control
+- `useSwipeDelete.ts` - Swipe-to-delete gesture
+
+`src/contexts/`
+- `AvailabilityContext.tsx` - Player availability state context
+
+`src/constants/`
+- `gameConfig.ts` - Game configuration constants
+- `ui.ts` - UI constants (z-index, breakpoints, etc.)
+
+`src/types/`
+- `schema.ts` - GraphQL schema types
 
 ### Backend (AWS Amplify Gen2)
 
@@ -91,17 +149,20 @@ npx ampx seed             # Seed the database with sample data
 - `amplify/backend.ts` - Defines backend resources and wires up Lambda functions
 - `amplify/data/resource.ts` - Complete GraphQL schema with data models
 - `amplify/auth/resource.ts` - Cognito authentication configuration
+- `amplify/data/formation-templates.ts` - Default formation template data
 
 **Lambda Functions** (`amplify/functions/`):
 - `send-invitation-email/` - DynamoDB Stream trigger on TeamInvitation table; sends emails via SES
 - `accept-invitation/` - Custom GraphQL mutation with elevated permissions to add user to team's coaches array
 - `get-user-invitations/` - Custom query to fetch invitations by user email
+- `send-bug-report/` - Processes bug report submissions; writes to Issue table, increments IssueCounter
+- `update-issue-status/` - Custom mutation for agent-driven status updates (API key auth)
 
 **Important Backend Patterns:**
 
 1. **Authorization Model**: All models use `allow.ownersDefinedIn('coaches')` where `coaches` is a string array field containing user IDs. When creating records, always populate the `coaches` field with current user ID.
 
-2. **Custom Mutations**: Some operations require elevated permissions beyond standard CRUDL. Example: `acceptInvitation` mutation updates Team.coaches array even though user isn't yet an owner.
+2. **Custom Mutations**: Some operations require elevated permissions beyond standard CRUDL. Example: `acceptInvitation` mutation updates Team.coaches array even though user isn't yet an owner. `updateIssueStatus` uses API key auth for agent access.
 
 3. **GraphQL Client Usage**:
    ```typescript
@@ -124,21 +185,35 @@ npx ampx seed             # Seed the database with sample data
 - `Team` → references a Formation, has many `TeamRoster` entries
 - `Player` → global player pool, linked to teams via `TeamRoster`
 - `TeamRoster` → junction table (Player ↔ Team) with jersey number and preferred positions
+- `FieldPosition` → team-specific positions
 
 **Game Day:**
 - `Game` → scheduled match, tracks timer state (status, currentHalf, elapsedSeconds, lastStartTime)
+- `PlayerAvailability` → tracks which players are available/absent/late for each game
 - `LineupAssignment` → current player-to-position mapping for a game
 - `Substitution` → records when Player A leaves and Player B enters a position
-- `PlayTimeRecord` → granular tracking (playerId, positionId, startGameSeconds, endGameSeconds)
+- `PlayTimeRecord` → granular tracking (playerId, positionId, startGameSeconds, endGameSeconds); GSI on gameId
+- `Goal` → goal scored/conceded with scorer and assist info
+- `GameNote` → annotations per player (gold-star, yellow-card, red-card, other)
 
 **Planning:**
 - `GamePlan` → pre-game rotation strategy (rotationIntervalMinutes, startingLineup)
 - `PlannedRotation` → specific substitution plan for each rotation interval
-- `PlayerAvailability` → tracks which players are available/absent/late for each game
 
 **Multi-Coach Sharing:**
 - `TeamInvitation` → email-based invitations with status (PENDING/ACCEPTED/DECLINED)
 - Uses secondary index on email+status for efficient queries
+
+**Issue Tracking:**
+- `IssueCounter` → sequential counter for issue numbers (no client access; Lambda only)
+- `Issue` → bug/feature report tracking; GSIs on issueNumber and reporterUserId
+- Status lifecycle: `OPEN → IN_PROGRESS → FIXED | DEPLOYED | CLOSED` (terminal states set `closedAt`)
+
+**Custom Operations:**
+- `acceptInvitation` - Elevated permission mutation for joining a team
+- `getUserInvitations` - Query invitations by email
+- `submitBugReport` - Creates Issue record with auto-incremented number
+- `updateIssueStatus` - Agent-accessible mutation (API key auth + secret header)
 
 ### Game Timer Implementation
 
@@ -147,6 +222,27 @@ The game timer runs client-side with periodic sync to DynamoDB:
 - Timer automatically pauses at halftime (when elapsedSeconds reaches halfLengthMinutes * 60)
 - Play time records store `startGameSeconds` and `endGameSeconds` relative to game clock
 - Services handle timer logic: `gameCalculations.ts`, `gameTimeUtils.ts`
+
+### Mobile Game Management Layout
+
+`GameManagement.tsx` renders different layouts based on game state:
+- `scheduled` → pre-game layout with `PlayerAvailabilityGrid` and plan conflict banner
+- `in-progress` → `CommandBand` (sticky) + `TabNav` with Lineup/Bench/Notes tabs
+- `halftime` → halftime layout with `GameTimer` (hidePrimaryCta=true)
+- `completed` → completed layout
+
+`CommandBand` is always sticky at top (z-index 200) during active games. `RotationWidget` and `SubstitutionPanel` are always mounted as modal-only components.
+
+**z-index stack:** `.bottom-nav` 100, `.command-band` 200, `.game-tab-nav` 190, `.modal-overlay` 1000, notifications 9999+
+
+### Bug Report System
+
+- Full issue tracking via DynamoDB `Issue` table with sequential `IssueCounter`
+- Agent access: API key header + `SECRET:<AGENT_API_SECRET>|<resolution>` in resolution field
+- Rate limit: 5 reports/hour/user (via `reporterUserId` GSI)
+- GSI `getIssueByNumber` for direct lookup; `listIssues` for filtering by status
+- Docs: `docs/BUG-REPORT-SYSTEM.md` (architecture), `docs/AGENT-ISSUE-MANAGEMENT.md` (agent workflow)
+- Agent env vars: `APPSYNC_URL` (from amplify_outputs.json → data.url), `API_KEY` (data.api_key), `AGENT_API_SECRET` (AWS env, never in repo)
 
 ## Testing Guidelines
 
@@ -161,6 +257,7 @@ The game timer runs client-side with periodic sync to DynamoDB:
 - Config: `e2e/playwright.config.ts`
 - Setup script: `npm run test:e2e:setup` (creates test user/data)
 - Tests cover full user journeys (create team → add players → manage game)
+- Spec files: auth, data-isolation, formation-management, full-workflow, game-planner, issue-tracking, player-management, profile, team-management, team-sharing
 
 ## Development Notes
 
@@ -168,7 +265,7 @@ The game timer runs client-side with periodic sync to DynamoDB:
 
 1. After modifying `amplify/data/resource.ts`, the GraphQL schema auto-updates on next build
 2. TypeScript types are generated in `amplify_outputs.json`
-3. To seed data: `npx ampx seed` (uses seed data defined in amplify config)
+3. To seed data: `npm run seed`
 
 ### Authorization Debugging
 
@@ -188,13 +285,15 @@ After modifying Lambda functions:
 
 - Service worker config: `vite.config.ts` → VitePWA plugin
 - Manifest includes offline support and installability
+- Workbox runtime caching configured for Amplify API (24-hour cache)
 - Icons: `public/soccer_app_192.png` and `public/soccer_app_512.png`
 
 ### TypeScript Configuration
 
-- `tsconfig.json` - App TypeScript config
+- `tsconfig.json` - App TypeScript config (target ES2020, strict mode, excludes test files)
 - `tsconfig.node.json` - Vite/Node scripts config
 - Strict mode enabled; prefer explicit types over `any`
+- No unused locals or parameters enforced
 
 ## Common Patterns
 
@@ -240,3 +339,4 @@ Located in `src/services/rotationPlannerService.ts`:
 - Outputs: `PlannedRotation` records with balanced substitutions
 - Algorithm prioritizes equal play time across all available players
 - Accounts for player preferred positions when possible
+- Full requirements in `docs/specs/Rotation-Algorithm-Requirements.md`
