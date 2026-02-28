@@ -18,6 +18,26 @@ You need three values from the production deployment:
 
 ---
 
+## Slash Commands
+
+Three Claude Code slash commands are available for common triage workflows:
+
+| Command | Description |
+|---------|-------------|
+| `/list-issues` | Fetch and display all OPEN and IN_PROGRESS issues, sorted by severity |
+| `/fix-issue <N>` | Mark issue #N as FIXED using the current git commit SHA (with confirmation prompt) |
+| `/triage-issues` | Full automated loop: claim, investigate, fix, test, commit, and mark FIXED for each OPEN issue |
+
+**Setup:** Export the required env vars before starting Claude Code:
+```bash
+export APPSYNC_URL=<value from amplify_outputs.json data.url>
+export API_KEY=<value from amplify_outputs.json data.api_key>
+export AGENT_API_SECRET=<secret token>
+# Or: source .env.local && claude
+```
+
+---
+
 ## Authentication
 
 The `updateIssueStatus` mutation accepts **either**:
@@ -90,13 +110,13 @@ curl -X POST "$APPSYNC_URL" \
 
 ### Valid status values
 
-| Status | Meaning | Sets `closedAt`? |
-|--------|---------|-----------------|
-| `OPEN` | Newly reported, not yet triaged | No |
-| `IN_PROGRESS` | Actively being worked on | No |
-| `FIXED` | Fix applied, not yet deployed | Yes |
-| `DEPLOYED` | Fix shipped to production | Yes |
-| `CLOSED` | Won't fix, duplicate, or invalid | Yes |
+| Status | Meaning | Sets `closedAt`? | Agent can write? |
+|--------|---------|-----------------|-----------------|
+| `OPEN` | Newly reported, not yet triaged | No | ✗ |
+| `IN_PROGRESS` | Actively being worked on | No | ✓ |
+| `FIXED` | Fix applied, not yet deployed | No | ✓ (SHA required in resolution) |
+| `DEPLOYED` | Fix shipped to production | No | ✗ (developer dashboard only) |
+| `CLOSED` | Won't fix, duplicate, or invalid | Yes | ✗ (developer dashboard only) |
 
 ---
 
@@ -132,15 +152,17 @@ curl -s -X POST "$APPSYNC_URL" \
   -d "{\"query\": \"mutation { updateIssueStatus(issueNumber: $ISSUE_NUM, status: \\\"IN_PROGRESS\\\", resolution: \\\"SECRET:${AGENT_API_SECRET}|$RESOLUTION_TEXT\\\") }\"}"
 ```
 
-### 4. After fix is merged and deployed
+### 4. After fix is committed — mark as FIXED
 
 ```bash
-# Mark as deployed
+SHA=$(git rev-parse --short HEAD)
 curl -s -X POST "$APPSYNC_URL" \
   -H "Content-Type: application/json" \
   -H "x-api-key: $API_KEY" \
-  -d "{\"query\": \"mutation { updateIssueStatus(issueNumber: $ISSUE_NUM, status: \\\"DEPLOYED\\\", resolution: \\\"SECRET:${AGENT_API_SECRET}|Fixed in commit abc1234: corrected halftime lineup calculation\\\") }\"}"
+  -d "{\"query\": \"mutation { updateIssueStatus(issueNumber: $ISSUE_NUM, status: \\\"FIXED\\\", resolution: \\\"SECRET:${AGENT_API_SECRET}|Fixed in ${SHA}: corrected halftime lineup calculation\\\") }\"}"
 ```
+
+> **Note:** `DEPLOYED` and `CLOSED` require developer action in the dashboard — agents cannot set these statuses.
 
 ---
 

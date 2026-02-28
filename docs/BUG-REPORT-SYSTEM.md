@@ -94,7 +94,7 @@ Only `CLOSED` sets the `closedAt` timestamp. `FIXED` and `DEPLOYED` are intermed
 | Submit bug report | Cognito user |
 | Read issues | Cognito user OR public API key |
 | Update issue status (dashboard) | Cognito user whose email is in `DEVELOPER_EMAILS` |
-| Update issue status (agent) | API key + `AGENT_API_SECRET` embedded in resolution field |
+| Update issue status (agent) | API key + `AGENT_API_SECRET` embedded in resolution field — limited to `IN_PROGRESS` and `FIXED`; SHA required for `FIXED` |
 | Read/write IssueCounter | Lambda IAM only |
 
 > **Note:** The `updateIssueStatus` Lambda is **fail-closed** — if `DEVELOPER_EMAILS` is not configured, all authenticated callers are denied. Missing config never silently grants access.

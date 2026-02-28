@@ -9,6 +9,8 @@ const AGENT_API_SECRET = process.env.AGENT_API_SECRET;
 const DEVELOPER_EMAILS = process.env.DEVELOPER_EMAILS;
 
 const VALID_STATUSES = ['OPEN', 'IN_PROGRESS', 'FIXED', 'DEPLOYED', 'CLOSED'] as const;
+const AGENT_ALLOWED_STATUSES: readonly string[] = ['IN_PROGRESS', 'FIXED'];
+const SHA_PATTERN = /\b[0-9a-f]{7,40}\b/i;
 
 export function validateStatus(status: string): boolean {
   return (VALID_STATUSES as readonly string[]).includes(status);
@@ -46,6 +48,32 @@ export const handler: Schema['updateIssueStatus']['functionHandler'] = async (ev
     }
   }
 
+  // Strip secret prefix from resolution if present (agent auth sends it embedded)
+  let cleanResolution = resolution;
+  if (cleanResolution && AGENT_API_SECRET) {
+    const secretPrefix = `SECRET:${AGENT_API_SECRET}`;
+    if (cleanResolution.startsWith(secretPrefix)) {
+      const rest = cleanResolution.slice(secretPrefix.length);
+      cleanResolution = rest.startsWith('|') ? rest.slice(1) : null;
+    }
+  }
+
+  if (!isAuthenticated && !AGENT_ALLOWED_STATUSES.includes(status)) {
+    throw new Error(
+      `Unauthorized: agents may only set IN_PROGRESS or FIXED. ` +
+      `Use the developer dashboard to set ${status}.`
+    );
+  }
+
+  if (!isAuthenticated && status === 'FIXED') {
+    if (!cleanResolution || !SHA_PATTERN.test(cleanResolution)) {
+      throw new Error(
+        'Resolution must include a git commit SHA when marking an issue as FIXED. ' +
+        'Example: "Fixed in abc1234: corrected halftime timer calculation"'
+      );
+    }
+  }
+
   if (!validateStatus(status)) {
     throw new Error(`Invalid status: ${status}. Must be one of: ${VALID_STATUSES.join(', ')}`);
   }
@@ -71,16 +99,6 @@ export const handler: Schema['updateIssueStatus']['functionHandler'] = async (ev
     ':now': new Date().toISOString(),
   };
 
-  // Strip secret prefix from resolution if present (agent auth sends it embedded)
-  let cleanResolution = resolution;
-  if (cleanResolution && AGENT_API_SECRET) {
-    const secretPrefix = `SECRET:${AGENT_API_SECRET}`;
-    if (cleanResolution.startsWith(secretPrefix)) {
-      const rest = cleanResolution.slice(secretPrefix.length);
-      cleanResolution = rest.startsWith('|') ? rest.slice(1) : null;
-    }
-  }
-
   if (cleanResolution !== undefined && cleanResolution !== null && cleanResolution !== '') {
     updateExprParts.push('#resolution = :resolution');
     exprNames['#resolution'] = 'resolution';
@@ -100,6 +118,11 @@ export const handler: Schema['updateIssueStatus']['functionHandler'] = async (ev
     ExpressionAttributeNames: exprNames,
     ExpressionAttributeValues: exprValues,
   }));
+
+  // Fail-safe: never return the SECRET prefix to callers even if stripping logic was bypassed
+  if (cleanResolution && cleanResolution.startsWith('SECRET:')) {
+    cleanResolution = null;
+  }
 
   return JSON.stringify({
     issueNumber,

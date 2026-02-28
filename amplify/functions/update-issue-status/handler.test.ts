@@ -34,8 +34,8 @@ vi.mock('@aws-sdk/client-dynamodb', () => ({
 
 vi.mock('@aws-sdk/lib-dynamodb', () => ({
   DynamoDBDocumentClient: { from: vi.fn(() => ({ send: mockSend })) },
-  QueryCommand: vi.fn(function(input) { this.input = input; this._type = 'QueryCommand'; }),
-  UpdateCommand: vi.fn(function(input) { this.input = input; this._type = 'UpdateCommand'; }),
+  QueryCommand: vi.fn(function(this: { input: unknown; _type: string }, input) { this.input = input; this._type = 'QueryCommand'; }),
+  UpdateCommand: vi.fn(function(this: { input: unknown; _type: string }, input) { this.input = input; this._type = 'UpdateCommand'; }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -134,7 +134,7 @@ describe('handler – API key / agent caller', () => {
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
     const result = await handler(
-      apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:super-secret-token|Fixed the crash' }),
+      apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:super-secret-token|Fixed in abc1234: the crash' }),
       {} as any, vi.fn(),
     );
     expect(JSON.parse(result as string).status).toBe('FIXED');
@@ -147,7 +147,7 @@ describe('handler – API key / agent caller', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'issue-id-1', issueNumber: 1 }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    await handler(apiKeyEvent({ status: 'CLOSED', resolution: 'SECRET:tok|Actual resolution text' }), {} as any, vi.fn());
+    await handler(apiKeyEvent({ status: 'IN_PROGRESS', resolution: 'SECRET:tok|Actual resolution text' }), {} as any, vi.fn());
     const updateCall = mockSend.mock.calls[1][0];
     expect(updateCall.input.ExpressionAttributeValues[':resolution']).toBe('Actual resolution text');
   });
@@ -287,5 +287,220 @@ describe('handler – DynamoDB interactions', () => {
     expect(parsed).toHaveProperty('issueNumber', 1);
     expect(parsed).toHaveProperty('status', 'OPEN');
     expect(parsed).toHaveProperty('resolution');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handler – agent status restriction
+// ---------------------------------------------------------------------------
+
+describe('handler – agent status restriction', () => {
+  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); });
+  afterEach(() => { delete process.env.AGENT_API_SECRET; delete process.env.ISSUE_TABLE_NAME; });
+
+  it('throws when agent attempts to set CLOSED', async () => {
+    process.env.AGENT_API_SECRET = 'tok';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    const { handler } = await import('./handler');
+    await expect(
+      handler(apiKeyEvent({ status: 'CLOSED', resolution: 'SECRET:tok|done' }), {} as any, vi.fn()),
+    ).rejects.toThrow('Use the developer dashboard to set CLOSED');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('throws when agent attempts to set DEPLOYED', async () => {
+    process.env.AGENT_API_SECRET = 'tok';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    const { handler } = await import('./handler');
+    await expect(
+      handler(apiKeyEvent({ status: 'DEPLOYED', resolution: 'SECRET:tok|deployed' }), {} as any, vi.fn()),
+    ).rejects.toThrow('Use the developer dashboard to set DEPLOYED');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('throws when agent attempts to set OPEN', async () => {
+    process.env.AGENT_API_SECRET = 'tok';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    const { handler } = await import('./handler');
+    await expect(
+      handler(apiKeyEvent({ status: 'OPEN', resolution: 'SECRET:tok|reopened' }), {} as any, vi.fn()),
+    ).rejects.toThrow('Use the developer dashboard to set OPEN');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('allows agent to set IN_PROGRESS without SHA', async () => {
+    process.env.AGENT_API_SECRET = 'tok';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    mockSend
+      .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
+      .mockResolvedValueOnce({});
+    const { handler } = await import('./handler');
+    const result = await handler(
+      apiKeyEvent({ status: 'IN_PROGRESS', resolution: 'SECRET:tok|investigating' }),
+      {} as any, vi.fn(),
+    );
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(result as string).status).toBe('IN_PROGRESS');
+  });
+
+  it('allows agent to set FIXED with SHA in resolution', async () => {
+    process.env.AGENT_API_SECRET = 'tok';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    mockSend
+      .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
+      .mockResolvedValueOnce({});
+    const { handler } = await import('./handler');
+    const result = await handler(
+      apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok|Fixed in abc1234: timer fix' }),
+      {} as any, vi.fn(),
+    );
+    expect(JSON.parse(result as string).status).toBe('FIXED');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handler – SHA enforcement for FIXED
+// ---------------------------------------------------------------------------
+
+describe('handler – SHA enforcement for FIXED', () => {
+  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); });
+  afterEach(() => { delete process.env.AGENT_API_SECRET; delete process.env.ISSUE_TABLE_NAME; });
+
+  it('throws when agent sets FIXED with no resolution', async () => {
+    process.env.AGENT_API_SECRET = 'tok';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    const { handler } = await import('./handler');
+    await expect(
+      handler(apiKeyEvent({ status: 'FIXED', resolution: undefined }), {} as any, vi.fn()),
+    ).rejects.toThrow('Unauthorized: invalid agent credentials');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('throws SHA error when agent sends SECRET token with no payload and status FIXED', async () => {
+    process.env.AGENT_API_SECRET = 'tok';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    const { handler } = await import('./handler');
+    // 'SECRET:tok' strips to null (no pipe-delimited payload) — must hit SHA error not auth error
+    await expect(
+      handler(apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok' }), {} as any, vi.fn()),
+    ).rejects.toThrow('Resolution must include a git commit SHA');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('throws when agent sets FIXED with resolution containing no SHA', async () => {
+    process.env.AGENT_API_SECRET = 'tok';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    const { handler } = await import('./handler');
+    await expect(
+      handler(apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok|Fixed the bug' }), {} as any, vi.fn()),
+    ).rejects.toThrow('Resolution must include a git commit SHA');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('throws when agent sets FIXED with a 6-char hex string', async () => {
+    process.env.AGENT_API_SECRET = 'tok';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    const { handler } = await import('./handler');
+    await expect(
+      handler(apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok|Fixed in abcdef: too short' }), {} as any, vi.fn()),
+    ).rejects.toThrow('Resolution must include a git commit SHA');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('accepts a 7-character short SHA', async () => {
+    process.env.AGENT_API_SECRET = 'tok';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    mockSend
+      .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
+      .mockResolvedValueOnce({});
+    const { handler } = await import('./handler');
+    const result = await handler(
+      apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok|Fixed in abc1234: desc' }),
+      {} as any, vi.fn(),
+    );
+    expect(JSON.parse(result as string).status).toBe('FIXED');
+    const updateCall = mockSend.mock.calls[1][0];
+    expect(updateCall.input.ExpressionAttributeValues[':resolution']).toBe('Fixed in abc1234: desc');
+    expect(updateCall.input.ExpressionAttributeValues[':resolution']).not.toContain('SECRET:');
+  });
+
+  it('accepts a 40-character full SHA', async () => {
+    process.env.AGENT_API_SECRET = 'tok';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    mockSend
+      .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
+      .mockResolvedValueOnce({});
+    const { handler } = await import('./handler');
+    const fullSha = 'a'.repeat(40);
+    const result = await handler(
+      apiKeyEvent({ status: 'FIXED', resolution: `SECRET:tok|Fixed in ${fullSha}` }),
+      {} as any, vi.fn(),
+    );
+    expect(JSON.parse(result as string).status).toBe('FIXED');
+    const updateCall = mockSend.mock.calls[1][0];
+    expect(updateCall.input.ExpressionAttributeValues[':resolution']).toBe(`Fixed in ${fullSha}`);
+    expect(updateCall.input.ExpressionAttributeValues[':resolution']).not.toContain('SECRET:');
+  });
+
+  it('accepts SHA embedded anywhere in resolution', async () => {
+    process.env.AGENT_API_SECRET = 'tok';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    mockSend
+      .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
+      .mockResolvedValueOnce({});
+    const { handler } = await import('./handler');
+    const result = await handler(
+      apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok|Regression in commit abc1234 corrected boundary' }),
+      {} as any, vi.fn(),
+    );
+    expect(JSON.parse(result as string).status).toBe('FIXED');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handler – developer callers are not restricted
+// ---------------------------------------------------------------------------
+
+describe('handler – developer callers are not restricted', () => {
+  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); });
+  afterEach(() => { delete process.env.DEVELOPER_EMAILS; delete process.env.ISSUE_TABLE_NAME; delete process.env.AGENT_API_SECRET; });
+
+  it('allows developer to set CLOSED without restriction', async () => {
+    process.env.DEVELOPER_EMAILS = 'dev@example.com';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    mockSend
+      .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
+      .mockResolvedValueOnce({});
+    const { handler } = await import('./handler');
+    const result = await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as any, vi.fn());
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(result as string).status).toBe('CLOSED');
+  });
+
+  it('allows developer to set DEPLOYED', async () => {
+    process.env.DEVELOPER_EMAILS = 'dev@example.com';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    mockSend
+      .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
+      .mockResolvedValueOnce({});
+    const { handler } = await import('./handler');
+    const result = await handler(cognitoEvent({ status: 'DEPLOYED' }), {} as any, vi.fn());
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(result as string).status).toBe('DEPLOYED');
+  });
+
+  it('allows developer to set FIXED without a SHA in resolution', async () => {
+    process.env.DEVELOPER_EMAILS = 'dev@example.com';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    mockSend
+      .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
+      .mockResolvedValueOnce({});
+    const { handler } = await import('./handler');
+    const result = await handler(
+      cognitoEvent({ status: 'FIXED', resolution: 'manually verified' }),
+      {} as any, vi.fn(),
+    );
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(result as string).status).toBe('FIXED');
   });
 });

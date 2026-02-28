@@ -231,6 +231,20 @@ The game timer runs client-side with periodic sync to DynamoDB:
 - Docs: `docs/BUG-REPORT-SYSTEM.md` (architecture), `docs/AGENT-ISSUE-MANAGEMENT.md` (agent workflow)
 - Agent env vars: `APPSYNC_URL` (from amplify_outputs.json → data.url), `API_KEY` (data.api_key), `AGENT_API_SECRET` (AWS env, never in repo)
 
+#### Agent Bug Triage
+
+Agents may only set `IN_PROGRESS` or `FIXED`. `FIXED` requires a git commit SHA in the resolution. `CLOSED` and `DEPLOYED` require developer action in the dashboard.
+
+Three slash commands for triage (run in Claude Code):
+
+| Command | Description |
+|---------|-------------|
+| `/list-issues` | Display OPEN and IN_PROGRESS issues sorted by severity |
+| `/fix-issue <N>` | Mark issue #N as FIXED with the current commit SHA (prompts for confirmation) |
+| `/triage-issues` | Full automated loop: claim → investigate → fix → test → commit → mark FIXED |
+
+**Env var setup:** `source .env.local && claude` (`.env.local` should export `APPSYNC_URL`, `API_KEY`, and `AGENT_API_SECRET`)
+
 ## Testing Guidelines
 
 ### Unit Tests (Vitest)
