@@ -13,7 +13,7 @@ Fetch and display all OPEN and IN_PROGRESS issues from the TeamTrack issue track
    Query 1 — OPEN issues:
    ```graphql
    query {
-     listIssues(filter: { status: { eq: "OPEN" } }) {
+     listIssues(filter: { status: { eq: OPEN } }) {
        items {
          issueNumber
          severity
@@ -28,7 +28,7 @@ Fetch and display all OPEN and IN_PROGRESS issues from the TeamTrack issue track
    Query 2 — IN_PROGRESS issues:
    ```graphql
    query {
-     listIssues(filter: { status: { eq: "IN_PROGRESS" } }) {
+     listIssues(filter: { status: { eq: IN_PROGRESS } }) {
        items {
          issueNumber
          severity
