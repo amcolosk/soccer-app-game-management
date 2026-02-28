@@ -107,16 +107,28 @@ backend.sendInvitationEmail.addEnvironment('APP_URL', appUrl);
 const bugReportEmail = process.env.BUG_REPORT_EMAIL || 'admin@coachteamtrack.com';
 backend.sendBugReport.addEnvironment('TO_EMAIL', bugReportEmail);
 
-// Grant sendBugReport Lambda access to Issue and IssueCounter tables
+// Grant sendBugReport Lambda access to Issue and IssueCounter tables and their GSIs
 const issueTable = backend.data.resources.tables['Issue'];
 const issueCounterTable = backend.data.resources.tables['IssueCounter'];
 issueTable.grantReadWriteData(backend.sendBugReport.resources.lambda);
+backend.sendBugReport.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [`${issueTable.tableArn}/index/*`],
+  })
+);
 issueCounterTable.grantReadWriteData(backend.sendBugReport.resources.lambda);
 backend.sendBugReport.addEnvironment('ISSUE_TABLE_NAME', issueTable.tableName);
 backend.sendBugReport.addEnvironment('ISSUE_COUNTER_TABLE_NAME', issueCounterTable.tableName);
 
-// Grant updateIssueStatus Lambda access to Issue table only
+// Grant updateIssueStatus Lambda access to Issue table and its GSIs
 issueTable.grantReadWriteData(backend.updateIssueStatus.resources.lambda);
+backend.updateIssueStatus.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [`${issueTable.tableArn}/index/*`],
+  })
+);
 backend.updateIssueStatus.addEnvironment('ISSUE_TABLE_NAME', issueTable.tableName);
 
 // Inject S3 bucket name into Lambdas that need it and grant scoped access.
