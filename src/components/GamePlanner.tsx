@@ -109,6 +109,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [previousGames, setPreviousGames] = useState<Game[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [planWarnings, setPlanWarnings] = useState<string[]>([]);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [swapModalData, setSwapModalData] = useState<{
     rotationNumber: number;
@@ -579,6 +580,8 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           playerId: p.id,
           playerNumber: p.playerNumber || 0,
           preferredPositions: p.preferredPositions,
+          availableFromMinute: availabilities.find(a => a.playerId === p.id)?.availableFromMinute ?? undefined,
+          availableUntilMinute: availabilities.find(a => a.playerId === p.id)?.availableUntilMinute ?? undefined,
         }));
 
       const lineupArray = Array.from(startingLineup.entries()).map(([positionId, playerId]) => ({
@@ -602,7 +605,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         halftimeLineupArray = Array.from(halftimeLineup.entries()).map(([positionId, playerId]) => ({ playerId, positionId }));
       }
 
-      const generatedRotations = calculateFairRotations(
+      const { rotations: generatedRotations, warnings: newWarnings } = calculateFairRotations(
         availableRoster,
         lineupArray,
         rotations.length,
@@ -610,7 +613,13 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         team.maxPlayersOnField || positions.length,
         goaliePositionId,
         halftimeLineupArray,
+        { rotationIntervalMinutes, halfLengthMinutes, positions },
       );
+
+      setPlanWarnings(newWarnings);
+      if (newWarnings.length > 0) {
+        newWarnings.forEach(w => showWarning(w));
+      }
 
       // Update each rotation with generated substitutions
       const updates = rotations.map((rotation, idx) => {
@@ -1468,6 +1477,14 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                 </button>
               )}
             </div>
+
+            {planWarnings.length > 0 && (
+              <div className="plan-warnings-banner">
+                {planWarnings.map((w, i) => (
+                  <p key={i} className="plan-warning-item">⚠️ {w}</p>
+                ))}
+              </div>
+            )}
 
             {/* Timeline + selected detail + playtime */}
             {gamePlan && rotations.length > 0 ? (

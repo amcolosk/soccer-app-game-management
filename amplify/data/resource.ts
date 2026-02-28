@@ -143,6 +143,8 @@ const schema = a.schema({
       status: a.string().required(), // 'available', 'absent', 'injured', 'late-arrival'
       markedAt: a.datetime().required(), // When status was changed
       notes: a.string(), // Optional notes about availability
+      availableFromMinute: a.integer(), // null = available from game start (0)
+      availableUntilMinute: a.integer(), // null = available until game end
       coaches: a.string().array(), // Team coaches who can access this record
     })
     .authorization((allow) => [

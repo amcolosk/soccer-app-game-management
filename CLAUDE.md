@@ -2,19 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Feature Development Workflow
-
-**IMPORTANT**: When implementing any new feature, you MUST follow this agent pipeline in order. Do not skip steps or reorder them. If a stage fails or the reviewer fails, then go back to the appropriate state and continue from there to fix the issues identified.
-
-1. **planner** — Research requirements and produce a detailed implementation plan with tasks.
-2. **plan-architect** — Review the plan for feasibility, completeness, risk, and best practices. Revise if needed.
-3. **ui-designer** — Design the UI: wireframes, layout, component structure, mobile/desktop considerations.
-4. **implementer** — Write the code following the approved plan and UI design.
-5. **security-reviewer** — Review the implemented code for security vulnerabilities (OWASP Top 10, auth, data handling).
-6. **validation-engineer** — Review test coverage, identify gaps, and ensure tests properly validate the feature.
-
-Use the `Task` tool to invoke each agent in sequence, passing the outputs from prior stages as context to each subsequent agent. Do not proceed to the next stage until the current agent has completed its work. Security Reviewer and validation engineer work can be done in parallel.
-
 ## Project Overview
 
 TeamTrack is a progressive web app for coaches to manage teams, players, and game day operations. It tracks lineups, play time, substitutions, and ensures fair playing time distribution. Built with React 19, TypeScript, Vite, and AWS Amplify Gen2.

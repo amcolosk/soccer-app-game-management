@@ -13,6 +13,10 @@ interface PlayerAvailabilityGridProps {
   players: Player[];
   gameId: string;
   coaches: string[];
+  /** Half length in minutes — used to set availableFromMinute for late arrivals */
+  halfLengthMinutes?: number;
+  /** Current elapsed game minutes — used to set availableUntilMinute for injuries */
+  elapsedGameMinutes?: number;
 }
 
 export const STATUS_CYCLE: Array<"available" | "absent" | "late-arrival" | "injured"> = [
@@ -56,6 +60,8 @@ export function PlayerAvailabilityGrid({
   players,
   gameId,
   coaches,
+  halfLengthMinutes,
+  elapsedGameMinutes,
 }: PlayerAvailabilityGridProps) {
   const { getPlayerAvailability } = useAvailability();
   const handleToggle = async (playerId: string) => {
@@ -65,8 +71,22 @@ export function PlayerAvailabilityGrid({
     );
     const newStatus = STATUS_CYCLE[(currentIndex + 1) % STATUS_CYCLE.length];
 
+    // Derive availability window for special statuses.
+    // Pass null for available/absent to clear any stale window values in the DB.
+    const clearsWindow = newStatus === 'available' || newStatus === 'absent';
+    const availableFromMinute = clearsWindow
+      ? null
+      : newStatus === 'late-arrival' && halfLengthMinutes !== undefined
+        ? halfLengthMinutes
+        : undefined;
+    const availableUntilMinute = clearsWindow
+      ? null
+      : newStatus === 'injured' && elapsedGameMinutes !== undefined
+        ? elapsedGameMinutes
+        : undefined;
+
     try {
-      await updatePlayerAvailability(gameId, playerId, newStatus, undefined, coaches);
+      await updatePlayerAvailability(gameId, playerId, newStatus, undefined, coaches, availableFromMinute, availableUntilMinute);
     } catch (error) {
       handleApiError(error, 'Failed to update player availability');
     }

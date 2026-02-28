@@ -105,7 +105,7 @@ vi.mock("../../services/cascadeDeleteService", () => ({
 }));
 vi.mock("../../services/rotationPlannerService", () => ({
   updatePlayerAvailability: vi.fn().mockResolvedValue(undefined),
-  calculateFairRotations:   vi.fn().mockReturnValue([]),
+  calculateFairRotations:   vi.fn().mockReturnValue({ rotations: [], warnings: [] }),
 }));
 vi.mock("../../contexts/AvailabilityContext", () => ({
   AvailabilityProvider: ({ children }: any) => children,

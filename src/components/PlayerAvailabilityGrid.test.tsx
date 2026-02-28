@@ -113,7 +113,7 @@ describe("PlayerAvailabilityGrid", () => {
     await user.click(screen.getAllByRole("button")[0]);
 
     expect(mockUpdate).toHaveBeenCalledWith(
-      "game-1", "p1", "absent", undefined, ["coach-1"]
+      "game-1", "p1", "absent", undefined, ["coach-1"], null, null
     );
   });
 
@@ -129,7 +129,7 @@ describe("PlayerAvailabilityGrid", () => {
     await user.click(screen.getAllByRole("button")[0]);
 
     expect(mockUpdate).toHaveBeenCalledWith(
-      "game-1", "p1", "late-arrival", undefined, ["coach-1"]
+      "game-1", "p1", "late-arrival", undefined, ["coach-1"], undefined, undefined
     );
   });
 
@@ -145,7 +145,7 @@ describe("PlayerAvailabilityGrid", () => {
     await user.click(screen.getAllByRole("button")[0]);
 
     expect(mockUpdate).toHaveBeenCalledWith(
-      "game-1", "p1", "available", undefined, ["coach-1"]
+      "game-1", "p1", "available", undefined, ["coach-1"], null, null
     );
   });
 
@@ -162,7 +162,7 @@ describe("PlayerAvailabilityGrid", () => {
 
     // indexOf('unknown') = -1, (-1+1)%4 = 0 => 'available'
     expect(mockUpdate).toHaveBeenCalledWith(
-      "game-1", "p1", "available", undefined, ["coach-1"]
+      "game-1", "p1", "available", undefined, ["coach-1"], null, null
     );
   });
 

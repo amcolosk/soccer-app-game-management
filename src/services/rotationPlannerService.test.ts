@@ -1,12 +1,27 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   calculateFairRotations,
   calculatePlayTime,
   validateRotationPlan,
   calculateRotationMinute,
+  updatePlayerAvailability,
   type SimpleRoster,
   type PlannedSubstitution,
 } from './rotationPlannerService';
+
+// Mock the Amplify client so updatePlayerAvailability validation tests don't hit the network
+vi.mock('../../amplify/data/resource', () => ({ default: {} }));
+vi.mock('aws-amplify/data', () => ({
+  generateClient: () => ({
+    models: {
+      PlayerAvailability: {
+        list:   vi.fn().mockResolvedValue({ data: [] }),
+        create: vi.fn().mockResolvedValue({ data: {} }),
+        update: vi.fn().mockResolvedValue({ data: {} }),
+      },
+    },
+  }),
+}));
 
 describe('rotationPlannerService', () => {
   describe('calculateFairRotations', () => {
@@ -32,7 +47,7 @@ describe('rotationPlannerService', () => {
         { playerId: 'p6', positionId: 'pos6' },
       ];
 
-      const rotations = calculateFairRotations(
+      const { rotations } = calculateFairRotations(
         players,
         startingLineup,
         4, // totalRotations
@@ -65,7 +80,7 @@ describe('rotationPlannerService', () => {
         { playerId: 'p6', positionId: 'pos6' },
       ];
 
-      const rotations = calculateFairRotations(
+      const { rotations } = calculateFairRotations(
         players,
         startingLineup,
         4,
@@ -103,7 +118,7 @@ describe('rotationPlannerService', () => {
         positionId: `pos${i + 1}`,
       }));
 
-      const rotations = calculateFairRotations(
+      const { rotations } = calculateFairRotations(
         players,
         startingLineup,
         4,
@@ -133,7 +148,7 @@ describe('rotationPlannerService', () => {
         positionId: `pos${i + 1}`,
       }));
 
-      const rotations = calculateFairRotations(
+      const { rotations } = calculateFairRotations(
         players,
         startingLineup,
         4,
@@ -162,7 +177,7 @@ describe('rotationPlannerService', () => {
       }));
 
       // With exactly 6 players and 6 positions, there are no subs possible
-      const rotations = calculateFairRotations(
+      const { rotations } = calculateFairRotations(
         players,
         startingLineup,
         4,
@@ -202,7 +217,7 @@ describe('rotationPlannerService', () => {
         { playerId: 'p6', positionId: 'pos6' },
       ];
 
-      const rotations = calculateFairRotations(players, startingLineup, 4, 2, 6);
+      const { rotations } = calculateFairRotations(players, startingLineup, 4, 2, 6);
 
       // Check that in the first rotation, bench players are assigned to their preferred positions
       const firstRotSubs = rotations[0].substitutions;
@@ -241,7 +256,7 @@ describe('rotationPlannerService', () => {
         { playerId: 'p6', positionId: 'pos6' },
       ];
 
-      const rotations = calculateFairRotations(players, startingLineup, 4, 2, 6);
+      const { rotations } = calculateFairRotations(players, startingLineup, 4, 2, 6);
       const firstRotSubs = rotations[0].substitutions;
 
       const p7Sub = firstRotSubs.find(s => s.playerInId === 'p7');
@@ -273,7 +288,7 @@ describe('rotationPlannerService', () => {
         { playerId: 'p6', positionId: 'pos6' },
       ];
 
-      const rotations = calculateFairRotations(
+      const { rotations } = calculateFairRotations(
         players, startingLineup, 4, 2, 6,
         'pos1' // goaliePositionId
       );
@@ -306,7 +321,7 @@ describe('rotationPlannerService', () => {
 
       // With goaliePositionId set but NO halftimeLineup, the auto-compute at halftime
       // may still swap the GK (halftime is the exception)
-      const rotations = calculateFairRotations(
+      const { rotations } = calculateFairRotations(
         players, startingLineup, 4, 2, 6,
         'pos1' // goaliePositionId
       );
@@ -344,7 +359,7 @@ describe('rotationPlannerService', () => {
       ];
 
       // totalRotations = 1, rotationsPerHalf = 0 → rotNum 1 is halftime
-      const rotations = calculateFairRotations(
+      const { rotations } = calculateFairRotations(
         players, startingLineup, 1, 0, 3,
         undefined,
         halftimeLineup
@@ -384,7 +399,7 @@ describe('rotationPlannerService', () => {
         { playerId: 'p2', positionId: 'pos2' },
       ];
 
-      const rotations = calculateFairRotations(
+      const { rotations } = calculateFairRotations(
         players, startingLineup, 1, 0, 2,
         undefined,
         halftimeLineup
@@ -415,7 +430,7 @@ describe('rotationPlannerService', () => {
         { playerId: 'p6', positionId: 'pos6' },
       ];
 
-      const rotations = calculateFairRotations(players, startingLineup, 4, 2, 6);
+      const { rotations } = calculateFairRotations(players, startingLineup, 4, 2, 6);
 
       expect(rotations).toHaveLength(4);
       rotations.forEach(rotation => {
@@ -454,7 +469,7 @@ describe('rotationPlannerService', () => {
       ];
 
       // rotationsPerHalf = 2, so rotNum 3 (index 2) is halftime
-      const rotations = calculateFairRotations(players, startingLineup, 4, 2, 6);
+      const { rotations } = calculateFairRotations(players, startingLineup, 4, 2, 6);
 
       // Halftime rotation is at index 2 (rotNum 3 = rotationsPerHalf + 1)
       const halftimeSubs = rotations[2].substitutions;
@@ -1011,6 +1026,276 @@ describe('rotationPlannerService', () => {
     });
   });
 
+  describe('Spec Compliance — TC-01 through TC-10', () => {
+    // Baseline: 5v5, 7 players, 40-min game, 20-min halves, 5-min intervals
+    // rotationsPerHalf=3, totalRotations=6
+    // Rotation minutes: [5, 10, 15, 20(HT), 25, 30]; game ends at 40
+    const ROTATION_MINUTES = [5, 10, 15, 20, 25, 30];
+    const GAME_END = 40;
+
+    const positions = [
+      { id: 'pos-gk',   abbreviation: 'GK' },
+      { id: 'pos-def1', abbreviation: 'DF' },
+      { id: 'pos-def2', abbreviation: 'DF' },
+      { id: 'pos-fwd1', abbreviation: 'FW' },
+      { id: 'pos-fwd2', abbreviation: 'FW' },
+    ];
+
+    const opts = { rotationIntervalMinutes: 5, halfLengthMinutes: 20, positions };
+
+    const ALL_POSITIONS = 'pos-gk, pos-def1, pos-def2, pos-fwd1, pos-fwd2';
+    const basePlayers: SimpleRoster[] = [
+      { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: ALL_POSITIONS },
+      { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: ALL_POSITIONS },
+      { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: ALL_POSITIONS },
+      { id: 'r4', playerId: 'p4', playerNumber: 4, preferredPositions: ALL_POSITIONS },
+      { id: 'r5', playerId: 'p5', playerNumber: 5, preferredPositions: ALL_POSITIONS },
+      { id: 'r6', playerId: 'p6', playerNumber: 6, preferredPositions: ALL_POSITIONS },
+      { id: 'r7', playerId: 'p7', playerNumber: 7, preferredPositions: ALL_POSITIONS },
+    ];
+
+    const baseStartingLineup = [
+      { playerId: 'p1', positionId: 'pos-gk' },
+      { playerId: 'p2', positionId: 'pos-def1' },
+      { playerId: 'p3', positionId: 'pos-def2' },
+      { playerId: 'p4', positionId: 'pos-fwd1' },
+      { playerId: 'p5', positionId: 'pos-fwd2' },
+    ];
+
+    /** Simulate actual play minutes from rotation output */
+    function computePlayMinutes(
+      startingLineup: Array<{ playerId: string; positionId: string }>,
+      rotations: Array<{ substitutions: PlannedSubstitution[] }>,
+      rotationMinutes: number[],
+      gameEndMinute: number,
+    ): Map<string, number> {
+      const field = new Map<string, string>();
+      startingLineup.forEach(({ playerId, positionId }) => field.set(playerId, positionId));
+      const playMin = new Map<string, number>();
+      let lastMin = 0;
+      for (let i = 0; i < rotations.length; i++) {
+        const min = rotationMinutes[i];
+        for (const pid of field.keys()) {
+          playMin.set(pid, (playMin.get(pid) ?? 0) + (min - lastMin));
+        }
+        lastMin = min;
+        for (const sub of rotations[i].substitutions) {
+          field.delete(sub.playerOutId);
+          field.set(sub.playerInId, sub.positionId);
+        }
+      }
+      for (const pid of field.keys()) {
+        playMin.set(pid, (playMin.get(pid) ?? 0) + (gameEndMinute - lastMin));
+      }
+      return playMin;
+    }
+
+    it('TC-01: all 7 players get ≥20 min; GK position has at most 1 sub', () => {
+      const { rotations } = calculateFairRotations(
+        basePlayers, baseStartingLineup, 6, 3, 5, 'pos-gk', undefined, opts,
+      );
+      expect(rotations).toHaveLength(6);
+
+      const minutes = computePlayMinutes(baseStartingLineup, rotations, ROTATION_MINUTES, GAME_END);
+      for (const pid of ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']) {
+        expect(minutes.get(pid) ?? 0).toBeGreaterThanOrEqual(20);
+        expect(minutes.get(pid) ?? 0).toBeLessThanOrEqual(35);
+      }
+
+      // GK slot subbed at most once (halftime only, no regular-rotation GK sub)
+      const allGkSubs = rotations.flatMap(r => r.substitutions).filter(s => s.positionId === 'pos-gk');
+      expect(allGkSubs.length).toBeLessThanOrEqual(1);
+    });
+
+    it('TC-02: only GK-preferred players fill pos-gk; GK never subbed in regular rotations', () => {
+      // p1 is sole GK-preferred player
+      const players = basePlayers.map(p =>
+        p.playerId === 'p1'
+          ? { ...p, preferredPositions: 'pos-gk' }
+          : { ...p, preferredPositions: 'pos-def1, pos-def2, pos-fwd1, pos-fwd2' },
+      );
+
+      const { rotations } = calculateFairRotations(
+        players, baseStartingLineup, 6, 3, 5, 'pos-gk', undefined, opts,
+      );
+
+      // Any sub into pos-gk must be a GK-preferred player
+      const gkSubIns = rotations.flatMap(r => r.substitutions).filter(s => s.positionId === 'pos-gk');
+      gkSubIns.forEach(s => {
+        const inPlayer = players.find(p => p.playerId === s.playerInId);
+        expect(inPlayer?.preferredPositions).toContain('pos-gk');
+      });
+
+      // p1 must not appear as playerOut in non-halftime rotations (indices 0,1,2,4,5)
+      for (const i of [0, 1, 2, 4, 5]) {
+        rotations[i].substitutions.forEach(s => {
+          expect(s.playerOutId).not.toBe('p1');
+        });
+      }
+    });
+
+    it('TC-03: no player appears in two positions at same rotation; no player both in and out', () => {
+      const { rotations } = calculateFairRotations(
+        basePlayers, baseStartingLineup, 6, 3, 5, 'pos-gk', undefined, opts,
+      );
+
+      rotations.forEach(rotation => {
+        const playerOuts = rotation.substitutions.map(s => s.playerOutId);
+        const playerIns  = rotation.substitutions.map(s => s.playerInId);
+
+        expect(new Set(playerOuts).size).toBe(playerOuts.length);
+        expect(new Set(playerIns).size).toBe(playerIns.length);
+
+        // No player is both subbed in and subbed out in the same rotation
+        playerOuts.forEach(id => expect(playerIns).not.toContain(id));
+      });
+    });
+
+    it('TC-04: player with only FWD preference never fills GK position', () => {
+      const players = basePlayers.map(p =>
+        p.playerId === 'p7'
+          ? { ...p, preferredPositions: 'pos-fwd1' }
+          : p,
+      );
+
+      const { rotations } = calculateFairRotations(
+        players, baseStartingLineup, 6, 3, 5, 'pos-gk', undefined, opts,
+      );
+
+      const allSubs = rotations.flatMap(r => r.substitutions);
+      const p7InGk = allSubs.find(s => s.playerInId === 'p7' && s.positionId === 'pos-gk');
+      expect(p7InGk).toBeUndefined();
+    });
+
+    it('TC-05: STRIKER starters forced off after 1 rotation; DEFENDER starters stay through rotation 0', () => {
+      // p4 (pos-fwd1=FW/STRIKER max 1), p5 (pos-fwd2=FW/STRIKER max 1) should be forced off after rotNum=1
+      // p2 (pos-def1=DF/DEFENDER max 2), p3 (pos-def2=DF/DEFENDER max 2) should stay at rotation 0
+      const { rotations } = calculateFairRotations(
+        basePlayers, baseStartingLineup, 6, 3, 5, 'pos-gk', undefined, opts,
+      );
+
+      const rotation0Subs = rotations[0].substitutions;
+
+      expect(rotation0Subs.find(s => s.playerOutId === 'p4')).toBeDefined();
+      expect(rotation0Subs.find(s => s.playerOutId === 'p5')).toBeDefined();
+
+      // DEF players should NOT be subbed in rotation 0 (max 2 continuous rotations)
+      rotation0Subs.forEach(s => {
+        expect(s.playerOutId).not.toBe('p2');
+        expect(s.playerOutId).not.toBe('p3');
+      });
+    });
+
+    it('TC-06: sole GK-preferred player plays full 40 min; never subbed out', () => {
+      const players = basePlayers.map(p =>
+        p.playerId === 'p1'
+          ? { ...p, preferredPositions: 'pos-gk' }
+          : { ...p, preferredPositions: 'pos-def1, pos-def2, pos-fwd1, pos-fwd2' },
+      );
+
+      const { rotations } = calculateFairRotations(
+        players, baseStartingLineup, 6, 3, 5, 'pos-gk', undefined, opts,
+      );
+
+      // p1 never appears as playerOut
+      const allSubs = rotations.flatMap(r => r.substitutions);
+      allSubs.forEach(s => expect(s.playerOutId).not.toBe('p1'));
+
+      // p1 plays the full 40 min
+      const minutes = computePlayMinutes(baseStartingLineup, rotations, ROTATION_MINUTES, GAME_END);
+      expect(minutes.get('p1')).toBe(40);
+    });
+
+    it('TC-07: player with availableUntilMinute=10 forced off at minute 10; others unaffected', () => {
+      // Disable position-based fatigue so the injury window is the trigger (not fatigue)
+      const optsNF = { rotationIntervalMinutes: 5, halfLengthMinutes: 20 };
+
+      // p5 starts on field, gets injured at minute 10 (availableUntilMinute=10)
+      const players = basePlayers.map(p =>
+        p.playerId === 'p5' ? { ...p, availableUntilMinute: 10 } : p,
+      );
+
+      const { rotations } = calculateFairRotations(
+        players, baseStartingLineup, 6, 3, 5, 'pos-gk', undefined, optsNF,
+      );
+
+      // p5 must be forced off at or before rotNum=2 (minute 10, index 1)
+      const p5Out = rotations.slice(0, 2).flatMap(r => r.substitutions).find(s => s.playerOutId === 'p5');
+      expect(p5Out).toBeDefined();
+
+      // p5 does not come back (not eligible after minute 10)
+      for (let i = 2; i < 6; i++) {
+        const p5Back = rotations[i].substitutions.find(s => s.playerInId === 'p5');
+        expect(p5Back).toBeUndefined();
+      }
+
+      // Remaining 6 players still get meaningful play time
+      const minutes = computePlayMinutes(baseStartingLineup, rotations, ROTATION_MINUTES, GAME_END);
+      for (const pid of ['p1', 'p2', 'p3', 'p4', 'p6', 'p7']) {
+        expect(minutes.get(pid) ?? 0).toBeGreaterThanOrEqual(15);
+      }
+    });
+
+    it('TC-08: player with availableFromMinute=20 excluded from first half; scheduled in 2nd half', () => {
+      // p7 starts on bench, arrives at halftime (availableFromMinute=20)
+      const players = basePlayers.map(p =>
+        p.playerId === 'p7' ? { ...p, availableFromMinute: 20 } : p,
+      );
+
+      const { rotations } = calculateFairRotations(
+        players, baseStartingLineup, 6, 3, 5, 'pos-gk', undefined, opts,
+      );
+
+      // p7 not subbed in during first half (indices 0–2)
+      for (let i = 0; i < 3; i++) {
+        const p7In = rotations[i].substitutions.find(s => s.playerInId === 'p7');
+        expect(p7In).toBeUndefined();
+      }
+
+      // p7 comes on at halftime (index 3) or in second half (indices 4–5)
+      const p7Appearances = [3, 4, 5].flatMap(i =>
+        rotations[i].substitutions.filter(s => s.playerInId === 'p7'),
+      );
+      expect(p7Appearances.length).toBeGreaterThan(0);
+
+      // p7 accumulates at least 5 min of play
+      const minutes = computePlayMinutes(baseStartingLineup, rotations, ROTATION_MINUTES, GAME_END);
+      expect(minutes.get('p7') ?? 0).toBeGreaterThanOrEqual(5);
+    });
+
+    it('TC-09: no GK-preferred player generates "No eligible goalies" warning', () => {
+      const players = basePlayers.map(p => ({
+        ...p,
+        preferredPositions: 'pos-def1, pos-def2, pos-fwd1, pos-fwd2',
+      }));
+
+      const { warnings } = calculateFairRotations(
+        players, baseStartingLineup, 6, 3, 5, 'pos-gk', undefined, opts,
+      );
+
+      expect(warnings.some(w => w.includes('No eligible goalies available'))).toBe(true);
+    });
+
+    it('TC-10: exactly 5 players — noSubsAvailable; no subs in regular rotations; all play 40 min', () => {
+      const fivePlayers = basePlayers.slice(0, 5);
+
+      const { rotations } = calculateFairRotations(
+        fivePlayers, baseStartingLineup, 6, 3, 5, 'pos-gk', undefined, opts,
+      );
+
+      // Regular rotations (non-halftime) must have zero subs
+      for (const i of [0, 1, 2, 4, 5]) {
+        expect(rotations[i].substitutions).toHaveLength(0);
+      }
+
+      // All 5 players play the full 40 min
+      const minutes = computePlayMinutes(baseStartingLineup, rotations, ROTATION_MINUTES, GAME_END);
+      for (const pid of ['p1', 'p2', 'p3', 'p4', 'p5']) {
+        expect(minutes.get(pid)).toBe(40);
+      }
+    });
+  });
+
   describe('rotation interval calculations', () => {
     it('should create 2 rotations per half for 30-min halves with 10-min intervals', () => {
       const players: SimpleRoster[] = Array.from({ length: 8 }, (_, i) => ({
@@ -1026,7 +1311,7 @@ describe('rotationPlannerService', () => {
       }));
 
       // With 30-min halves and 10-min intervals, should create 2 rotations per half = 4 total
-      const rotations = calculateFairRotations(players, startingLineup, 4, 2, 6);
+      const { rotations } = calculateFairRotations(players, startingLineup, 4, 2, 6);
       
       expect(rotations).toHaveLength(4);
       
@@ -1058,7 +1343,7 @@ describe('rotationPlannerService', () => {
       }));
 
       // With 30-min halves and 15-min intervals, should create 1 rotation per half = 2 total
-      const rotations = calculateFairRotations(players, startingLineup, 2, 1, 6);
+      const { rotations } = calculateFairRotations(players, startingLineup, 2, 1, 6);
       
       expect(rotations).toHaveLength(2);
       
@@ -1082,7 +1367,7 @@ describe('rotationPlannerService', () => {
       }));
 
       // With 30-min halves and 5-min intervals, should create 5 rotations per half = 10 total
-      const rotations = calculateFairRotations(players, startingLineup, 10, 5, 6);
+      const { rotations } = calculateFairRotations(players, startingLineup, 10, 5, 6);
       
       expect(rotations).toHaveLength(10);
       
@@ -1091,6 +1376,56 @@ describe('rotationPlannerService', () => {
         expect(rotation.substitutions).toBeDefined();
         expect(Array.isArray(rotation.substitutions)).toBe(true);
       });
+    });
+  });
+
+  describe('updatePlayerAvailability — input validation', () => {
+    it('rejects a negative availableFromMinute', async () => {
+      await expect(
+        updatePlayerAvailability('g1', 'p1', 'late-arrival', undefined, ['c1'], -1, undefined),
+      ).rejects.toThrow('availableFromMinute must be a non-negative integer');
+    });
+
+    it('rejects a negative availableUntilMinute', async () => {
+      await expect(
+        updatePlayerAvailability('g1', 'p1', 'injured', undefined, ['c1'], undefined, -5),
+      ).rejects.toThrow('availableUntilMinute must be a non-negative integer');
+    });
+
+    it('rejects a non-integer availableFromMinute', async () => {
+      await expect(
+        updatePlayerAvailability('g1', 'p1', 'late-arrival', undefined, ['c1'], 10.5, undefined),
+      ).rejects.toThrow('availableFromMinute must be a non-negative integer');
+    });
+
+    it('rejects availableFromMinute >= availableUntilMinute', async () => {
+      await expect(
+        updatePlayerAvailability('g1', 'p1', 'injured', undefined, ['c1'], 20, 10),
+      ).rejects.toThrow('availableFromMinute must be less than availableUntilMinute');
+    });
+
+    it('rejects equal availableFromMinute and availableUntilMinute', async () => {
+      await expect(
+        updatePlayerAvailability('g1', 'p1', 'injured', undefined, ['c1'], 10, 10),
+      ).rejects.toThrow('availableFromMinute must be less than availableUntilMinute');
+    });
+
+    it('accepts valid window values (from < until)', async () => {
+      await expect(
+        updatePlayerAvailability('g1', 'p1', 'late-arrival', undefined, ['c1'], 20, 40),
+      ).resolves.not.toThrow();
+    });
+
+    it('accepts null values (clearing window fields)', async () => {
+      await expect(
+        updatePlayerAvailability('g1', 'p1', 'available', undefined, ['c1'], null, null),
+      ).resolves.not.toThrow();
+    });
+
+    it('accepts undefined (no window change)', async () => {
+      await expect(
+        updatePlayerAvailability('g1', 'p1', 'available', undefined, ['c1'], undefined, undefined),
+      ).resolves.not.toThrow();
     });
   });
 });

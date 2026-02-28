@@ -12,7 +12,40 @@ export interface SimpleRoster {
   playerId: string;
   playerNumber: number;
   preferredPositions?: string;
+  availableFromMinute?: number;   // null/undefined = available from game start (0)
+  availableUntilMinute?: number;  // null/undefined = available until game end
 }
+
+interface RotationOptions {
+  rotationIntervalMinutes: number;
+  halfLengthMinutes: number;
+  positions?: Array<{ id: string; abbreviation?: string | null }>;
+}
+
+export interface RotationResult {
+  rotations: Array<{ substitutions: PlannedSubstitution[] }>;
+  warnings: string[];
+}
+
+type PositionGroup = 'GOALKEEPER' | 'STRIKER' | 'MIDFIELDER' | 'DEFENDER' | 'UNKNOWN';
+
+function inferPositionGroup(abbreviation?: string | null): PositionGroup {
+  if (!abbreviation) return 'UNKNOWN';
+  const upper = abbreviation.toUpperCase().trim();
+  if (['GK', 'G', 'GOAL'].includes(upper)) return 'GOALKEEPER';
+  if (['FW', 'FWD', 'ST', 'S', 'CF', 'LW', 'RW', 'W', 'WF'].includes(upper)) return 'STRIKER';
+  if (['MF', 'MID', 'CM', 'RM', 'LM', 'AM', 'DM', 'CAM', 'CDM'].includes(upper)) return 'MIDFIELDER';
+  if (['DF', 'DEF', 'CB', 'LB', 'RB', 'LWB', 'RWB'].includes(upper)) return 'DEFENDER';
+  return 'UNKNOWN';
+}
+
+const MAX_CONTINUOUS_ROTATIONS: Record<PositionGroup, number> = {
+  GOALKEEPER: Infinity,
+  STRIKER: 1,
+  MIDFIELDER: 2,
+  DEFENDER: 2,
+  UNKNOWN: 2,
+};
 
 interface PlayerPlayTime {
   playerId: string;
@@ -20,10 +53,6 @@ interface PlayerPlayTime {
   rotations: Array<{ rotationNumber: number; onField: boolean; positionId?: string }>;
 }
 
-/**
- * Calculates fair rotation schedule ensuring equal play time
- * Exported for testing purposes
- */
 /**
  * Calculate the game minute for a rotation
  * @param rotationNumber - The rotation number (1-indexed)
@@ -59,11 +88,25 @@ export function calculateFairRotations(
   /** Position ID of the goalkeeper slot — never auto-subbed in regular rotations */
   goaliePositionId?: string,
   /** If the coach has already set a halftime lineup, keep it and plan second-half rotations from it */
-  halftimeLineup?: Array<{ playerId: string; positionId: string }>
-): Array<{ substitutions: PlannedSubstitution[] }> {
+  halftimeLineup?: Array<{ playerId: string; positionId: string }>,
+  options?: RotationOptions
+): RotationResult {
+  const warnings: string[] = [];
+  const rotationIntervalMinutes = options?.rotationIntervalMinutes ?? 5;
+  const halfLengthMinutes = options?.halfLengthMinutes ?? 30;
+  const totalGameMinutes = halfLengthMinutes * 2;
+
+  // Build position group map from options
+  const positionGroupMap = new Map<string, PositionGroup>();
+  if (options?.positions) {
+    for (const pos of options.positions) {
+      positionGroupMap.set(pos.id, inferPositionGroup(pos.abbreviation));
+    }
+  }
+
   const playerIds = availablePlayers.map(p => p.playerId);
-  const rotations: Array<{ substitutions: PlannedSubstitution[] }> = [];
-  
+  const playerById = new Map<string, SimpleRoster>(availablePlayers.map(p => [p.playerId, p]));
+
   // Build preferred positions lookup: playerId -> Set of positionIds
   const preferredPositionsMap = new Map<string, Set<string>>();
   for (const player of availablePlayers) {
@@ -73,32 +116,54 @@ export function calculateFairRotations(
     }
   }
 
-  // Check if a player prefers a given position
   const prefersPosition = (playerId: string, positionId: string): boolean => {
     const prefs = preferredPositionsMap.get(playerId);
     return prefs ? prefs.has(positionId) : false;
   };
 
+  // GK preference: player has goaliePositionId in their preferredPositions
+  const isGkPreferred = (playerId: string): boolean => {
+    if (!goaliePositionId) return false;
+    return prefersPosition(playerId, goaliePositionId);
+  };
+
+  // Pre-loop validation
+  // TC-09: Check for GK-preferred players
+  if (goaliePositionId) {
+    const hasGoalieCandidates = availablePlayers.some(p => isGkPreferred(p.playerId));
+    if (!hasGoalieCandidates) {
+      warnings.push('No eligible goalies available. Please assign a goalkeeper manually.');
+    }
+  }
+
+  // TC-10: Short bench detection — skip fatigue and 50% rules
+  const noSubsAvailable = availablePlayers.length <= maxPlayersOnField;
+
   /**
-   * Given a set of positions to fill and candidate bench players (sorted by least time),
-   * return the best assignment: bench players matched to positions they prefer when possible.
-   * Falls back to time-based ordering when preferences don't help.
+   * Assign bench candidates to positions respecting GK lock and preferences.
+   * When gkLocked=true, only GK-preferred players may fill the GK position.
    */
   const assignPlayersToPositions = (
     positionsToFill: string[],
-    benchCandidates: Array<{ id: string; time: number }>
+    benchCandidates: Array<{ id: string; time: number }>,
+    gkLocked = false
   ): Array<{ playerId: string; positionId: string }> => {
     const assignments: Array<{ playerId: string; positionId: string }> = [];
     const usedPlayers = new Set<string>();
     const usedPositions = new Set<string>();
 
-    // Pass 1: Assign bench players to positions they prefer (least time first)
+    const canFillPosition = (candidateId: string, posId: string): boolean => {
+      if (gkLocked && posId === goaliePositionId && !isGkPreferred(candidateId)) return false;
+      return true;
+    };
+
+    // Pass 1: preferred positions
     for (const candidate of benchCandidates) {
       if (usedPlayers.size >= positionsToFill.length) break;
       if (usedPlayers.has(candidate.id)) continue;
-
       for (const posId of positionsToFill) {
         if (usedPositions.has(posId)) continue;
+        if (!canFillPosition(candidate.id, posId)) continue;
         if (prefersPosition(candidate.id, posId)) {
           assignments.push({ playerId: candidate.id, positionId: posId });
           usedPlayers.add(candidate.id);
@@ -108,13 +173,13 @@ export function calculateFairRotations(
       }
     }
 
-    // Pass 2: Fill remaining positions with remaining bench players (least time first)
+    // Pass 2: any remaining position
     for (const candidate of benchCandidates) {
       if (usedPlayers.size >= positionsToFill.length) break;
       if (usedPlayers.has(candidate.id)) continue;
-
       for (const posId of positionsToFill) {
         if (usedPositions.has(posId)) continue;
+        if (!canFillPosition(candidate.id, posId)) continue;
         assignments.push({ playerId: candidate.id, positionId: posId });
         usedPlayers.add(candidate.id);
         usedPositions.add(posId);
@@ -128,25 +193,59 @@ export function calculateFairRotations(
   // Track current field state
   let currentField = new Set(startingLineup.map(s => s.playerId));
   const positionMap = new Map(startingLineup.map(s => [s.playerId, s.positionId]));
-  
-  // Track play time in rotation units
-  const playTimeRotations = new Map<string, number>();
-  playerIds.forEach(id => {
-    playTimeRotations.set(id, currentField.has(id) ? 1 : 0);
-  });
+
+  // Play time tracking (minutes)
+  const playTimeMinutes = new Map<string, number>();
+  playerIds.forEach(id => playTimeMinutes.set(id, 0));
+
+  // Consecutive on-field intervals (reset to 0 when benched or at halftime)
+  const continuousRotations = new Map<string, number>();
+  playerIds.forEach(id => continuousRotations.set(id, 0));
+
+  // Half field tracking
+  const halfOnField = { first: new Set<string>(), second: new Set<string>() };
+
+  const rotations: Array<{ substitutions: PlannedSubstitution[] }> = [];
 
   for (let rotNum = 1; rotNum <= totalRotations; rotNum++) {
+    const isHalftime = rotNum === rotationsPerHalf + 1;
+    const isFirstHalf = rotNum <= rotationsPerHalf;
+    const isSecondHalf = rotNum > rotationsPerHalf + 1;
+    const isLastFirstHalfRotation = rotNum === rotationsPerHalf;
+    const isLastRotation = rotNum === totalRotations;
     const substitutions: PlannedSubstitution[] = [];
-    
-    // At halftime, either apply coach-set lineup or auto-swap fresh legs
-    if (rotNum === rotationsPerHalf + 1) {
+
+    // Step 1: Accumulate play time and update continuousRotations BEFORE computing subs
+    currentField.forEach(id => {
+      playTimeMinutes.set(id, (playTimeMinutes.get(id) ?? 0) + rotationIntervalMinutes);
+      continuousRotations.set(id, (continuousRotations.get(id) ?? 0) + 1);
+      if (isFirstHalf || isHalftime) halfOnField.first.add(id);
+      if (isSecondHalf) halfOnField.second.add(id);
+    });
+
+    // Current game minute after this interval has elapsed
+    const currentGameMinute = rotNum <= rotationsPerHalf + 1
+      ? rotNum * rotationIntervalMinutes
+      : halfLengthMinutes + (rotNum - rotationsPerHalf - 1) * rotationIntervalMinutes;
+
+    const minutesRemaining = totalGameMinutes - currentGameMinute;
+
+    // Helper: is a player eligible to be on field at this game minute?
+    const isEligible = (id: string): boolean => {
+      const p = playerById.get(id);
+      if (!p) return false;
+      const from = p.availableFromMinute ?? 0;
+      const until = p.availableUntilMinute ?? totalGameMinutes;
+      return currentGameMinute >= from && currentGameMinute < until;
+    };
+
+    if (isHalftime) {
+      // --- Halftime handling ---
       if (halftimeLineup && halftimeLineup.length > 0) {
-        // Coach has set the halftime lineup — diff current state to target and apply it
+        // Coach-set lineup: diff and apply
         const currentPosToPlayer = new Map<string, string>();
         for (const [playerId, positionId] of positionMap.entries()) {
-          if (currentField.has(playerId)) {
-            currentPosToPlayer.set(positionId, playerId);
-          }
+          if (currentField.has(playerId)) currentPosToPlayer.set(positionId, playerId);
         }
 
         const prevField = new Set(currentField);
@@ -155,39 +254,49 @@ export function calculateFairRotations(
         for (const { positionId, playerId: newPlayerId } of halftimeLineup) {
           const currentPlayerId = currentPosToPlayer.get(positionId);
           if (currentPlayerId && currentPlayerId !== newPlayerId) {
-            substitutions.push({
-              playerOutId: currentPlayerId,
-              playerInId: newPlayerId,
-              positionId,
-            });
+            substitutions.push({ playerOutId: currentPlayerId, playerInId: newPlayerId, positionId });
           }
           currentField.add(newPlayerId);
           positionMap.set(newPlayerId, positionId);
         }
 
-        // Remove stale positionMap entries for players who left the field
         for (const pid of prevField) {
-          if (!currentField.has(pid)) {
-            positionMap.delete(pid);
-          }
+          if (!currentField.has(pid)) positionMap.delete(pid);
         }
       } else {
-        // Auto-compute halftime: swap in bench players with least time
-        const benchPlayers = Array.from(playerIds).filter(id => !currentField.has(id));
-        const benchWithTime = benchPlayers.map(id => ({
-          id,
-          time: playTimeRotations.get(id) || 0,
-        })).sort((a, b) => a.time - b.time);
+        // Auto-compute halftime with GK lock
+        const benchPlayers = playerIds.filter(id => !currentField.has(id));
+        const eligibleBench = benchPlayers.filter(id => isEligible(id));
+        const benchWithTime = eligibleBench
+          .map(id => ({ id, time: playTimeMinutes.get(id) ?? 0 }))
+          .sort((a, b) => a.time - b.time);
 
-        const fieldPlayers = Array.from(currentField);
+        const hasGkBench = goaliePositionId ? benchWithTime.some(p => isGkPreferred(p.id)) : false;
+
+        const fieldWithTime = Array.from(currentField)
+          .map(pid => ({
+            id: pid,
+            time: playTimeMinutes.get(pid) ?? 0,
+            isGk: goaliePositionId ? positionMap.get(pid) === goaliePositionId : false,
+          }))
+          .sort((a, b) => b.time - a.time);
+
         const subsNeeded = Math.min(maxPlayersOnField, benchWithTime.length);
+        const positionsToFill: string[] = [];
+        const playersOut: string[] = [];
+        let swapped = 0;
 
-        // Collect which positions will be vacated
-        const positionsToFill = fieldPlayers.slice(0, subsNeeded).map(pid => positionMap.get(pid)!);
-        const playersOut = fieldPlayers.slice(0, subsNeeded);
+        for (const fp of fieldWithTime) {
+          if (swapped >= subsNeeded) break;
+          const pos = positionMap.get(fp.id)!;
+          // GK can only be swapped if there's a GK-preferred bench candidate
+          if (fp.isGk && !hasGkBench) continue;
+          positionsToFill.push(pos);
+          playersOut.push(fp.id);
+          swapped++;
+        }
 
-        // Match bench players to positions using preferred positions
-        const assignments = assignPlayersToPositions(positionsToFill, benchWithTime);
+        const assignments = assignPlayersToPositions(positionsToFill, benchWithTime, true);
 
         for (let i = 0; i < playersOut.length; i++) {
           const playerOut = playersOut[i];
@@ -195,78 +304,136 @@ export function calculateFairRotations(
           const assignment = assignments.find(a => a.positionId === position);
           if (!assignment) continue;
 
-          substitutions.push({
-            playerOutId: playerOut,
-            playerInId: assignment.playerId,
-            positionId: position,
-          });
-
+          substitutions.push({ playerOutId: playerOut, playerInId: assignment.playerId, positionId: position });
           currentField.delete(playerOut);
           currentField.add(assignment.playerId);
           positionMap.set(assignment.playerId, position);
+          positionMap.delete(playerOut);
         }
       }
-    } else {
-      // Regular rotation - sub players with most time for those with least.
-      // The goalkeeper is never rotated out here; only halftime allows that.
-      const benchPlayers = Array.from(playerIds).filter(id => !currentField.has(id));
 
-      if (benchPlayers.length > 0) {
-        // Find players on field with most time, excluding the goalkeeper
-        const fieldWithTime = Array.from(currentField)
-          .filter(id => !goaliePositionId || positionMap.get(id) !== goaliePositionId)
-          .map(id => ({
-            id,
-            time: playTimeRotations.get(id) || 0,
-          })).sort((a, b) => b.time - a.time);
-        
-        // Find bench players with least time
-        const benchWithTime = benchPlayers.map(id => ({
-          id,
-          time: playTimeRotations.get(id) || 0,
-        })).sort((a, b) => a.time - b.time);
-        
-        // Calculate how many subs to make (aim for fair distribution per rotation)
-        const subsNeeded = Math.min(
-          Math.ceil(maxPlayersOnField / GAME_CONFIG.ROTATION_CALCULATION.MIN_PLAYERS_PER_GROUP),
-          benchPlayers.length,
-          fieldWithTime.length
+      // Reset continuousRotations at halftime
+      playerIds.forEach(id => continuousRotations.set(id, 0));
+
+    } else {
+      // --- Regular rotation ---
+      const benchPlayers = playerIds.filter(id => !currentField.has(id));
+
+      if (!noSubsAvailable && benchPlayers.length > 0) {
+        const eligibleBench = benchPlayers.filter(id => isEligible(id));
+
+        // Forced-off: availability window closed
+        const forcedOff: string[] = [];
+        for (const id of currentField) {
+          const p = playerById.get(id);
+          const until = p?.availableUntilMinute;
+          if (until !== undefined && until !== null && currentGameMinute >= until) {
+            // GK cannot be forced off mid-game (Rule 1.4)
+            if (goaliePositionId && positionMap.get(id) === goaliePositionId) continue;
+            forcedOff.push(id);
+          }
+        }
+
+        // Fatigue-based forced-off (only when position data available)
+        if (options?.positions) {
+          for (const id of currentField) {
+            if (forcedOff.includes(id)) continue;
+            if (goaliePositionId && positionMap.get(id) === goaliePositionId) continue;
+            const pos = positionMap.get(id);
+            if (!pos) continue;
+            const group = positionGroupMap.get(pos) ?? 'UNKNOWN';
+            const maxCont = MAX_CONTINUOUS_ROTATIONS[group];
+            if (isFinite(maxCont) && (continuousRotations.get(id) ?? 0) >= maxCont) {
+              forcedOff.push(id);
+            }
+          }
+        }
+
+        // Must-on: 50% risk bench players (Rules 1.3, 2.2)
+        const mustOn: string[] = [];
+        for (const id of eligibleBench) {
+          const p = playerById.get(id)!;
+          const availTime = (p.availableUntilMinute ?? totalGameMinutes) - (p.availableFromMinute ?? 0);
+          const threshold = availTime * 0.5;
+          const played = playTimeMinutes.get(id) ?? 0;
+          if (played + minutesRemaining <= threshold) {
+            mustOn.push(id);
+          }
+        }
+
+        // Per-half coverage: last rotation of each half — prioritize players not yet on field
+        const notYetInHalf: string[] = [];
+        if (isLastFirstHalfRotation || (isLastRotation && isSecondHalf)) {
+          const halfSet = isLastFirstHalfRotation ? halfOnField.first : halfOnField.second;
+          for (const id of eligibleBench) {
+            if (!halfSet.has(id) && !mustOn.includes(id)) notYetInHalf.push(id);
+          }
+        }
+
+        // Build prioritized bench list
+        const priorityBench = [...mustOn, ...notYetInHalf].filter((id, i, a) => a.indexOf(id) === i);
+        const normalBench = eligibleBench.filter(id => !priorityBench.includes(id));
+
+        const sortedBench = [
+          ...priorityBench.map(id => ({ id, time: playTimeMinutes.get(id) ?? 0 })).sort((a, b) => a.time - b.time),
+          ...normalBench.map(id => ({ id, time: playTimeMinutes.get(id) ?? 0 })).sort((a, b) => a.time - b.time),
+        ];
+
+        // How many subs?
+        const nonGkField = Array.from(currentField).filter(
+          id => !goaliePositionId || positionMap.get(id) !== goaliePositionId
         );
-        
-        // Collect positions being vacated
-        const playersOut = fieldWithTime.slice(0, subsNeeded);
-        const positionsToFill = playersOut.map(p => positionMap.get(p.id)!);
-        
-        // Match bench players to positions using preferred positions
-        const assignments = assignPlayersToPositions(positionsToFill, benchWithTime);
-        
-        for (const playerOutEntry of playersOut) {
-          const position = positionMap.get(playerOutEntry.id)!;
-          const assignment = assignments.find(a => a.positionId === position);
-          if (!assignment) continue;
-          
-          substitutions.push({
-            playerOutId: playerOutEntry.id,
-            playerInId: assignment.playerId,
-            positionId: position,
-          });
-          
-          currentField.delete(playerOutEntry.id);
-          currentField.add(assignment.playerId);
-          positionMap.set(assignment.playerId, position);
+        const baseSubsNeeded = Math.min(
+          Math.ceil(maxPlayersOnField / GAME_CONFIG.ROTATION_CALCULATION.MIN_PLAYERS_PER_GROUP),
+          eligibleBench.length,
+          nonGkField.length
+        );
+        const totalSubsNeeded = Math.min(
+          Math.max(forcedOff.length, Math.max(mustOn.length, baseSubsNeeded)),
+          eligibleBench.length
+        );
+
+        if (totalSubsNeeded > 0) {
+          // Players going out: forcedOff first, then most-time non-GK
+          const additionalNeeded = Math.max(0, totalSubsNeeded - forcedOff.length);
+          const candidatesForOut = nonGkField
+            .filter(id => !forcedOff.includes(id))
+            .map(id => ({ id, time: playTimeMinutes.get(id) ?? 0 }))
+            .sort((a, b) => b.time - a.time);
+
+          const allPlayersOut = [...forcedOff, ...candidatesForOut.slice(0, additionalNeeded).map(p => p.id)];
+          const positionsToFill = allPlayersOut
+            .map(id => positionMap.get(id))
+            .filter((pos): pos is string => pos !== undefined);
+
+          if (positionsToFill.length > 0 && sortedBench.length > 0) {
+            const assignments = assignPlayersToPositions(positionsToFill, sortedBench, false);
+
+            for (const playerOutId of allPlayersOut) {
+              const position = positionMap.get(playerOutId);
+              if (!position) continue;
+              const assignment = assignments.find(a => a.positionId === position);
+              if (!assignment) continue;
+
+              substitutions.push({ playerOutId, playerInId: assignment.playerId, positionId: position });
+              currentField.delete(playerOutId);
+              currentField.add(assignment.playerId);
+              positionMap.set(assignment.playerId, position);
+            }
+          }
         }
       }
     }
-    
-    // Update play time tracking
-    currentField.forEach(id => {
-      playTimeRotations.set(id, (playTimeRotations.get(id) || 0) + 1);
-    });
-    
+
+    // Reset continuousRotations for players who went to bench
+    for (const id of playerIds) {
+      if (!currentField.has(id)) continuousRotations.set(id, 0);
+    }
+
     rotations.push({ substitutions });
   }
-  
-  return rotations;
+
+  return { rotations, warnings };
 }
 
 /**
@@ -520,8 +687,29 @@ export async function updatePlayerAvailability(
   playerId: string,
   status: 'available' | 'absent' | 'injured' | 'late-arrival',
   notes: string | undefined,
-  coaches: string[]
+  coaches: string[],
+  availableFromMinute?: number | null,
+  availableUntilMinute?: number | null
 ): Promise<void> {
+  // Validate availability window values
+  if (availableFromMinute !== undefined && availableFromMinute !== null) {
+    if (!Number.isInteger(availableFromMinute) || availableFromMinute < 0) {
+      throw new Error('availableFromMinute must be a non-negative integer');
+    }
+  }
+  if (availableUntilMinute !== undefined && availableUntilMinute !== null) {
+    if (!Number.isInteger(availableUntilMinute) || availableUntilMinute < 0) {
+      throw new Error('availableUntilMinute must be a non-negative integer');
+    }
+  }
+  if (
+    availableFromMinute !== undefined && availableFromMinute !== null &&
+    availableUntilMinute !== undefined && availableUntilMinute !== null &&
+    availableFromMinute >= availableUntilMinute
+  ) {
+    throw new Error('availableFromMinute must be less than availableUntilMinute');
+  }
+
   // Check if availability record exists
   const existingResult = await client.models.PlayerAvailability.list({
     filter: {
@@ -531,7 +719,7 @@ export async function updatePlayerAvailability(
       ],
     },
   });
-  
+
   if (existingResult.data.length > 0) {
     // Update existing
     await client.models.PlayerAvailability.update({
@@ -539,6 +727,8 @@ export async function updatePlayerAvailability(
       status,
       markedAt: new Date().toISOString(),
       notes,
+      ...(availableFromMinute !== undefined && { availableFromMinute }),
+      ...(availableUntilMinute !== undefined && { availableUntilMinute: availableUntilMinute }),
     });
   } else {
     // Create new
@@ -549,6 +739,8 @@ export async function updatePlayerAvailability(
       markedAt: new Date().toISOString(),
       notes,
       coaches,
+      ...(availableFromMinute !== undefined && { availableFromMinute }),
+      ...(availableUntilMinute !== undefined && { availableUntilMinute: availableUntilMinute }),
     });
   }
 }

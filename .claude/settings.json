@@ -1,0 +1,6 @@
+{
+  "enabledPlugins": {
+    "dev-workflows@claude-code-workflows": true,
+    "dev-workflows-frontend@claude-code-workflows": true
+  }
+}

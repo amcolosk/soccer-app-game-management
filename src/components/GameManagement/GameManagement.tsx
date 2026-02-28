@@ -212,12 +212,21 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       const rotationIntervalMinutes = gamePlan.rotationIntervalMinutes || 10;
       const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
 
-      const generatedRotations = calculateFairRotations(
+      const goaliePos = positions.find(p => {
+        const abbr = p.abbreviation?.toUpperCase();
+        return abbr === 'GK' || abbr === 'G';
+      });
+      const goaliePositionId = goaliePos?.id;
+
+      const { rotations: generatedRotations } = calculateFairRotations(
         availableRoster,
         lineupArray,
         plannedRotations.length,
         rotationsPerHalf,
-        team.maxPlayersOnField || positions.length
+        team.maxPlayersOnField || positions.length,
+        goaliePositionId,
+        undefined,
+        { rotationIntervalMinutes, halfLengthMinutes, positions },
       );
 
       // Update each rotation with generated substitutions
