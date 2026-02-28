@@ -222,7 +222,7 @@ export async function checkRateLimit(userId: string): Promise<void> {
     // Query all issues created by this user in the time window
     const result = await ddb.send(new QueryCommand({
       TableName: ISSUE_TABLE!,
-      IndexName: 'byReporterUserId',
+      IndexName: 'issuesByReporterUserId',
       KeyConditionExpression: 'reporterUserId = :userId',
       FilterExpression: 'createdAt > :windowStart',
       ExpressionAttributeValues: {

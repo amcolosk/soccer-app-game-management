@@ -87,7 +87,7 @@ export const handler: Schema['updateIssueStatus']['functionHandler'] = async (ev
   // Query issue by issueNumber GSI
   const queryResult = await ddb.send(new QueryCommand({
     TableName: ISSUE_TABLE,
-    IndexName: 'byIssueNumber',
+    IndexName: 'issuesByIssueNumber',
     KeyConditionExpression: 'issueNumber = :num',
     ExpressionAttributeValues: { ':num': issueNumber },
   }));
