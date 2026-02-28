@@ -26,16 +26,16 @@ describe('validateStatus', () => {
 // DynamoDB mocking
 // ---------------------------------------------------------------------------
 
-const mockSend = vi.fn();
+const mockSend = vi.hoisted(() => vi.fn());
 
 vi.mock('@aws-sdk/client-dynamodb', () => ({
-  DynamoDBClient: vi.fn(() => ({})),
+  DynamoDBClient: vi.fn(function() {}),
 }));
 
 vi.mock('@aws-sdk/lib-dynamodb', () => ({
   DynamoDBDocumentClient: { from: vi.fn(() => ({ send: mockSend })) },
-  QueryCommand: vi.fn((input) => ({ _type: 'QueryCommand', input })),
-  UpdateCommand: vi.fn((input) => ({ _type: 'UpdateCommand', input })),
+  QueryCommand: vi.fn(function(input) { this.input = input; this._type = 'QueryCommand'; }),
+  UpdateCommand: vi.fn(function(input) { this.input = input; this._type = 'UpdateCommand'; }),
 }));
 
 // ---------------------------------------------------------------------------

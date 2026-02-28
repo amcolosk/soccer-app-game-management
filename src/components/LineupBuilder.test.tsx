@@ -78,7 +78,7 @@ describe("LineupBuilder", () => {
           onLineupChange={() => {}}
         />
       );
-      expect(screen.getByText("A. Smith")).toBeInTheDocument();
+      expect(screen.getByText("Alice Smith")).toBeInTheDocument();
       // Position with assigned player should not have a select
       expect(screen.getAllByRole("combobox")).toHaveLength(2);
     });

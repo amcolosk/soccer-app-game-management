@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, act } from "@testing-library/react";
 
 // ---------------------------------------------------------------------------
 // Module-level mocks — must be hoisted before any import of the component.
@@ -70,29 +70,37 @@ describe("UserProfile – version display", () => {
     vi.unstubAllEnvs();
   });
 
-  it("shows fallback version '1.1.0' when VITE_APP_VERSION is absent or empty", () => {
+  it("shows fallback version '1.1.0' when VITE_APP_VERSION is absent or empty", async () => {
     setViteAppVersion("");
-    render(<UserProfile />);
+    await act(async () => {
+      render(<UserProfile />);
+    });
     expect(screen.getByText(/Version 1\.1\.0/)).toBeInTheDocument();
   });
 
-  it("shows the version from VITE_APP_VERSION when it is set to a plain semver", () => {
+  it("shows the version from VITE_APP_VERSION when it is set to a plain semver", async () => {
     setViteAppVersion("1.2.3");
-    render(<UserProfile />);
+    await act(async () => {
+      render(<UserProfile />);
+    });
     expect(screen.getByText(/Version 1\.2\.3/)).toBeInTheDocument();
   });
 
-  it("shows the version with build-ID suffix when VITE_APP_VERSION includes a build ID", () => {
+  it("shows the version with build-ID suffix when VITE_APP_VERSION includes a build ID", async () => {
     // This reflects the vite.config.ts behaviour when AWS_JOB_ID is set:
     // fullVersion = `${version}-${buildId}`  →  e.g. "1.1.0-42"
     setViteAppVersion("1.1.0-42");
-    render(<UserProfile />);
+    await act(async () => {
+      render(<UserProfile />);
+    });
     expect(screen.getByText(/Version 1\.1\.0-42/)).toBeInTheDocument();
   });
 
-  it("does not show the old '1.0.0' fallback string anywhere in the version area", () => {
+  it("does not show the old '1.0.0' fallback string anywhere in the version area", async () => {
     setViteAppVersion("");
-    render(<UserProfile />);
+    await act(async () => {
+      render(<UserProfile />);
+    });
     const versionSection = document.querySelector(".version-info");
     expect(versionSection).not.toBeNull();
     expect(versionSection!.textContent).not.toContain("1.0.0");
