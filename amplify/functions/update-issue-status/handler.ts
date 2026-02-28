@@ -2,11 +2,17 @@ import type { Schema } from '../../data/resource';
 import type { AppSyncIdentityCognito } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { S3Client, DeleteObjectCommand } from '@aws-sdk/client-s3';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: process.env.AWS_REGION }));
+const s3 = new S3Client({ region: process.env.AWS_REGION });
 const ISSUE_TABLE = process.env.ISSUE_TABLE_NAME!;
 const AGENT_API_SECRET = process.env.AGENT_API_SECRET;
 const DEVELOPER_EMAILS = process.env.DEVELOPER_EMAILS;
+const STORAGE_BUCKET_NAME = process.env.STORAGE_BUCKET_NAME;
+// Matches: bug-screenshots/{identityId}/{uuid}.{ext}
+// identityId format: region:cognito-id (e.g. us-east-1:f81d4fae-...)
+const SCREENSHOT_KEY_PATTERN = /^bug-screenshots\/[a-zA-Z0-9:_-]+\/[a-f0-9-]+\.(png|jpg)$/;
 
 const VALID_STATUSES = ['OPEN', 'IN_PROGRESS', 'FIXED', 'DEPLOYED', 'CLOSED'] as const;
 const AGENT_ALLOWED_STATUSES: readonly string[] = ['IN_PROGRESS', 'FIXED'];
@@ -118,6 +124,21 @@ export const handler: Schema['updateIssueStatus']['functionHandler'] = async (ev
     ExpressionAttributeNames: exprNames,
     ExpressionAttributeValues: exprValues,
   }));
+
+  // Delete screenshot from S3 on issue close (best-effort — does not fail the status update)
+  if (status === 'CLOSED' && issue.screenshotKey && STORAGE_BUCKET_NAME) {
+    const key = issue.screenshotKey as string;
+    if (SCREENSHOT_KEY_PATTERN.test(key)) {
+      try {
+        await s3.send(new DeleteObjectCommand({ Bucket: STORAGE_BUCKET_NAME, Key: key }));
+        console.log(`Deleted screenshot: ${key}`);
+      } catch (deleteErr) {
+        console.error('Failed to delete screenshot (best-effort, not failing update):', deleteErr);
+      }
+    } else {
+      console.warn(`Skipping screenshot delete — unexpected key format: ${key}`);
+    }
+  }
 
   // Fail-safe: never return the SECRET prefix to callers even if stripping logic was bypassed
   if (cleanResolution && cleanResolution.startsWith('SECRET:')) {

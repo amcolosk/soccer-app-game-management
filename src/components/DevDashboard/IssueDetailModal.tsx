@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getUrl } from 'aws-amplify/storage';
 import type { IssueStatus, Issue } from '../../hooks/useBugReports';
 import { IssueStatusBadge } from './IssueStatusBadge';
 
@@ -51,6 +52,19 @@ export function IssueDetailModal({ issue, updating, onClose, onUpdateStatus }: I
   const [nextStatus, setNextStatus] = useState<IssueStatus>(transitions[0] ?? currentStatus);
   const [resolution, setResolution] = useState('');
   const [sysInfoOpen, setSysInfoOpen] = useState(false);
+  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
+  const [screenshotFailed, setScreenshotFailed] = useState(false);
+
+  useEffect(() => {
+    // Reset state when issue changes to avoid stale screenshot from previous issue
+    setScreenshotUrl(null);
+    setScreenshotFailed(false);
+    if (!issue.screenshotKey) return;
+    // Amplify v6 Storage uses path-based API
+    getUrl({ path: issue.screenshotKey, options: { expiresIn: 3600 } })
+      .then((result) => setScreenshotUrl(result.url.toString()))
+      .catch(() => setScreenshotFailed(true));
+  }, [issue.screenshotKey]);
 
   const isClosed = transitions.length === 0;
   const sysInfoFormatted = parseSystemInfo(issue.systemInfo);
@@ -118,6 +132,34 @@ export function IssueDetailModal({ issue, updating, onClose, onUpdateStatus }: I
               <div className="dev-sysinfo-panel" hidden={!sysInfoOpen}>
                 <pre className="dev-modal-text-pre">{sysInfoFormatted}</pre>
               </div>
+            </div>
+          )}
+
+          {/* Screenshot */}
+          {issue.screenshotKey && (
+            <div className="dev-modal-section">
+              <div className="dev-modal-section-label">Screenshot</div>
+              {screenshotFailed ? (
+                <p className="dev-screenshot-unavailable">Screenshot no longer available</p>
+              ) : screenshotUrl ? (
+                <>
+                  <img
+                    src={screenshotUrl}
+                    alt="Bug report screenshot"
+                    className="dev-screenshot-img"
+                  />
+                  <a
+                    href={screenshotUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="dev-screenshot-link"
+                  >
+                    Open full size ↗
+                  </a>
+                </>
+              ) : (
+                <p className="dev-screenshot-loading">Loading screenshot…</p>
+              )}
             </div>
           )}
 

@@ -2,6 +2,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { validateStatus } from './handler';
 
 // ---------------------------------------------------------------------------
+// S3 mocking (must be hoisted alongside DynamoDB mocks)
+// ---------------------------------------------------------------------------
+
+const mockS3Send = vi.hoisted(() => vi.fn());
+
+vi.mock('@aws-sdk/client-s3', () => ({
+  S3Client: vi.fn(function(this: { send: unknown }) { this.send = mockS3Send; }),
+  DeleteObjectCommand: vi.fn(function(this: { input: unknown }, input) { this.input = input; }),
+}));
+
+// ---------------------------------------------------------------------------
 // validateStatus (original tests preserved)
 // ---------------------------------------------------------------------------
 
@@ -72,7 +83,7 @@ function setEnvVars(vars: Record<string, string | undefined>) {
 // ---------------------------------------------------------------------------
 
 describe('handler – DEVELOPER_EMAILS enforcement', () => {
-  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); });
+  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); mockS3Send.mockReset(); });
   afterEach(() => { delete process.env.DEVELOPER_EMAILS; delete process.env.ISSUE_TABLE_NAME; delete process.env.AGENT_API_SECRET; });
 
   it('allows an authenticated user whose email is in DEVELOPER_EMAILS', async () => {
@@ -122,7 +133,7 @@ describe('handler – DEVELOPER_EMAILS enforcement', () => {
 // ---------------------------------------------------------------------------
 
 describe('handler – API key / agent caller', () => {
-  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); });
+  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); mockS3Send.mockReset(); });
   afterEach(() => { delete process.env.AGENT_API_SECRET; delete process.env.DEVELOPER_EMAILS; delete process.env.ISSUE_TABLE_NAME; });
 
   it('allows API key caller with the correct AGENT_API_SECRET regardless of DEVELOPER_EMAILS', async () => {
@@ -194,7 +205,7 @@ describe('handler – API key / agent caller', () => {
 // ---------------------------------------------------------------------------
 
 describe('handler – DynamoDB interactions', () => {
-  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); });
+  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); mockS3Send.mockReset(); });
   afterEach(() => { delete process.env.DEVELOPER_EMAILS; delete process.env.ISSUE_TABLE_NAME; delete process.env.AGENT_API_SECRET; });
 
   it('throws when the queried issue is not found', async () => {
@@ -295,7 +306,7 @@ describe('handler – DynamoDB interactions', () => {
 // ---------------------------------------------------------------------------
 
 describe('handler – agent status restriction', () => {
-  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); });
+  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); mockS3Send.mockReset(); });
   afterEach(() => { delete process.env.AGENT_API_SECRET; delete process.env.ISSUE_TABLE_NAME; });
 
   it('throws when agent attempts to set CLOSED', async () => {
@@ -363,7 +374,7 @@ describe('handler – agent status restriction', () => {
 // ---------------------------------------------------------------------------
 
 describe('handler – SHA enforcement for FIXED', () => {
-  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); });
+  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); mockS3Send.mockReset(); });
   afterEach(() => { delete process.env.AGENT_API_SECRET; delete process.env.ISSUE_TABLE_NAME; });
 
   it('throws when agent sets FIXED with no resolution', async () => {
@@ -462,7 +473,7 @@ describe('handler – SHA enforcement for FIXED', () => {
 // ---------------------------------------------------------------------------
 
 describe('handler – developer callers are not restricted', () => {
-  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); });
+  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); mockS3Send.mockReset(); });
   afterEach(() => { delete process.env.DEVELOPER_EMAILS; delete process.env.ISSUE_TABLE_NAME; delete process.env.AGENT_API_SECRET; });
 
   it('allows developer to set CLOSED without restriction', async () => {
@@ -502,5 +513,99 @@ describe('handler – developer callers are not restricted', () => {
     );
     expect(mockSend).toHaveBeenCalledTimes(2);
     expect(JSON.parse(result as string).status).toBe('FIXED');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handler – S3 screenshot deletion on CLOSED
+// ---------------------------------------------------------------------------
+
+const VALID_SCREENSHOT_KEY = 'bug-screenshots/us-east-1:abc123/f81d4fae-7dec-11d0-a765-00a0c91e6bf6.png';
+
+describe('handler – S3 screenshot deletion on CLOSED', () => {
+  beforeEach(() => { vi.resetModules(); mockSend.mockReset(); mockS3Send.mockReset(); });
+  afterEach(() => {
+    delete process.env.DEVELOPER_EMAILS;
+    delete process.env.ISSUE_TABLE_NAME;
+    delete process.env.STORAGE_BUCKET_NAME;
+  });
+
+  it('calls DeleteObjectCommand with correct Bucket and Key when CLOSED and screenshotKey present', async () => {
+    process.env.DEVELOPER_EMAILS = 'dev@example.com';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    process.env.STORAGE_BUCKET_NAME = 'my-screenshot-bucket';
+    mockSend
+      .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1, screenshotKey: VALID_SCREENSHOT_KEY }] })
+      .mockResolvedValueOnce({});
+    mockS3Send.mockResolvedValueOnce({});
+    const { handler } = await import('./handler');
+    const result = await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as any, vi.fn());
+    expect(mockS3Send).toHaveBeenCalledTimes(1);
+    const s3Call = mockS3Send.mock.calls[0][0];
+    expect(s3Call.input.Bucket).toBe('my-screenshot-bucket');
+    expect(s3Call.input.Key).toBe(VALID_SCREENSHOT_KEY);
+    expect(JSON.parse(result as string).status).toBe('CLOSED');
+  });
+
+  it('does not call S3 when CLOSED but screenshotKey is absent', async () => {
+    process.env.DEVELOPER_EMAILS = 'dev@example.com';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    process.env.STORAGE_BUCKET_NAME = 'my-screenshot-bucket';
+    mockSend
+      .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
+      .mockResolvedValueOnce({});
+    const { handler } = await import('./handler');
+    await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as any, vi.fn());
+    expect(mockS3Send).not.toHaveBeenCalled();
+  });
+
+  it('does not call S3 when status is DEPLOYED (not CLOSED)', async () => {
+    process.env.DEVELOPER_EMAILS = 'dev@example.com';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    process.env.STORAGE_BUCKET_NAME = 'my-screenshot-bucket';
+    mockSend
+      .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1, screenshotKey: VALID_SCREENSHOT_KEY }] })
+      .mockResolvedValueOnce({});
+    const { handler } = await import('./handler');
+    await handler(cognitoEvent({ status: 'DEPLOYED' }), {} as any, vi.fn());
+    expect(mockS3Send).not.toHaveBeenCalled();
+  });
+
+  it('does not call S3 when STORAGE_BUCKET_NAME is absent', async () => {
+    process.env.DEVELOPER_EMAILS = 'dev@example.com';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    delete process.env.STORAGE_BUCKET_NAME;
+    mockSend
+      .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1, screenshotKey: VALID_SCREENSHOT_KEY }] })
+      .mockResolvedValueOnce({});
+    const { handler } = await import('./handler');
+    await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as any, vi.fn());
+    expect(mockS3Send).not.toHaveBeenCalled();
+  });
+
+  it('still returns success when S3 delete fails (best-effort)', async () => {
+    process.env.DEVELOPER_EMAILS = 'dev@example.com';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    process.env.STORAGE_BUCKET_NAME = 'my-screenshot-bucket';
+    mockSend
+      .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1, screenshotKey: VALID_SCREENSHOT_KEY }] })
+      .mockResolvedValueOnce({});
+    mockS3Send.mockRejectedValueOnce(new Error('S3 unavailable'));
+    const { handler } = await import('./handler');
+    const result = await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as any, vi.fn());
+    expect(JSON.parse(result as string).status).toBe('CLOSED');
+  });
+
+  it('skips S3 delete and does not throw when screenshotKey fails the pattern check', async () => {
+    process.env.DEVELOPER_EMAILS = 'dev@example.com';
+    process.env.ISSUE_TABLE_NAME = 'Issues';
+    process.env.STORAGE_BUCKET_NAME = 'my-screenshot-bucket';
+    mockSend
+      .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1, screenshotKey: '../../etc/passwd' }] })
+      .mockResolvedValueOnce({});
+    const { handler } = await import('./handler');
+    const result = await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as any, vi.fn());
+    expect(mockS3Send).not.toHaveBeenCalled();
+    expect(JSON.parse(result as string).status).toBe('CLOSED');
   });
 });

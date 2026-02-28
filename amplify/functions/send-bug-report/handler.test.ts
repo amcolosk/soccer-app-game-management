@@ -9,6 +9,7 @@ import {
   sanitizeSeverity,
   getNextIssueNumber,
   validateInputLengths,
+  validateScreenshotKey,
   checkRateLimit,
   type BugReportInput,
 } from './handler';
@@ -104,6 +105,21 @@ describe('buildTextBody', () => {
     const text = buildTextBody(makeInput({ steps: undefined }));
     expect(text).not.toContain('Steps:');
   });
+
+  it('includes screenshot URL when provided', () => {
+    const text = buildTextBody(makeInput(), 'https://s3.example.com/presigned-url');
+    expect(text).toContain('Screenshot: https://s3.example.com/presigned-url');
+  });
+
+  it('omits screenshot line when not provided', () => {
+    const text = buildTextBody(makeInput(), null);
+    expect(text).not.toContain('Screenshot:');
+  });
+
+  it('omits screenshot line when screenshotUrl is undefined', () => {
+    const text = buildTextBody(makeInput());
+    expect(text).not.toContain('Screenshot:');
+  });
 });
 
 describe('buildHtmlBody', () => {
@@ -140,6 +156,22 @@ describe('buildHtmlBody', () => {
   it('omits steps section when not provided', () => {
     const html = buildHtmlBody(makeInput({ steps: undefined }));
     expect(html).not.toContain('Steps to Reproduce');
+  });
+
+  it('includes View Screenshot button when screenshotUrl is provided', () => {
+    const html = buildHtmlBody(makeInput(), 'https://s3.example.com/presigned-url');
+    expect(html).toContain('View Screenshot');
+    expect(html).toContain('https://s3.example.com/presigned-url');
+  });
+
+  it('omits screenshot section when screenshotUrl is null', () => {
+    const html = buildHtmlBody(makeInput(), null);
+    expect(html).not.toContain('View Screenshot');
+  });
+
+  it('omits screenshot section when screenshotUrl is not provided', () => {
+    const html = buildHtmlBody(makeInput());
+    expect(html).not.toContain('View Screenshot');
   });
 });
 
@@ -257,5 +289,51 @@ describe('validateInputLengths', () => {
 describe('checkRateLimit', () => {
   it('is exported as a function', () => {
     expect(typeof checkRateLimit).toBe('function');
+  });
+});
+
+describe('validateScreenshotKey', () => {
+  it('accepts undefined (no screenshot attached)', () => {
+    expect(() => validateScreenshotKey(undefined)).not.toThrow();
+  });
+
+  it('accepts null (no screenshot attached)', () => {
+    expect(() => validateScreenshotKey(null)).not.toThrow();
+  });
+
+  it('accepts a valid PNG key with identity-scoped path', () => {
+    expect(() => validateScreenshotKey('bug-screenshots/us-east-1:f81d4fae-7dec-11d0-a765-00a0c91e6bf6/abc1def2-3456-7890-abcd-ef1234567890.png')).not.toThrow();
+  });
+
+  it('accepts a valid JPG key with identity-scoped path', () => {
+    expect(() => validateScreenshotKey('bug-screenshots/us-east-1:abc123/f81d4fae-7dec-11d0-a765-00a0c91e6bf6.jpg')).not.toThrow();
+  });
+
+  it('rejects path traversal (../../etc/passwd)', () => {
+    expect(() => validateScreenshotKey('../../etc/passwd')).toThrow('Invalid screenshotKey format');
+  });
+
+  it('rejects key without identity prefix (old single-segment format)', () => {
+    expect(() => validateScreenshotKey('bug-screenshots/f81d4fae-7dec-11d0-a765-00a0c91e6bf6.png')).toThrow('Invalid screenshotKey format');
+  });
+
+  it('rejects key with uppercase extension', () => {
+    expect(() => validateScreenshotKey('bug-screenshots/us-east-1:abc/uuid.PNG')).toThrow('Invalid screenshotKey format');
+  });
+
+  it('rejects key with disallowed extension (.gif)', () => {
+    expect(() => validateScreenshotKey('bug-screenshots/us-east-1:abc/uuid.gif')).toThrow('Invalid screenshotKey format');
+  });
+
+  it('rejects key with extra path segments', () => {
+    expect(() => validateScreenshotKey('bug-screenshots/us-east-1:abc/subdir/uuid.png')).toThrow('Invalid screenshotKey format');
+  });
+
+  it('rejects key that does not start with bug-screenshots/', () => {
+    expect(() => validateScreenshotKey('other-prefix/us-east-1:abc/uuid.png')).toThrow('Invalid screenshotKey format');
+  });
+
+  it('rejects empty string', () => {
+    expect(() => validateScreenshotKey('')).not.toThrow(); // empty string is falsy — treated as no key
   });
 });

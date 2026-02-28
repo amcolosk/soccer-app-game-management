@@ -5626,3 +5626,92 @@
   .dev-header-right { gap: 0.5rem; }
   .dev-dashboard-identity { display: none; }
 }
+
+/* ========== SCREENSHOT UPLOAD (BugReport) ========== */
+.screenshot-upload-area {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.screenshot-file-input {
+  display: none;
+}
+
+.screenshot-attach-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px dashed var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9em;
+  color: var(--text-primary);
+  background: var(--card-background);
+  transition: border-color 0.15s;
+  width: fit-content;
+}
+
+.screenshot-attach-btn:hover {
+  border-color: var(--primary-green);
+}
+
+.screenshot-hint {
+  font-size: 0.8em;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.screenshot-error {
+  color: var(--danger-red);
+  font-size: 0.85em;
+  margin: 4px 0 0;
+}
+
+.screenshot-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--hover-background);
+  border-radius: 6px;
+  font-size: 0.9em;
+}
+
+.screenshot-preview-row button {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 1em;
+  padding: 2px 6px;
+}
+
+/* ========== DEV DASHBOARD SCREENSHOT ========== */
+.dev-screenshot-img {
+  max-width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  margin-top: 8px;
+  display: block;
+}
+
+.dev-screenshot-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 0.85em;
+  color: var(--primary-green);
+}
+
+.dev-screenshot-unavailable {
+  color: var(--text-secondary);
+  font-style: italic;
+  font-size: 0.9em;
+}
+
+.dev-screenshot-loading {
+  color: var(--text-secondary);
+  font-size: 0.9em;
+}

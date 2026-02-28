@@ -4,6 +4,7 @@ import { StartingPosition } from 'aws-cdk-lib/aws-lambda';
 import { DynamoEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { auth } from './auth/resource';
 import { data } from './data/resource';
+import { storage } from './storage/resource';
 import { sendInvitationEmail } from './functions/send-invitation-email/resource';
 import { acceptInvitation } from './functions/accept-invitation/resource';
 import { getUserInvitations } from './functions/get-user-invitations/resource';
@@ -13,6 +14,7 @@ import { updateIssueStatus } from './functions/update-issue-status/resource';
 const backend = defineBackend({
   auth,
   data,
+  storage,
   sendInvitationEmail,
   acceptInvitation,
   getUserInvitations,
@@ -116,6 +118,12 @@ backend.sendBugReport.addEnvironment('ISSUE_COUNTER_TABLE_NAME', issueCounterTab
 // Grant updateIssueStatus Lambda access to Issue table only
 issueTable.grantReadWriteData(backend.updateIssueStatus.resources.lambda);
 backend.updateIssueStatus.addEnvironment('ISSUE_TABLE_NAME', issueTable.tableName);
+
+// Inject S3 bucket name into Lambdas that need it
+// (allow.resource() in defineStorage grants IAM permissions but does NOT auto-inject env vars)
+const storageBucket = backend.storage.resources.bucket;
+backend.sendBugReport.addEnvironment('STORAGE_BUCKET_NAME', storageBucket.bucketName);
+backend.updateIssueStatus.addEnvironment('STORAGE_BUCKET_NAME', storageBucket.bucketName);
 
 // Agent API secret for updateIssueStatus authentication
 const agentApiSecret = process.env.AGENT_API_SECRET || '';

@@ -317,6 +317,7 @@ const schema = a.schema({
       closedAt: a.datetime(),
       reporterEmail: a.string(),
       reporterUserId: a.string(),
+      screenshotKey: a.string(),
     })
     .secondaryIndexes((index) => [
       index('issueNumber').queryField('getIssueByNumber'),
@@ -353,6 +354,7 @@ const schema = a.schema({
       steps: a.string(),
       severity: a.string().required(),
       systemInfo: a.string(),
+      screenshotKey: a.string(),
     })
     .returns(a.json())
     .authorization((allow) => [allow.authenticated()])
