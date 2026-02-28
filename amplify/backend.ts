@@ -119,11 +119,16 @@ backend.sendBugReport.addEnvironment('ISSUE_COUNTER_TABLE_NAME', issueCounterTab
 issueTable.grantReadWriteData(backend.updateIssueStatus.resources.lambda);
 backend.updateIssueStatus.addEnvironment('ISSUE_TABLE_NAME', issueTable.tableName);
 
-// Inject S3 bucket name into Lambdas that need it
-// (allow.resource() in defineStorage grants IAM permissions but does NOT auto-inject env vars)
+// Inject S3 bucket name into Lambdas that need it and grant scoped access.
+// We use CDK grants here instead of allow.resource() in defineStorage to avoid a
+// circular CloudFormation stack dependency (storage→function→data→storage).
 const storageBucket = backend.storage.resources.bucket;
 backend.sendBugReport.addEnvironment('STORAGE_BUCKET_NAME', storageBucket.bucketName);
 backend.updateIssueStatus.addEnvironment('STORAGE_BUCKET_NAME', storageBucket.bucketName);
+// sendBugReport: needs s3:GetObject + s3:HeadObject on bug-screenshots prefix
+storageBucket.grantRead(backend.sendBugReport.resources.lambda, 'bug-screenshots/*');
+// updateIssueStatus: needs s3:DeleteObject on bug-screenshots prefix
+storageBucket.grantDelete(backend.updateIssueStatus.resources.lambda, 'bug-screenshots/*');
 
 // Agent API secret for updateIssueStatus authentication
 const agentApiSecret = process.env.AGENT_API_SECRET || '';

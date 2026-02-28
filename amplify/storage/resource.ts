@@ -1,6 +1,4 @@
 import { defineStorage } from '@aws-amplify/backend';
-import { sendBugReport } from '../functions/send-bug-report/resource';
-import { updateIssueStatus } from '../functions/update-issue-status/resource';
 
 export const storage = defineStorage({
   name: 'teamtrackStorage',
@@ -11,8 +9,8 @@ export const storage = defineStorage({
     'bug-screenshots/{entity_id}/*': [
       allow.entity('identity').to(['write']),   // owner-only write — prevents cross-user overwrite
       allow.authenticated.to(['read']),          // any authenticated user can read (spec-accepted)
-      allow.resource(sendBugReport).to(['read']), // Lambda: generate presigned URL for email
-      allow.resource(updateIssueStatus).to(['delete']), // Lambda: delete on CLOSED
+      // Lambda S3 access granted via CDK in backend.ts to avoid circular stack dependency
+      // (allow.resource() here would create storage→function→storage cycle)
     ],
   }),
 });
