@@ -53,6 +53,13 @@ export const handler: Schema['updateIssueStatus']['functionHandler'] = async (ev
     // the email claim by default, so fall back to username (which equals the
     // email for email-based Cognito auth configured with loginWith: { email: true }).
     const callerEmail = ((cognitoIdentity.claims?.email as string) || cognitoIdentity.username || '').toLowerCase();
+    console.log('[updateIssueStatus] auth debug:', JSON.stringify({
+      sub: cognitoIdentity.sub,
+      username: cognitoIdentity.username,
+      claimsEmail: cognitoIdentity.claims?.email,
+      callerEmail,
+      allowlist,
+    }));
     if (!allowlist.includes(callerEmail)) {
       throw new Error('Unauthorized: developer access required');
     }
