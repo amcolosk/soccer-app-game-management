@@ -45,18 +45,23 @@ const region = backend.stack.region;
 const accountId = backend.stack.account;
 const sesIdentityArn = `arn:aws:ses:${region}:${accountId}:identity/coachteamtrack.com`;
 
+// SES configuration set ARN (used automatically by SES when a config set is attached to the identity)
+const sesConfigSetArn = `arn:aws:ses:${region}:${accountId}:configuration-set/teamtrack-email-configuration`;
+
 // Grant the Lambda functions permission to send emails via SES
+// Both the identity ARN and configuration set ARN are required — SES AccessDenied occurs
+// when a configuration set is attached to the identity but the Lambda role lacks permission on it.
 backend.sendInvitationEmail.resources.lambda.addToRolePolicy(
   new PolicyStatement({
     actions: ['ses:SendEmail', 'ses:SendRawEmail'],
-    resources: [sesIdentityArn],
+    resources: [sesIdentityArn, sesConfigSetArn],
   })
 );
 
 backend.sendBugReport.resources.lambda.addToRolePolicy(
   new PolicyStatement({
     actions: ['ses:SendEmail'],
-    resources: [sesIdentityArn],
+    resources: [sesIdentityArn, sesConfigSetArn],
   })
 );
 

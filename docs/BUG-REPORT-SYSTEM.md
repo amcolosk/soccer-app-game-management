@@ -55,8 +55,11 @@ updatedAt      datetime (auto-updated)
 Internal table for atomic sequential numbering. Not accessible from the client. Lambda uses `ADD` expression for race-free increments.
 
 ### Secondary Indexes
-- `issueNumber` → `getIssueByNumber` query field
-- `reporterUserId` → used for rate limiting (5 reports/hour/user)
+
+| DynamoDB GSI name | Query field | Purpose |
+|-------------------|-------------|---------|
+| `issuesByIssueNumber` | `getIssueByNumber` | Direct lookup by issue number |
+| `issuesByReporterUserId` | — | Rate limiting (5 reports/hour/user) |
 
 ---
 
@@ -99,6 +102,15 @@ Only `CLOSED` sets the `closedAt` timestamp. `FIXED` and `DEPLOYED` are intermed
 
 > **Note:** The `updateIssueStatus` Lambda is **fail-closed** — if `DEVELOPER_EMAILS` is not configured, all authenticated callers are denied. Missing config never silently grants access.
 
+### Developer email resolution
+
+Amplify v6 sends the **access token** (not the ID token) to AppSync. Access tokens use an internal Cognito UUID as the username and do not include the `email` claim. To resolve the caller's email, the `updateIssueStatus` Lambda:
+
+1. Checks `claims.email` first (populated if the ID token is ever used)
+2. If empty, calls Cognito `AdminGetUser` with the username (UUID) to retrieve the `email` attribute
+
+This requires `cognito-idp:AdminGetUser` IAM permission and the `USER_POOL_ID` env var on the Lambda (both wired in `amplify/backend.ts`).
+
 ---
 
 ## useBugReports Hook
@@ -138,7 +150,8 @@ See **[AGENT-ISSUE-MANAGEMENT.md](./AGENT-ISSUE-MANAGEMENT.md)** for the complet
 | `ISSUE_COUNTER_TABLE_NAME` | `sendBugReport` Lambda | DynamoDB IssueCounter table name |
 | `AGENT_API_SECRET` | `updateIssueStatus` Lambda | Secret token for agent authentication. Set via `AGENT_API_SECRET` build env var |
 | `DEVELOPER_EMAILS` | `updateIssueStatus` Lambda | Comma-separated list of emails allowed to update issue status. Set via `DEVELOPER_EMAILS` build env var. Required — missing value denies all authenticated callers. |
-| `VITE_DEVELOPER_EMAILS` | Frontend (build-time) | Same email list, controls visibility of the `/dev` dashboard route. Set in `.env.local` for local dev, or Amplify Console for production. |
+| `USER_POOL_ID` | `updateIssueStatus` Lambda | Cognito User Pool ID — used to resolve caller email via `AdminGetUser` (Amplify sends access tokens which lack the email claim). Wired automatically from `backend.auth.resources.userPool.userPoolId`. |
+| `VITE_DEVELOPER_EMAILS` | Frontend (build-time) | Same email list as `DEVELOPER_EMAILS`, controls visibility of the `/dev` dashboard route. Set in `.env.local` for local dev, or Amplify Console for production. **These two lists must be kept in sync.** |
 
 ---
 
