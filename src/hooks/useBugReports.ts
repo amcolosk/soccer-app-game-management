@@ -29,10 +29,12 @@ export function useBugReports(options?: UseBugReportsOptions): UseBugReportsRetu
     ? { status: { eq: options.filterStatus } }
     : undefined;
 
+  const [refreshKey, setRefreshKey] = useState(0);
+
   const { data: issues, isSynced } = useAmplifyQuery(
     'Issue',
     { filter, sort: sortByIssueNumberDesc },
-    [options?.filterStatus],
+    [options?.filterStatus, refreshKey],
   );
 
   const [updating, setUpdating] = useState(false);
@@ -54,6 +56,9 @@ export function useBugReports(options?: UseBugReportsOptions): UseBugReportsRetu
       if (errors?.length) {
         throw new Error(errors[0].message);
       }
+      // Force re-fetch: observeQuery doesn't pick up changes from custom Lambda mutations
+      // because they bypass the standard AppSync subscription pipeline.
+      setRefreshKey(k => k + 1);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update issue status';
       setUpdateError(message);

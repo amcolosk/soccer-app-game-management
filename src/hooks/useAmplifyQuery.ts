@@ -37,14 +37,16 @@ export function useAmplifyQuery<M extends ModelName>(
   const sortRef = useRef(options?.sort);
   sortRef.current = options?.sort;
 
-  // Memoize filter based on caller-provided deps to prevent infinite re-subscription loops.
+  // Wrap filter in an object so the memo result always changes identity when deps change.
+  // This ensures the effect re-runs when a caller passes a refreshKey in deps, even when
+  // the filter value itself is undefined (undefined === undefined would otherwise skip the effect).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const filter = useMemo(() => options?.filter, deps);
+  const filterBox = useMemo(() => ({ filter: options?.filter }), deps);
 
   useEffect(() => {
     setIsSynced(false);
 
-    const queryOptions = filter ? { filter } : undefined;
+    const queryOptions = filterBox.filter ? { filter: filterBox.filter } : undefined;
 
     const sub = (client.models[modelName] as any)
       .observeQuery(queryOptions)
@@ -60,7 +62,7 @@ export function useAmplifyQuery<M extends ModelName>(
       });
 
     return () => sub.unsubscribe();
-  }, [modelName, filter]);
+  }, [modelName, filterBox]);
 
   return { data, isSynced };
 }
