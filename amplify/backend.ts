@@ -131,6 +131,16 @@ backend.updateIssueStatus.resources.lambda.addToRolePolicy(
 );
 backend.updateIssueStatus.addEnvironment('ISSUE_TABLE_NAME', issueTable.tableName);
 
+// Grant updateIssueStatus Lambda permission to look up user email from Cognito
+// (needed because Amplify sends access tokens to AppSync, which don't include email)
+backend.updateIssueStatus.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['cognito-idp:AdminGetUser'],
+    resources: [backend.auth.resources.userPool.userPoolArn],
+  })
+);
+backend.updateIssueStatus.addEnvironment('USER_POOL_ID', backend.auth.resources.userPool.userPoolId);
+
 // Inject S3 bucket name into Lambdas that need it and grant scoped access.
 // We use CDK grants here instead of allow.resource() in defineStorage to avoid a
 // circular CloudFormation stack dependency (storage→function→data→storage).

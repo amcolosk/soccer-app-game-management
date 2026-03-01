@@ -3,12 +3,15 @@ import type { AppSyncIdentityCognito } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { S3Client, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { CognitoIdentityProviderClient, AdminGetUserCommand } from '@aws-sdk/client-cognito-identity-provider';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: process.env.AWS_REGION }));
 const s3 = new S3Client({ region: process.env.AWS_REGION });
+const cognito = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION });
 const ISSUE_TABLE = process.env.ISSUE_TABLE_NAME!;
 const AGENT_API_SECRET = process.env.AGENT_API_SECRET;
 const DEVELOPER_EMAILS = process.env.DEVELOPER_EMAILS;
+const USER_POOL_ID = process.env.USER_POOL_ID;
 const STORAGE_BUCKET_NAME = process.env.STORAGE_BUCKET_NAME;
 // Matches: bug-screenshots/{identityId}/{uuid}.{ext}
 // identityId format: region:cognito-id (e.g. us-east-1:f81d4fae-...)
@@ -49,17 +52,21 @@ export const handler: Schema['updateIssueStatus']['functionHandler'] = async (ev
     }
     const allowlist = DEVELOPER_EMAILS.split(',').map(e => e.trim().toLowerCase());
     const cognitoIdentity = event.identity as AppSyncIdentityCognito;
-    // Amplify v6 sends the access token to AppSync; access tokens don't include
-    // the email claim by default, so fall back to username (which equals the
-    // email for email-based Cognito auth configured with loginWith: { email: true }).
-    const callerEmail = ((cognitoIdentity.claims?.email as string) || cognitoIdentity.username || '').toLowerCase();
-    console.log('[updateIssueStatus] auth debug:', JSON.stringify({
-      sub: cognitoIdentity.sub,
-      username: cognitoIdentity.username,
-      claimsEmail: cognitoIdentity.claims?.email,
-      callerEmail,
-      allowlist,
-    }));
+    // Amplify v6 sends the access token to AppSync. Access tokens don't include
+    // the email claim and use an internal UUID as username. Look up the user's
+    // email from Cognito using AdminGetUser (username === sub for UUID-based pools).
+    let callerEmail = (cognitoIdentity.claims?.email as string || '').toLowerCase();
+    if (!callerEmail && USER_POOL_ID) {
+      try {
+        const { UserAttributes } = await cognito.send(new AdminGetUserCommand({
+          UserPoolId: USER_POOL_ID,
+          Username: cognitoIdentity.username,
+        }));
+        callerEmail = (UserAttributes?.find(a => a.Name === 'email')?.Value ?? '').toLowerCase();
+      } catch {
+        // If Cognito lookup fails, callerEmail stays empty and auth will fail below
+      }
+    }
     if (!allowlist.includes(callerEmail)) {
       throw new Error('Unauthorized: developer access required');
     }
