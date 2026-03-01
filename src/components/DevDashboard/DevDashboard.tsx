@@ -15,7 +15,7 @@ const ALL_STATUSES: IssueStatus[] = ['OPEN', 'IN_PROGRESS', 'FIXED', 'DEPLOYED',
 
 export function DevDashboard({ userEmail }: DevDashboardProps) {
   const { signOut } = useAuthenticator();
-  const { issues, isSynced, updating, updateError, updateStatus } = useBugReports();
+  const { issues, isSynced, updating, updateStatus } = useBugReports();
 
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const [filterStatus, setFilterStatus] = useState<IssueStatus | 'ALL'>('ALL');
