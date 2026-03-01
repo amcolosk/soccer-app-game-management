@@ -37,8 +37,8 @@ export function DevDashboard({ userEmail }: DevDashboardProps) {
       await updateStatus(issueNumber, status, resolution);
       toast.success(`Issue #${issueNumber} updated to ${status}`);
       setSelectedIssue(null);
-    } catch {
-      toast.error(updateError ?? 'Failed to update');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update');
     }
   }
 

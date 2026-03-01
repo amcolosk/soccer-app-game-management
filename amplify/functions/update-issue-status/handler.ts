@@ -48,7 +48,11 @@ export const handler: Schema['updateIssueStatus']['functionHandler'] = async (ev
       throw new Error('Unauthorized: developer access is not configured');
     }
     const allowlist = DEVELOPER_EMAILS.split(',').map(e => e.trim().toLowerCase());
-    const callerEmail = ((event.identity as AppSyncIdentityCognito).claims?.email as string ?? '').toLowerCase();
+    const cognitoIdentity = event.identity as AppSyncIdentityCognito;
+    // Amplify v6 sends the access token to AppSync; access tokens don't include
+    // the email claim by default, so fall back to username (which equals the
+    // email for email-based Cognito auth configured with loginWith: { email: true }).
+    const callerEmail = ((cognitoIdentity.claims?.email as string) || cognitoIdentity.username || '').toLowerCase();
     if (!allowlist.includes(callerEmail)) {
       throw new Error('Unauthorized: developer access required');
     }
