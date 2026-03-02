@@ -3,9 +3,12 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RotationWidget } from "./RotationWidget";
 
-// Mock the availability context
+// Mock the availability context — use vi.hoisted so the mock fn reference is
+// accessible in both the factory and in tests.
+const mockGetPlayerAvailability = vi.hoisted(() => vi.fn().mockReturnValue("available"));
+
 vi.mock("../../contexts/AvailabilityContext", () => ({
-  useAvailability: () => ({ getPlayerAvailability: vi.fn().mockReturnValue("available") }),
+  useAvailability: () => ({ getPlayerAvailability: mockGetPlayerAvailability }),
 }));
 
 // Mock service calls (handleLateArrival path)
@@ -18,6 +21,9 @@ vi.mock("../../utils/toast", () => ({
 vi.mock("../../utils/errorHandler", () => ({
   handleApiError: vi.fn(),
 }));
+
+import { updatePlayerAvailability } from "../../services/rotationPlannerService";
+const mockUpdatePlayerAvailability = vi.mocked(updatePlayerAvailability);
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -70,6 +76,7 @@ const baseProps = {
 describe("RotationWidget", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetPlayerAvailability.mockReturnValue("available");
   });
 
   // ── Null-render guards ───────────────────────────────────────────────────
@@ -172,6 +179,35 @@ describe("RotationWidget", () => {
     );
     expect(screen.getByText(/Alice/)).toBeInTheDocument();
     expect(screen.getByText(/Bob/)).toBeInTheDocument();
+  });
+
+  // ── handleLateArrival — clears stale availability window ────────────────
+  it("calls updatePlayerAvailability with null, null as last two args when marking a late-arrival player as arrived", async () => {
+    const user = userEvent.setup();
+
+    // Make p2 (Bob) show as 'late-arrival' so the late-arrival button appears
+    mockGetPlayerAvailability.mockImplementation((id: string) =>
+      id === "p2" ? "late-arrival" : "available"
+    );
+
+    render(<RotationWidget {...baseProps} />);
+
+    // Open the late arrival modal
+    await user.click(screen.getByRole("button", { name: /Add Late Arrival/i }));
+
+    // Click Bob's button in the modal
+    const bobButton = screen.getByRole("button", { name: /Bob/i });
+    await user.click(bobButton);
+
+    expect(mockUpdatePlayerAvailability).toHaveBeenCalledWith(
+      "game-1",
+      "p2",
+      "available",
+      expect.stringContaining("Arrived late"),
+      ["coach-1"],
+      null,
+      null
+    );
   });
 
   // ── Malformed JSON graceful fallback ─────────────────────────────────────

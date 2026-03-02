@@ -18,13 +18,17 @@ vi.mock("../utils/toast", () => ({
   showInfo: vi.fn(),
 }));
 
+vi.mock("../utils/errorHandler", () => ({
+  handleApiError: vi.fn(),
+}));
+
 import { updatePlayerAvailability } from "../services/rotationPlannerService";
 import { useAvailability } from "../contexts/AvailabilityContext";
-import { showError } from "../utils/toast";
+import { handleApiError } from "../utils/errorHandler";
 
 const mockUpdate = vi.mocked(updatePlayerAvailability);
 const mockUseAvailability = vi.mocked(useAvailability);
-const mockShowError = vi.mocked(showError);
+const mockHandleApiError = vi.mocked(handleApiError);
 
 const players = [
   { id: "p1", playerNumber: 5, firstName: "Alice", lastName: "Smith" },
@@ -39,7 +43,7 @@ const defaultProps = {
 
 beforeEach(() => {
   mockUpdate.mockReset();
-  mockShowError.mockReset();
+  mockHandleApiError.mockReset();
   mockUseAvailability.mockReturnValue({
     availabilities: [],
     getPlayerAvailability: () => "available",
@@ -117,7 +121,7 @@ describe("PlayerAvailabilityGrid", () => {
     );
   });
 
-  it("cycles absent -> late-arrival on click", async () => {
+  it("cycles absent -> late-arrival on click (no halfLengthMinutes prop)", async () => {
     const user = userEvent.setup();
     mockUpdate.mockResolvedValue(undefined);
     mockUseAvailability.mockReturnValue({
@@ -130,6 +134,24 @@ describe("PlayerAvailabilityGrid", () => {
 
     expect(mockUpdate).toHaveBeenCalledWith(
       "game-1", "p1", "late-arrival", undefined, ["coach-1"], undefined, undefined
+    );
+  });
+
+  it("sets availableFromMinute to halfLengthMinutes when cycling absent to late-arrival", async () => {
+    const user = userEvent.setup();
+    mockUpdate.mockResolvedValue(undefined);
+    mockUseAvailability.mockReturnValue({
+      availabilities: [],
+      getPlayerAvailability: () => "absent",
+    });
+
+    render(<PlayerAvailabilityGrid {...defaultProps} halfLengthMinutes={30} />);
+    await user.click(screen.getAllByRole("button")[0]);
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      "game-1", "p1", "late-arrival", undefined, ["coach-1"],
+      30,        // availableFromMinute = halfLengthMinutes
+      undefined  // availableUntilMinute
     );
   });
 
@@ -166,23 +188,49 @@ describe("PlayerAvailabilityGrid", () => {
     );
   });
 
-  it("shows error toast on API error", async () => {
+  it("calls handleApiError on API error", async () => {
     const user = userEvent.setup();
     mockUpdate.mockRejectedValue(new Error("network"));
 
     render(<PlayerAvailabilityGrid {...defaultProps} />);
     await user.click(screen.getAllByRole("button")[0]);
 
-    expect(mockShowError).toHaveBeenCalledWith("Failed to update player availability");
+    expect(mockHandleApiError).toHaveBeenCalledWith(
+      expect.any(Error),
+      "Failed to update player availability"
+    );
   });
 
-  it("does not show error toast on success", async () => {
+  it("does not call handleApiError on success", async () => {
     const user = userEvent.setup();
     mockUpdate.mockResolvedValue(undefined);
 
     render(<PlayerAvailabilityGrid {...defaultProps} />);
     await user.click(screen.getAllByRole("button")[0]);
 
-    expect(mockShowError).not.toHaveBeenCalled();
+    expect(mockHandleApiError).not.toHaveBeenCalled();
+  });
+
+  it("clears availableFromMinute when cycling from late-arrival to injured", async () => {
+    const user = userEvent.setup();
+    mockUpdate.mockResolvedValue(undefined);
+    mockUseAvailability.mockReturnValue({
+      availabilities: [],
+      getPlayerAvailability: () => "late-arrival",
+    });
+
+    render(
+      <PlayerAvailabilityGrid
+        {...defaultProps}
+        elapsedGameMinutes={15}
+      />
+    );
+    await user.click(screen.getAllByRole("button")[0]);
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      "game-1", "p1", "injured", undefined, ["coach-1"],
+      null,  // availableFromMinute — cleared from prior late-arrival
+      15     // availableUntilMinute — set to elapsed game minutes
+    );
   });
 });

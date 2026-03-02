@@ -13,7 +13,9 @@ import {
 } from "../services/rotationPlannerService";
 import { LineupBuilder } from "./LineupBuilder";
 import { PlayerAvailabilityGrid } from "./PlayerAvailabilityGrid";
+import { BugReport } from "./BugReport";
 import { useTeamData } from "../hooks/useTeamData";
+import type { GamePlannerDebugContext } from "../types/debug";
 import { AvailabilityProvider } from "../contexts/AvailabilityContext";
 import { showSuccess, showWarning } from "../utils/toast";
 import { handleApiError, logError } from "../utils/errorHandler";
@@ -107,6 +109,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const [rotationIntervalMinutes, setRotationIntervalMinutes] = useState(10);
   const [selectedRotation, setSelectedRotation] = useState<number | 'starting' | 'halftime' | null>(null);
   const [showCopyModal, setShowCopyModal] = useState(false);
+  const [showBugReport, setShowBugReport] = useState(false);
   const [previousGames, setPreviousGames] = useState<Game[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [planWarnings, setPlanWarnings] = useState<string[]>([]);
@@ -296,6 +299,25 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       return status === "available" || status === "late-arrival";
     });
   }, [players, availabilities]);
+
+  const gamePlannerDebugContext = useMemo((): GamePlannerDebugContext => ({
+    rotationIntervalMinutes,
+    halfLengthMinutes,
+    maxPlayersOnField,
+    availablePlayerCount: players.filter(p => {
+      const s = getPlayerAvailability(p.id);
+      return s === 'available' || s === 'late-arrival';
+    }).length,
+    players: players.map(p => {
+      const avail = availabilities.find(a => a.playerId === p.id);
+      return {
+        number: p.playerNumber || 0,
+        status: getPlayerAvailability(p.id),
+        availableFromMinute: avail?.availableFromMinute ?? null,
+        availableUntilMinute: avail?.availableUntilMinute ?? null,
+      };
+    }),
+  }), [players, availabilities, rotationIntervalMinutes, halfLengthMinutes, maxPlayersOnField, getPlayerAvailability]);
 
   // Identify the halftime rotation number (first rotation of second half).
   // Always derived from the plan settings — never from the half field on individual
@@ -1335,6 +1357,13 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         <div className="planner-sticky-header">
           <button onClick={onBack} className="planner-back-btn">←</button>
           <span className="planner-title">vs {game.opponent}</span>
+          <button
+            className="btn-secondary bug-report-trigger"
+            onClick={() => setShowBugReport(true)}
+            type="button"
+          >
+            Report a Bug
+          </button>
           <details className="planner-overflow">
             <summary className="planner-overflow-btn">⋮</summary>
             <div className="planner-overflow-menu">
@@ -1529,6 +1558,13 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
               </button>
             </div>
           </div>
+        )}
+
+        {showBugReport && (
+          <BugReport
+            onClose={() => setShowBugReport(false)}
+            gamePlannerContext={gamePlannerDebugContext}
+          />
         )}
 
         {swapModalData && (() => {

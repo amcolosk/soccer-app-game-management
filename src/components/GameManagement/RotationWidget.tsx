@@ -121,7 +121,9 @@ export function RotationWidget({
         playerId,
         'available',
         `Arrived late at ${formatGameTimeDisplay(currentTime, gameState.currentHalf || 1)}`,
-        team.coaches || []
+        team.coaches || [],
+        null,  // clear stale availableFromMinute — player has now arrived
+        null   // clear availableUntilMinute — player is fully available
       );
 
       setShowLateArrivalModal(false);

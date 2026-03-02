@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // ---------------------------------------------------------------------------
@@ -55,6 +55,7 @@ vi.mock("../utils/errorHandler", () => ({
 }));
 
 import { BugReport } from "./BugReport";
+import type { GamePlannerDebugContext } from "../types/debug";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -65,8 +66,8 @@ function setViteAppVersion(value: string) {
   vi.stubEnv("VITE_APP_VERSION", value);
 }
 
-function renderBugReport(onClose = vi.fn()) {
-  return { onClose, ...render(<BugReport onClose={onClose} />) };
+function renderBugReport(onClose = vi.fn(), extraProps: { gamePlannerContext?: GamePlannerDebugContext } = {}) {
+  return { onClose, ...render(<BugReport onClose={onClose} {...extraProps} />) };
 }
 
 // ---------------------------------------------------------------------------
@@ -554,5 +555,145 @@ describe("BugReport – screenshot attachment", () => {
 
     expect(screen.queryByText(/only PNG and JPEG/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /submit report/i })).not.toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gamePlannerContext fixture
+// ---------------------------------------------------------------------------
+
+const mockContext: GamePlannerDebugContext = {
+  rotationIntervalMinutes: 10,
+  halfLengthMinutes: 30,
+  maxPlayersOnField: 7,
+  availablePlayerCount: 9,
+  players: [
+    { number: 7, status: 'available', availableFromMinute: null, availableUntilMinute: null },
+    { number: 12, status: 'late-arrival', availableFromMinute: 30, availableUntilMinute: null },
+  ],
+};
+
+describe("BugReport – gamePlannerContext", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSubmitBugReport.mockResolvedValue({ data: null });
+  });
+
+  it("does not render debug snapshot button without gamePlannerContext", () => {
+    renderBugReport();
+    expect(screen.queryByRole("button", { name: /Copy planner state/i })).not.toBeInTheDocument();
+  });
+
+  it("renders debug snapshot button when gamePlannerContext is provided", () => {
+    renderBugReport(vi.fn(), { gamePlannerContext: mockContext });
+    expect(screen.getByRole("button", { name: /Copy planner state/i })).toBeInTheDocument();
+  });
+
+  it("clicking the button pre-populates steps textarea with snapshot text", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      writable: true,
+      configurable: true,
+    });
+
+    renderBugReport(vi.fn(), { gamePlannerContext: mockContext });
+    await user.click(screen.getByRole("button", { name: /Copy planner state/i }));
+
+    const stepsTextarea = screen.getByRole("textbox", { name: /steps to reproduce/i });
+    expect((stepsTextarea as HTMLTextAreaElement).value).toContain('Game Planner Debug Snapshot');
+  });
+
+  it("snapshot includes rotation interval, half length, max players, player count", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      writable: true,
+      configurable: true,
+    });
+
+    renderBugReport(vi.fn(), { gamePlannerContext: mockContext });
+    await user.click(screen.getByRole("button", { name: /Copy planner state/i }));
+
+    const stepsTextarea = screen.getByRole("textbox", { name: /steps to reproduce/i });
+    const value = (stepsTextarea as HTMLTextAreaElement).value;
+    expect(value).toContain('Rotation interval: 10 min');
+    expect(value).toContain('Half length: 30 min');
+    expect(value).toContain('Max players on field: 7');
+    expect(value).toContain('Available players: 9');
+  });
+
+  it("snapshot includes player jersey number and status", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      writable: true,
+      configurable: true,
+    });
+
+    renderBugReport(vi.fn(), { gamePlannerContext: mockContext });
+    await user.click(screen.getByRole("button", { name: /Copy planner state/i }));
+
+    const stepsTextarea = screen.getByRole("textbox", { name: /steps to reproduce/i });
+    const value = (stepsTextarea as HTMLTextAreaElement).value;
+    expect(value).toContain('#7 — available');
+    expect(value).toContain('#12 — late-arrival');
+  });
+
+  it("clicking the button calls navigator.clipboard.writeText", async () => {
+    const user = userEvent.setup();
+    const mockWriteText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: mockWriteText },
+      writable: true,
+      configurable: true,
+    });
+
+    renderBugReport(vi.fn(), { gamePlannerContext: mockContext });
+    await user.click(screen.getByRole("button", { name: /Copy planner state/i }));
+
+    expect(mockWriteText).toHaveBeenCalledWith(expect.stringContaining('Game Planner Debug Snapshot'));
+  });
+
+  it("shows Copied feedback and then resets after timeout", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      writable: true,
+      configurable: true,
+    });
+
+    renderBugReport(vi.fn(), { gamePlannerContext: mockContext });
+    await user.click(screen.getByRole("button", { name: /Copy planner state/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Copied to clipboard/i })).toBeInTheDocument()
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(2100);
+    });
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Copy planner state/i })).toBeInTheDocument()
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("still pre-populates steps when clipboard API is unavailable", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, 'clipboard', {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    });
+
+    renderBugReport(vi.fn(), { gamePlannerContext: mockContext });
+    await user.click(screen.getByRole("button", { name: /Copy planner state/i }));
+
+    const stepsTextarea = screen.getByRole("textbox", { name: /steps to reproduce/i });
+    expect((stepsTextarea as HTMLTextAreaElement).value).toContain('Game Planner Debug Snapshot');
   });
 });

@@ -255,7 +255,9 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         playerId,
         'injured',
         `Injured at ${formatGameTimeDisplay(currentTime, gameState.currentHalf || 1)}`,
-        team.coaches || []
+        team.coaches || [],
+        null,                           // clear stale availableFromMinute
+        Math.floor(currentTime / 60)   // record game minute when injury occurred
       );
       
       // Close active play time record

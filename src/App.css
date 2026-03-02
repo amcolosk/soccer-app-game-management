@@ -5715,3 +5715,31 @@
   color: var(--text-secondary);
   font-size: 0.9em;
 }
+
+/* ===== Bug Report – Debug Snapshot ===== */
+.debug-snapshot-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--light-green);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.debug-snapshot-hint {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.debug-snapshot-btn {
+  font-size: 0.85rem;
+  padding: 0.35rem 0.75rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}

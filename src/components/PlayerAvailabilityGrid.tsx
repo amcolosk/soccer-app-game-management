@@ -78,7 +78,9 @@ export function PlayerAvailabilityGrid({
       ? null
       : newStatus === 'late-arrival' && halfLengthMinutes !== undefined
         ? halfLengthMinutes
-        : undefined;
+        : newStatus === 'injured'
+          ? null   // clear stale availableFromMinute (e.g., from a prior late-arrival)
+          : undefined;
     const availableUntilMinute = clearsWindow
       ? null
       : newStatus === 'injured' && elapsedGameMinutes !== undefined
