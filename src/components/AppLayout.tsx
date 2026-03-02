@@ -3,6 +3,8 @@ import { Outlet, NavLink, useLocation } from "react-router-dom";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { Toaster } from "react-hot-toast";
 import { ConfirmProvider } from "./ConfirmModal";
+import { HelpFabProvider } from "../contexts/HelpFabContext";
+import { HelpFab } from "./HelpFab";
 import { useEffect } from "react";
 import { trackPageView } from "../utils/analytics";
 
@@ -17,7 +19,8 @@ export function AppLayout() {
 
   return (
     <ConfirmProvider>
-      <main className="app-container">
+      <HelpFabProvider>
+        <main className="app-container">
         <Toaster
           position="top-center"
           toastOptions={{
@@ -86,7 +89,9 @@ export function AppLayout() {
             <span className="nav-label">Profile</span>
           </NavLink>
         </nav>
-      </main>
+          <HelpFab />
+        </main>
+      </HelpFabProvider>
     </ConfirmProvider>
   );
 }

@@ -1,0 +1,156 @@
+/* -----------------------------------------------------------------------
+   Help FAB — Floating Action Button
+   z-index: 90 (below bottom-nav at 100; positions don't overlap)
+   ----------------------------------------------------------------------- */
+
+@keyframes fabFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.help-fab {
+  position: fixed;
+  bottom: 76px;
+  right: 16px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  /* Background only is semi-transparent — keeps the ? icon fully opaque */
+  background: color-mix(in srgb, var(--primary-green) 90%, transparent);
+  color: #fff;
+  font-size: 1.25rem;
+  font-weight: 700;
+  z-index: 90;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fabFadeIn 200ms ease-out;
+  font-family: inherit;
+  line-height: 1;
+}
+
+.help-fab:active {
+  transform: scale(0.95);
+}
+
+@media (min-width: 768px) {
+  .help-fab {
+    right: 24px;
+  }
+}
+
+/* -----------------------------------------------------------------------
+   Help FAB — Bottom Sheet
+   ----------------------------------------------------------------------- */
+
+@keyframes sheetSlideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes sheetSlideDown {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+.help-fab-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 950;
+}
+
+.help-fab-sheet {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border-radius: 12px 12px 0 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  animation: sheetSlideUp 250ms ease-out;
+  will-change: transform;
+}
+
+.help-fab-sheet.is-closing {
+  animation: sheetSlideDown 200ms ease-in forwards;
+}
+
+/* Drag handle pill */
+.help-fab-sheet-handle {
+  width: 36px;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
+  margin: 8px auto 4px;
+}
+
+/* Menu option rows */
+.help-fab-sheet-option {
+  display: flex;
+  align-items: center;
+  height: 56px;
+  padding: 0 20px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  gap: 12px;
+  font-family: inherit;
+  text-align: left;
+  color: var(--text-primary);
+}
+
+.help-fab-sheet-option:hover:not(:disabled) {
+  background: var(--hover-background);
+}
+
+.help-fab-sheet-option__icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.help-fab-sheet-option__label {
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.help-fab-sheet-option__subtitle {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  display: block;
+}
+
+.help-fab-sheet-option--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .help-fab {
+    animation: none;
+  }
+  .help-fab-sheet,
+  .help-fab-sheet.is-closing {
+    animation-duration: 0.001ms;
+  }
+}

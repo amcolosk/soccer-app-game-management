@@ -28,9 +28,10 @@
    - [Profile](#710-profile)
    - [Invitation Flow](#711-invitation-flow)
 8. [Modal & Overlay Patterns](#8-modal--overlay-patterns)
-9. [z-index Stack](#9-z-index-stack)
-10. [PWA / Platform Behavior](#10-pwa--platform-behavior)
-11. [Issue #7 Fix — Pinch-to-Zoom Disabled](#11-issue-7-fix--pinch-to-zoom-disabled)
+9. [Help & Bug Report FAB](#9-help--bug-report-fab)
+10. [z-index Stack](#10-z-index-stack)
+11. [PWA / Platform Behavior](#11-pwa--platform-behavior)
+12. [Issue #7 Fix — Pinch-to-Zoom Disabled](#12-issue-7-fix--pinch-to-zoom-disabled)
 
 ---
 
@@ -424,6 +425,7 @@ Pre-game rotation planning. Coach marks availability then generates or manually 
 #### Layout
 - App header visible
 - Full-page vertical stack
+- **No inline bug-report button in the sticky header.** Bug reporting is accessed via the global Help FAB (§9), which automatically attaches Game Planner debug context (rotation settings, player availability snapshot) when triggered from this screen.
 
 #### Sections
 
@@ -501,12 +503,12 @@ Pre-game rotation planning. Coach marks availability then generates or manually 
 #### Contents
 - Email address (read-only)
 - Account actions: Sign Out
-- App info: version number, link to bug report
+- App info: version number
 
-#### Bug Report Button
-- Opens `BugReport` modal/drawer
-- Fields: description (textarea), severity (dropdown: low / medium / high), optional screenshot (image upload, max 5 MB)
-- Rate-limited: 5 reports/hour
+#### Bug Report Access
+Bug reporting is accessed via the global Help FAB (§9) visible on all authenticated screens. The Profile page no longer contains a dedicated bug-report button.
+
+> **Migration note:** The previous inline "Report Issue" card in the Manage tab and the "Report a Bug" button in the Game Planner header are both replaced by the Help FAB.
 
 ---
 
@@ -550,19 +552,126 @@ All modals share:
 
 ---
 
-## 9. z-index Stack
+## 9. Help & Bug Report FAB
+
+A single, consistent affordance for bug reporting and (future) context-sensitive help, present on every authenticated screen.
+
+### 9.1 Rationale
+
+Previously, bug reporting was scattered across different screens with different placements (inline button in Game Planner header, card in Manage tab, link on Profile page). This created visual clutter, especially on mobile where the Game Planner header button competed with navigation. A floating action button (FAB) provides a uniform, unobtrusive entry point that:
+
+- Never competes with page-specific navigation or sticky headers
+- Is always accessible regardless of scroll position
+- Provides a natural home for future help features
+- Collects page-specific debug context automatically
+
+### 9.2 Visual Design
+
+| Property | Value |
+|----------|-------|
+| Shape | Circle, `44 × 44px` (meets minimum tap target) |
+| Icon | `?` (question mark), white, `1.25em`, weight 700 |
+| Background | `--primary-green` at 90% opacity |
+| Border | `2px solid rgba(255,255,255,0.2)` |
+| Shadow | `0 2px 8px rgba(0,0,0,0.15)` |
+| Border-radius | `50%` |
+| z-index | `90` (below bottom nav at 100, so it doesn't overlay navigation) |
+
+### 9.3 Positioning
+
+| Breakpoint | Position |
+|------------|----------|
+| **Phone** (< 768px) | Fixed, `bottom: 76px` (16px above the 60px bottom nav), `right: 16px` |
+| **Tablet** (≥ 768px) | Fixed, `bottom: 76px`, `right: 24px` |
+
+The FAB sits above the bottom navigation bar and below any modal overlays. It must not overlap the CommandBand, tab nav, or bottom nav.
+
+### 9.4 Visibility Rules
+
+| Context | FAB visible? |
+|---------|--------------|
+| All authenticated screens (Home, Game Management, Planner, Reports, Manage, Profile) | ✅ Yes |
+| Landing page (unauthenticated) | ❌ No |
+| Invitation flow (`/invite/:id`) | ❌ No |
+| Dev Dashboard (`/dev`) | ❌ No |
+| Any open modal overlay (z-index 1000) | Hidden (FAB is below modal z-index) |
+
+### 9.5 Interaction: Bottom Sheet Menu
+
+Tapping the FAB opens a bottom-sheet overlay with the following options:
+
+| Option | Icon | State | Behavior |
+|--------|------|-------|----------|
+| **Report a Bug** | 🐛 | Active | Opens the `BugReport` modal with page-specific debug context attached (see §9.6) |
+| **Get Help** | 📖 | Disabled / Coming Soon | Grayed out with "Coming soon" subtitle. Future: opens context-specific help for the current screen. |
+
+#### Bottom Sheet Design
+
+| Property | Value |
+|----------|-------|
+| Backdrop | `rgba(0,0,0,0.3)`, tapping dismisses |
+| Sheet | White, `border-radius: 12px 12px 0 0`, slides up from bottom |
+| Max height | `40vh` |
+| z-index | `950` (above FAB, below full modals at 1000) |
+| Options | Full-width rows, `56px` tall, left icon + label + optional subtitle |
+| Dismiss | Tap backdrop, swipe down, or tap a close affordance |
+
+### 9.6 Page-Specific Debug Context
+
+When "Report a Bug" is selected, the FAB component automatically captures debug context for the current screen and passes it to the `BugReport` modal. This replaces the previous per-screen `gamePlannerContext` pattern with an extensible approach.
+
+| Screen | Debug context attached | Status |
+|--------|----------------------|--------|
+| Game Planner | Rotation settings, player availability, half length, max-on-field | ✅ Implemented |
+| Game Management | Game status, elapsed time, current half, lineup count | 🔮 Future |
+| Home | Active game count, scheduled game count | 🔮 Future |
+| All other screens | Screen name only | Default |
+
+Debug context is collected via a React context provider (`HelpFabContext`) that each screen can optionally populate. If no context is provided, only the current route/screen name is included.
+
+### 9.7 Animation
+
+- **FAB entrance:** Fades in with slight upward translate (`translateY(8px)` → `translateY(0)`) over `200ms ease-out` on route mount.
+- **Bottom sheet:** Slides up from off-screen over `250ms ease-out`. Dismisses by sliding down over `200ms ease-in`.
+- **FAB press:** Subtle scale (`0.95`) on `:active` for tactile feedback.
+
+### 9.8 Accessibility
+
+- `aria-label="Help and bug report"`
+- Bottom sheet menu items are focusable with `role="menuitem"`
+- Sheet container has `role="menu"` and `aria-label="Help menu"`
+- Disabled "Get Help" item has `aria-disabled="true"`
+- Escape key dismisses the bottom sheet
+- Focus is trapped inside the bottom sheet while open
+
+### 9.9 Future: Help Feature Integration
+
+The Help FAB is designed to be the entry point for a future context-sensitive help system. When implemented, the "Get Help" option will:
+
+- Display page-specific guidance (e.g., "How to set up rotations" on the Game Planner)
+- Show onboarding tips for new coaches
+- Link to external documentation or FAQs
+- Provide context-aware suggestions based on current page state
+
+A separate **Help Content Specification** document will define the help content, structure, and delivery mechanism. The FAB UI and bottom-sheet pattern remain unchanged when help is enabled — only the "Get Help" row transitions from disabled to active.
+
+---
+
+## 10. z-index Stack
 
 | Layer | z-index | Element |
 |-------|---------|---------|
+| Help FAB | 90 | `.help-fab` |
 | Bottom navigation | 100 | `.bottom-nav` |
 | Game tab navigation | 190 | `.game-tab-nav` |
 | Command band | 200 | `.command-band` |
+| Help FAB bottom sheet | 950 | `.help-fab-sheet` |
 | Modal overlays | 1000 | `.modal-overlay` |
 | Toast notifications | 9999+ | `react-hot-toast` |
 
 ---
 
-## 10. PWA / Platform Behavior
+## 11. PWA / Platform Behavior
 
 - **Installed as PWA:** no browser chrome; full viewport used
 - **Status bar:** `black-translucent` on iOS; theme color `#1a472a`
@@ -572,7 +681,7 @@ All modals share:
 
 ---
 
-## 11. Issue #7 Fix — Pinch-to-Zoom Disabled
+## 12. Issue #7 Fix — Pinch-to-Zoom Disabled
 
 **Issue:** Coaches accidentally zoomed in while managing a live game, making the UI unusable.
 

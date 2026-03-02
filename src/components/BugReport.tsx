@@ -5,33 +5,12 @@ import { fetchAuthSession } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
 import { showWarning } from '../utils/toast';
 import { handleApiError } from '../utils/errorHandler';
-import type { GamePlannerDebugContext } from '../types/debug';
 
 const client = generateClient<Schema>();
 
 interface BugReportProps {
   onClose: () => void;
-  gamePlannerContext?: GamePlannerDebugContext;
-}
-
-function buildDebugSnapshot(ctx: GamePlannerDebugContext): string {
-  const lines = [
-    '--- Game Planner Debug Snapshot ---',
-    `Rotation interval: ${ctx.rotationIntervalMinutes} min`,
-    `Half length: ${ctx.halfLengthMinutes} min`,
-    `Max players on field: ${ctx.maxPlayersOnField}`,
-    `Available players: ${ctx.availablePlayerCount}`,
-    '',
-    'Player availability:',
-    ...ctx.players.map(p => {
-      const from = p.availableFromMinute != null ? `availFrom=${p.availableFromMinute}` : '';
-      const until = p.availableUntilMinute != null ? `availUntil=${p.availableUntilMinute}` : '';
-      const window = [from, until].filter(Boolean).join(', ');
-      return `  #${p.number} — ${p.status}${window ? ` (${window})` : ''}`;
-    }),
-    '-----------------------------------',
-  ];
-  return lines.join('\n');
+  debugContext?: string | null;
 }
 
 // Character limits for input validation
@@ -48,7 +27,7 @@ function validateScreenshot(file: File): string | null {
   return null;
 }
 
-export function BugReport({ onClose, gamePlannerContext }: BugReportProps) {
+export function BugReport({ onClose, debugContext }: BugReportProps) {
   const [description, setDescription] = useState('');
   const [steps, setSteps] = useState('');
   const [severity, setSeverity] = useState<'low' | 'medium' | 'high' | 'feature-request'>('medium');
@@ -61,12 +40,11 @@ export function BugReport({ onClose, gamePlannerContext }: BugReportProps) {
   const [copySuccess, setCopySuccess] = useState(false);
 
   function handleCopySnapshot() {
-    if (!gamePlannerContext) return;
-    const text = buildDebugSnapshot(gamePlannerContext);
+    if (!debugContext) return;
     // Pre-populate steps textarea immediately (synchronous)
-    setSteps(prev => prev ? `${prev}\n\n${text}` : text);
+    setSteps(prev => prev ? `${prev}\n\n${debugContext}` : debugContext as string);
     // Copy to clipboard (may fail in non-secure context — that's fine)
-    navigator.clipboard?.writeText(text).then(() => {
+    navigator.clipboard?.writeText(debugContext as string).then(() => {
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 2000);
     }).catch(() => {
@@ -196,10 +174,10 @@ export function BugReport({ onClose, gamePlannerContext }: BugReportProps) {
           </button>
         </div>
 
-        {gamePlannerContext && (
+        {debugContext && (
           <div className="debug-snapshot-row">
             <p className="debug-snapshot-hint">
-              Game planner context detected — click to add a debug snapshot to the steps field.
+              Debug context available — click to add it to the steps field.
             </p>
             <button
               type="button"
@@ -207,7 +185,7 @@ export function BugReport({ onClose, gamePlannerContext }: BugReportProps) {
               onClick={handleCopySnapshot}
               disabled={isBusy}
             >
-              {copySuccess ? '✓ Copied to clipboard' : 'Copy planner state'}
+              {copySuccess ? '✓ Copied to clipboard' : 'Copy debug context'}
             </button>
           </div>
         )}

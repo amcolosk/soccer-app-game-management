@@ -56,6 +56,7 @@ vi.mock("../utils/errorHandler", () => ({
 
 import { BugReport } from "./BugReport";
 import type { GamePlannerDebugContext } from "../types/debug";
+import { buildDebugSnapshot } from "../utils/gamePlannerDebugUtils";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,7 +67,7 @@ function setViteAppVersion(value: string) {
   vi.stubEnv("VITE_APP_VERSION", value);
 }
 
-function renderBugReport(onClose = vi.fn(), extraProps: { gamePlannerContext?: GamePlannerDebugContext } = {}) {
+function renderBugReport(onClose = vi.fn(), extraProps: { debugContext?: string | null } = {}) {
   return { onClose, ...render(<BugReport onClose={onClose} {...extraProps} />) };
 }
 
@@ -559,7 +560,7 @@ describe("BugReport – screenshot attachment", () => {
 });
 
 // ---------------------------------------------------------------------------
-// gamePlannerContext fixture
+// debugContext fixture
 // ---------------------------------------------------------------------------
 
 const mockContext: GamePlannerDebugContext = {
@@ -573,20 +574,23 @@ const mockContext: GamePlannerDebugContext = {
   ],
 };
 
-describe("BugReport – gamePlannerContext", () => {
+// Pre-build the debug string once — tests pass this to the debugContext prop
+const mockDebugString = buildDebugSnapshot(mockContext);
+
+describe("BugReport – debugContext", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSubmitBugReport.mockResolvedValue({ data: null });
   });
 
-  it("does not render debug snapshot button without gamePlannerContext", () => {
+  it("does not render debug snapshot button without debugContext", () => {
     renderBugReport();
-    expect(screen.queryByRole("button", { name: /Copy planner state/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Copy debug context/i })).not.toBeInTheDocument();
   });
 
-  it("renders debug snapshot button when gamePlannerContext is provided", () => {
-    renderBugReport(vi.fn(), { gamePlannerContext: mockContext });
-    expect(screen.getByRole("button", { name: /Copy planner state/i })).toBeInTheDocument();
+  it("renders debug snapshot button when debugContext is provided", () => {
+    renderBugReport(vi.fn(), { debugContext: mockDebugString });
+    expect(screen.getByRole("button", { name: /Copy debug context/i })).toBeInTheDocument();
   });
 
   it("clicking the button pre-populates steps textarea with snapshot text", async () => {
@@ -597,8 +601,8 @@ describe("BugReport – gamePlannerContext", () => {
       configurable: true,
     });
 
-    renderBugReport(vi.fn(), { gamePlannerContext: mockContext });
-    await user.click(screen.getByRole("button", { name: /Copy planner state/i }));
+    renderBugReport(vi.fn(), { debugContext: mockDebugString });
+    await user.click(screen.getByRole("button", { name: /Copy debug context/i }));
 
     const stepsTextarea = screen.getByRole("textbox", { name: /steps to reproduce/i });
     expect((stepsTextarea as HTMLTextAreaElement).value).toContain('Game Planner Debug Snapshot');
@@ -612,8 +616,8 @@ describe("BugReport – gamePlannerContext", () => {
       configurable: true,
     });
 
-    renderBugReport(vi.fn(), { gamePlannerContext: mockContext });
-    await user.click(screen.getByRole("button", { name: /Copy planner state/i }));
+    renderBugReport(vi.fn(), { debugContext: mockDebugString });
+    await user.click(screen.getByRole("button", { name: /Copy debug context/i }));
 
     const stepsTextarea = screen.getByRole("textbox", { name: /steps to reproduce/i });
     const value = (stepsTextarea as HTMLTextAreaElement).value;
@@ -631,8 +635,8 @@ describe("BugReport – gamePlannerContext", () => {
       configurable: true,
     });
 
-    renderBugReport(vi.fn(), { gamePlannerContext: mockContext });
-    await user.click(screen.getByRole("button", { name: /Copy planner state/i }));
+    renderBugReport(vi.fn(), { debugContext: mockDebugString });
+    await user.click(screen.getByRole("button", { name: /Copy debug context/i }));
 
     const stepsTextarea = screen.getByRole("textbox", { name: /steps to reproduce/i });
     const value = (stepsTextarea as HTMLTextAreaElement).value;
@@ -649,8 +653,8 @@ describe("BugReport – gamePlannerContext", () => {
       configurable: true,
     });
 
-    renderBugReport(vi.fn(), { gamePlannerContext: mockContext });
-    await user.click(screen.getByRole("button", { name: /Copy planner state/i }));
+    renderBugReport(vi.fn(), { debugContext: mockDebugString });
+    await user.click(screen.getByRole("button", { name: /Copy debug context/i }));
 
     expect(mockWriteText).toHaveBeenCalledWith(expect.stringContaining('Game Planner Debug Snapshot'));
   });
@@ -664,8 +668,8 @@ describe("BugReport – gamePlannerContext", () => {
       configurable: true,
     });
 
-    renderBugReport(vi.fn(), { gamePlannerContext: mockContext });
-    await user.click(screen.getByRole("button", { name: /Copy planner state/i }));
+    renderBugReport(vi.fn(), { debugContext: mockDebugString });
+    await user.click(screen.getByRole("button", { name: /Copy debug context/i }));
 
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /Copied to clipboard/i })).toBeInTheDocument()
@@ -676,7 +680,7 @@ describe("BugReport – gamePlannerContext", () => {
     });
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /Copy planner state/i })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /Copy debug context/i })).toBeInTheDocument()
     );
 
     vi.useRealTimers();
@@ -690,8 +694,8 @@ describe("BugReport – gamePlannerContext", () => {
       configurable: true,
     });
 
-    renderBugReport(vi.fn(), { gamePlannerContext: mockContext });
-    await user.click(screen.getByRole("button", { name: /Copy planner state/i }));
+    renderBugReport(vi.fn(), { debugContext: mockDebugString });
+    await user.click(screen.getByRole("button", { name: /Copy debug context/i }));
 
     const stepsTextarea = screen.getByRole("textbox", { name: /steps to reproduce/i });
     expect((stepsTextarea as HTMLTextAreaElement).value).toContain('Game Planner Debug Snapshot');

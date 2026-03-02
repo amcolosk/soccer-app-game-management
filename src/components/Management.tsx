@@ -1,7 +1,6 @@
 import { useState, useEffect, useReducer } from 'react';
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
-import { BugReport } from './BugReport';
 import { InvitationManagement } from './InvitationManagement';
 import type { Schema } from '../../amplify/data/resource';
 import type { Team, Player, TeamRoster, Formation } from '../types/schema';
@@ -117,7 +116,6 @@ export function Management() {
   const { data: formations } = useAmplifyQuery('Formation');
   const { data: formationPositions } = useAmplifyQuery('FormationPosition');
   const [activeSection, setActiveSection] = useState<'teams' | 'formations' | 'players' | 'sharing' | 'app'>('teams');
-  const [showBugReport, setShowBugReport] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>('');
 
   const [rosterView, setRosterView] = useState<'roster' | 'positions'>('roster');
@@ -1580,23 +1578,7 @@ export function Management() {
               </div>
             </div>
 
-            <div className="app-info-card">
-              <h3>🐛 Report an Issue</h3>
-              <p className="info-description">
-                Found a bug or have feedback? Let us know so we can improve the app.
-              </p>
-              <button 
-                onClick={() => setShowBugReport(true)} 
-                className="btn-primary"
-              >
-                Report Issue
-              </button>
-            </div>
           </div>
-
-          {showBugReport && (
-            <BugReport onClose={() => setShowBugReport(false)} />
-          )}
         </div>
       )}
     </div>

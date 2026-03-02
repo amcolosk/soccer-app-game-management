@@ -13,8 +13,9 @@ import {
 } from "../services/rotationPlannerService";
 import { LineupBuilder } from "./LineupBuilder";
 import { PlayerAvailabilityGrid } from "./PlayerAvailabilityGrid";
-import { BugReport } from "./BugReport";
 import { useTeamData } from "../hooks/useTeamData";
+import { useHelpFab } from "../contexts/HelpFabContext";
+import { buildDebugSnapshot } from "../utils/gamePlannerDebugUtils";
 import type { GamePlannerDebugContext } from "../types/debug";
 import { AvailabilityProvider } from "../contexts/AvailabilityContext";
 import { showSuccess, showWarning } from "../utils/toast";
@@ -109,7 +110,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const [rotationIntervalMinutes, setRotationIntervalMinutes] = useState(10);
   const [selectedRotation, setSelectedRotation] = useState<number | 'starting' | 'halftime' | null>(null);
   const [showCopyModal, setShowCopyModal] = useState(false);
-  const [showBugReport, setShowBugReport] = useState(false);
   const [previousGames, setPreviousGames] = useState<Game[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [planWarnings, setPlanWarnings] = useState<string[]>([]);
@@ -318,6 +318,19 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       };
     }),
   }), [players, availabilities, rotationIntervalMinutes, halfLengthMinutes, maxPlayersOnField, getPlayerAvailability]);
+
+  const debugContextString = useMemo(
+    () => buildDebugSnapshot(gamePlannerDebugContext),
+    [gamePlannerDebugContext]
+  );
+
+  // Register debug context with the global Help FAB while this screen is mounted.
+  // Cleared on unmount so the FAB does not carry stale planner data to other routes.
+  const { setDebugContext } = useHelpFab();
+  useEffect(() => {
+    setDebugContext(debugContextString);
+    return () => setDebugContext(null);
+  }, [debugContextString, setDebugContext]);
 
   // Identify the halftime rotation number (first rotation of second half).
   // Always derived from the plan settings — never from the half field on individual
@@ -1357,13 +1370,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         <div className="planner-sticky-header">
           <button onClick={onBack} className="planner-back-btn">←</button>
           <span className="planner-title">vs {game.opponent}</span>
-          <button
-            className="btn-secondary bug-report-trigger"
-            onClick={() => setShowBugReport(true)}
-            type="button"
-          >
-            Report a Bug
-          </button>
           <details className="planner-overflow">
             <summary className="planner-overflow-btn">⋮</summary>
             <div className="planner-overflow-menu">
@@ -1558,13 +1564,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
               </button>
             </div>
           </div>
-        )}
-
-        {showBugReport && (
-          <BugReport
-            onClose={() => setShowBugReport(false)}
-            gamePlannerContext={gamePlannerDebugContext}
-          />
         )}
 
         {swapModalData && (() => {
