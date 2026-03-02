@@ -55,7 +55,7 @@ fix → validation-engineer → commit
 3. If Major+ issues are found, fix them and re-run the agent
 4. `npm run test:run` and `npm run build` must both pass before committing
 
-> For defect fixes spanning more than two files, or that require architectural changes, use the full New Feature Pipeline instead.
+> For defect fixes spanning more than two files, or that require architectural changes, use the full New Feature Pipeline instead. Mark issue as fixed using github hash.
 
 ---
 
