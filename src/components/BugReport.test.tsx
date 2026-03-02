@@ -334,6 +334,21 @@ describe("BugReport – submission", () => {
     expect(systemInfo).toHaveProperty("version");
   });
 
+  it("includes full window.location.href in systemInfo url", async () => {
+    mockSubmitBugReport.mockResolvedValue({ data: null });
+    const user = userEvent.setup();
+    renderBugReport();
+
+    await user.type(screen.getByRole("textbox", { name: /what went wrong/i }), "Crash");
+    await user.click(screen.getByRole("button", { name: /submit report/i }));
+
+    await waitFor(() => expect(mockSubmitBugReport).toHaveBeenCalled());
+
+    const arg = mockSubmitBugReport.mock.calls[0][0];
+    const systemInfo = JSON.parse(arg.systemInfo);
+    expect(systemInfo.url).toBe(window.location.href);
+  });
+
   it("submits without screenshotKey when no file is attached", async () => {
     mockSubmitBugReport.mockResolvedValue({ data: null });
     const user = userEvent.setup();

@@ -106,7 +106,7 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
         screenSize: `${window.screen.width}x${window.screen.height}`,
         viewport: `${window.innerWidth}x${window.innerHeight}`,
         timestamp: new Date().toISOString(),
-        url: window.location.origin + window.location.pathname,
+        url: window.location.href,
         version: import.meta.env.VITE_APP_VERSION || '1.1.0',
       };
 
