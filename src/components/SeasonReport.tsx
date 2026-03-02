@@ -20,6 +20,7 @@ import {
   calculateRecord,
 } from "../utils/gameCalculations";
 import { useAmplifyQuery } from "../hooks/useAmplifyQuery";
+import { useHelpFab } from "../contexts/HelpFabContext";
 
 const client = generateClient<Schema>();
 
@@ -50,6 +51,14 @@ interface PlayerDetails {
 }
 
 export function TeamReport({ team }: TeamReportProps) {
+  const { setHelpContext } = useHelpFab();
+
+  // Register 'season-reports' help context while this screen is mounted.
+  // @help-content: season-reports
+  useEffect(() => {
+    setHelpContext('season-reports');
+    return () => setHelpContext(null);
+  }, [setHelpContext]);
   const [playerStats, setPlayerStats] = useState<PlayerStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);

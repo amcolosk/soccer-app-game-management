@@ -46,7 +46,7 @@ This document specifies the architecture, content model, component design, and U
 - The `HelpModal` component design and opening sequence
 - First-run onboarding design (Phase 2)
 - Accessibility, z-index, and motion requirements
-- Per-screen wiring instructions for all 14 screen/state contexts
+- Per-screen wiring instructions for all 13 screen/state contexts
 - Phased implementation plan
 
 ### What this spec does NOT cover
@@ -235,8 +235,8 @@ The existing `useHelpFab()` hook continues to return the full context value. All
  * GameManagement uses four keys — one per game state — because each state
  * surfaces different affordances and the coach's questions differ entirely.
  *
- * Manage uses four keys — one per sub-section — because Teams setup help
- * is unrelated to Invitations help.
+ * Manage uses five keys — one per sub-section (Teams, Players, Formations,
+ * Sharing, App) — because each tab exposes entirely different functionality.
  */
 export type HelpScreenKey =
   // Home
@@ -260,7 +260,7 @@ export type HelpScreenKey =
   | 'profile';
 ```
 
-**14 total keys.** This is the exhaustive set for v1.
+**13 total keys.** This is the exhaustive set for v1.
 
 ### Rationale for Game Management sub-keys
 
@@ -357,7 +357,7 @@ export interface ScreenHelpContent {
 
 /**
  * The complete registry of all help articles, keyed by HelpScreenKey.
- * TypeScript enforces that all 14 keys are present.
+ * TypeScript enforces that all 13 keys are present.
  */
 export type HelpContentRegistry = Record<HelpScreenKey, ScreenHelpContent>;
 
@@ -418,7 +418,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
 };
 ```
 
-> **Note:** The TypeScript type `HelpContentRegistry = Record<HelpScreenKey, ScreenHelpContent>` ensures the compiler will fail if any of the 14 keys is missing from `HELP_CONTENT`. This is the primary guard against incomplete content during implementation.
+> **Note:** The TypeScript type `HelpContentRegistry = Record<HelpScreenKey, ScreenHelpContent>` ensures the compiler will fail if any of the 13 keys is missing from `HELP_CONTENT`. This is the primary guard against incomplete content during implementation.
 
 ### Content Authoring Guidelines
 
@@ -439,7 +439,11 @@ These rules apply to all entries in `HELP_CONTENT`:
 
 ```typescript
 // src/help/index.ts
-export type { HelpScreenKey, ScreenHelpContent, HelpTask, HelpTip, HelpContentRegistry, OnboardingContent } from './types';
+// Note: OnboardingContent is intentionally NOT re-exported here in Phase 1.
+// It is defined in types.ts for completeness but has no Phase 1 consumer.
+// Exporting it would cause `knip` to flag it as an unused export.
+// Add it to this barrel when OnboardingOverlay.tsx is implemented in Phase 2.
+export type { HelpScreenKey, ScreenHelpContent, HelpTask, HelpTip, HelpContentRegistry } from './types';
 export { HELP_CONTENT } from './content';
 ```
 
@@ -989,7 +993,7 @@ All help content ships in the main JavaScript bundle.
 | Item | Raw size | Gzipped |
 |------|---------|---------|
 | `src/help/types.ts` (interfaces only) | ~1 KB | ~0.3 KB |
-| `src/help/content.ts` (14 articles × ~250 words avg) | ~18–25 KB | ~4–6 KB |
+| `src/help/content.ts` (13 articles × ~250 words avg) | ~18–25 KB | ~4–6 KB |
 | `HelpModal.tsx` + `HelpModal.css` | ~4–6 KB | ~1–2 KB |
 | `OnboardingOverlay.tsx` + CSS (Phase 2) | ~2–3 KB | ~0.8 KB |
 | **Total addition** | **~25–35 KB** | **~6–9 KB** |
@@ -1018,7 +1022,7 @@ src/
   help/
     types.ts                 — HelpScreenKey, ScreenHelpContent, HelpTask, HelpTip,
                                HelpContentRegistry, OnboardingContent
-    content.ts               — HELP_CONTENT: HelpContentRegistry  (all 14 articles)
+    content.ts               — HELP_CONTENT: HelpContentRegistry  (all 13 articles)
     index.ts                 — barrel re-export
 
   components/
@@ -1034,6 +1038,7 @@ src/
 src/
   contexts/
     HelpFabContext.tsx       — Add helpContext + setHelpContext to interface and provider
+                               Import HelpScreenKey from '../help/types' (direct, not barrel)
 
   components/
     HelpFab.tsx              — Add openHelpAfterClose ref, handleOpenHelp,
@@ -1048,9 +1053,14 @@ src/
   components/
     GamePlanner.tsx          — Add setHelpContext('game-planner') on mount
     Home.tsx                 — Add setHelpContext('home') on mount
-    SeasonReport.tsx         — Add setHelpContext('season-reports') on mount
+    SeasonReport.tsx         — The exported component function is TeamReport (not SeasonReport).
+                               Add setHelpContext('season-reports') inside TeamReport's body.
     Management.tsx           — Add setHelpContext per active section
     UserProfile.tsx          — Add setHelpContext('profile') on mount
+
+CLAUDE.md                    — Add "Help System" section under "Common Patterns" explaining
+                               that any new top-level screen MUST call setHelpContext(key)
+                               on mount and setHelpContext(null) on unmount.
 ```
 
 ### Files NOT to modify
@@ -1129,7 +1139,7 @@ The route wrapper components in `src/components/routes/` (`GameManagementRoute.t
 
 **Deliverables:**
 1. `src/help/types.ts` — all types defined
-2. `src/help/content.ts` — all 14 articles authored (prose content, not just structure)
+2. `src/help/content.ts` — all 13 articles authored (prose content, not just structure)
 3. `src/help/index.ts` — barrel export
 4. `HelpFabContext.tsx` — extended with `helpContext` / `setHelpContext`
 5. `HelpModal.tsx` + `HelpModal.css` — fully implemented with accessibility requirements
@@ -1141,7 +1151,7 @@ The route wrapper components in `src/components/routes/` (`GameManagementRoute.t
 - Tapping "Get Help" on any authenticated screen shows the correct article
 - Tapping "Get Help" when no context is set (edge case) does not crash; button remains disabled
 - HelpModal passes: `role="dialog"`, `aria-modal`, focus management, Escape key, reduced-motion
-- `HELP_CONTENT` TypeScript compilation fails if any of the 14 keys is absent
+- `HELP_CONTENT` TypeScript compilation fails if any of the 13 keys is absent
 
 **Testing:**
 - Unit tests for `HelpModal`: renders correct content per key, closes on Escape, closes on backdrop click, focus moves to heading on mount

@@ -11,6 +11,7 @@ import {
   declineTeamInvitation,
 } from '../services/invitationService';
 import { useConfirm } from './ConfirmModal';
+import { useHelpFab } from '../contexts/HelpFabContext';
 
 const client = generateClient<Schema>();
 
@@ -18,6 +19,14 @@ export function UserProfile() {
   const confirm = useConfirm();
   const { user } = useAuthenticator();
   const { signOut } = useOutletContext<{ signOut: () => void }>();
+  const { setHelpContext } = useHelpFab();
+
+  // Register 'profile' help context while this screen is mounted.
+  // @help-content: profile
+  useEffect(() => {
+    setHelpContext('profile');
+    return () => setHelpContext(null);
+  }, [setHelpContext]);
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');

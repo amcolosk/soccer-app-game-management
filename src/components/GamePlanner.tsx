@@ -326,11 +326,18 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
   // Register debug context with the global Help FAB while this screen is mounted.
   // Cleared on unmount so the FAB does not carry stale planner data to other routes.
-  const { setDebugContext } = useHelpFab();
+  const { setDebugContext, setHelpContext } = useHelpFab();
   useEffect(() => {
     setDebugContext(debugContextString);
     return () => setDebugContext(null);
   }, [debugContextString, setDebugContext]);
+
+  // Register 'game-planner' help context while this screen is mounted.
+  // @help-content: game-planner
+  useEffect(() => {
+    setHelpContext('game-planner');
+    return () => setHelpContext(null);
+  }, [setHelpContext]);
 
   // Identify the halftime rotation number (first rotation of second half).
   // Always derived from the plan settings — never from the half field on individual

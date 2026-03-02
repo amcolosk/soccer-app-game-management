@@ -27,6 +27,8 @@ import {
 } from './managementReducers';
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
 import { getAvailableBirthYears } from '../utils/rosterFilterUtils';
+import { useHelpFab } from '../contexts/HelpFabContext';
+import type { HelpScreenKey } from '../help';
 
 const client = generateClient<Schema>();
 
@@ -117,6 +119,23 @@ export function Management() {
   const { data: formationPositions } = useAmplifyQuery('FormationPosition');
   const [activeSection, setActiveSection] = useState<'teams' | 'formations' | 'players' | 'sharing' | 'app'>('teams');
   const [currentUserId, setCurrentUserId] = useState<string>('');
+
+  const { setHelpContext } = useHelpFab();
+
+  // Map active section → help key. Reactive: re-runs when the coach switches tabs.
+  // @help-content: manage-teams, manage-players, manage-formations, manage-sharing, manage-app
+  useEffect(() => {
+    const sectionToKey: Record<'teams' | 'formations' | 'players' | 'sharing' | 'app', HelpScreenKey> = {
+      teams:       'manage-teams',
+      players:     'manage-players',
+      formations:  'manage-formations',
+      sharing:     'manage-sharing',
+      app:         'manage-app',
+    };
+    const key = sectionToKey[activeSection] ?? 'manage-teams';
+    setHelpContext(key);
+    return () => setHelpContext(null);
+  }, [activeSection, setHelpContext]);
 
   const [rosterView, setRosterView] = useState<'roster' | 'positions'>('roster');
   const [birthYearFilters, setBirthYearFilters] = useState<string[]>([]);

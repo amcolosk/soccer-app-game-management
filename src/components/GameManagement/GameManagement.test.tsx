@@ -13,12 +13,14 @@ const {
   mockSubstitutionCreate,
   mockGameUpdate,
   mockPlayTimeCreate,
+  mockSetHelpContext,
 } = vi.hoisted(() => ({
   mockLineupDelete:      vi.fn().mockResolvedValue({}),
   mockLineupCreate:      vi.fn().mockResolvedValue({ data: { id: "la-new" } }),
   mockSubstitutionCreate: vi.fn().mockResolvedValue({ data: {} }),
   mockGameUpdate:        vi.fn().mockResolvedValue({ data: {} }),
   mockPlayTimeCreate:    vi.fn().mockResolvedValue({ data: {} }),
+  mockSetHelpContext:    vi.fn(),
 }));
 
 vi.mock("aws-amplify/data", () => ({
@@ -118,6 +120,15 @@ vi.mock("../../services/rotationPlannerService", () => ({
 vi.mock("../../contexts/AvailabilityContext", () => ({
   AvailabilityProvider: ({ children }: any) => children,
   useAvailability: () => ({ getPlayerAvailability: vi.fn().mockReturnValue("available") }),
+}));
+
+vi.mock("../../contexts/HelpFabContext", () => ({
+  useHelpFab: () => ({
+    setHelpContext: mockSetHelpContext,
+    helpContext: null,
+    debugContext: null,
+    setDebugContext: vi.fn(),
+  }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -322,5 +333,60 @@ describe("GameManagement – handleMarkInjured", () => {
       expect.any(Error),
       expect.stringMatching(/injured/i)
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Help context wiring
+// ---------------------------------------------------------------------------
+describe("GameManagement – help context wiring", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCaptures.onApplyHalftimeSub = undefined;
+    mockCaptures.onMarkInjured = undefined;
+    // Reset subscription mock to a working default after clearAllMocks
+    mockUseGameSubscriptions.mockReturnValue(defaultSubscription);
+  });
+
+  it("calls setHelpContext with 'game-halftime' when game status is 'halftime'", () => {
+    renderComponent();
+    expect(mockSetHelpContext).toHaveBeenCalledWith('game-halftime');
+  });
+
+  it("calls setHelpContext with 'game-in-progress' when game status is 'in-progress'", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+    });
+    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    expect(mockSetHelpContext).toHaveBeenCalledWith('game-in-progress');
+  });
+
+  it("calls setHelpContext with 'game-scheduled' when game status is 'scheduled'", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled' },
+    });
+    render(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+    expect(mockSetHelpContext).toHaveBeenCalledWith('game-scheduled');
+  });
+
+  it("calls setHelpContext with 'game-completed' when game status is 'completed'", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'completed' },
+    });
+    render(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
+    expect(mockSetHelpContext).toHaveBeenCalledWith('game-completed');
+  });
+
+  it("does not call setHelpContext for an unknown game status", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'unknown-status' },
+    });
+    render(<GameManagement game={{ ...mockGame, status: 'unknown-status' as any }} team={mockTeam} onBack={vi.fn()} />);
+    // setHelpContext should NOT be called with any game key for unknown status
+    expect(mockSetHelpContext).not.toHaveBeenCalledWith(expect.stringMatching(/^game-/));
   });
 });

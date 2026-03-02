@@ -24,6 +24,8 @@ import { LineupPanel } from "./LineupPanel";
 import { PlayerAvailabilityGrid } from "../PlayerAvailabilityGrid";
 import type { Game, Team, FormationPosition, SubQueue } from "./types";
 import { AvailabilityProvider } from "../../contexts/AvailabilityContext";
+import { useHelpFab } from "../../contexts/HelpFabContext";
+import type { HelpScreenKey } from "../../help";
 
 const client = generateClient<Schema>();
 
@@ -78,6 +80,23 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   });
 
   const halfLengthSeconds = (team.halfLengthMinutes || 30) * 60;
+
+  const { setHelpContext } = useHelpFab();
+
+  // Map game status → help key. Reactive: re-runs when game status transitions.
+  // @help-content: game-scheduled, game-in-progress, game-halftime, game-completed
+  useEffect(() => {
+    const statusToHelpKey: Partial<Record<string, HelpScreenKey>> = {
+      'scheduled':   'game-scheduled',
+      'in-progress': 'game-in-progress',
+      'halftime':    'game-halftime',
+      'completed':   'game-completed',
+    };
+    // Guard against null/undefined status (Amplify fields can be null)
+    const key = gameState.status ? statusToHelpKey[gameState.status] : undefined;
+    if (key) setHelpContext(key);
+    return () => setHelpContext(null);
+  }, [gameState.status, setHelpContext]);
 
   const getPlayerAvailability = (playerId: string): string => {
     const availability = playerAvailabilities.find(a => a.playerId === playerId);
