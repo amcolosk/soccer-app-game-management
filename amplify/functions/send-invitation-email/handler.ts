@@ -51,7 +51,7 @@ function unmarshallRecord(item: Record<string, AttributeValue>): Record<string, 
 
 async function sendInvitationEmail(invitation: Record<string, unknown>) {
   // DynamoDB stores the field as 'email', not 'inviteeEmail'
-  const recipientEmail = invitation.email || invitation.inviteeEmail;
+  const recipientEmail = (invitation.email || invitation.inviteeEmail) as string;
   console.log('Sending invitation email to:', recipientEmail);
   
   if (!recipientEmail) {
@@ -143,7 +143,7 @@ async function sendInvitationEmail(invitation: Record<string, unknown>) {
         </p>
         
         <div class="footer">
-          <p><strong>Important:</strong> This invitation will expire on ${new Date(invitation.expiresAt).toLocaleDateString()}.</p>
+          <p><strong>Important:</strong> This invitation will expire on ${new Date(invitation.expiresAt as string).toLocaleDateString()}.</p>
           <p>If you don't recognize this invitation or believe you received it in error, you can safely ignore this email.</p>
         </div>
       </div>
@@ -178,7 +178,7 @@ ${invitationType === 'season'
 To accept this invitation, click the link below or copy it into your browser:
 ${acceptUrl}
 
-This invitation will expire on ${new Date(invitation.expiresAt).toLocaleDateString()}.
+This invitation will expire on ${new Date(invitation.expiresAt as string).toLocaleDateString()}.
 
 If you don't recognize this invitation or believe you received it in error, you can safely ignore this email.
           `,

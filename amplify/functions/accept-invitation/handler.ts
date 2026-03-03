@@ -103,5 +103,6 @@ export const handler: Schema['acceptInvitation']['functionHandler'] = async (eve
     Key: { id: invitation.teamId }
   }));
   
-  return teamResponse.Item as Record<string, unknown>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return teamResponse.Item as any;
 };

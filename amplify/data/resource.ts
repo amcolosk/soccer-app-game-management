@@ -119,6 +119,7 @@ const schema = a.schema({
       currentHalf: a.integer().default(1), // 1 or 2
       elapsedSeconds: a.integer().default(0),
       lastStartTime: a.string(), // ISO timestamp when timer last started
+      halfLengthMinutes: a.integer(), // Per-game override; null = use team default
       ourScore: a.integer().default(0),
       opponentScore: a.integer().default(0),
       coaches: a.string().array(), // Team coaches who can access this game
