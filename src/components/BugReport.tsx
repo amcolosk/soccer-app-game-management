@@ -15,7 +15,7 @@ interface BugReportProps {
 
 // Character limits for input validation
 const MAX_DESCRIPTION_LENGTH = 5000;
-const MAX_STEPS_LENGTH = 3000;
+const MAX_STEPS_LENGTH = 10000;
 
 function validateScreenshot(file: File): string | null {
   if (!['image/png', 'image/jpeg'].includes(file.type)) {
@@ -69,6 +69,11 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
 
     if (!description.trim()) {
       showWarning('Please describe the issue');
+      return;
+    }
+
+    if (steps.length > MAX_STEPS_LENGTH) {
+      showWarning(`Steps to reproduce exceeds the maximum length of ${MAX_STEPS_LENGTH} characters`);
       return;
     }
 
@@ -222,8 +227,7 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
               value={steps}
               onChange={(e) => setSteps(e.target.value)}
               placeholder="1. Go to...&#10;2. Click on...&#10;3. See error..."
-              rows={3}
-              maxLength={MAX_STEPS_LENGTH}
+              rows={6}
               disabled={isBusy}
             />
           </div>

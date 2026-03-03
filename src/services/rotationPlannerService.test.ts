@@ -491,6 +491,103 @@ describe('rotationPlannerService', () => {
       if (p11Sub) expect(p11Sub.positionId).toBe('pos4');
       if (p12Sub) expect(p12Sub.positionId).toBe('pos6');
     });
+
+    it('should not drop a striker below 50% threshold due to fatigue rotation', () => {
+      // Reproduces the issue where STRIKER fatigue (max 1 consecutive interval) causes a player
+      // to be forced off repeatedly and end up with less than 50% of game time.
+      // 9 field positions, 11 available players (2 on bench each rotation).
+      // Half length 30 min, rotation interval 10 min → rotationsPerHalf=2, totalRotations=5.
+      // LW is a STRIKER position (max 1 consecutive interval). p_lw starts at LW on bench.
+      // The fix: fatigue forced-off is suppressed if the player hasn't yet reached 50% game time.
+      const positions = [
+        { id: 'gol', abbreviation: 'Gol' },  // Goalkeeper (no forced-off)
+        { id: 'ld', abbreviation: 'LD' },
+        { id: 'cb', abbreviation: 'CB' },
+        { id: 'rd', abbreviation: 'RD' },
+        { id: 'dm', abbreviation: 'DM' },
+        { id: 'lm', abbreviation: 'LM' },    // Midfielder — max 2 consecutive
+        { id: 'rm', abbreviation: 'RM' },    // Midfielder — max 2 consecutive
+        { id: 'lw', abbreviation: 'LW' },    // Striker — max 1 consecutive
+        { id: 'st', abbreviation: 'ST' },    // Striker — max 1 consecutive
+      ];
+
+      // 11 players for 9 spots (2 always on bench)
+      const players: SimpleRoster[] = [
+        { id: 'r1',  playerId: 'gk',  playerNumber: 1,  preferredPositions: 'gol' },
+        { id: 'r2',  playerId: 'p2',  playerNumber: 2,  preferredPositions: 'ld' },
+        { id: 'r3',  playerId: 'p3',  playerNumber: 3,  preferredPositions: 'cb' },
+        { id: 'r4',  playerId: 'p4',  playerNumber: 4,  preferredPositions: 'rd' },
+        { id: 'r5',  playerId: 'p5',  playerNumber: 5,  preferredPositions: 'dm' },
+        { id: 'r6',  playerId: 'p6',  playerNumber: 6,  preferredPositions: 'lm' },
+        { id: 'r7',  playerId: 'p7',  playerNumber: 7,  preferredPositions: 'rm' },
+        { id: 'r8',  playerId: 'p_lw', playerNumber: 8, preferredPositions: 'lw' }, // STRIKER
+        { id: 'r9',  playerId: 'p9',  playerNumber: 9,  preferredPositions: 'st' }, // STRIKER
+        { id: 'r10', playerId: 'p10', playerNumber: 10, preferredPositions: 'lm' },
+        { id: 'r11', playerId: 'p11', playerNumber: 11, preferredPositions: 'rm' },
+      ];
+
+      const startingLineup = [
+        { playerId: 'gk',  positionId: 'gol' },
+        { playerId: 'p2',  positionId: 'ld' },
+        { playerId: 'p3',  positionId: 'cb' },
+        { playerId: 'p4',  positionId: 'rd' },
+        { playerId: 'p5',  positionId: 'dm' },
+        { playerId: 'p6',  positionId: 'lm' },
+        { playerId: 'p7',  positionId: 'rm' },
+        { playerId: 'p_lw', positionId: 'lw' }, // STRIKER starting
+        { playerId: 'p9',  positionId: 'st' },  // STRIKER starting
+      ];
+
+      // rotationsPerHalf=2, totalRotations=5, halfLength=30, interval=10
+      const { rotations } = calculateFairRotations(
+        players,
+        startingLineup,
+        5,    // totalRotations
+        2,    // rotationsPerHalf
+        9,    // maxPlayersOnField
+        'gol', // goaliePositionId
+        undefined,
+        { rotationIntervalMinutes: 10, halfLengthMinutes: 30, positions }
+      );
+
+      expect(rotations).toHaveLength(5);
+
+      // Compute play time for each player by simulating the rotations
+      const field = new Set(startingLineup.map(s => s.playerId));
+      const posMap = new Map(startingLineup.map(s => [s.playerId, s.positionId]));
+      const playTime = new Map<string, number>(players.map(p => [p.playerId, 0]));
+
+      // Game intervals: 0-10, 10-20, 20-30(halftime), 30-40, 40-50, then 50-60 after last rot
+      const rotationMinutes = [10, 20, 30, 40, 50];
+      let prevMinute = 0;
+      rotations.forEach((rot, idx) => {
+        const currMinute = rotationMinutes[idx];
+        const elapsed = currMinute - prevMinute;
+        field.forEach(id => {
+          playTime.set(id, (playTime.get(id) ?? 0) + elapsed);
+        });
+        // Apply subs
+        rot.substitutions.forEach(sub => {
+          field.delete(sub.playerOutId);
+          field.add(sub.playerInId);
+          posMap.set(sub.playerInId, sub.positionId);
+        });
+        prevMinute = currMinute;
+      });
+      // Final interval 50-60
+      field.forEach(id => {
+        playTime.set(id, (playTime.get(id) ?? 0) + 10);
+      });
+
+      const totalGameMinutes = 60;
+      const threshold = totalGameMinutes * 0.5; // 30 minutes
+
+      // Every player must get at least 50% of the game (30 min)
+      players.forEach(p => {
+        const pt = playTime.get(p.playerId) ?? 0;
+        expect(pt).toBeGreaterThanOrEqual(threshold);
+      });
+    });
   });
 
   describe('calculatePlayTime', () => {
