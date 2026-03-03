@@ -32,7 +32,8 @@ planner → plan-architect → [ui-designer] → implementer → validation-engi
 **Stage 6 — Commit gate**
 - `npm run test:run` — all unit tests must pass
 - `npm run build` — production build must succeed
-- Only commit after both checks are green
+- `npm run lint` — linting must pass
+- Only commit after all checks are green
 
 ### Defect Fix Pipeline
 
