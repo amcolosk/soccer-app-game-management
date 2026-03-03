@@ -108,6 +108,13 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const [startingLineup, setStartingLineup] = useState<Map<string, string>>(new Map()); // positionId -> playerId
   const [halftimeLineup, setHalftimeLineup] = useState<Map<string, string> | null>(null); // positionId -> playerId for H2; null = not explicitly set (use fallback)
   const [rotationIntervalMinutes, setRotationIntervalMinutes] = useState(10);
+  // Display state for the rotations-per-half stepper. Kept separate from the
+  // rotationIntervalMinutes source-of-truth so +/- always feels responsive even
+  // when rounding means the derived interval doesn't change (e.g. 30-min half,
+  // interval=8 → display=2; pressing + must show 3 even though round(30/4)=8).
+  const [rotationsPerHalfInput, setRotationsPerHalfInput] = useState(() =>
+    Math.max(0, Math.floor((team.halfLengthMinutes || 30) / 10) - 1)
+  );
   const [selectedRotation, setSelectedRotation] = useState<number | 'starting' | 'halftime' | null>(null);
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [previousGames, setPreviousGames] = useState<Game[]>([]);
@@ -149,6 +156,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           setGamePlan(plan);
           gamePlanIdRef.current = plan.id; // Update ref for use in other subscriptions
           setRotationIntervalMinutes(plan.rotationIntervalMinutes);
+          setRotationsPerHalfInput(Math.max(0, Math.floor(halfLengthMinutes / plan.rotationIntervalMinutes) - 1));
 
           // Load starting lineup from GamePlan
           // Skip if we have pending local saves to avoid clobbering optimistic state
@@ -443,6 +451,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const handleRotationsChange = (rotations: number) => {
     const maxRotations = Math.floor(halfLengthMinutes / 2);
     const clamped = Math.max(0, Math.min(rotations, maxRotations));
+    setRotationsPerHalfInput(clamped);
     const interval = Math.round(halfLengthMinutes / (clamped + 1));
     setRotationIntervalMinutes(Math.max(1, interval));
   };
@@ -450,6 +459,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const handleIntervalChange = (interval: number) => {
     const clamped = Math.max(1, Math.min(interval, halfLengthMinutes));
     setRotationIntervalMinutes(clamped);
+    setRotationsPerHalfInput(Math.max(0, Math.floor(halfLengthMinutes / clamped) - 1));
   };
 
   const handleUpdatePlan = async () => {
@@ -1547,7 +1557,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                     <button
                       className="rotation-stepper-btn"
                       aria-label="Decrease rotations per half"
-                      onClick={() => handleRotationsChange(Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1 - 1))}
+                      onClick={() => handleRotationsChange(rotationsPerHalfInput - 1)}
                     >−</button>
                     <input
                       type="number"
@@ -1556,13 +1566,13 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                       inputMode="numeric"
                       min={0}
                       max={Math.floor(halfLengthMinutes / 2)}
-                      value={Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1)}
+                      value={rotationsPerHalfInput}
                       onChange={(e) => handleRotationsChange(parseInt(e.target.value, 10) || 0)}
                     />
                     <button
                       className="rotation-stepper-btn"
                       aria-label="Increase rotations per half"
-                      onClick={() => handleRotationsChange(Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1 + 1))}
+                      onClick={() => handleRotationsChange(rotationsPerHalfInput + 1)}
                     >+</button>
                   </div>
                 </div>
