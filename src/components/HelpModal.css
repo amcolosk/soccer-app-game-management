@@ -1,0 +1,215 @@
+/* ==========================================================================
+   HelpModal.css
+   Styles for the context-aware help modal — opened by HelpFab "Get Help".
+   z-index: 1000 matches BugReport and ConfirmModal overlays.
+   ========================================================================== */
+
+/* Backdrop overlay */
+.help-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+/* Modal card */
+.help-modal {
+  background: var(--card-background);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  width: min(95vw, 480px);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: helpModalFadeIn 200ms ease-out;
+  will-change: transform, opacity;
+}
+
+/* Entrance animation */
+@keyframes helpModalFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Sticky header inside the card */
+.help-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--card-background);
+}
+
+/* Modal title (h2) */
+.help-modal-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--primary-green);
+  margin: 0;
+  flex: 1;
+  padding-right: 12px;
+}
+
+/* Suppress the visible outline on programmatic focus (mount focus only).
+   Keyboard users navigating Tab will still see the browser's focus ring. */
+.help-modal-title:focus {
+  outline: none;
+}
+
+/* Close button (top-right ✕) */
+.help-modal-close {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+  flex-shrink: 0;
+  font-family: inherit;
+  min-height: 44px;
+  min-width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.help-modal-close:hover {
+  background: var(--hover-background);
+  color: var(--text-primary);
+}
+
+/* Scrollable body — everything below the header */
+.help-modal-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 16px 20px 20px;
+  flex: 1;
+}
+
+/* Overview paragraph */
+.help-modal-overview {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin: 0 0 4px;
+}
+
+/* Section container (tasks, tips, related) */
+.help-modal-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* Section heading — "How to…", "Tips", "You might also need" */
+.help-modal-section-heading {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+}
+
+/* Individual task block */
+.help-task {
+  margin-bottom: 16px;
+}
+
+.help-task:last-child {
+  margin-bottom: 0;
+}
+
+/* Task title — bold label ("Make a substitution") */
+.help-task-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  margin: 0 0 6px;
+}
+
+/* Numbered steps list */
+.help-task-steps {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.help-task-steps li {
+  margin-bottom: 4px;
+}
+
+.help-task-steps li:last-child {
+  margin-bottom: 0;
+}
+
+/* Tip callout card — green-tinted, left border accent */
+.help-tip-card {
+  background: rgba(76, 175, 80, 0.08);
+  border-left: 3px solid var(--accent-green);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.help-tip-card:last-child {
+  margin-bottom: 0;
+}
+
+/* Related screens — pill buttons row */
+.help-related-screens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.help-related-pill {
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  background: transparent;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: inherit;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.help-related-pill:hover {
+  background: var(--hover-background);
+  border-color: var(--primary-green);
+}
+
+/* Reduced motion — mirrors HelpFab.css pattern */
+@media (prefers-reduced-motion: reduce) {
+  .help-modal {
+    animation-duration: 0.001ms;
+  }
+}

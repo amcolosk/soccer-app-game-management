@@ -394,3 +394,34 @@ Located in `src/services/rotationPlannerService.ts`:
 - Algorithm prioritizes equal play time across all available players
 - Accounts for player preferred positions when possible
 - Full requirements in `docs/specs/Rotation-Algorithm-Requirements.md`
+
+### Help System Registration
+
+Any new top-level screen component **MUST** register a `helpContext` on mount and clear it on unmount. This enables the "Get Help" button in the Help FAB.
+
+**Pattern** (required for every new screen):
+
+```typescript
+import { useHelpFab } from '../contexts/HelpFabContext';
+
+export function MyNewScreen() {
+  const { setHelpContext } = useHelpFab();
+
+  useEffect(() => {
+    setHelpContext('my-screen-key');   // key from HelpScreenKey union in src/help.ts
+    return () => setHelpContext(null); // clear on unmount
+  }, [setHelpContext]);
+
+  // ... rest of component
+}
+```
+
+**Rules:**
+- Call `setHelpContext(key)` on mount and `setHelpContext(null)` in the effect cleanup.
+- Use a separate `useEffect` — do not merge with other effects that have different dependency arrays.
+- For screens with multiple sub-views (e.g., `Management.tsx`), include the sub-view identifier in the dependency array so the key updates reactively.
+- All valid keys are defined in the `HelpScreenKey` type in `src/help.ts`.
+- If no article exists for your new screen yet, add one to `HELP_CONTENT` in `src/help.ts` before wiring. A missing key is a TypeScript compile error.
+- Comment the wiring with `// @help-content: <key>` to make it searchable.
+
+If a screen is not wired, the "Get Help" button in the FAB remains disabled (shows "Coming soon") — no crash, graceful degradation.

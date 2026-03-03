@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { BugReport } from './BugReport';
+import { HelpModal } from './HelpModal';
 import { useHelpFab } from '../contexts/HelpFabContext';
 import './HelpFab.css';
 
@@ -7,11 +8,14 @@ export function HelpFab() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [bugReportOpen, setBugReportOpen] = useState(false);
-  const { debugContext } = useHelpFab();
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
+  const { debugContext, helpContext } = useHelpFab();
 
   const sheetRef = useRef<HTMLDivElement>(null);
   // Flag: open bug report after the sheet close animation finishes
   const openBugReportAfterClose = useRef(false);
+  // Flag: open help modal after the sheet close animation finishes
+  const openHelpAfterClose = useRef(false);
 
   // Escape key dismisses the sheet
   useEffect(() => {
@@ -48,6 +52,10 @@ export function HelpFab() {
         openBugReportAfterClose.current = false;
         setBugReportOpen(true);
       }
+      if (openHelpAfterClose.current) {
+        openHelpAfterClose.current = false;
+        setHelpModalOpen(true);
+      }
     }, 300);
     // handleAnimationEnd will also finalize the close (whichever fires first)
   }
@@ -62,11 +70,20 @@ export function HelpFab() {
         openBugReportAfterClose.current = false;
         setBugReportOpen(true);
       }
+      if (openHelpAfterClose.current) {
+        openHelpAfterClose.current = false;
+        setHelpModalOpen(true);
+      }
     }
   }
 
   function handleOpenBugReport() {
     openBugReportAfterClose.current = true;
+    closeSheet();
+  }
+
+  function handleOpenHelp() {
+    openHelpAfterClose.current = true;
     closeSheet();
   }
 
@@ -107,16 +124,19 @@ export function HelpFab() {
             </button>
 
             <button
-              className="help-fab-sheet-option help-fab-sheet-option--disabled"
+              className={`help-fab-sheet-option${!helpContext ? ' help-fab-sheet-option--disabled' : ''}`}
               role="menuitem"
-              aria-disabled="true"
-              disabled
+              aria-disabled={!helpContext}
+              disabled={!helpContext}
+              onClick={helpContext ? handleOpenHelp : undefined}
               type="button"
             >
               <span className="help-fab-sheet-option__icon">📖</span>
               <div>
                 <span className="help-fab-sheet-option__label">Get Help</span>
-                <span className="help-fab-sheet-option__subtitle">Coming soon</span>
+                {!helpContext && (
+                  <span className="help-fab-sheet-option__subtitle">Coming soon</span>
+                )}
               </div>
             </button>
           </div>
@@ -127,6 +147,13 @@ export function HelpFab() {
         <BugReport
           onClose={() => setBugReportOpen(false)}
           debugContext={debugContext}
+        />
+      )}
+
+      {helpModalOpen && helpContext && (
+        <HelpModal
+          helpContext={helpContext}
+          onClose={() => setHelpModalOpen(false)}
         />
       )}
     </>

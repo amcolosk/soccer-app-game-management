@@ -54,6 +54,15 @@ vi.mock("./ConfirmModal", () => ({
   useConfirm: () => vi.fn().mockResolvedValue(false),
 }));
 
+vi.mock("../contexts/HelpFabContext", () => ({
+  useHelpFab: () => ({
+    setHelpContext: vi.fn(),
+    helpContext: null,
+    debugContext: null,
+    setDebugContext: vi.fn(),
+  }),
+}));
+
 import { UserProfile } from "./UserProfile";
 
 // ---------------------------------------------------------------------------

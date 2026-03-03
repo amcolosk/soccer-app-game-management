@@ -7,11 +7,19 @@ import type { Game, Team } from '../types/schema';
 import { showError, showWarning } from '../utils/toast';
 import { handleApiError, logError } from '../utils/errorHandler';
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
+import { useHelpFab } from '../contexts/HelpFabContext';
 
 const client = generateClient<Schema>();
 
 export function Home() {
   const navigate = useNavigate();
+  const { setHelpContext } = useHelpFab();
+
+  // Register 'home' help context while this screen is mounted
+  useEffect(() => {
+    setHelpContext('home');
+    return () => setHelpContext(null);
+  }, [setHelpContext]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [isCreatingGame, setIsCreatingGame] = useState(false);
   const [selectedTeamForGame, setSelectedTeamForGame] = useState('');
