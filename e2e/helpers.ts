@@ -291,6 +291,7 @@ export async function navigateToManagement(page: Page) {
  * @param tabName - Name of the tab: 'Teams' | 'Formations' | 'Players' | 'Sharing' | 'App'
  */
 export async function clickManagementTab(page: Page, tabName: 'Teams' | 'Formations' | 'Players' | 'Sharing' | 'App') {
+  // eslint-disable-next-line security/detect-non-literal-regexp
   const tab = page.locator('button.management-tab', { hasText: new RegExp(`^${tabName}`) });
   await tab.click();
   await page.waitForTimeout(UI_TIMING.STANDARD);

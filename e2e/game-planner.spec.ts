@@ -3,10 +3,6 @@ import {
   waitForPageLoad,
   fillInput,
   clickButton,
-  clickButtonByText,
-  selectOption,
-  waitForElement,
-  closePWAPrompt,
   loginUser,
   cleanupTestData,
   clickManagementTab,
@@ -14,7 +10,7 @@ import {
   createTeam,
   UI_TIMING,
 } from './helpers';
-import { TEST_USERS, TEST_CONFIG } from '../test-config';
+import { TEST_USERS } from '../test-config';
 
 /**
  * E2E Test Suite for Game Planner with Timeline Feature

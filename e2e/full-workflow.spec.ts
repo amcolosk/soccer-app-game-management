@@ -4,11 +4,6 @@ import {
   fillInput,
   clickButton,
   clickButtonByText,
-  selectOption,
-  waitForElement,
-  getTextContent,
-  formatTime,
-  closePWAPrompt,
   loginUser,
   cleanupTestData,
   clickManagementTab,
@@ -257,6 +252,7 @@ async function setupLineup(page: Page, opponent: string) {
       if (!matched) {
         // Try selecting by partial text match
         try {
+          // eslint-disable-next-line security/detect-non-literal-regexp
           await select.selectOption({ label: new RegExp(playerLabel) });
           console.log(`  ✓ ${player.firstName} ${player.lastName} assigned to position ${i + 1} (regex match)`);
         } catch {
@@ -647,6 +643,7 @@ async function runGame(page: Page, gameNumber: number = 1) {
 }
 
 // Helper to verify team totals and play times
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function verifyTeamTotals(page: Page, gameData: any) {
   console.log('Verifying team totals...');
   
@@ -798,7 +795,9 @@ test.describe('Soccer App Full Workflow', () => {
       // Use a longer default timeout for the page context during cleanup
       page.setDefaultTimeout(120000);
       const cleanupResults = await page.evaluate(async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if (typeof (window as any).__cleanupAllData === 'function') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           return await (window as any).__cleanupAllData();
         }
         return null;

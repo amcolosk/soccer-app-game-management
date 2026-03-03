@@ -23,7 +23,7 @@ export async function closeActivePlayTimeRecords(
   gameId?: string
 ): Promise<void> {
   // Start with in-memory records
-  let allRecords = [...playTimeRecords];
+  const allRecords = [...playTimeRecords];
 
   // If gameId provided, also query DB to catch any records not yet in React state.
   // Must paginate through ALL pages since .list() only returns one page at a time,

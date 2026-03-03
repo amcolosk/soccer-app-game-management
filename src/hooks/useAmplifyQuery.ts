@@ -10,7 +10,7 @@ const client = generateClient<Schema>();
 export type ModelName = keyof typeof client.models;
 
 interface UseAmplifyQueryOptions<T> {
-  filter?: Record<string, any>;
+  filter?: Record<string, unknown>;
   sort?: (a: T, b: T) => number;
 }
 
@@ -48,11 +48,12 @@ export function useAmplifyQuery<M extends ModelName>(
 
     const queryOptions = filterBox.filter ? { filter: filterBox.filter } : undefined;
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sub = (client.models[modelName] as any)
       .observeQuery(queryOptions)
       .subscribe({
         next: (result: { items: T[]; isSynced: boolean }) => {
-          let items = [...result.items];
+          const items = [...result.items];
           if (sortRef.current) {
             items.sort(sortRef.current);
           }

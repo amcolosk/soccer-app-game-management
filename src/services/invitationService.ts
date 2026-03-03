@@ -151,6 +151,7 @@ export async function getUserPendingInvitations() {
       }
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = result.data as any;
     return {
       teamInvitations: data.teamInvitations || [],

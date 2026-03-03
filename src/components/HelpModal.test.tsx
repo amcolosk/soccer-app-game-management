@@ -5,6 +5,7 @@
  * - Mock the help module so tests are not coupled to real content
  * - Test rendering, accessibility attributes, focus, close behavior, and fallback
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

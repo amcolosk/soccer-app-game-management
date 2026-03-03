@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 
@@ -25,13 +26,13 @@ const client = generateClient<Schema>();
  */
 async function listAll<T extends { id: string }>(
   model: { list: (opts?: any) => Promise<{ data: T[]; nextToken?: string | null }> },
-  filter?: Record<string, any>,
+  filter?: Record<string, unknown>,
 ): Promise<T[]> {
   const all: T[] = [];
   let nextToken: string | null | undefined = undefined;
 
   do {
-    const opts: any = { limit: 1000 };
+    const opts: { limit: number; filter?: Record<string, unknown>; nextToken?: string } = { limit: 1000 };
     if (filter) opts.filter = filter;
     if (nextToken) opts.nextToken = nextToken;
 
@@ -48,7 +49,7 @@ async function listAll<T extends { id: string }>(
  * Uses Promise.allSettled so one failure doesn't block the rest.
  */
 async function batchDelete(
-  model: { delete: (input: { id: string }) => Promise<any> },
+  model: { delete: (input: { id: string }) => Promise<unknown> },
   items: { id: string }[],
   batchSize = 10,
 ): Promise<number> {

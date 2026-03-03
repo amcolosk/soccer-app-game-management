@@ -31,8 +31,8 @@ export const handler = async (event: DynamoDBStreamEvent) => {
   return { statusCode: 200, body: 'OK' };
 };
 
-function unmarshallRecord(item: Record<string, AttributeValue>): any {
-  const result: any = {};
+function unmarshallRecord(item: Record<string, AttributeValue>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
   
   for (const [key, value] of Object.entries(item)) {
     if (value.S !== undefined) {
@@ -49,7 +49,7 @@ function unmarshallRecord(item: Record<string, AttributeValue>): any {
   return result;
 }
 
-async function sendInvitationEmail(invitation: any) {
+async function sendInvitationEmail(invitation: Record<string, unknown>) {
   // DynamoDB stores the field as 'email', not 'inviteeEmail'
   const recipientEmail = invitation.email || invitation.inviteeEmail;
   console.log('Sending invitation email to:', recipientEmail);
@@ -61,7 +61,6 @@ async function sendInvitationEmail(invitation: any) {
   
   // Determine if this is a season or team invitation based on the presence of seasonId or teamId
   const invitationType = invitation.seasonId ? 'season' : 'team';
-  const resourceId = invitation.seasonId || invitation.teamId;
   const acceptUrl = `${APP_URL}?invitationId=${invitation.id}`;
   
   const roleDisplay = invitation.role === 'PARENT' 

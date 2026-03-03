@@ -14,6 +14,7 @@ interface ConfirmContextType {
 
 const ConfirmContext = createContext<ConfirmContextType | null>(null);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useConfirm(): (options: ConfirmOptions) => Promise<boolean> {
   const ctx = useContext(ConfirmContext);
   if (!ctx) throw new Error('useConfirm must be used within <ConfirmProvider>');

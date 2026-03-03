@@ -28,6 +28,7 @@ export function AvailabilityProvider({ availabilities, children }: AvailabilityP
   return <AvailabilityContext.Provider value={value}>{children}</AvailabilityContext.Provider>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAvailability() {
   const context = useContext(AvailabilityContext);
   if (!context) {

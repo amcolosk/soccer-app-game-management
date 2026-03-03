@@ -109,6 +109,7 @@ export function Home() {
         ? [...team.coaches, currentUserId]
         : team.coaches || [];
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const gameData: any = {
         teamId: selectedTeamForGame,
         opponent,

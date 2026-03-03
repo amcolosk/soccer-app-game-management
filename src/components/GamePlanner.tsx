@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import type {
@@ -223,6 +223,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       gamePlanSub.unsubscribe();
       rotationSub.unsubscribe();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.id, team.id, gamePlan?.id]);
 
   const loadPreviousGames = async () => {
@@ -280,10 +281,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     prevGamePlanId.current = gamePlan?.id ?? null;
   }, [gamePlan?.id]);
 
-  const getPlayerAvailability = (playerId: string): string => {
+  const getPlayerAvailability = useCallback((playerId: string): string => {
     const availability = availabilities.find((a) => a.playerId === playerId);
     return availability?.status || "available";
-  };
+  }, [availabilities]);
 
   // Memoize filtered player lists to avoid recalculating on every render
   const startingLineupPlayers = useMemo(() => {
@@ -291,14 +292,14 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       const status = getPlayerAvailability(p.id);
       return status === "available";
     });
-  }, [players, availabilities]);
+  }, [players, getPlayerAvailability]);
 
   const rotationPlayers = useMemo(() => {
     return players.filter((p) => {
       const status = getPlayerAvailability(p.id);
       return status === "available" || status === "late-arrival";
     });
-  }, [players, availabilities]);
+  }, [players, getPlayerAvailability]);
 
   const gamePlannerDebugContext = useMemo((): GamePlannerDebugContext => ({
     rotationIntervalMinutes,
@@ -994,10 +995,17 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   };
 
   // Memoize lineup calculations at each rotation to avoid recalculating
-  const lineupCache = useMemo(() => {
-    const cache = new Map<number, Map<string, string>>();
-    return cache;
-  }, [startingLineup, rotations]);
+  // Re-create the cache whenever startingLineup or rotations change so stale
+  // cached results are discarded. The body intentionally does not read those
+  // values directly (it just resets the map), so we suppress the lint warning.
+  const lineupCache = useMemo(
+    () => {
+      const cache = new Map<number, Map<string, string>>();
+      return cache;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [startingLineup, rotations],
+  );
 
   // Calculate lineup state at each rotation (with caching)
   const getLineupAtRotation = (rotationNumber: number): Map<string, string> => {

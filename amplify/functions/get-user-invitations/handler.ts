@@ -107,7 +107,19 @@ export const handler: Handler = async (event) => {
     console.log(`Found ${invitations.length} valid invitations for ${userEmail}`);
 
     // DEBUG: If no invitations found, scan a few items to see what's in the table
-    let debugInfo: any = {
+    interface DebugInfo {
+      identityDebug: {
+        username: string | undefined;
+        sub: string | undefined;
+        claimsKeys: string[];
+      };
+      message?: string;
+      userEmailQuery?: string;
+      totalItemsInTableSample?: number | undefined;
+      sampleItems?: Record<string, unknown>[] | undefined;
+      tableName?: string;
+    }
+    let debugInfo: DebugInfo = {
       identityDebug: {
         username: identity?.username,
         sub: identity?.sub,

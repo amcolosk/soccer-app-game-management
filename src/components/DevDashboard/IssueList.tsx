@@ -3,6 +3,7 @@ import { IssueStatusBadge } from './IssueStatusBadge';
 
 const STATUS_OPTIONS: Array<IssueStatus | 'ALL'> = ['ALL', 'OPEN', 'IN_PROGRESS', 'FIXED', 'DEPLOYED', 'CLOSED'];
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function formatRelativeTime(dateStr: string): string {
   try {
     const diff = Date.now() - new Date(dateStr).getTime();

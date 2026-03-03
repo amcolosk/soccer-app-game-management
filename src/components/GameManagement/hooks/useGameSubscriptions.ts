@@ -110,6 +110,7 @@ export function useGameSubscriptions({
     return () => {
       gameSub.unsubscribe();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.id, isRunning]);
 
   // GamePlan + PlannedRotation subscriptions (co-dependent — stays manual)

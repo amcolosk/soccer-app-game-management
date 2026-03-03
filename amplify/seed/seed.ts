@@ -1,5 +1,3 @@
-import { defineAuth } from '@aws-amplify/backend';
-
 /**
  * Seed configuration for E2E tests
  * Creates a test user in the Cognito user pool
@@ -19,20 +17,19 @@ import { defineAuth } from '@aws-amplify/backend';
 
 import { readFile } from "node:fs/promises";
 import {
-  addToUserGroup,
   createAndSignUpUser,
-  getSecret,
 } from "@aws-amplify/seed";
 import { Amplify } from "aws-amplify";
 import { TEST_USERS } from "../../test-config.js";
 
 // this is used to get the amplify_outputs.json file as the file will not exist until sandbox is created
 const url = new URL("../../amplify_outputs.json", import.meta.url);
+// eslint-disable-next-line security/detect-non-literal-fs-filename
 const outputs = JSON.parse(await readFile(url, { encoding: "utf8" }));
 Amplify.configure(outputs);
 
 // Create first test user
-const user1 = await createAndSignUpUser({
+await createAndSignUpUser({
   username: TEST_USERS.user1.email,
   password: TEST_USERS.user1.password,
   signInAfterCreation: false,
@@ -45,7 +42,7 @@ const user1 = await createAndSignUpUser({
 console.log(`✓ Created user: ${TEST_USERS.user1.email}`);
 
 // Create second test user
-const user2 = await createAndSignUpUser({
+await createAndSignUpUser({
   username: TEST_USERS.user2.email,
   password: TEST_USERS.user2.password,
   signInAfterCreation: false,

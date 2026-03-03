@@ -19,6 +19,7 @@ interface PlayerAvailabilityGridProps {
   elapsedGameMinutes?: number;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const STATUS_CYCLE: Array<"available" | "absent" | "late-arrival" | "injured"> = [
   "available",
   "absent",
@@ -26,6 +27,7 @@ export const STATUS_CYCLE: Array<"available" | "absent" | "late-arrival" | "inju
   "injured",
 ];
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function getStatusColor(status: string): string {
   switch (status) {
     case "available":
@@ -41,6 +43,7 @@ export function getStatusColor(status: string): string {
   }
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function getStatusLabel(status: string): string {
   switch (status) {
     case "available":

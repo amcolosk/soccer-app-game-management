@@ -201,6 +201,7 @@ export function TeamReport({ team }: TeamReportProps) {
         calculateStats();
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allSynced, allPlayTimeRecords, teamRosters, players, allGames, allGoals, allNotes]);
 
   const calculateStats = () => {
