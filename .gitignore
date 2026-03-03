@@ -27,6 +27,7 @@ dev-dist
 # amplify
 .amplify
 amplify_outputs*
+!/amplify_outputs.ci.json
 amplifyconfiguration*
 seed-policy.json
 amplify/.env
