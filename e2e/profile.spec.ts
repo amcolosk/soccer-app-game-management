@@ -3,8 +3,6 @@ import {
   waitForPageLoad,
   fillInput,
   clickButton,
-  clickButtonByText,
-  waitForElement,
   loginUser,
   UI_TIMING,
 } from './helpers';
@@ -28,26 +26,9 @@ async function navigateToProfile(page: Page) {
   await expect(page.locator('.user-profile')).toBeVisible();
 }
 
-async function navigateToManagement(page: Page) {
-  // Close PWA prompt if it's still showing
-  try {
-    const okButton = page.locator('.update-prompt button:has-text("OK")');
-    await okButton.click({ timeout: 1000 });
-    await page.waitForTimeout(300);
-  } catch (e) {
-    // Prompt not present
-  }
-  
-  // Click Manage tab in bottom navigation
-  await page.getByRole('link', { name: /manage/i }).click();
-  await waitForPageLoad(page);
-  
-  // Verify we're on the management page
-  await expect(page.locator('.management')).toBeVisible();
-}
 
 test.describe('User Profile', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async () => {
     test.setTimeout(TEST_CONFIG.timeout.medium);
   });
 

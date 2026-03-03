@@ -1,7 +1,7 @@
 import type { Schema } from "../../data/resource";
 import type { AppSyncIdentityCognito } from 'aws-lambda';
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, UpdateCommand, QueryCommand, BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 const client = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(client);
@@ -103,5 +103,5 @@ export const handler: Schema['acceptInvitation']['functionHandler'] = async (eve
     Key: { id: invitation.teamId }
   }));
   
-  return teamResponse.Item as any;
+  return teamResponse.Item as Record<string, unknown>;
 };

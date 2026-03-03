@@ -117,7 +117,7 @@ export function formatPlayTime(
       }
       return `${totalMinutes}m`;
     
-    case 'verbose':
+    case 'verbose': {
       // "1 hour 23 minutes" format (fully spelled out)
       const parts: string[] = [];
       if (hours > 0) {
@@ -130,6 +130,7 @@ export function formatPlayTime(
         parts.push(`${secs} ${secs === 1 ? 'second' : 'seconds'}`);
       }
       return parts.join(' ');
+    }
     
     default:
       return `${totalMinutes}:${secs.toString().padStart(2, '0')}`;

@@ -39,7 +39,8 @@ async function logout(page: Page) {
 }
 
 // Helper to get invitation link from email
-async function getInvitationLink(page: Page): Promise<string | null> {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function _getInvitationLink(page: Page): Promise<string | null> {
   // In real implementation, this would check email
   // For testing, we'll extract from the UI or return a mock link
   // The invitation management UI should display the link or email

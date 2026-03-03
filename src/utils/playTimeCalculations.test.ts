@@ -2,7 +2,7 @@
  * Unit tests for playTimeCalculations utilities
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   calculatePlayerPlayTime,
   calculatePlayTimeByPosition,
@@ -23,15 +23,6 @@ interface PlayTimeRecord {
   updatedAt: string;
 }
 
-interface Game {
-  id: string;
-  teamId: string;
-  opponent: string;
-  gameDate: string;
-  status: string;
-  createdAt: string;
-  updatedAt: string;
-}
 
 describe('playTimeCalculations', () => {
   const mockPlayerId = 'player-123';

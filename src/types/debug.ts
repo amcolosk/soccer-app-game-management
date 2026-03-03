@@ -8,5 +8,16 @@ export interface GamePlannerDebugContext {
     status: string;
     availableFromMinute: number | null | undefined;
     availableUntilMinute: number | null | undefined;
+    preferredPositionNames?: string[];
+  }>;
+  rotations?: Array<{
+    rotationNumber: number;
+    gameMinute: number;
+    half: number;
+    substitutions: Array<{
+      playerOutNumber: number;
+      playerInNumber: number;
+      positionName: string;
+    }>;
   }>;
 }

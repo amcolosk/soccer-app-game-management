@@ -21,6 +21,7 @@ export function useTeamData(teamId: string, formationId: string | null | undefin
   const [positions, setPositions] = useState<FormationPosition[]>([]);
 
   useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let playerSub: any;
     
     // Set up reactive subscription for roster and players (handles eventual consistency)
@@ -70,6 +71,7 @@ export function useTeamData(teamId: string, formationId: string | null | undefin
     });
     
     // Set up reactive subscription for positions (handles eventual consistency)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let positionSub: any;
     if (formationId) {
       positionSub = client.models.FormationPosition.observeQuery({

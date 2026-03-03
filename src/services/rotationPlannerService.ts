@@ -191,7 +191,7 @@ export function calculateFairRotations(
   };
 
   // Track current field state
-  let currentField = new Set(startingLineup.map(s => s.playerId));
+  const currentField = new Set(startingLineup.map(s => s.playerId));
   const positionMap = new Map(startingLineup.map(s => [s.playerId, s.positionId]));
 
   // Play time tracking (minutes)

@@ -31,6 +31,7 @@ export function HelpFabProvider({ children }: HelpFabProviderProps) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useHelpFab(): HelpFabContextValue {
   const ctx = useContext(HelpFabContext);
   if (!ctx) {

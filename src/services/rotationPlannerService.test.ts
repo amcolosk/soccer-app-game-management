@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { describe, it, expect, vi } from 'vitest';
 import {
   calculateFairRotations,
   calculatePlayTime,
@@ -1316,7 +1317,7 @@ describe('rotationPlannerService', () => {
       expect(rotations).toHaveLength(4);
       
       // Each rotation should have substitutions structure
-      rotations.forEach((rotation, idx) => {
+      rotations.forEach((rotation) => {
         expect(rotation).toHaveProperty('substitutions');
         expect(Array.isArray(rotation.substitutions)).toBe(true);
         

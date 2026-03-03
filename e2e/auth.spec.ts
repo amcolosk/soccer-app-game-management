@@ -1,11 +1,8 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import {
   waitForPageLoad,
   fillInput,
   clickButton,
-  clickButtonByText,
-  selectOption,
-  waitForElement,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 

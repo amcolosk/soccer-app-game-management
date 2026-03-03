@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import type {
@@ -223,6 +223,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       gamePlanSub.unsubscribe();
       rotationSub.unsubscribe();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.id, team.id, gamePlan?.id]);
 
   const loadPreviousGames = async () => {
@@ -280,10 +281,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     prevGamePlanId.current = gamePlan?.id ?? null;
   }, [gamePlan?.id]);
 
-  const getPlayerAvailability = (playerId: string): string => {
+  const getPlayerAvailability = useCallback((playerId: string): string => {
     const availability = availabilities.find((a) => a.playerId === playerId);
     return availability?.status || "available";
-  };
+  }, [availabilities]);
 
   // Memoize filtered player lists to avoid recalculating on every render
   const startingLineupPlayers = useMemo(() => {
@@ -291,33 +292,61 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       const status = getPlayerAvailability(p.id);
       return status === "available";
     });
-  }, [players, availabilities]);
+  }, [players, getPlayerAvailability]);
 
   const rotationPlayers = useMemo(() => {
     return players.filter((p) => {
       const status = getPlayerAvailability(p.id);
       return status === "available" || status === "late-arrival";
     });
-  }, [players, availabilities]);
+  }, [players, getPlayerAvailability]);
 
-  const gamePlannerDebugContext = useMemo((): GamePlannerDebugContext => ({
-    rotationIntervalMinutes,
-    halfLengthMinutes,
-    maxPlayersOnField,
-    availablePlayerCount: players.filter(p => {
-      const s = getPlayerAvailability(p.id);
-      return s === 'available' || s === 'late-arrival';
-    }).length,
-    players: players.map(p => {
-      const avail = availabilities.find(a => a.playerId === p.id);
-      return {
-        number: p.playerNumber || 0,
-        status: getPlayerAvailability(p.id),
-        availableFromMinute: avail?.availableFromMinute ?? null,
-        availableUntilMinute: avail?.availableUntilMinute ?? null,
-      };
-    }),
-  }), [players, availabilities, rotationIntervalMinutes, halfLengthMinutes, maxPlayersOnField, getPlayerAvailability]);
+  const gamePlannerDebugContext = useMemo((): GamePlannerDebugContext => {
+    const playerIdToNumber = new Map<string, number>(
+      players.map(p => [p.id, p.playerNumber || 0])
+    );
+    const positionIdToName = new Map<string, string>(
+      positions.map(pos => [pos.id, pos.abbreviation || pos.positionName])
+    );
+
+    return {
+      rotationIntervalMinutes,
+      halfLengthMinutes,
+      maxPlayersOnField,
+      availablePlayerCount: players.filter(p => {
+        const s = getPlayerAvailability(p.id);
+        return s === 'available' || s === 'late-arrival';
+      }).length,
+      players: players.map(p => {
+        const avail = availabilities.find(a => a.playerId === p.id);
+        const preferredPositionNames = p.preferredPositions
+          ? p.preferredPositions.split(',').map(s => s.trim()).filter(Boolean)
+              .map(posId => positionIdToName.get(posId) ?? posId)
+          : undefined;
+        return {
+          number: p.playerNumber || 0,
+          status: getPlayerAvailability(p.id),
+          availableFromMinute: avail?.availableFromMinute ?? null,
+          availableUntilMinute: avail?.availableUntilMinute ?? null,
+          preferredPositionNames,
+        };
+      }),
+      rotations: rotations.map(rot => {
+        let subs: PlannedSubstitution[] = [];
+        try { subs = JSON.parse(rot.plannedSubstitutions as string); } catch { /* ignore */ }
+        return {
+          rotationNumber: rot.rotationNumber,
+          gameMinute: rot.gameMinute,
+          half: rot.half,
+          substitutions: subs.map(s => ({
+            playerOutNumber: playerIdToNumber.get(s.playerOutId) ?? 0,
+            playerInNumber: playerIdToNumber.get(s.playerInId) ?? 0,
+            positionName: positionIdToName.get(s.positionId) ?? s.positionId,
+          })),
+        };
+      }),
+    };
+  }, [players, availabilities, rotationIntervalMinutes, halfLengthMinutes, maxPlayersOnField, getPlayerAvailability, rotations, positions]);
 
   const debugContextString = useMemo(
     () => buildDebugSnapshot(gamePlannerDebugContext),
@@ -994,10 +1023,17 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   };
 
   // Memoize lineup calculations at each rotation to avoid recalculating
-  const lineupCache = useMemo(() => {
-    const cache = new Map<number, Map<string, string>>();
-    return cache;
-  }, [startingLineup, rotations]);
+  // Re-create the cache whenever startingLineup or rotations change so stale
+  // cached results are discarded. The body intentionally does not read those
+  // values directly (it just resets the map), so we suppress the lint warning.
+  const lineupCache = useMemo(
+    () => {
+      const cache = new Map<number, Map<string, string>>();
+      return cache;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [startingLineup, rotations],
+  );
 
   // Calculate lineup state at each rotation (with caching)
   const getLineupAtRotation = (rotationNumber: number): Map<string, string> => {

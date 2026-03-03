@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Context } from 'aws-lambda';
 import { validateStatus } from './handler';
 
 // ---------------------------------------------------------------------------
@@ -55,27 +56,14 @@ vi.mock('@aws-sdk/lib-dynamodb', () => ({
 
 function cognitoEvent(opts: { issueNumber?: number; status?: string; resolution?: string | null; email?: string } = {}) {
   const { issueNumber = 1, status = 'IN_PROGRESS', resolution = undefined, email = 'dev@example.com' } = opts;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { arguments: { issueNumber, status, resolution }, identity: { sub: 'user-sub-123', claims: { email } } } as any;
 }
 
 function apiKeyEvent(opts: { issueNumber?: number; status?: string; resolution?: string | null } = {}) {
   const { issueNumber = 1, status = 'IN_PROGRESS', resolution = undefined } = opts;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { arguments: { issueNumber, status, resolution }, identity: undefined } as any;
-}
-
-function setEnvVars(vars: Record<string, string | undefined>) {
-  const originals: Record<string, string | undefined> = {};
-  for (const [k, v] of Object.entries(vars)) {
-    originals[k] = process.env[k];
-    if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
-  }
-  return () => {
-    for (const [k, v] of Object.entries(originals)) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -93,7 +81,7 @@ describe('handler – DEVELOPER_EMAILS enforcement', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'issue-id-1', issueNumber: 1 }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    const result = await handler(cognitoEvent({ email: 'dev@example.com', status: 'IN_PROGRESS' }), {} as any, vi.fn());
+    const result = await handler(cognitoEvent({ email: 'dev@example.com', status: 'IN_PROGRESS' }), {} as Context, vi.fn());
     expect(mockSend).toHaveBeenCalledTimes(2);
     expect(JSON.parse(result as string).status).toBe('IN_PROGRESS');
   });
@@ -103,7 +91,7 @@ describe('handler – DEVELOPER_EMAILS enforcement', () => {
     process.env.ISSUE_TABLE_NAME = 'Issues';
     const { handler } = await import('./handler');
     await expect(
-      handler(cognitoEvent({ email: 'coach@example.com', status: 'IN_PROGRESS' }), {} as any, vi.fn()),
+      handler(cognitoEvent({ email: 'coach@example.com', status: 'IN_PROGRESS' }), {} as Context, vi.fn()),
     ).rejects.toThrow('Unauthorized: developer access required');
   });
 
@@ -114,7 +102,7 @@ describe('handler – DEVELOPER_EMAILS enforcement', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'issue-id-1', issueNumber: 1 }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    const result = await handler(cognitoEvent({ email: 'dev@example.com', status: 'FIXED' }), {} as any, vi.fn());
+    const result = await handler(cognitoEvent({ email: 'dev@example.com', status: 'FIXED' }), {} as Context, vi.fn());
     expect(JSON.parse(result as string).status).toBe('FIXED');
   });
 
@@ -123,7 +111,7 @@ describe('handler – DEVELOPER_EMAILS enforcement', () => {
     process.env.ISSUE_TABLE_NAME = 'Issues';
     const { handler } = await import('./handler');
     await expect(
-      handler(cognitoEvent({ email: 'anyone@example.com', status: 'OPEN' }), {} as any, vi.fn()),
+      handler(cognitoEvent({ email: 'anyone@example.com', status: 'OPEN' }), {} as Context, vi.fn()),
     ).rejects.toThrow('Unauthorized: developer access is not configured');
   });
 });
@@ -146,7 +134,7 @@ describe('handler – API key / agent caller', () => {
     const { handler } = await import('./handler');
     const result = await handler(
       apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:super-secret-token|Fixed in abc1234: the crash' }),
-      {} as any, vi.fn(),
+      {} as Context, vi.fn(),
     );
     expect(JSON.parse(result as string).status).toBe('FIXED');
   });
@@ -158,7 +146,7 @@ describe('handler – API key / agent caller', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'issue-id-1', issueNumber: 1 }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    await handler(apiKeyEvent({ status: 'IN_PROGRESS', resolution: 'SECRET:tok|Actual resolution text' }), {} as any, vi.fn());
+    await handler(apiKeyEvent({ status: 'IN_PROGRESS', resolution: 'SECRET:tok|Actual resolution text' }), {} as Context, vi.fn());
     const updateCall = mockSend.mock.calls[1][0];
     expect(updateCall.input.ExpressionAttributeValues[':resolution']).toBe('Actual resolution text');
   });
@@ -170,7 +158,7 @@ describe('handler – API key / agent caller', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'issue-id-1', issueNumber: 1 }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    await handler(apiKeyEvent({ status: 'IN_PROGRESS', resolution: 'SECRET:tok' }), {} as any, vi.fn());
+    await handler(apiKeyEvent({ status: 'IN_PROGRESS', resolution: 'SECRET:tok' }), {} as Context, vi.fn());
     const updateCall = mockSend.mock.calls[1][0];
     expect(updateCall.input.ExpressionAttributeValues[':resolution']).toBeUndefined();
   });
@@ -179,7 +167,7 @@ describe('handler – API key / agent caller', () => {
     delete process.env.AGENT_API_SECRET;
     process.env.ISSUE_TABLE_NAME = 'Issues';
     const { handler } = await import('./handler');
-    await expect(handler(apiKeyEvent({ status: 'OPEN' }), {} as any, vi.fn()))
+    await expect(handler(apiKeyEvent({ status: 'OPEN' }), {} as Context, vi.fn()))
       .rejects.toThrow('Unauthorized: agent access is not configured');
   });
 
@@ -187,7 +175,7 @@ describe('handler – API key / agent caller', () => {
     process.env.AGENT_API_SECRET = 'correct-token';
     process.env.ISSUE_TABLE_NAME = 'Issues';
     const { handler } = await import('./handler');
-    await expect(handler(apiKeyEvent({ status: 'OPEN', resolution: 'SECRET:wrong-token' }), {} as any, vi.fn()))
+    await expect(handler(apiKeyEvent({ status: 'OPEN', resolution: 'SECRET:wrong-token' }), {} as Context, vi.fn()))
       .rejects.toThrow('Unauthorized: invalid agent credentials');
   });
 
@@ -195,7 +183,7 @@ describe('handler – API key / agent caller', () => {
     process.env.AGENT_API_SECRET = 'correct-token';
     process.env.ISSUE_TABLE_NAME = 'Issues';
     const { handler } = await import('./handler');
-    await expect(handler(apiKeyEvent({ status: 'OPEN', resolution: undefined }), {} as any, vi.fn()))
+    await expect(handler(apiKeyEvent({ status: 'OPEN', resolution: undefined }), {} as Context, vi.fn()))
       .rejects.toThrow('Unauthorized: invalid agent credentials');
   });
 });
@@ -213,7 +201,7 @@ describe('handler – DynamoDB interactions', () => {
     process.env.ISSUE_TABLE_NAME = 'Issues';
     mockSend.mockResolvedValueOnce({ Items: [] });
     const { handler } = await import('./handler');
-    await expect(handler(cognitoEvent({ issueNumber: 999, status: 'OPEN' }), {} as any, vi.fn()))
+    await expect(handler(cognitoEvent({ issueNumber: 999, status: 'OPEN' }), {} as Context, vi.fn()))
       .rejects.toThrow('Issue #999 not found');
   });
 
@@ -221,7 +209,7 @@ describe('handler – DynamoDB interactions', () => {
     process.env.DEVELOPER_EMAILS = 'dev@example.com';
     process.env.ISSUE_TABLE_NAME = 'Issues';
     const { handler } = await import('./handler');
-    await expect(handler(cognitoEvent({ status: 'NOPE' }), {} as any, vi.fn()))
+    await expect(handler(cognitoEvent({ status: 'NOPE' }), {} as Context, vi.fn()))
       .rejects.toThrow('Invalid status: NOPE');
     expect(mockSend).not.toHaveBeenCalled();
   });
@@ -233,7 +221,7 @@ describe('handler – DynamoDB interactions', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as any, vi.fn());
+    await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as Context, vi.fn());
     const exprValues = mockSend.mock.calls[1][0].input.ExpressionAttributeValues;
     expect(exprValues[':closedAt']).toBeDefined();
   });
@@ -245,7 +233,7 @@ describe('handler – DynamoDB interactions', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    await handler(cognitoEvent({ status: 'FIXED' }), {} as any, vi.fn());
+    await handler(cognitoEvent({ status: 'FIXED' }), {} as Context, vi.fn());
     const exprValues = mockSend.mock.calls[1][0].input.ExpressionAttributeValues;
     expect(exprValues[':closedAt']).toBeUndefined();
   });
@@ -257,7 +245,7 @@ describe('handler – DynamoDB interactions', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    await handler(cognitoEvent({ status: 'DEPLOYED' }), {} as any, vi.fn());
+    await handler(cognitoEvent({ status: 'DEPLOYED' }), {} as Context, vi.fn());
     const exprValues = mockSend.mock.calls[1][0].input.ExpressionAttributeValues;
     expect(exprValues[':closedAt']).toBeUndefined();
   });
@@ -269,7 +257,7 @@ describe('handler – DynamoDB interactions', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    await handler(cognitoEvent({ status: 'OPEN' }), {} as any, vi.fn());
+    await handler(cognitoEvent({ status: 'OPEN' }), {} as Context, vi.fn());
     const exprValues = mockSend.mock.calls[1][0].input.ExpressionAttributeValues;
     expect(exprValues[':closedAt']).toBeUndefined();
   });
@@ -281,7 +269,7 @@ describe('handler – DynamoDB interactions', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    await handler(cognitoEvent({ status: 'IN_PROGRESS' }), {} as any, vi.fn());
+    await handler(cognitoEvent({ status: 'IN_PROGRESS' }), {} as Context, vi.fn());
     const exprValues = mockSend.mock.calls[1][0].input.ExpressionAttributeValues;
     expect(exprValues[':closedAt']).toBeUndefined();
   });
@@ -293,7 +281,7 @@ describe('handler – DynamoDB interactions', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1, resolution: null }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    const result = await handler(cognitoEvent({ issueNumber: 1, status: 'OPEN' }), {} as any, vi.fn());
+    const result = await handler(cognitoEvent({ issueNumber: 1, status: 'OPEN' }), {} as Context, vi.fn());
     const parsed = JSON.parse(result as string);
     expect(parsed).toHaveProperty('issueNumber', 1);
     expect(parsed).toHaveProperty('status', 'OPEN');
@@ -314,7 +302,7 @@ describe('handler – agent status restriction', () => {
     process.env.ISSUE_TABLE_NAME = 'Issues';
     const { handler } = await import('./handler');
     await expect(
-      handler(apiKeyEvent({ status: 'CLOSED', resolution: 'SECRET:tok|done' }), {} as any, vi.fn()),
+      handler(apiKeyEvent({ status: 'CLOSED', resolution: 'SECRET:tok|done' }), {} as Context, vi.fn()),
     ).rejects.toThrow('Use the developer dashboard to set CLOSED');
     expect(mockSend).not.toHaveBeenCalled();
   });
@@ -324,7 +312,7 @@ describe('handler – agent status restriction', () => {
     process.env.ISSUE_TABLE_NAME = 'Issues';
     const { handler } = await import('./handler');
     await expect(
-      handler(apiKeyEvent({ status: 'DEPLOYED', resolution: 'SECRET:tok|deployed' }), {} as any, vi.fn()),
+      handler(apiKeyEvent({ status: 'DEPLOYED', resolution: 'SECRET:tok|deployed' }), {} as Context, vi.fn()),
     ).rejects.toThrow('Use the developer dashboard to set DEPLOYED');
     expect(mockSend).not.toHaveBeenCalled();
   });
@@ -334,7 +322,7 @@ describe('handler – agent status restriction', () => {
     process.env.ISSUE_TABLE_NAME = 'Issues';
     const { handler } = await import('./handler');
     await expect(
-      handler(apiKeyEvent({ status: 'OPEN', resolution: 'SECRET:tok|reopened' }), {} as any, vi.fn()),
+      handler(apiKeyEvent({ status: 'OPEN', resolution: 'SECRET:tok|reopened' }), {} as Context, vi.fn()),
     ).rejects.toThrow('Use the developer dashboard to set OPEN');
     expect(mockSend).not.toHaveBeenCalled();
   });
@@ -348,7 +336,7 @@ describe('handler – agent status restriction', () => {
     const { handler } = await import('./handler');
     const result = await handler(
       apiKeyEvent({ status: 'IN_PROGRESS', resolution: 'SECRET:tok|investigating' }),
-      {} as any, vi.fn(),
+      {} as Context, vi.fn(),
     );
     expect(mockSend).toHaveBeenCalledTimes(2);
     expect(JSON.parse(result as string).status).toBe('IN_PROGRESS');
@@ -363,7 +351,7 @@ describe('handler – agent status restriction', () => {
     const { handler } = await import('./handler');
     const result = await handler(
       apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok|Fixed in abc1234: timer fix' }),
-      {} as any, vi.fn(),
+      {} as Context, vi.fn(),
     );
     expect(JSON.parse(result as string).status).toBe('FIXED');
   });
@@ -382,7 +370,7 @@ describe('handler – SHA enforcement for FIXED', () => {
     process.env.ISSUE_TABLE_NAME = 'Issues';
     const { handler } = await import('./handler');
     await expect(
-      handler(apiKeyEvent({ status: 'FIXED', resolution: undefined }), {} as any, vi.fn()),
+      handler(apiKeyEvent({ status: 'FIXED', resolution: undefined }), {} as Context, vi.fn()),
     ).rejects.toThrow('Unauthorized: invalid agent credentials');
     expect(mockSend).not.toHaveBeenCalled();
   });
@@ -393,7 +381,7 @@ describe('handler – SHA enforcement for FIXED', () => {
     const { handler } = await import('./handler');
     // 'SECRET:tok' strips to null (no pipe-delimited payload) — must hit SHA error not auth error
     await expect(
-      handler(apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok' }), {} as any, vi.fn()),
+      handler(apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok' }), {} as Context, vi.fn()),
     ).rejects.toThrow('Resolution must include a git commit SHA');
     expect(mockSend).not.toHaveBeenCalled();
   });
@@ -403,7 +391,7 @@ describe('handler – SHA enforcement for FIXED', () => {
     process.env.ISSUE_TABLE_NAME = 'Issues';
     const { handler } = await import('./handler');
     await expect(
-      handler(apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok|Fixed the bug' }), {} as any, vi.fn()),
+      handler(apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok|Fixed the bug' }), {} as Context, vi.fn()),
     ).rejects.toThrow('Resolution must include a git commit SHA');
     expect(mockSend).not.toHaveBeenCalled();
   });
@@ -413,7 +401,7 @@ describe('handler – SHA enforcement for FIXED', () => {
     process.env.ISSUE_TABLE_NAME = 'Issues';
     const { handler } = await import('./handler');
     await expect(
-      handler(apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok|Fixed in abcdef: too short' }), {} as any, vi.fn()),
+      handler(apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok|Fixed in abcdef: too short' }), {} as Context, vi.fn()),
     ).rejects.toThrow('Resolution must include a git commit SHA');
     expect(mockSend).not.toHaveBeenCalled();
   });
@@ -427,7 +415,7 @@ describe('handler – SHA enforcement for FIXED', () => {
     const { handler } = await import('./handler');
     const result = await handler(
       apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok|Fixed in abc1234: desc' }),
-      {} as any, vi.fn(),
+      {} as Context, vi.fn(),
     );
     expect(JSON.parse(result as string).status).toBe('FIXED');
     const updateCall = mockSend.mock.calls[1][0];
@@ -445,7 +433,7 @@ describe('handler – SHA enforcement for FIXED', () => {
     const fullSha = 'a'.repeat(40);
     const result = await handler(
       apiKeyEvent({ status: 'FIXED', resolution: `SECRET:tok|Fixed in ${fullSha}` }),
-      {} as any, vi.fn(),
+      {} as Context, vi.fn(),
     );
     expect(JSON.parse(result as string).status).toBe('FIXED');
     const updateCall = mockSend.mock.calls[1][0];
@@ -462,7 +450,7 @@ describe('handler – SHA enforcement for FIXED', () => {
     const { handler } = await import('./handler');
     const result = await handler(
       apiKeyEvent({ status: 'FIXED', resolution: 'SECRET:tok|Regression in commit abc1234 corrected boundary' }),
-      {} as any, vi.fn(),
+      {} as Context, vi.fn(),
     );
     expect(JSON.parse(result as string).status).toBe('FIXED');
   });
@@ -483,7 +471,7 @@ describe('handler – developer callers are not restricted', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    const result = await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as any, vi.fn());
+    const result = await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as Context, vi.fn());
     expect(mockSend).toHaveBeenCalledTimes(2);
     expect(JSON.parse(result as string).status).toBe('CLOSED');
   });
@@ -495,7 +483,7 @@ describe('handler – developer callers are not restricted', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    const result = await handler(cognitoEvent({ status: 'DEPLOYED' }), {} as any, vi.fn());
+    const result = await handler(cognitoEvent({ status: 'DEPLOYED' }), {} as Context, vi.fn());
     expect(mockSend).toHaveBeenCalledTimes(2);
     expect(JSON.parse(result as string).status).toBe('DEPLOYED');
   });
@@ -509,7 +497,7 @@ describe('handler – developer callers are not restricted', () => {
     const { handler } = await import('./handler');
     const result = await handler(
       cognitoEvent({ status: 'FIXED', resolution: 'manually verified' }),
-      {} as any, vi.fn(),
+      {} as Context, vi.fn(),
     );
     expect(mockSend).toHaveBeenCalledTimes(2);
     expect(JSON.parse(result as string).status).toBe('FIXED');
@@ -539,7 +527,7 @@ describe('handler – S3 screenshot deletion on CLOSED', () => {
       .mockResolvedValueOnce({});
     mockS3Send.mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    const result = await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as any, vi.fn());
+    const result = await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as Context, vi.fn());
     expect(mockS3Send).toHaveBeenCalledTimes(1);
     const s3Call = mockS3Send.mock.calls[0][0];
     expect(s3Call.input.Bucket).toBe('my-screenshot-bucket');
@@ -555,7 +543,7 @@ describe('handler – S3 screenshot deletion on CLOSED', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1 }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as any, vi.fn());
+    await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as Context, vi.fn());
     expect(mockS3Send).not.toHaveBeenCalled();
   });
 
@@ -567,7 +555,7 @@ describe('handler – S3 screenshot deletion on CLOSED', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1, screenshotKey: VALID_SCREENSHOT_KEY }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    await handler(cognitoEvent({ status: 'DEPLOYED' }), {} as any, vi.fn());
+    await handler(cognitoEvent({ status: 'DEPLOYED' }), {} as Context, vi.fn());
     expect(mockS3Send).not.toHaveBeenCalled();
   });
 
@@ -579,7 +567,7 @@ describe('handler – S3 screenshot deletion on CLOSED', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1, screenshotKey: VALID_SCREENSHOT_KEY }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as any, vi.fn());
+    await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as Context, vi.fn());
     expect(mockS3Send).not.toHaveBeenCalled();
   });
 
@@ -592,7 +580,7 @@ describe('handler – S3 screenshot deletion on CLOSED', () => {
       .mockResolvedValueOnce({});
     mockS3Send.mockRejectedValueOnce(new Error('S3 unavailable'));
     const { handler } = await import('./handler');
-    const result = await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as any, vi.fn());
+    const result = await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as Context, vi.fn());
     expect(JSON.parse(result as string).status).toBe('CLOSED');
   });
 
@@ -604,7 +592,7 @@ describe('handler – S3 screenshot deletion on CLOSED', () => {
       .mockResolvedValueOnce({ Items: [{ id: 'id-1', issueNumber: 1, screenshotKey: '../../etc/passwd' }] })
       .mockResolvedValueOnce({});
     const { handler } = await import('./handler');
-    const result = await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as any, vi.fn());
+    const result = await handler(cognitoEvent({ status: 'CLOSED', resolution: 'done' }), {} as Context, vi.fn());
     expect(mockS3Send).not.toHaveBeenCalled();
     expect(JSON.parse(result as string).status).toBe('CLOSED');
   });

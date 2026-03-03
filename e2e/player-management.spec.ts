@@ -1,9 +1,8 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import {
   waitForPageLoad,
   fillInput,
   clickButton,
-  closePWAPrompt,
   cleanupTestData,
   loginUser,
   navigateToManagement,
@@ -44,7 +43,7 @@ const TEST_DATA = {
 };
 
 test.describe('Player Management CRUD', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async () => {
     test.setTimeout(TEST_CONFIG.timeout.long);
   });
 

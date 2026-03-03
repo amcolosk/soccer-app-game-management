@@ -17,6 +17,7 @@ interface InvitationAcceptanceProps {
 function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptanceProps) {
   const confirm = useConfirm();
   const [loading, setLoading] = useState(true);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [invitation, setInvitation] = useState<any>(null);
   const [resourceName, setResourceName] = useState('');
   const [message, setMessage] = useState('');
@@ -25,6 +26,7 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
 
   useEffect(() => {
     loadInvitation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invitationId]);
 
   async function loadInvitation() {
@@ -47,6 +49,7 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
         return;
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let invitations: any[] = [];
       
       // Handle both string (JSON) and object response
@@ -63,6 +66,7 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
         }
       } else {
         // It's already an object
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data = result.data as any;
         console.log('Data object:', data);
         if (data.debug) {
@@ -74,6 +78,7 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
       console.log('All invitations:', invitations);
       console.log('Looking for ID:', invitationId);
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const foundInvitation = invitations.find((inv: any) => inv.id === invitationId);
 
       if (foundInvitation) {
@@ -87,7 +92,7 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
       console.log('Invitation not found in list');
       setError('Invitation not found');
       setLoading(false);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error loading invitation:', error);
       setError('Failed to load invitation');
       setLoading(false);
@@ -111,8 +116,8 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
           onComplete();
         }, 2000);
       }
-    } catch (error: any) {
-      setError(error.message || 'Failed to accept invitation');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to accept invitation');
       setProcessing(false);
     }
   }
@@ -142,8 +147,8 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
           onComplete();
         }, 2000);
       }
-    } catch (error: any) {
-      setError(error.message || 'Failed to decline invitation');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to decline invitation');
       setProcessing(false);
     }
   }

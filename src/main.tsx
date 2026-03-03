@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState } from "react";
 import ReactDOM from "react-dom/client";
 import { Authenticator, useAuthenticator } from '@aws-amplify/ui-react';
@@ -77,6 +78,7 @@ if (gaMeasurementId) {
   initGA(gaMeasurementId);
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 function Root() {
   const { authStatus } = useAuthenticator(context => [context.authStatus]);
   const [showLogin, setShowLogin] = useState(false);

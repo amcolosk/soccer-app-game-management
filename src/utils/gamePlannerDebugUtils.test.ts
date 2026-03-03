@@ -85,4 +85,106 @@ describe('buildDebugSnapshot', () => {
     const result = buildDebugSnapshot(baseCtx);
     expect(result).toContain('Player availability:');
   });
+
+  it('renders preferred position names when present', () => {
+    const ctx: GamePlannerDebugContext = {
+      ...baseCtx,
+      players: [{ number: 7, status: 'available', availableFromMinute: null, availableUntilMinute: null, preferredPositionNames: ['GK', 'CB'] }],
+    };
+    const result = buildDebugSnapshot(ctx);
+    expect(result).toContain('#7 — available [pref: GK, CB]');
+  });
+
+  it('omits pref suffix when preferredPositionNames is empty', () => {
+    const ctx: GamePlannerDebugContext = {
+      ...baseCtx,
+      players: [{ number: 3, status: 'available', availableFromMinute: null, availableUntilMinute: null, preferredPositionNames: [] }],
+    };
+    const result = buildDebugSnapshot(ctx);
+    expect(result).toContain('#3 — available');
+    expect(result).not.toContain('pref:');
+  });
+
+  it('omits rotation plan section when rotations field is absent', () => {
+    const result = buildDebugSnapshot(baseCtx);
+    expect(result).not.toContain('Rotation plan:');
+  });
+
+  it('renders rotation plan header with no-rotations message when array is empty', () => {
+    const ctx: GamePlannerDebugContext = { ...baseCtx, rotations: [] };
+    const result = buildDebugSnapshot(ctx);
+    expect(result).toContain('Rotation plan:');
+    expect(result).toContain('(no rotations planned)');
+  });
+
+  it('renders rotation entries with player numbers, half, and position name', () => {
+    const ctx: GamePlannerDebugContext = {
+      ...baseCtx,
+      rotations: [
+        {
+          rotationNumber: 1,
+          gameMinute: 10,
+          half: 1,
+          substitutions: [
+            { playerOutNumber: 3, playerInNumber: 7, positionName: 'CB' },
+          ],
+        },
+      ],
+    };
+    const result = buildDebugSnapshot(ctx);
+    expect(result).toContain('R1 (min 10, H1): out #3→in #7 @CB');
+  });
+
+  it('renders "no subs" for a rotation with an empty substitutions array', () => {
+    const ctx: GamePlannerDebugContext = {
+      ...baseCtx,
+      rotations: [
+        { rotationNumber: 2, gameMinute: 20, half: 1, substitutions: [] },
+      ],
+    };
+    const result = buildDebugSnapshot(ctx);
+    expect(result).toContain('R2 (min 20, H1): no subs');
+  });
+
+  it('renders multiple rotations across both halves', () => {
+    const ctx: GamePlannerDebugContext = {
+      ...baseCtx,
+      rotations: [
+        { rotationNumber: 1, gameMinute: 10, half: 1, substitutions: [{ playerOutNumber: 1, playerInNumber: 2, positionName: 'LW' }] },
+        { rotationNumber: 2, gameMinute: 30, half: 2, substitutions: [{ playerOutNumber: 3, playerInNumber: 4, positionName: 'GK' }] },
+      ],
+    };
+    const result = buildDebugSnapshot(ctx);
+    expect(result).toContain('R1 (min 10, H1): out #1→in #2 @LW');
+    expect(result).toContain('R2 (min 30, H2): out #3→in #4 @GK');
+    expect(result.indexOf('R1')).toBeLessThan(result.indexOf('R2'));
+  });
+
+  it('renders multiple substitutions within a single rotation joined by comma', () => {
+    const ctx: GamePlannerDebugContext = {
+      ...baseCtx,
+      rotations: [
+        {
+          rotationNumber: 1,
+          gameMinute: 10,
+          half: 1,
+          substitutions: [
+            { playerOutNumber: 3, playerInNumber: 7, positionName: 'CB' },
+            { playerOutNumber: 5, playerInNumber: 9, positionName: 'LW' },
+          ],
+        },
+      ],
+    };
+    const result = buildDebugSnapshot(ctx);
+    expect(result).toContain('R1 (min 10, H1): out #3→in #7 @CB, out #5→in #9 @LW');
+  });
+
+  it('renders preferred positions alongside an availability window', () => {
+    const ctx: GamePlannerDebugContext = {
+      ...baseCtx,
+      players: [{ number: 5, status: 'late-arrival', availableFromMinute: 10, availableUntilMinute: null, preferredPositionNames: ['GK'] }],
+    };
+    const result = buildDebugSnapshot(ctx);
+    expect(result).toContain('#5 — late-arrival (availFrom=10) [pref: GK]');
+  });
 });

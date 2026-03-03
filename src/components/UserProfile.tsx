@@ -34,6 +34,7 @@ export function UserProfile() {
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [pendingInvitations, setPendingInvitations] = useState<{
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     teamInvitations: any[];
   }>({ teamInvitations: [] });
   const [teams, setTeams] = useState<Team[]>([]);
@@ -63,6 +64,7 @@ export function UserProfile() {
       setPendingInvitations(invitations);
 
       // Load team names for the invitations
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const teamIds = invitations.teamInvitations.map((inv: any) => inv.teamId);
       const teamPromises = teamIds.map((id: string) => client.models.Team.get({ id }));
       const teamResults = await Promise.all(teamPromises);
@@ -80,8 +82,8 @@ export function UserProfile() {
       await acceptTeamInvitation(invitationId);
       setMessage({ type: 'success', text: 'Team invitation accepted!' });
       await loadPendingInvitations();
-    } catch (error: any) {
-      setMessage({ type: 'error', text: error.message || 'Failed to accept invitation' });
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to accept invitation' });
     }
   }
 
@@ -98,8 +100,8 @@ export function UserProfile() {
       await declineTeamInvitation(invitationId);
       setMessage({ type: 'success', text: 'Invitation declined' });
       await loadPendingInvitations();
-    } catch (error: any) {
-      setMessage({ type: 'error', text: error.message || 'Failed to decline invitation' });
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to decline invitation' });
     }
   }
 
@@ -125,11 +127,11 @@ export function UserProfile() {
       setOldPassword('');
       setNewPassword('');
       setConfirmPassword('');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error changing password:', error);
-      setMessage({ 
-        type: 'error', 
-        text: error.message || 'Failed to change password. Please check your current password.' 
+      setMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Failed to change password. Please check your current password.'
       });
     } finally {
       setIsChangingPassword(false);
@@ -161,11 +163,11 @@ export function UserProfile() {
     try {
       await deleteUser();
       // User will be automatically signed out after deletion
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error deleting account:', error);
-      setMessage({ 
-        type: 'error', 
-        text: error.message || 'Failed to delete account. Please try again.' 
+      setMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Failed to delete account. Please try again.'
       });
       setIsDeletingAccount(false);
     }
@@ -227,6 +229,7 @@ export function UserProfile() {
         <div className="info-row">
           <label>Email Address</label>
           <div className="info-value">
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
             {userEmail || user?.signInDetails?.loginId || (user as any)?.attributes?.email || user?.username || 'Not available'}
           </div>
         </div>

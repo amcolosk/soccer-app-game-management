@@ -115,5 +115,6 @@ export function useGameTimer({
       if (interval) clearInterval(interval);
       if (saveInterval) clearInterval(saveInterval);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning, gameState.status, gameState.currentHalf, halfLengthSeconds, currentTime, game.id]);
 }

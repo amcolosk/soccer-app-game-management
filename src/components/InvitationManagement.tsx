@@ -80,8 +80,8 @@ export function InvitationManagement({
       setMessage(`Invitation sent to ${inviteEmail}`);
       setInviteEmail('');
       // Invitations update automatically via observeQuery
-    } catch (error: any) {
-      setMessage(`Error: ${error.message || 'Failed to send invitation'}`);
+    } catch (error) {
+      setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to send invitation'}`);
     } finally {
       setLoading(false);
     }
@@ -101,8 +101,8 @@ export function InvitationManagement({
       await revokeCoachAccess(resourceId, userId);
       setMessage('Coach access revoked successfully');
       await refreshCoaches(); // Refresh coaches list after revoking
-    } catch (error: any) {
-      setMessage(`Error: ${error.message || 'Failed to revoke access'}`);
+    } catch (error) {
+      setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to revoke access'}`);
     } finally {
       setLoading(false);
     }
@@ -122,8 +122,8 @@ export function InvitationManagement({
       await client.models.TeamInvitation.delete({ id: invitationId });
       setMessage('Invitation cancelled');
       // Invitations update automatically via observeQuery
-    } catch (error: any) {
-      setMessage(`Error: ${error.message || 'Failed to cancel invitation'}`);
+    } catch (error) {
+      setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to cancel invitation'}`);
     } finally {
       setLoading(false);
     }

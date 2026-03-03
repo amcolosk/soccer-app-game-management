@@ -827,7 +827,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                 playTimeRecords={playTimeRecords}
                 currentTime={currentTime}
                 halfLengthSeconds={halfLengthSeconds}
-                onSelectPlayer={(_playerId) => {
+                onSelectPlayer={() => {
                   const emptyPosition = positions.find(
                     pos => !lineup.some(l => l.positionId === pos.id && l.isStarter)
                   );

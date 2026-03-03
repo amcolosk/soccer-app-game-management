@@ -126,8 +126,6 @@ test.describe('agent status restrictions', () => {
     // Create a test issue by submitting a bug report via the UI
     const context = await browser.newContext();
     const page = await context.newPage();
-    const request = context.request;
-
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
     await clickManagementTab(page, 'App');
