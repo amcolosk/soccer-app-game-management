@@ -22,7 +22,7 @@ const MAX_SCREENSHOT_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 // Input validation limits
 const MAX_DESCRIPTION_LENGTH = 5000;
-const MAX_STEPS_LENGTH = 3000;
+const MAX_STEPS_LENGTH = 10000;
 
 // Rate limiting configuration
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour

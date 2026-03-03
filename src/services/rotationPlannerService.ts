@@ -344,6 +344,14 @@ export function calculateFairRotations(
             const group = positionGroupMap.get(pos) ?? 'UNKNOWN';
             const maxCont = MAX_CONTINUOUS_ROTATIONS[group];
             if (isFinite(maxCont) && (continuousRotations.get(id) ?? 0) >= maxCont) {
+              // Don't force off due to fatigue if the player needs the remaining game time to
+              // reach their 50% play-time threshold (same condition as the bench mustOn rule).
+              // Without this guard a STRIKER rotated off at the last interval may finish below 50%.
+              const played = playTimeMinutes.get(id) ?? 0;
+              const p = playerById.get(id)!;
+              const availTime = (p.availableUntilMinute ?? totalGameMinutes) - (p.availableFromMinute ?? 0);
+              const threshold = availTime * 0.5;
+              if (played + minutesRemaining <= threshold) continue;
               forcedOff.push(id);
             }
           }

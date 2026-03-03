@@ -190,7 +190,7 @@ describe("BugReport – rendering", () => {
 
   it("shows character count for steps", () => {
     renderBugReport();
-    expect(screen.getByText("0/3000")).toBeInTheDocument();
+    expect(screen.getByText("0/10000")).toBeInTheDocument();
   });
 
   it("renders Submit Report and Cancel buttons", () => {
@@ -240,6 +240,26 @@ describe("BugReport – validation", () => {
     await user.click(screen.getByRole("button", { name: /submit report/i }));
 
     expect(mockShowWarning).toHaveBeenCalledWith("Please describe the issue");
+    expect(mockSubmitBugReport).not.toHaveBeenCalled();
+  });
+
+  it("shows a warning and does not call the API when steps exceed max length", async () => {
+    renderBugReport();
+
+    // Simulate pasting a very long debug snapshot (> 10 000 chars) via fireEvent, which is
+    // how the "Copy debug context" button pre-populates steps programmatically.
+    // JS validation must block the submit even though the textarea has no maxLength attribute.
+    fireEvent.change(screen.getByRole("textbox", { name: /steps to reproduce/i }), {
+      target: { value: "x".repeat(10001) },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: /what went wrong/i }), {
+      target: { value: "Bug description" },
+    });
+
+    const form = screen.getByRole("button", { name: /submit report/i }).closest("form")!;
+    fireEvent.submit(form);
+
+    expect(mockShowWarning).toHaveBeenCalledWith(expect.stringContaining("maximum length"));
     expect(mockSubmitBugReport).not.toHaveBeenCalled();
   });
 });

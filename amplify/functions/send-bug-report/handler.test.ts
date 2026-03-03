@@ -261,7 +261,7 @@ describe('validateInputLengths', () => {
   });
 
   it('throws error when steps exceed max length', () => {
-    const longSteps = 'x'.repeat(3001);
+    const longSteps = 'x'.repeat(10001);
     expect(() => validateInputLengths('Valid description', longSteps)).toThrow(
       'Steps exceed maximum length'
     );
@@ -273,7 +273,7 @@ describe('validateInputLengths', () => {
   });
 
   it('accepts steps at exactly max length', () => {
-    const maxSteps = 'x'.repeat(3000);
+    const maxSteps = 'x'.repeat(10000);
     expect(() => validateInputLengths('Valid description', maxSteps)).not.toThrow();
   });
 
