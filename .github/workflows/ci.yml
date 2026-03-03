@@ -27,7 +27,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - run: echo '${{ secrets.AMPLIFY_OUTPUTS }}' > amplify_outputs.json
+      - run: cp amplify_outputs.ci.json amplify_outputs.json
       - run: npx tsc --noEmit
 
   unit-tests:
@@ -40,7 +40,6 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - run: echo '${{ secrets.AMPLIFY_OUTPUTS }}' > amplify_outputs.json
       - run: npm run test:run
 
   build:
@@ -53,7 +52,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - run: echo '${{ secrets.AMPLIFY_OUTPUTS }}' > amplify_outputs.json
+      - run: cp amplify_outputs.ci.json amplify_outputs.json
       - run: npm run build
 
   ci-pass:

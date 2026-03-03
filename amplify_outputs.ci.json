@@ -1,0 +1,47 @@
+{
+  "version": "1.4",
+  "auth": {
+    "user_pool_id": "us-east-1_CI_STUB",
+    "aws_region": "us-east-1",
+    "user_pool_client_id": "ci_stub_client_id",
+    "identity_pool_id": "us-east-1:00000000-0000-0000-0000-000000000000",
+    "mfa_methods": [],
+    "standard_required_attributes": [
+      "email"
+    ],
+    "username_attributes": [
+      "email"
+    ],
+    "user_verification_types": [
+      "email"
+    ],
+    "groups": [],
+    "mfa_configuration": "NONE",
+    "password_policy": {
+      "min_length": 8,
+      "require_lowercase": true,
+      "require_numbers": true,
+      "require_symbols": true,
+      "require_uppercase": true
+    },
+    "unauthenticated_identities_enabled": true
+  },
+  "data": {
+    "url": "https://ci-stub.appsync-api.us-east-1.amazonaws.com/graphql",
+    "aws_region": "us-east-1",
+    "api_key": "da2-ci_stub_api_key",
+    "default_authorization_type": "AMAZON_COGNITO_USER_POOLS",
+    "authorization_types": [
+      "API_KEY",
+      "AWS_IAM"
+    ]
+  },
+  "storage": {
+    "aws_region": "us-east-1",
+    "bucket_name": "ci-stub-bucket",
+    "buckets": []
+  },
+  "custom": {
+    "deployment_id": "local"
+  }
+}
