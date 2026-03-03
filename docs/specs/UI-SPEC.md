@@ -438,7 +438,15 @@ Pre-game rotation planning. Coach marks availability then generates or manually 
 
 #### 7.7.1 Rotation Settings Control
 
-Two numeric steppers, always both visible, always live-coupled:
+Three numeric steppers inside the setup card, arranged in two rows:
+
+**Row 1 — Half length (full width):**
+
+| Stepper | Label | Clamp | Notes |
+|---------|-------|-------|-------|
+| C | **Half length (min)** | `[1, 99]` | Per-game override; saves to `Game` immediately. When value ≠ team default, a small "Reset to team default (N min)" link appears below the stepper. |
+
+**Row 2 — Coupled rotation inputs (side-by-side):**
 
 | Stepper | Label | Behaviour |
 |---------|-------|-----------|

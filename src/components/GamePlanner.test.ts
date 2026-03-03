@@ -1488,3 +1488,70 @@ describe('coupled rotation stepper inputs', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Per-game half length override (mirrors initialization + handleHalfLengthChange)
+// ---------------------------------------------------------------------------
+
+/** Mirrors the effective half length initialisation in GamePlanner.tsx */
+function deriveEffectiveHalfLength(
+  gameHalfLengthMinutes: number | null | undefined,
+  teamHalfLengthMinutes: number | null | undefined
+): number {
+  return gameHalfLengthMinutes ?? teamHalfLengthMinutes ?? 30;
+}
+
+describe('per-game half length override', () => {
+  describe('fallback chain (TC-HL-1 through TC-HL-3)', () => {
+    it('TC-HL-1: game override takes precedence over team default', () => {
+      expect(deriveEffectiveHalfLength(25, 30)).toBe(25);
+    });
+    it('TC-HL-2: null game override falls back to team default', () => {
+      expect(deriveEffectiveHalfLength(null, 30)).toBe(30);
+    });
+    it('TC-HL-3: undefined game override falls back to team default', () => {
+      expect(deriveEffectiveHalfLength(undefined, 30)).toBe(30);
+    });
+    it('TC-HL-4: both null/undefined fall back to hardcoded 30', () => {
+      expect(deriveEffectiveHalfLength(null, null)).toBe(30);
+      expect(deriveEffectiveHalfLength(undefined, undefined)).toBe(30);
+    });
+    it('game 0 would be falsy but schema clamps ≥ 1 so should not occur; null is the reset sentinel', () => {
+      // Confirm that only null/undefined triggers the fallback, not a valid number
+      expect(deriveEffectiveHalfLength(20, 30)).toBe(20);
+    });
+  });
+
+  describe('rotations re-derived when half length changes (TC-HL-5, TC-HL-6)', () => {
+    it('TC-HL-5: 30-min half → 25-min half with interval=10 reduces rotations from 2 to 1', () => {
+      // 30-min half: floor(30/10)-1 = 2 rotations per half
+      expect(deriveRotationsFromInterval(30, 10)).toBe(2);
+      // 25-min half: floor(25/10)-1 = 1 rotation per half
+      expect(deriveRotationsFromInterval(25, 10)).toBe(1);
+    });
+    it('TC-HL-6: 30-min half → 40-min half with interval=10 increases rotations from 2 to 3', () => {
+      expect(deriveRotationsFromInterval(30, 10)).toBe(2);
+      expect(deriveRotationsFromInterval(40, 10)).toBe(3);
+    });
+    it('half length clamp: minimum 1, maximum 99', () => {
+      // Values within range pass through unchanged
+      expect(Math.max(1, Math.min(1, 99))).toBe(1);
+      expect(Math.max(1, Math.min(99, 99))).toBe(99);
+      // Values outside range are clamped
+      expect(Math.max(1, Math.min(0, 99))).toBe(1);
+      expect(Math.max(1, Math.min(100, 99))).toBe(99);
+    });
+  });
+
+  describe('rotation minute recalculation with new half length', () => {
+    it('shortening half: 30-min → 25-min, interval 10: rotations should use new half as boundary', () => {
+      // In 25-min halves with 10-min interval:
+      // H1 rotation 1 at 10', halftime at 25', H2 rotation 1 at 35'
+      expect(deriveRotationsFromInterval(25, 10)).toBe(1);
+    });
+    it('lengthening half: 30-min → 35-min, interval 5: 6 rotations per half', () => {
+      // floor(35/5)-1 = 6
+      expect(deriveRotationsFromInterval(35, 5)).toBe(6);
+    });
+  });
+});

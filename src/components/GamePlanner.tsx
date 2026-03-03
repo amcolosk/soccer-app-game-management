@@ -113,7 +113,13 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   // when rounding means the derived interval doesn't change (e.g. 30-min half,
   // interval=8 → display=2; pressing + must show 3 even though round(30/4)=8).
   const [rotationsPerHalfInput, setRotationsPerHalfInput] = useState(() =>
-    Math.max(0, Math.floor((team.halfLengthMinutes || 30) / 10) - 1)
+    Math.max(0, Math.floor((game.halfLengthMinutes ?? team.halfLengthMinutes ?? 30) / 10) - 1)
+  );
+  // Per-game half length override. Initialised from game record (null → falls
+  // back to team default). Saved to Game table immediately on change.
+  const teamDefaultHalfLength = team.halfLengthMinutes || 30;
+  const [halfLengthMinutes, setHalfLengthMinutes] = useState(
+    game.halfLengthMinutes ?? teamDefaultHalfLength
   );
   const [selectedRotation, setSelectedRotation] = useState<number | 'starting' | 'halftime' | null>(null);
   const [showCopyModal, setShowCopyModal] = useState(false);
@@ -133,7 +139,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const tabInitialized = useRef(false);
   const prevGamePlanId = useRef<string | null>(null);
 
-  const halfLengthMinutes = team.halfLengthMinutes || 30;
   const maxPlayersOnField = team.maxPlayersOnField || 11;
 
   // Merge base player data with availability when either changes
@@ -443,6 +448,28 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         pendingLineupSaves.current--;
         flushBufferedLineup();
       }
+    }
+  };
+
+  // Per-game half length handler — saves to the Game record immediately
+  const handleHalfLengthChange = async (newHalf: number) => {
+    const clamped = Math.max(1, Math.min(newHalf, 99));
+    setHalfLengthMinutes(clamped);
+    setRotationsPerHalfInput(Math.max(0, Math.floor(clamped / rotationIntervalMinutes) - 1));
+    try {
+      await client.models.Game.update({ id: game.id, halfLengthMinutes: clamped });
+    } catch (error) {
+      handleApiError(error, 'Failed to save half length');
+    }
+  };
+
+  const handleResetHalfLength = async () => {
+    setHalfLengthMinutes(teamDefaultHalfLength);
+    setRotationsPerHalfInput(Math.max(0, Math.floor(teamDefaultHalfLength / rotationIntervalMinutes) - 1));
+    try {
+      await client.models.Game.update({ id: game.id, halfLengthMinutes: null });
+    } catch (error) {
+      handleApiError(error, 'Failed to reset half length');
     }
   };
 
@@ -1486,6 +1513,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
               players={players}
               gameId={game.id}
               coaches={team.coaches || []}
+              halfLengthMinutes={halfLengthMinutes}
             />
           </div>
         )}
@@ -1550,6 +1578,40 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           <div className="planner-tab-panel">
             {/* Rotation interval + create/update plan — always at the top */}
             <div className="planner-setup-card">
+              {/* Half length override */}
+              <div className="rotation-stepper-row">
+                <div className="rotation-stepper">
+                  <div className="planner-setup-label">Half length (min)</div>
+                  <div className="rotation-stepper-controls">
+                    <button
+                      className="rotation-stepper-btn"
+                      aria-label="Decrease half length"
+                      onClick={() => handleHalfLengthChange(halfLengthMinutes - 1)}
+                    >−</button>
+                    <input
+                      type="number"
+                      className="rotation-stepper-input"
+                      aria-label="Half length in minutes"
+                      inputMode="numeric"
+                      min={1}
+                      max={99}
+                      value={halfLengthMinutes}
+                      onChange={(e) => handleHalfLengthChange(parseInt(e.target.value, 10) || 1)}
+                    />
+                    <button
+                      className="rotation-stepper-btn"
+                      aria-label="Increase half length"
+                      onClick={() => handleHalfLengthChange(halfLengthMinutes + 1)}
+                    >+</button>
+                  </div>
+                  {halfLengthMinutes !== teamDefaultHalfLength && (
+                    <button className="half-length-reset-btn" onClick={handleResetHalfLength}>
+                      Reset to team default ({teamDefaultHalfLength} min)
+                    </button>
+                  )}
+                </div>
+              </div>
+              {/* Rotations / interval pair */}
               <div className="rotation-stepper-row">
                 <div className="rotation-stepper">
                   <div className="planner-setup-label">Rotations / half</div>

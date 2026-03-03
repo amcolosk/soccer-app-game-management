@@ -4986,6 +4986,20 @@
   outline: none;
   border-color: var(--primary-green);
 }
+.half-length-reset-btn {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.half-length-reset-btn:hover {
+  color: var(--primary-green);
+}
 .planner-create-btn {
   width: 100%;
   padding: 0.875rem;

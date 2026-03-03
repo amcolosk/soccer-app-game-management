@@ -79,7 +79,9 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     setIsRunning,
   });
 
-  const halfLengthSeconds = (team.halfLengthMinutes || 30) * 60;
+  // Use per-game half length override when set; fall back to team default.
+  // gameState is live-updated via observeQuery so this recomputes reactively.
+  const halfLengthSeconds = (gameState.halfLengthMinutes ?? team.halfLengthMinutes ?? 30) * 60;
 
   const { setHelpContext } = useHelpFab();
 
@@ -227,7 +229,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         return;
       }
 
-      const halfLengthMinutes = team.halfLengthMinutes || 30;
+      const halfLengthMinutes = gameState.halfLengthMinutes ?? team.halfLengthMinutes ?? 30;
       const rotationIntervalMinutes = gamePlan.rotationIntervalMinutes || 10;
       const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
 

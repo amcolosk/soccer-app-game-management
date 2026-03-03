@@ -123,12 +123,14 @@ Replace the current `.interval-pill-group` block in the **planner setup card** w
 
 | File | Change |
 |------|--------|
-| `src/components/GamePlanner.tsx` | Replace pill buttons with two steppers; add `handleRotationsChange` + `handleIntervalChange` |
-| `src/App.css` | Remove `.interval-pill*` rules; add `.rotation-stepper-row`, `.rotation-stepper` |
-| `src/components/GamePlanner.test.ts` | Coupling round-trip tests; edge-case clamp tests |
+| `amplify/data/resource.ts` | Add `halfLengthMinutes: a.integer()` to `Game` model (nullable; null = use team default) |
+| `src/components/GamePlanner.tsx` | Replace `halfLengthMinutes` const with state; add `handleHalfLengthChange` + `handleResetHalfLength`; add half-length stepper row; pass effective half length to `PlayerAvailabilityGrid` |
+| `src/components/GameManagement/GameManagement.tsx` | Use `gameState.halfLengthMinutes ?? team.halfLengthMinutes ?? 30` for `halfLengthSeconds` and `halfLengthMinutes` locals (reactive via `observeQuery`) |
+| `src/App.css` | Remove `.interval-pill*` rules; add `.rotation-stepper-row`, `.rotation-stepper`, `.rotation-stepper-btn`, `.rotation-stepper-input`, `.half-length-reset-btn` |
+| `src/components/GamePlanner.test.ts` | Coupling round-trip tests; edge-case clamp tests; per-game half length fallback and re-derivation tests |
 | `e2e/game-planner.spec.ts` | **Update required** — `createRotationPlan()` at line ~345 references `.interval-selector select` (already stale vs current pill UI); update selector to target the new interval stepper input (e.g. `[aria-label="Rotation interval in minutes"]`) |
 
-**No schema changes. No new state variables** — `rotationIntervalMinutes` remains the single source of truth.
+**No new `GamePlan` schema fields.** `rotationIntervalMinutes` remains the single source of truth for the plan.
 
 > **Note (arch):** There is no existing `+` / `−` stepper pattern in the codebase. Management.tsx uses plain browser-native `<input type="number">` spinners. The stepper `+`/`−` buttons described in §4 are new UI; no component to copy from. Implementer should build inline in `GamePlanner.tsx` (no need for a shared component given single use site).
 
