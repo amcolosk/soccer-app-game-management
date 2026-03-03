@@ -430,11 +430,38 @@ Pre-game rotation planning. Coach marks availability then generates or manually 
 #### Sections
 
 1. **Player Availability** — same grid as scheduled state; changes here sync back to game
-2. **Rotation Settings** — rotation interval (minutes), half length
+2. **Rotation Settings** — two coupled numeric steppers in the setup card (see §7.7.1 below)
 3. **Lineup Builder** — drag-and-drop player-to-position assignment for starting lineup
 4. **Planned Rotations** — timeline of rotations with players in/out per interval
 5. **Auto-Generate button** — runs fair rotation algorithm
 6. **Save Plan button** — persists `GamePlan` + `PlannedRotation` records
+
+#### 7.7.1 Rotation Settings Control
+
+Two numeric steppers, always both visible, always live-coupled:
+
+| Stepper | Label | Behaviour |
+|---------|-------|-----------|
+| A | **Rotations / half** | Editing derives interval: `round(halfLength ÷ (rotations + 1))` |
+| B | **Every (min)** | Editing derives rotations: `floor(halfLength ÷ interval) - 1` |
+
+- Steppers sit side-by-side with equal column width inside the setup card
+- Label above each stepper; secondary text weight, 12 px
+- `+` / `−` tap targets ≥ 44 × 44 px
+- Direct keyboard entry via `<input type="number" inputmode="numeric">`
+- Derived value in each stepper updates **instantly** on every change — no debounce
+- Single source of truth persisted: `GamePlan.rotationIntervalMinutes` (no new schema field)
+- Full coupling rules and clamp logic: `docs/specs/Game-Planner-Rotation-Input.md`
+
+**Design tokens:**
+
+| Element | Token |
+|---------|-------|
+| Stepper border | `--border-color` |
+| Stepper value | `--text-primary` |
+| `+` / `−` background | `--hover-background` |
+| `+` / `−` active | `--primary-green`, white icon |
+| Label | `--text-secondary` |
 
 #### Empty States
 | Condition | Message |

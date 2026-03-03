@@ -438,6 +438,20 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }
   };
 
+  // Coupled rotation input handlers
+  // Single source of truth is rotationIntervalMinutes; rotationsPerHalf is always derived.
+  const handleRotationsChange = (rotations: number) => {
+    const maxRotations = Math.floor(halfLengthMinutes / 2);
+    const clamped = Math.max(0, Math.min(rotations, maxRotations));
+    const interval = Math.round(halfLengthMinutes / (clamped + 1));
+    setRotationIntervalMinutes(Math.max(1, interval));
+  };
+
+  const handleIntervalChange = (interval: number) => {
+    const clamped = Math.max(1, Math.min(interval, halfLengthMinutes));
+    setRotationIntervalMinutes(clamped);
+  };
+
   const handleUpdatePlan = async () => {
     // Validate starting lineup
     if (startingLineup.size > maxPlayersOnField) {
@@ -1526,17 +1540,57 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           <div className="planner-tab-panel">
             {/* Rotation interval + create/update plan — always at the top */}
             <div className="planner-setup-card">
-              <div className="planner-setup-label">Rotation every</div>
-              <div className="interval-pill-group">
-                {[5, 10, 15].map(min => (
-                  <button
-                    key={min}
-                    className={`interval-pill ${rotationIntervalMinutes === min ? 'interval-pill--active' : ''}`}
-                    onClick={() => setRotationIntervalMinutes(min)}
-                  >
-                    {min} min
-                  </button>
-                ))}
+              <div className="rotation-stepper-row">
+                <div className="rotation-stepper">
+                  <div className="planner-setup-label">Rotations / half</div>
+                  <div className="rotation-stepper-controls">
+                    <button
+                      className="rotation-stepper-btn"
+                      aria-label="Decrease rotations per half"
+                      onClick={() => handleRotationsChange(Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1 - 1))}
+                    >−</button>
+                    <input
+                      type="number"
+                      className="rotation-stepper-input"
+                      aria-label="Rotations per half"
+                      inputMode="numeric"
+                      min={0}
+                      max={Math.floor(halfLengthMinutes / 2)}
+                      value={Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1)}
+                      onChange={(e) => handleRotationsChange(parseInt(e.target.value, 10) || 0)}
+                    />
+                    <button
+                      className="rotation-stepper-btn"
+                      aria-label="Increase rotations per half"
+                      onClick={() => handleRotationsChange(Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1 + 1))}
+                    >+</button>
+                  </div>
+                </div>
+                <div className="rotation-stepper">
+                  <div className="planner-setup-label">Every (min)</div>
+                  <div className="rotation-stepper-controls">
+                    <button
+                      className="rotation-stepper-btn"
+                      aria-label="Decrease interval minutes"
+                      onClick={() => handleIntervalChange(rotationIntervalMinutes - 1)}
+                    >−</button>
+                    <input
+                      type="number"
+                      className="rotation-stepper-input"
+                      aria-label="Rotation interval in minutes"
+                      inputMode="numeric"
+                      min={1}
+                      max={halfLengthMinutes}
+                      value={rotationIntervalMinutes}
+                      onChange={(e) => handleIntervalChange(parseInt(e.target.value, 10) || 1)}
+                    />
+                    <button
+                      className="rotation-stepper-btn"
+                      aria-label="Increase interval minutes"
+                      onClick={() => handleIntervalChange(rotationIntervalMinutes + 1)}
+                    >+</button>
+                  </div>
+                </div>
               </div>
               <button
                 onClick={handleUpdatePlan}

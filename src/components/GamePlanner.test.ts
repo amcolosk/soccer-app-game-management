@@ -1406,3 +1406,85 @@ describe("copyGamePlan null halftimeLineup propagation", () => {
     expect(lu.size).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Coupled rotation input logic (mirrors handleRotationsChange / handleIntervalChange)
+// ---------------------------------------------------------------------------
+
+function deriveIntervalFromRotations(halfLengthMinutes: number, rotationsPerHalf: number): number {
+  const clamped = Math.max(0, Math.min(rotationsPerHalf, Math.floor(halfLengthMinutes / 2)));
+  return Math.max(1, Math.round(halfLengthMinutes / (clamped + 1)));
+}
+
+function deriveRotationsFromInterval(halfLengthMinutes: number, intervalMinutes: number): number {
+  const clamped = Math.max(1, Math.min(intervalMinutes, halfLengthMinutes));
+  return Math.max(0, Math.floor(halfLengthMinutes / clamped) - 1);
+}
+
+describe('coupled rotation stepper inputs', () => {
+  describe('rotations → interval (TC-RS-1, TC-RS-6)', () => {
+    it('TC-RS-1: 30-min half, 2 rotations → interval 10', () => {
+      expect(deriveIntervalFromRotations(30, 2)).toBe(10);
+    });
+    it('30-min half, 5 rotations → interval 5', () => {
+      expect(deriveIntervalFromRotations(30, 5)).toBe(5);
+    });
+    it('30-min half, 1 rotation → interval 15', () => {
+      expect(deriveIntervalFromRotations(30, 1)).toBe(15);
+    });
+    it('TC-RS-6: 25-min half, 3 rotations → interval 6 (round(25/4))', () => {
+      expect(deriveIntervalFromRotations(25, 3)).toBe(6);
+    });
+    it('40-min half, 3 rotations → interval 10', () => {
+      expect(deriveIntervalFromRotations(40, 3)).toBe(10);
+    });
+  });
+
+  describe('interval → rotations (TC-RS-2, TC-RS-3)', () => {
+    it('TC-RS-2: 30-min half, interval 10 → 2 rotations', () => {
+      expect(deriveRotationsFromInterval(30, 10)).toBe(2);
+    });
+    it('TC-RS-3: 30-min half, interval 7 → 3 rotations (floor)', () => {
+      expect(deriveRotationsFromInterval(30, 7)).toBe(3);
+    });
+    it('TC-RS-7: 30-min half, interval 5 → 5 rotations', () => {
+      expect(deriveRotationsFromInterval(30, 5)).toBe(5);
+    });
+    it('TC-RS-8: 30-min half, interval 15 → 1 rotation', () => {
+      expect(deriveRotationsFromInterval(30, 15)).toBe(1);
+    });
+  });
+
+  describe('clamp edge cases (TC-RS-4, TC-RS-5)', () => {
+    it('TC-RS-4: 0 rotations clamps to 0; interval = halfLength', () => {
+      expect(deriveIntervalFromRotations(30, 0)).toBe(30);
+      expect(deriveRotationsFromInterval(30, 30)).toBe(0);
+    });
+    it('TC-RS-5: interval > halfLength clamps; rotations = 0', () => {
+      expect(deriveRotationsFromInterval(30, 31)).toBe(0);
+    });
+    it('interval 1 (minimum) produces maximum rotations', () => {
+      expect(deriveRotationsFromInterval(30, 1)).toBe(29);
+    });
+  });
+
+  describe('round-trip stability (TC-RS-9)', () => {
+    it('30-min half: typing 2 rotations then typing derived interval back gives 2 rotations', () => {
+      const interval = deriveIntervalFromRotations(30, 2); // 10
+      expect(deriveRotationsFromInterval(30, interval)).toBe(2);
+    });
+    it('30-min half: typing 5 rotations round-trips cleanly', () => {
+      const interval = deriveIntervalFromRotations(30, 5); // 5
+      expect(deriveRotationsFromInterval(30, interval)).toBe(5);
+    });
+    it('30-min half: typing 3 rotations → interval 8 → back to 2 rotations (non-divisible drift, acceptable)', () => {
+      const interval = deriveIntervalFromRotations(30, 3); // round(30/4) = 8
+      // floor(30/8)-1 = 2 — one-step drift is acceptable per spec §3.4
+      expect(deriveRotationsFromInterval(30, interval)).toBe(2);
+    });
+    it('25-min half: typing 3 rotations → interval 6 → back to 3 rotations', () => {
+      const interval = deriveIntervalFromRotations(25, 3); // round(25/4) = 6
+      expect(deriveRotationsFromInterval(25, interval)).toBe(3);
+    });
+  });
+});

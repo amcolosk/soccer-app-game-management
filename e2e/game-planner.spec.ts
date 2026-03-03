@@ -340,11 +340,12 @@ async function checkPlayerAvailability(page: Page) {
 async function createRotationPlan(page: Page) {
   console.log('Creating rotation plan...');
   
-  // Select rotation interval (default is 10, but we set it explicitly)
-  // Logic matches src/components/GamePlanner.tsx structure
-  const intervalSelect = page.locator('.interval-selector select');
-  await expect(intervalSelect).toBeVisible();
-  await intervalSelect.selectOption('10');
+  // Set rotation interval to 10 via the interval stepper input
+  // (Replaced pill buttons with coupled stepper inputs — see docs/specs/Game-Planner-Rotation-Input.md)
+  const intervalInput = page.locator('[aria-label="Rotation interval in minutes"]');
+  await expect(intervalInput).toBeVisible();
+  await intervalInput.fill('10');
+  await intervalInput.dispatchEvent('change');
   await page.waitForTimeout(UI_TIMING.STANDARD);
   
   // Click "Update Plan" (or "Create Plan") button

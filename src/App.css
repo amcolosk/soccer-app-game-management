@@ -4924,25 +4924,67 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.interval-pill-group {
+.rotation-stepper-row {
   display: flex;
-  gap: 0.5rem;
+  gap: 1rem;
 }
-.interval-pill {
+.rotation-stepper {
   flex: 1;
-  padding: 0.625rem;
-  border: 2px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.rotation-stepper-controls {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
-  background: white;
-  font-size: 0.9rem;
+  overflow: hidden;
+  background: var(--card-background);
+}
+.rotation-stepper-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  background: var(--hover-background);
+  color: var(--text-primary);
+  font-size: 1.2rem;
   font-weight: 600;
   cursor: pointer;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
 }
-.interval-pill--active {
-  border-color: var(--primary-green);
+.rotation-stepper-btn:hover,
+.rotation-stepper-btn:active {
   background: var(--primary-green);
   color: white;
+}
+.rotation-stepper-input {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  border: none;
+  border-left: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
+  padding: 0.5rem 0.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: transparent;
+  -moz-appearance: textfield;
+}
+.rotation-stepper-input::-webkit-inner-spin-button,
+.rotation-stepper-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.rotation-stepper-input:focus {
+  outline: none;
+  border-color: var(--primary-green);
 }
 .planner-create-btn {
   width: 100%;
