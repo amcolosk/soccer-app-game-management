@@ -159,4 +159,32 @@ describe('buildDebugSnapshot', () => {
     expect(result).toContain('R2 (min 30, H2): out #3→in #4 @GK');
     expect(result.indexOf('R1')).toBeLessThan(result.indexOf('R2'));
   });
+
+  it('renders multiple substitutions within a single rotation joined by comma', () => {
+    const ctx: GamePlannerDebugContext = {
+      ...baseCtx,
+      rotations: [
+        {
+          rotationNumber: 1,
+          gameMinute: 10,
+          half: 1,
+          substitutions: [
+            { playerOutNumber: 3, playerInNumber: 7, positionName: 'CB' },
+            { playerOutNumber: 5, playerInNumber: 9, positionName: 'LW' },
+          ],
+        },
+      ],
+    };
+    const result = buildDebugSnapshot(ctx);
+    expect(result).toContain('R1 (min 10, H1): out #3→in #7 @CB, out #5→in #9 @LW');
+  });
+
+  it('renders preferred positions alongside an availability window', () => {
+    const ctx: GamePlannerDebugContext = {
+      ...baseCtx,
+      players: [{ number: 5, status: 'late-arrival', availableFromMinute: 10, availableUntilMinute: null, preferredPositionNames: ['GK'] }],
+    };
+    const result = buildDebugSnapshot(ctx);
+    expect(result).toContain('#5 — late-arrival (availFrom=10) [pref: GK]');
+  });
 });
