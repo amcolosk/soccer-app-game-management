@@ -506,9 +506,16 @@ export function calculatePlayTime(
       return;
     }
 
-    // Apply substitutions
+    // Apply substitutions.
+    // A player who appears as playerOutId in one sub AND as playerInId in another
+    // sub within the same rotation is undergoing a position change — they remain
+    // on the field.  Only perform a genuine removal when the outgoing player is
+    // NOT re-entering the field in this same rotation.
+    const incomingPlayerIds = new Set(subs.map(s => s.playerInId));
     subs.forEach(sub => {
-      currentField.delete(sub.playerOutId);
+      if (!incomingPlayerIds.has(sub.playerOutId)) {
+        currentField.delete(sub.playerOutId);
+      }
       currentField.add(sub.playerInId);
       
       allPlayerIds.add(sub.playerInId);

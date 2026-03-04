@@ -995,6 +995,189 @@ describe('rotationPlannerService', () => {
       expect(playTimeMap.get('p6')?.totalMinutes).toBe(10); // 10-20
       expect(playTimeMap.get('p7')?.totalMinutes).toBe(10); // 20-30
     });
+
+    it('should correctly count time for a player who changes positions within the same rotation', () => {
+      // Regression test: when a player appears as BOTH playerOutId (leaving one position)
+      // and playerInId (entering a different position) in the same rotation, they are
+      // performing a position change and must remain on the field for the full segment.
+      //
+      // Scenario (mirrors the #25 bug from a real 9v9 game):
+      //   Starting lineup: p1@pos1(GK), p2@pos2(RW), p3@pos3(LW), p4@pos4(CB), p5@pos5(Str)  [5 on field, 4 on bench]
+      //   Bench: p6, p7, p8, p9
+      //
+      //   R1 (10 min): p2 comes OFF @pos2, p6 comes ON @pos2
+      //                → p2 off, p6 on, others unchanged
+      //
+      //   R2 (20 min): p6 comes OFF @pos2 (pos2→bench),
+      //                p2 comes ON @pos3 (position change for incoming, genuine out for p3)
+      //                p3 comes OFF @pos3
+      //                → p3 and p6 go to bench; p2 joins field at pos3
+      //
+      //   R3 (30 min): p4 comes OFF @pos4, p7 comes ON @pos4
+      //                p5 comes OFF @pos5, p2 comes ON @pos5   ← p2: pos3→pos5 (position change)
+      //                p2 comes OFF @pos3, p9 comes ON @pos3
+      //                → p7, p9 added; p4, p5 removed; p2 moves pos3→pos5 (stays on field)
+      //
+      //   R4 (40 min): p2 comes OFF @pos5
+      //                → p2 leaves field
+      //
+      //   Expected play time (game: 60 min):
+      //     p2: 0-10 (on) + 20-40 (on, incl. position change at R3) = 30 min
+      //     p1: 0-60 (never subbed) = 60 min
+      //     p3: 0-20 = 20 min
+      //     p4: 0-30 = 30 min
+      //     p5: 0-30 (subbed out R3) + 40-60 (back in R4) = 50 min
+      //     p6: 10-20 = 10 min
+      //     p7: 30-60 = 30 min
+      //     p8: 20-60 = 40 min  (enters at R2, never leaves)
+      //     p9: 30-60 = 30 min  (enters at R3, never leaves)
+      const rotations = [
+        {
+          id: 'rot1',
+          rotationNumber: 1,
+          gameMinute: 10,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p2', playerInId: 'p6', positionId: 'pos2' },
+          ]),
+        },
+        {
+          id: 'rot2',
+          rotationNumber: 2,
+          gameMinute: 20,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p6', playerInId: 'p2', positionId: 'pos3' }, // p2 back in at pos3
+            { playerOutId: 'p3', playerInId: 'p8', positionId: 'pos3' }, // Genuine: p3 out
+          ]),
+        },
+        {
+          id: 'rot3',
+          rotationNumber: 3,
+          gameMinute: 30,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p4', playerInId: 'p7', positionId: 'pos4' }, // Genuine: p4 out
+            { playerOutId: 'p2', playerInId: 'p9', positionId: 'pos3' }, // p2: pos3→pos5 (position change)
+            { playerOutId: 'p5', playerInId: 'p2', positionId: 'pos5' }, // p2 re-enters at pos5
+          ]),
+        },
+        {
+          id: 'rot4',
+          rotationNumber: 4,
+          gameMinute: 40,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p2', playerInId: 'p5', positionId: 'pos5' }, // Genuine: p2 out
+          ]),
+        },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+        { playerId: 'p4', positionId: 'pos4' },
+        { playerId: 'p5', positionId: 'pos5' },
+      ];
+
+      const playTimeMap = calculatePlayTime(rotations as any, startingLineup, 10, 60);
+
+      // p2: starts (0-10) + returns at R2 through R4 position-change (20-40) = 30 min
+      expect(playTimeMap.get('p2')?.totalMinutes).toBe(30);
+      // p1: never subbed = 60 min
+      expect(playTimeMap.get('p1')?.totalMinutes).toBe(60);
+      // p3: 0-20 (subbed out at R2) = 20 min
+      expect(playTimeMap.get('p3')?.totalMinutes).toBe(20);
+      // p4: 0-30 (subbed out at R3) = 30 min
+      expect(playTimeMap.get('p4')?.totalMinutes).toBe(30);
+      // p5: 0-30 (subbed out at R3) = 30 min, then back in at R4 = 30+20 = 50 min
+      expect(playTimeMap.get('p5')?.totalMinutes).toBe(50);
+      // p6: 10-20 = 10 min
+      expect(playTimeMap.get('p6')?.totalMinutes).toBe(10);
+      // p7: 30-60 = 30 min
+      expect(playTimeMap.get('p7')?.totalMinutes).toBe(30);
+      // p8: enters at R2 (20 min), never leaves = 40 min
+      expect(playTimeMap.get('p8')?.totalMinutes).toBe(40);
+      // p9: enters at R3 (30 min), never leaves = 30 min
+      expect(playTimeMap.get('p9')?.totalMinutes).toBe(30);
+    });
+
+    it('should correctly count time for player with position change — exact #25 snapshot reproduction', () => {
+      // Reproduces the reported bug: 15-player 9v9 game, 30-min halves, 10-min rotation interval.
+      // Player #25 (id 'p25') makes a position change at R3 (min 30 / halftime) and should
+      // accumulate 30 minutes, not 20.
+      //
+      //  Starting lineup (9 players):  p1 p2 p3 p4 p6 p25 p28 p29 p34
+      //  R1 (10): out p25@RW in p9, out p29@LW in p6_lw, out p28@CB in p7
+      //           — p25 goes to bench; p6 comes on as LW variant (simplify: use unique IDs)
+      //  R2 (20): out p9@RW in p25, out p4@LD in p19, out p33@RD in p14, ...
+      //           — p25 returns
+      //  R3 (30): out p14@RD in p25, out p25@RW in p9   ← POSITION CHANGE for p25 (RW→RD)
+      //           — p25 stays on field
+      //  R4 (40): out p25@RD in p33   ← genuine sub-off
+      //           — p25 leaves
+      //
+      //  p25 true play time:  0-10 + 20-40 = 30 min
+      const rotations = [
+        {
+          id: 'rot1',
+          rotationNumber: 1,
+          gameMinute: 10,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p25', playerInId: 'p9',  positionId: 'posRW' },
+            { playerOutId: 'p29', playerInId: 'p6',  positionId: 'posLW' },
+            { playerOutId: 'p28', playerInId: 'p7',  positionId: 'posCB' },
+          ]),
+        },
+        {
+          id: 'rot2',
+          rotationNumber: 2,
+          gameMinute: 20,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p9',  playerInId: 'p25', positionId: 'posRW' },
+            { playerOutId: 'p4',  playerInId: 'p19', positionId: 'posLD' },
+            { playerOutId: 'p33', playerInId: 'p14', positionId: 'posRD' },
+          ]),
+        },
+        {
+          id: 'rot3',
+          rotationNumber: 3,
+          gameMinute: 30,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p14', playerInId: 'p25', positionId: 'posRD' }, // p25: position change RW→RD
+            { playerOutId: 'p25', playerInId: 'p9',  positionId: 'posRW' }, // p9 takes RW
+          ]),
+        },
+        {
+          id: 'rot4',
+          rotationNumber: 4,
+          gameMinute: 40,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p25', playerInId: 'p33', positionId: 'posRD' }, // genuine sub-off
+          ]),
+        },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1',  positionId: 'posGK' },
+        { playerId: 'p2',  positionId: 'posOM' },
+        { playerId: 'p3',  positionId: 'posDM' },
+        { playerId: 'p4',  positionId: 'posLD' },
+        { playerId: 'p25', positionId: 'posRW' },
+        { playerId: 'p28', positionId: 'posCB' },
+        { playerId: 'p29', positionId: 'posLW' },
+        { playerId: 'p33', positionId: 'posRD' },
+        { playerId: 'p34', positionId: 'posStr' },
+      ];
+
+      const playTimeMap = calculatePlayTime(rotations as any, startingLineup, 10, 60);
+
+      // p25: 0–10 (start) + 20–40 (returned R2, position-changed at R3, subbed off R4) = 30 min
+      expect(playTimeMap.get('p25')?.totalMinutes).toBe(30);
+      // p9: on 10–20 (R1 in, R2 out) + 30–60 (R3 in, never out) = 10 + 30 = 40 min
+      expect(playTimeMap.get('p9')?.totalMinutes).toBe(40);
+      // p14: on 20–30 (R2 in, R3 position-changed out) = 10 min
+      expect(playTimeMap.get('p14')?.totalMinutes).toBe(10);
+      // p33: on 0–20 (starting, R2 subbed off) + 40–60 (R4 in) = 20 + 20 = 40 min
+      expect(playTimeMap.get('p33')?.totalMinutes).toBe(40);
+    });
   });
 
   describe('validateRotationPlan', () => {
