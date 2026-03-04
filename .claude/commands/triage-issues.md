@@ -1,3 +1,8 @@
+---
+mode: agent
+tools: ['runInTerminal']
+---
+
 # Triage Issues
 
 Automatically triage OPEN issues: claim each one, investigate, attempt a fix, run tests, commit, and mark FIXED — or skip if the root cause cannot be safely resolved.

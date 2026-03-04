@@ -1,3 +1,8 @@
+---
+mode: agent
+tools: ['runInTerminal']
+---
+
 # List Open Issues
 
 Fetch and display all OPEN and IN_PROGRESS issues from the TeamTrack issue tracker, sorted by severity and issue number.

@@ -1,7 +1,6 @@
 ---
 mode: agent
-tools:
-  - run_in_terminal
+tools: ['runInTerminal']
 description: Fetch and display all OPEN and IN_PROGRESS issues from the TeamTrack issue tracker, sorted by severity and issue number.
 ---
 

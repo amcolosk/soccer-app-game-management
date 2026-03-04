@@ -1,7 +1,6 @@
 ---
 mode: agent
-tools:
-  - run_in_terminal
+tools: ['runInTerminal']
 description: Mark a specific issue as FIXED using the current git commit SHA.
 ---
 
