@@ -9,6 +9,8 @@ These are rules the system must never break when generating a rotation schedule.
 * **Rule 1.4 - Goalie Halftime Lock:** Substitutions for the Goalie position are strictly restricted to the halftime interval. Goalies cannot be subbed in or out during the run of play in either half.
 * **Rule 1.5 - Goalie Preference Lock:** A player cannot be scheduled in the Goalie position unless "Goalie" is explicitly listed in their profile as a preferred position. No exceptions.
 
+> **Goalkeeper position detection:** A formation position is recognized as the Goalkeeper slot if its abbreviation (case-insensitive) is one of: `GK`, `G`, `GOL`, or `GOAL`. If no position matches, the goalie lock rules (1.4, 1.5) are silently bypassed — always verify your formation uses one of these abbreviations.
+
 ---
 
 ## 2. Soft Constraints & Logic Exceptions (Preferences & Balancing)
