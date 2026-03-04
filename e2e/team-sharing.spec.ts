@@ -206,8 +206,8 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       await page.goto(`/invite/${invitationId}`);
       await page.waitForTimeout(UI_TIMING.STANDARD);
       
-      // Handle Landing Page if present
-      const loginButton = page.getByRole('button', { name: 'Log In' });
+      // Handle Landing Page if present — scope to header to avoid ambiguity with hero CTA
+      const loginButton = page.getByRole('banner').getByRole('button', { name: 'Log In' });
       if (await loginButton.isVisible({ timeout: 2000 }).catch(() => false)) {
         console.log('On Landing Page, clicking Log In...');
         await loginButton.click();
@@ -229,6 +229,10 @@ test.describe.serial('Team Sharing and Collaboration', () => {
           // Skip button may not appear
         }
         
+        await waitForPageLoad(page);
+
+        // Amplify auth redirects to '/' after sign-in; navigate back to the invite URL
+        await page.goto(`/invite/${invitationId}`);
         await waitForPageLoad(page);
       }
       
