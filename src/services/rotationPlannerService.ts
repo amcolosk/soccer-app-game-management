@@ -364,7 +364,21 @@ export function calculateFairRotations(
           const availTime = (p.availableUntilMinute ?? totalGameMinutes) - (p.availableFromMinute ?? 0);
           const threshold = availTime * 0.5;
           const played = playTimeMinutes.get(id) ?? 0;
-          if (played + minutesRemaining <= threshold) {
+
+          // Standard: player cannot reach 50% even with all remaining time.
+          const isAtRisk = played + minutesRemaining <= threshold;
+
+          // Proactive (one-rotation look-ahead): if this player is skipped this rotation
+          // AND the next rotation is also a regular rotation (not halftime, not last), they
+          // will arrive at the next rotation already unable to meet the threshold.
+          // Guard: halftime immediately follows (isLastFirstHalfRotation) → halftime
+          // guarantees all bench players come on, so proactive mustOn is not needed there.
+          const isProactive =
+            !isLastRotation &&
+            !isLastFirstHalfRotation &&
+            played + minutesRemaining - rotationIntervalMinutes <= threshold;
+
+          if (isAtRisk || isProactive) {
             mustOn.push(id);
           }
         }
@@ -398,7 +412,8 @@ export function calculateFairRotations(
         );
         const totalSubsNeeded = Math.min(
           Math.max(forcedOff.length, Math.max(mustOn.length, baseSubsNeeded)),
-          eligibleBench.length
+          eligibleBench.length,
+          nonGkField.length, // defensive: never request more off-subs than available field players
         );
 
         if (totalSubsNeeded > 0) {
@@ -427,6 +442,7 @@ export function calculateFairRotations(
               currentField.delete(playerOutId);
               currentField.add(assignment.playerId);
               positionMap.set(assignment.playerId, position);
+              positionMap.delete(playerOutId); // remove stale entry — mirrors halftime loop
             }
           }
         }

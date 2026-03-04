@@ -102,3 +102,48 @@ These are rules where the system needs to weigh options and make the "best" choi
 * **Setup:** Only 5 players are marked as "present." One of them has "GK" preferred.
 * **Expected Result:** * All 5 players are scheduled for 40 minutes (100% playtime).
     * (Rule 2.3) Shift length maximums and positional fatigue rules are ignored, as substitutions are impossible.
+---
+
+## Test Suite: 9v9 Rotation Algorithm (14–16 Player Roster)
+
+These test cases validate the 50% minimum playtime guarantee for 9v9 games with larger benches, where the previous `ceil(field/3)` formula was insufficient.
+
+**Common Setup:** 60-minute game · 30-minute halves · 10-minute rotation intervals · 5 total rotations (R1@10, R2@20, HT@30, R4@40, R5@50).
+
+**TC-9v9-01: Standard Bench (9v9, 14 players / 5 bench)**
+* **Objective:** Validate Rule 1.3 with a moderate bench for 9v9.
+* **Setup:** 9 starters + 5 flexible bench players. Formation includes 2 STRIKER positions (LW, ST) that trigger fatigue cycling after 1 rotation.
+* **Expected Result:**
+    * All 14 players receive ≥ 30 minutes (50% of 60).
+    * No player appears as both playerInId and playerOutId in the same rotation (Rule 1.2).
+
+**TC-9v9-02: Large Bench (9v9, 16 players / 7 bench) [Regression]**
+* **Objective:** Regression test for the reported bug where a player received only 20 minutes with 7 bench players.
+* **Root cause:** `baseSubsNeeded = ceil(9/3) = 3` produced only 12 regular-rotation sub slots for 7 bench players across 4 regular rotations. Players with 20 minutes at R4 were not flagged for proactive rotation.
+* **Fix applied:** Proactive one-rotation look-ahead in `mustOn` computation: if `played + remaining − interval ≤ threshold`, the player is brought on one rotation early (at R4 instead of R5), giving them 20 extra minutes instead of 10.
+* **Setup:** 9 starters + 7 flexible bench players. Same formation with STRIKER fatigue.
+* **Expected Result:**
+    * All 16 players receive ≥ 30 minutes (50% of 60).
+    * No field-to-field shuffles (Rule 1.2).
+    * No player exceeds 60 minutes.
+
+---
+
+## Test Suite: 11v11 Rotation Algorithm (13–16 Player Roster)
+
+**Common Setup:** 60-minute game · 30-minute halves · 10-minute rotation intervals · 5 total rotations.
+
+**TC-11v11-01: Standard Bench (11v11, 16 players / 5 bench)**
+* **Objective:** Validate Rule 1.3 for 11v11 with STRIKER fatigue and GK lock.
+* **Setup:** 11 starters + 5 flexible bench players. Formation includes LW and ST (STRIKER), plus a dedicated GK.
+* **Expected Result:**
+    * All 16 players receive ≥ 30 minutes.
+    * The GK position ('gk') never appears as `positionId` in non-halftime rotation substitutions (Rule 1.4).
+    * No field-to-field shuffles (Rule 1.2).
+
+**TC-11v11-02: Tight Bench (11v11, 13 players / 2 bench)**
+* **Objective:** Validate that small-bench 11v11 games still give both bench players field time.
+* **Setup:** 11 starters + 2 flexible bench players.
+* **Expected Result:**
+    * Both bench players (p12, p13) appear on field at some point.
+    * All 13 players receive ≥ 30 minutes (50% of 60).

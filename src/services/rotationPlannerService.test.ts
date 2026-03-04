@@ -1394,6 +1394,333 @@ describe('rotationPlannerService', () => {
     });
   });
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // 9v9 and 11v11 scenarios — Rule 1.3 (50% minimum playtime guarantee)
+  // ─────────────────────────────────────────────────────────────────────────
+  describe('9v9 and 11v11 scenarios — 50% playtime guarantee', () => {
+    /**
+     * Simulate actual play minutes from a calculateFairRotations output.
+     * Accumulates time for every player on field between rotation boundaries,
+     * then adds the final segment from the last rotation to game end.
+     * Works for any formation (9v9, 11v11, etc.).
+     */
+    function computePlayMinutes9v9(
+      startingLineup: Array<{ playerId: string; positionId: string }>,
+      rotations: Array<{ substitutions: PlannedSubstitution[] }>,
+      rotationMinutes: number[],
+      gameEndMinute: number,
+    ): Map<string, number> {
+      const field = new Map<string, string>();
+      startingLineup.forEach(({ playerId, positionId }) => field.set(playerId, positionId));
+      const playMin = new Map<string, number>();
+      let lastMin = 0;
+      for (let i = 0; i < rotations.length; i++) {
+        const min = rotationMinutes[i];
+        for (const pid of field.keys()) {
+          playMin.set(pid, (playMin.get(pid) ?? 0) + (min - lastMin));
+        }
+        lastMin = min;
+        for (const sub of rotations[i].substitutions) {
+          field.delete(sub.playerOutId);
+          field.set(sub.playerInId, sub.positionId);
+        }
+      }
+      // Final segment after the last rotation
+      for (const pid of field.keys()) {
+        playMin.set(pid, (playMin.get(pid) ?? 0) + (gameEndMinute - lastMin));
+      }
+      return playMin;
+    }
+
+    // Shared position definitions for 9v9 (1 GK + 4 DEF + 2 MID + 1 LW + 1 ST)
+    const positions9v9 = [
+      { id: 'gk',  abbreviation: 'GK'  },
+      { id: 'cb1', abbreviation: 'CB'  },
+      { id: 'cb2', abbreviation: 'CB'  },
+      { id: 'ld',  abbreviation: 'LB'  },
+      { id: 'rd',  abbreviation: 'RB'  },
+      { id: 'cm1', abbreviation: 'CM'  },
+      { id: 'cm2', abbreviation: 'CM'  },
+      { id: 'lw',  abbreviation: 'LW'  }, // STRIKER — max 1 continuous rotation
+      { id: 'st',  abbreviation: 'ST'  }, // STRIKER — max 1 continuous rotation
+    ];
+
+    // Shared position definitions for 11v11 (1 GK + 4 DEF + 3 MID + 2 FWD + 1 CAM)
+    const positions11v11 = [
+      { id: 'gk',  abbreviation: 'GK'  },
+      { id: 'lb',  abbreviation: 'LB'  },
+      { id: 'cb1', abbreviation: 'CB'  },
+      { id: 'cb2', abbreviation: 'CB'  },
+      { id: 'rb',  abbreviation: 'RB'  },
+      { id: 'lm',  abbreviation: 'LM'  },
+      { id: 'cm',  abbreviation: 'CM'  },
+      { id: 'rm',  abbreviation: 'RM'  },
+      { id: 'cam', abbreviation: 'CAM' },
+      { id: 'lw',  abbreviation: 'LW'  }, // STRIKER
+      { id: 'st',  abbreviation: 'ST'  }, // STRIKER
+    ];
+
+    // Common: 60-min game, 30-min halves, 10-min intervals
+    // rotationsPerHalf=2, totalRotations=5
+    // Rotation boundaries: 10, 20, 30(HT), 40, 50 — game ends at 60
+    const ROTATION_MINUTES_60 = [10, 20, 30, 40, 50];
+    const GAME_END_60 = 60;
+    const HALF_LENGTH_60 = 30;
+    const INTERVAL_10 = 10;
+    const MIN_PLAYTIME_50PCT = GAME_END_60 * 0.5; // 30 minutes
+
+    it('TC-9v9-01: 9v9, 14 players (5 bench) — all players meet 50% minimum', () => {
+      // 14 players: 9 starters + 5 bench.
+      // Includes 2 STRIKER positions (LW, ST) to exercise fatigue cycling.
+      const ALL_POS = 'gk, cb1, cb2, ld, rd, cm1, cm2, lw, st';
+
+      const players: SimpleRoster[] = [
+        { id: 'r1',  playerId: 'gk',  playerNumber: 1,  preferredPositions: 'gk'  },
+        { id: 'r2',  playerId: 'p2',  playerNumber: 2,  preferredPositions: 'cb1' },
+        { id: 'r3',  playerId: 'p3',  playerNumber: 3,  preferredPositions: 'cb2' },
+        { id: 'r4',  playerId: 'p4',  playerNumber: 4,  preferredPositions: 'ld'  },
+        { id: 'r5',  playerId: 'p5',  playerNumber: 5,  preferredPositions: 'rd'  },
+        { id: 'r6',  playerId: 'p6',  playerNumber: 6,  preferredPositions: 'cm1' },
+        { id: 'r7',  playerId: 'p7',  playerNumber: 7,  preferredPositions: 'cm2' },
+        { id: 'r8',  playerId: 'p8',  playerNumber: 8,  preferredPositions: 'lw'  },
+        { id: 'r9',  playerId: 'p9',  playerNumber: 9,  preferredPositions: 'st'  },
+        { id: 'r10', playerId: 'p10', playerNumber: 10, preferredPositions: ALL_POS },
+        { id: 'r11', playerId: 'p11', playerNumber: 11, preferredPositions: ALL_POS },
+        { id: 'r12', playerId: 'p12', playerNumber: 12, preferredPositions: ALL_POS },
+        { id: 'r13', playerId: 'p13', playerNumber: 13, preferredPositions: ALL_POS },
+        { id: 'r14', playerId: 'p14', playerNumber: 14, preferredPositions: ALL_POS },
+      ];
+
+      const startingLineup = [
+        { playerId: 'gk', positionId: 'gk'  },
+        { playerId: 'p2', positionId: 'cb1' },
+        { playerId: 'p3', positionId: 'cb2' },
+        { playerId: 'p4', positionId: 'ld'  },
+        { playerId: 'p5', positionId: 'rd'  },
+        { playerId: 'p6', positionId: 'cm1' },
+        { playerId: 'p7', positionId: 'cm2' },
+        { playerId: 'p8', positionId: 'lw'  },
+        { playerId: 'p9', positionId: 'st'  },
+      ];
+
+      const { rotations } = calculateFairRotations(
+        players, startingLineup,
+        5, 2, 9, 'gk', undefined,
+        { rotationIntervalMinutes: INTERVAL_10, halfLengthMinutes: HALF_LENGTH_60, positions: positions9v9 },
+      );
+
+      expect(rotations).toHaveLength(5);
+
+      // Rule 1.2: no player both subbed out AND subbed in during the same rotation
+      rotations.forEach(rotation => {
+        const outs = rotation.substitutions.map(s => s.playerOutId);
+        const ins  = rotation.substitutions.map(s => s.playerInId);
+        outs.forEach(id => expect(ins).not.toContain(id));
+      });
+
+      // Rule 1.3: all 14 players must reach the 50% threshold (30 minutes)
+      const minutes = computePlayMinutes9v9(startingLineup, rotations, ROTATION_MINUTES_60, GAME_END_60);
+      players.forEach(p => {
+        const pt = minutes.get(p.playerId) ?? 0;
+        expect(pt).toBeGreaterThanOrEqual(MIN_PLAYTIME_50PCT);
+      });
+    });
+
+    it('TC-9v9-02: 9v9, 16 players (7 bench) — all players meet 50% minimum [regression]', () => {
+      // Regression test for the reported bug: 9v9 with 7 bench players caused some
+      // players to finish with only 20 minutes (33%) due to insufficient rotation frequency.
+      const ALL_POS = 'gk, cb1, cb2, ld, rd, cm1, cm2, lw, st';
+
+      const players: SimpleRoster[] = [
+        { id: 'r1',  playerId: 'gk',  playerNumber: 1,  preferredPositions: 'gk'  },
+        { id: 'r2',  playerId: 'p2',  playerNumber: 2,  preferredPositions: 'cb1' },
+        { id: 'r3',  playerId: 'p3',  playerNumber: 3,  preferredPositions: 'cb2' },
+        { id: 'r4',  playerId: 'p4',  playerNumber: 4,  preferredPositions: 'ld'  },
+        { id: 'r5',  playerId: 'p5',  playerNumber: 5,  preferredPositions: 'rd'  },
+        { id: 'r6',  playerId: 'p6',  playerNumber: 6,  preferredPositions: 'cm1' },
+        { id: 'r7',  playerId: 'p7',  playerNumber: 7,  preferredPositions: 'cm2' },
+        { id: 'r8',  playerId: 'p8',  playerNumber: 8,  preferredPositions: 'lw'  },
+        { id: 'r9',  playerId: 'p9',  playerNumber: 9,  preferredPositions: 'st'  },
+        { id: 'r10', playerId: 'p10', playerNumber: 10, preferredPositions: ALL_POS },
+        { id: 'r11', playerId: 'p11', playerNumber: 11, preferredPositions: ALL_POS },
+        { id: 'r12', playerId: 'p12', playerNumber: 12, preferredPositions: ALL_POS },
+        { id: 'r13', playerId: 'p13', playerNumber: 13, preferredPositions: ALL_POS },
+        { id: 'r14', playerId: 'p14', playerNumber: 14, preferredPositions: ALL_POS },
+        { id: 'r15', playerId: 'p15', playerNumber: 15, preferredPositions: ALL_POS },
+        { id: 'r16', playerId: 'p16', playerNumber: 16, preferredPositions: ALL_POS },
+      ];
+
+      const startingLineup = [
+        { playerId: 'gk', positionId: 'gk'  },
+        { playerId: 'p2', positionId: 'cb1' },
+        { playerId: 'p3', positionId: 'cb2' },
+        { playerId: 'p4', positionId: 'ld'  },
+        { playerId: 'p5', positionId: 'rd'  },
+        { playerId: 'p6', positionId: 'cm1' },
+        { playerId: 'p7', positionId: 'cm2' },
+        { playerId: 'p8', positionId: 'lw'  },
+        { playerId: 'p9', positionId: 'st'  },
+      ];
+
+      const { rotations } = calculateFairRotations(
+        players, startingLineup,
+        5, 2, 9, 'gk', undefined,
+        { rotationIntervalMinutes: INTERVAL_10, halfLengthMinutes: HALF_LENGTH_60, positions: positions9v9 },
+      );
+
+      expect(rotations).toHaveLength(5);
+
+      // Rule 1.2: no field-to-field shuffles
+      rotations.forEach(rotation => {
+        const outs = rotation.substitutions.map(s => s.playerOutId);
+        const ins  = rotation.substitutions.map(s => s.playerInId);
+        outs.forEach(id => expect(ins).not.toContain(id));
+      });
+
+      // Rule 1.3: EVERY player must reach 30 min (50% of 60)
+      const minutes = computePlayMinutes9v9(startingLineup, rotations, ROTATION_MINUTES_60, GAME_END_60);
+      players.forEach(p => {
+        const pt = minutes.get(p.playerId) ?? 0;
+        expect(pt).toBeGreaterThanOrEqual(MIN_PLAYTIME_50PCT);
+      });
+
+      // Sanity: no one exceeds the total game length
+      players.forEach(p => {
+        const pt = minutes.get(p.playerId) ?? 0;
+        expect(pt).toBeLessThanOrEqual(GAME_END_60);
+      });
+    });
+
+    it('TC-11v11-01: 11v11, 16 players (5 bench) — all players meet 50% minimum', () => {
+      // 16 players: 11 starters + 5 bench.
+      // Includes STRIKER positions (LW, ST) to exercise fatigue cycling.
+      const ALL_POS = 'gk, lb, cb1, cb2, rb, lm, cm, rm, cam, lw, st';
+
+      const players: SimpleRoster[] = [
+        { id: 'r1',  playerId: 'gk',  playerNumber: 1,  preferredPositions: 'gk'  },
+        { id: 'r2',  playerId: 'p2',  playerNumber: 2,  preferredPositions: 'lb'  },
+        { id: 'r3',  playerId: 'p3',  playerNumber: 3,  preferredPositions: 'cb1' },
+        { id: 'r4',  playerId: 'p4',  playerNumber: 4,  preferredPositions: 'cb2' },
+        { id: 'r5',  playerId: 'p5',  playerNumber: 5,  preferredPositions: 'rb'  },
+        { id: 'r6',  playerId: 'p6',  playerNumber: 6,  preferredPositions: 'lm'  },
+        { id: 'r7',  playerId: 'p7',  playerNumber: 7,  preferredPositions: 'cm'  },
+        { id: 'r8',  playerId: 'p8',  playerNumber: 8,  preferredPositions: 'rm'  },
+        { id: 'r9',  playerId: 'p9',  playerNumber: 9,  preferredPositions: 'cam' },
+        { id: 'r10', playerId: 'p10', playerNumber: 10, preferredPositions: 'lw'  },
+        { id: 'r11', playerId: 'p11', playerNumber: 11, preferredPositions: 'st'  },
+        { id: 'r12', playerId: 'p12', playerNumber: 12, preferredPositions: ALL_POS },
+        { id: 'r13', playerId: 'p13', playerNumber: 13, preferredPositions: ALL_POS },
+        { id: 'r14', playerId: 'p14', playerNumber: 14, preferredPositions: ALL_POS },
+        { id: 'r15', playerId: 'p15', playerNumber: 15, preferredPositions: ALL_POS },
+        { id: 'r16', playerId: 'p16', playerNumber: 16, preferredPositions: ALL_POS },
+      ];
+
+      const startingLineup = [
+        { playerId: 'gk',  positionId: 'gk'  },
+        { playerId: 'p2',  positionId: 'lb'  },
+        { playerId: 'p3',  positionId: 'cb1' },
+        { playerId: 'p4',  positionId: 'cb2' },
+        { playerId: 'p5',  positionId: 'rb'  },
+        { playerId: 'p6',  positionId: 'lm'  },
+        { playerId: 'p7',  positionId: 'cm'  },
+        { playerId: 'p8',  positionId: 'rm'  },
+        { playerId: 'p9',  positionId: 'cam' },
+        { playerId: 'p10', positionId: 'lw'  },
+        { playerId: 'p11', positionId: 'st'  },
+      ];
+
+      const { rotations } = calculateFairRotations(
+        players, startingLineup,
+        5, 2, 11, 'gk', undefined,
+        { rotationIntervalMinutes: INTERVAL_10, halfLengthMinutes: HALF_LENGTH_60, positions: positions11v11 },
+      );
+
+      expect(rotations).toHaveLength(5);
+
+      // Rule 1.4/1.5: GK position must never be vacated in non-halftime rotations.
+      // The GK player may be subbed off at halftime and later serve outfield in H2;
+      // what is forbidden is opening up the GK slot itself during regular rotations.
+      const halftimeIdx = 2; // rotNum 3 = rotationsPerHalf + 1 = index 2
+      rotations.forEach((rotation, idx) => {
+        if (idx !== halftimeIdx) {
+          rotation.substitutions.forEach(sub => {
+            expect(sub.positionId).not.toBe('gk');
+          });
+        }
+      });
+
+      // Rule 1.2: no field-to-field shuffles
+      rotations.forEach(rotation => {
+        const outs = rotation.substitutions.map(s => s.playerOutId);
+        const ins  = rotation.substitutions.map(s => s.playerInId);
+        outs.forEach(id => expect(ins).not.toContain(id));
+      });
+
+      // Rule 1.3: all 16 players must reach 30 min
+      const minutes = computePlayMinutes9v9(startingLineup, rotations, ROTATION_MINUTES_60, GAME_END_60);
+      players.forEach(p => {
+        const pt = minutes.get(p.playerId) ?? 0;
+        expect(pt).toBeGreaterThanOrEqual(MIN_PLAYTIME_50PCT);
+      });
+    });
+
+    it('TC-11v11-02: 11v11, 13 players (2 bench) — both bench players appear on field; all meet 50%', () => {
+      // Tight bench: only 2 subs available. The existing formula is sufficient here;
+      // this test verifies correctness is maintained for small-bench 11v11.
+      const ALL_POS = 'gk, lb, cb1, cb2, rb, lm, cm, rm, cam, lw, st';
+
+      const players: SimpleRoster[] = [
+        { id: 'r1',  playerId: 'gk',  playerNumber: 1,  preferredPositions: 'gk'  },
+        { id: 'r2',  playerId: 'p2',  playerNumber: 2,  preferredPositions: 'lb'  },
+        { id: 'r3',  playerId: 'p3',  playerNumber: 3,  preferredPositions: 'cb1' },
+        { id: 'r4',  playerId: 'p4',  playerNumber: 4,  preferredPositions: 'cb2' },
+        { id: 'r5',  playerId: 'p5',  playerNumber: 5,  preferredPositions: 'rb'  },
+        { id: 'r6',  playerId: 'p6',  playerNumber: 6,  preferredPositions: 'lm'  },
+        { id: 'r7',  playerId: 'p7',  playerNumber: 7,  preferredPositions: 'cm'  },
+        { id: 'r8',  playerId: 'p8',  playerNumber: 8,  preferredPositions: 'rm'  },
+        { id: 'r9',  playerId: 'p9',  playerNumber: 9,  preferredPositions: 'cam' },
+        { id: 'r10', playerId: 'p10', playerNumber: 10, preferredPositions: 'lw'  },
+        { id: 'r11', playerId: 'p11', playerNumber: 11, preferredPositions: 'st'  },
+        { id: 'r12', playerId: 'p12', playerNumber: 12, preferredPositions: ALL_POS },
+        { id: 'r13', playerId: 'p13', playerNumber: 13, preferredPositions: ALL_POS },
+      ];
+
+      const startingLineup = [
+        { playerId: 'gk',  positionId: 'gk'  },
+        { playerId: 'p2',  positionId: 'lb'  },
+        { playerId: 'p3',  positionId: 'cb1' },
+        { playerId: 'p4',  positionId: 'cb2' },
+        { playerId: 'p5',  positionId: 'rb'  },
+        { playerId: 'p6',  positionId: 'lm'  },
+        { playerId: 'p7',  positionId: 'cm'  },
+        { playerId: 'p8',  positionId: 'rm'  },
+        { playerId: 'p9',  positionId: 'cam' },
+        { playerId: 'p10', positionId: 'lw'  },
+        { playerId: 'p11', positionId: 'st'  },
+      ];
+
+      const { rotations } = calculateFairRotations(
+        players, startingLineup,
+        5, 2, 11, 'gk', undefined,
+        { rotationIntervalMinutes: INTERVAL_10, halfLengthMinutes: HALF_LENGTH_60, positions: positions11v11 },
+      );
+
+      expect(rotations).toHaveLength(5);
+
+      // Both bench players must appear on field at some point
+      const allSubs = rotations.flatMap(r => r.substitutions);
+      expect(allSubs.some(s => s.playerInId === 'p12')).toBe(true);
+      expect(allSubs.some(s => s.playerInId === 'p13')).toBe(true);
+
+      // Rule 1.3: all 13 players must reach 30 min
+      const minutes = computePlayMinutes9v9(startingLineup, rotations, ROTATION_MINUTES_60, GAME_END_60);
+      players.forEach(p => {
+        const pt = minutes.get(p.playerId) ?? 0;
+        expect(pt).toBeGreaterThanOrEqual(MIN_PLAYTIME_50PCT);
+      });
+    });
+  });
+
   describe('rotation interval calculations', () => {
     it('should create 2 rotations per half for 30-min halves with 10-min intervals', () => {
       const players: SimpleRoster[] = Array.from({ length: 8 }, (_, i) => ({
