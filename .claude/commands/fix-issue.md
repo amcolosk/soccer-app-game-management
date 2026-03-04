@@ -1,3 +1,8 @@
+---
+mode: agent
+tools: ['runInTerminal']
+---
+
 # Fix Issue
 
 Mark a specific issue as FIXED using the current git commit SHA.

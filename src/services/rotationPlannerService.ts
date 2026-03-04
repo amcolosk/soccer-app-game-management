@@ -32,7 +32,7 @@ type PositionGroup = 'GOALKEEPER' | 'STRIKER' | 'MIDFIELDER' | 'DEFENDER' | 'UNK
 function inferPositionGroup(abbreviation?: string | null): PositionGroup {
   if (!abbreviation) return 'UNKNOWN';
   const upper = abbreviation.toUpperCase().trim();
-  if (['GK', 'G', 'GOAL'].includes(upper)) return 'GOALKEEPER';
+  if (['GK', 'G', 'GOL', 'GOAL'].includes(upper)) return 'GOALKEEPER';
   if (['FW', 'FWD', 'ST', 'S', 'CF', 'LW', 'RW', 'W', 'WF'].includes(upper)) return 'STRIKER';
   if (['MF', 'MID', 'CM', 'RM', 'LM', 'AM', 'DM', 'CAM', 'CDM'].includes(upper)) return 'MIDFIELDER';
   if (['DF', 'DEF', 'CB', 'LB', 'RB', 'LWB', 'RWB'].includes(upper)) return 'DEFENDER';

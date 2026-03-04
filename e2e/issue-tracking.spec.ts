@@ -1,8 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
   loginUser,
-  navigateToManagement,
-  clickManagementTab,
   clickButton,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
@@ -23,12 +21,9 @@ test.describe('Issue Tracking', () => {
     // 1. Login
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
 
-    // 2. Navigate to Management > App tab
-    await navigateToManagement(page);
-    await clickManagementTab(page, 'App');
-
-    // 3. Click "Report Issue" button
-    await clickButton(page, 'Report Issue');
+    // 2. Open bug report via the Help FAB (? button → "Report a Bug")
+    await page.getByRole('button', { name: 'Help and bug report' }).click();
+    await page.getByRole('menuitem', { name: 'Report a Bug' }).click();
     await page.waitForSelector('.bug-report-modal', { state: 'visible', timeout: 5000 });
 
     // 4. Fill out the bug report form with a unique description
@@ -127,9 +122,9 @@ test.describe('agent status restrictions', () => {
     const context = await browser.newContext();
     const page = await context.newPage();
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
-    await navigateToManagement(page);
-    await clickManagementTab(page, 'App');
-    await clickButton(page, 'Report Issue');
+    // Open bug report via the Help FAB (? button → "Report a Bug")
+    await page.getByRole('button', { name: 'Help and bug report' }).click();
+    await page.getByRole('menuitem', { name: 'Report a Bug' }).click();
     await page.waitForSelector('.bug-report-modal', { state: 'visible', timeout: 5000 });
 
     const uniqueDescription = `Agent Restriction E2E Test ${Date.now()}`;

@@ -716,7 +716,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       // Identify the goalkeeper position (never auto-subbed in regular rotations)
       const goaliePos = positions.find(p => {
         const abbr = p.abbreviation?.toUpperCase();
-        return abbr === 'GK' || abbr === 'G';
+        return abbr === 'GK' || abbr === 'G' || abbr === 'GOL' || abbr === 'GOAL';
       });
       const goaliePositionId = goaliePos?.id;
 

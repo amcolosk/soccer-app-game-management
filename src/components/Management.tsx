@@ -18,6 +18,7 @@ import {
 } from '../utils/validation';
 import { useConfirm } from './ConfirmModal';
 import { deleteTeamCascade, deletePlayerCascade, deleteFormationCascade } from '../services/cascadeDeleteService';
+import { computeFormationPositionDiff, scrubDeletedPositionPreferences } from '../utils/formationUtils';
 import { useSwipeDelete } from '../hooks/useSwipeDelete';
 import {
   playerFormReducer, initialPlayerForm,
@@ -507,12 +508,72 @@ export function Management() {
         sport: formationForm.sport,
       });
 
-      // Delete all existing positions, then recreate
-      const existingPositions = formationPositions.filter(p => p.formationId === formationForm.editing!.id);
-      for (const pos of existingPositions) {
-        await client.models.FormationPosition.delete({ id: pos.id });
+      // Use in-place updates to preserve FormationPosition IDs.
+      // TeamRoster.preferredPositions stores comma-separated position IDs, so
+      // deleting + recreating positions would silently invalidate all player prefs.
+      const existingPositions = formationPositions
+        .filter(p => p.formationId === formationForm.editing!.id);
+
+      const { toUpdate, toCreate, toDeleteIds } = computeFormationPositionDiff(
+        existingPositions,
+        formationForm.positions,
+      );
+
+      // 1. Update existing positions in-place (IDs preserved) — parallelised
+      await Promise.all(toUpdate.map(pos =>
+        client.models.FormationPosition.update({
+          id: pos.id,
+          positionName: pos.positionName,
+          abbreviation: pos.abbreviation,
+          sortOrder: pos.sortOrder,
+        })
+      ));
+
+      // 2. Create new positions if the count increased — parallelised
+      await Promise.all(toCreate.map(pos =>
+        client.models.FormationPosition.create({
+          formationId: formationForm.editing!.id,
+          positionName: pos.positionName,
+          abbreviation: pos.abbreviation,
+          sortOrder: pos.sortOrder,
+          coaches: formationForm.editing!.coaches || [],
+        })
+      ));
+
+      // 3. Delete excess positions and scrub their IDs from TeamRoster.preferredPositions.
+      //    Re-fetch live roster data so we don't miss entries added by co-coaches
+      //    after this component loaded (M-1: stale component state race condition).
+      //    Scrub and delete are interleaved per-position so a partial failure does
+      //    not leave scrubbed roster entries pointing at still-existing positions.
+      if (toDeleteIds.length > 0) {
+        const affectedTeamIds = new Set(
+          teams.filter(t => t.formationId === formationForm.editing!.id).map(t => t.id),
+        );
+        // Live-fetch roster entries for all affected teams in parallel
+        const liveRosterPages = await Promise.all(
+          [...affectedTeamIds].map(teamId =>
+            client.models.TeamRoster.list({ filter: { teamId: { eq: teamId } }, limit: 1000 })
+          )
+        );
+        const liveRosters = liveRosterPages.flatMap(r => r.data);
+
+        // For each position being deleted: scrub roster entries first, then delete position
+        for (const posId of toDeleteIds) {
+          const deletedSet = new Set([posId]);
+          await Promise.all(
+            liveRosters
+              .map(entry => ({ entry, cleaned: scrubDeletedPositionPreferences(entry.preferredPositions, deletedSet) }))
+              .filter(({ entry, cleaned }) => cleaned !== entry.preferredPositions)
+              .map(({ entry, cleaned }) =>
+                client.models.TeamRoster.update({
+                  id: entry.id,
+                  preferredPositions: cleaned ?? undefined,
+                })
+              )
+          );
+          await client.models.FormationPosition.delete({ id: posId });
+        }
       }
-      await createFormationPositions(formationForm.editing.id, formationForm.positions, formationForm.editing.coaches || []);
 
       formationDispatch({ type: 'RESET' });
     } catch (error) {

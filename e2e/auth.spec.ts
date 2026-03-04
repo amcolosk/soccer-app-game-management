@@ -20,8 +20,8 @@ test.describe('Authentication', () => {
     await page.goto('/');
     await waitForPageLoad(page);
 
-    // Click Log In on Landing Page
-    await clickButton(page, 'Log In');
+    // Click Log In on Landing Page — scope to header to avoid ambiguity with hero CTA
+    await page.getByRole('banner').getByRole('button', { name: 'Log In' }).click();
     
     // Wait for auth UI to load
     await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
@@ -57,8 +57,8 @@ test.describe('Authentication', () => {
     await page.goto('/');
     await waitForPageLoad(page);
 
-    // Click Log In on Landing Page
-    await clickButton(page, 'Log In');
+    // Click Log In on Landing Page — scope to header to avoid ambiguity with hero CTA
+    await page.getByRole('banner').getByRole('button', { name: 'Log In' }).click();
     
     // Wait for auth UI to load
     await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
@@ -92,8 +92,8 @@ test.describe('Authentication', () => {
     await page.goto('/');
     await waitForPageLoad(page);
 
-    // Click Log In on Landing Page
-    await clickButton(page, 'Log In');
+    // Click Log In on Landing Page — scope to header to avoid ambiguity with hero CTA
+    await page.getByRole('banner').getByRole('button', { name: 'Log In' }).click();
     
     // Wait for auth UI
     await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });

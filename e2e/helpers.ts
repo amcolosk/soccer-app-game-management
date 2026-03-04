@@ -127,8 +127,9 @@ export async function loginUser(page: Page, email: string, password: string) {
     await expect(page.getByRole('button', { name: 'Log In' })).toBeVisible({ timeout: 10000 });
   }
   
-  // Check for Landing Page "Log In" button
-  const loginButton = page.getByRole('button', { name: 'Log In' });
+  // Check for Landing Page "Log In" button — scope to header to avoid ambiguity
+  // with the second "Log In" button in the hero CTA area
+  const loginButton = page.getByRole('banner').getByRole('button', { name: 'Log In' });
   if (await loginButton.isVisible({ timeout: 2000 }).catch(() => false)) {
     console.log('On Landing Page, clicking Log In...');
     await loginButton.click();
