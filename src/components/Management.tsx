@@ -18,6 +18,7 @@ import {
 } from '../utils/validation';
 import { useConfirm } from './ConfirmModal';
 import { deleteTeamCascade, deletePlayerCascade, deleteFormationCascade } from '../services/cascadeDeleteService';
+import { computeFormationPositionDiff, scrubDeletedPositionPreferences } from '../utils/formationUtils';
 import { useSwipeDelete } from '../hooks/useSwipeDelete';
 import {
   playerFormReducer, initialPlayerForm,
@@ -507,12 +508,59 @@ export function Management() {
         sport: formationForm.sport,
       });
 
-      // Delete all existing positions, then recreate
-      const existingPositions = formationPositions.filter(p => p.formationId === formationForm.editing!.id);
-      for (const pos of existingPositions) {
-        await client.models.FormationPosition.delete({ id: pos.id });
+      // Use in-place updates to preserve FormationPosition IDs.
+      // TeamRoster.preferredPositions stores comma-separated position IDs, so
+      // deleting + recreating positions would silently invalidate all player prefs.
+      const existingPositions = formationPositions
+        .filter(p => p.formationId === formationForm.editing!.id)
+        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+      const { toUpdate, toCreate, toDeleteIds } = computeFormationPositionDiff(
+        existingPositions,
+        formationForm.positions,
+      );
+
+      // 1. Update existing positions in-place (IDs preserved)
+      for (const pos of toUpdate) {
+        await client.models.FormationPosition.update({
+          id: pos.id,
+          positionName: pos.positionName,
+          abbreviation: pos.abbreviation,
+          sortOrder: pos.sortOrder,
+        });
       }
-      await createFormationPositions(formationForm.editing.id, formationForm.positions, formationForm.editing.coaches || []);
+
+      // 2. Create new positions if the count increased
+      for (const pos of toCreate) {
+        await client.models.FormationPosition.create({
+          formationId: formationForm.editing.id,
+          positionName: pos.positionName,
+          abbreviation: pos.abbreviation,
+          sortOrder: pos.sortOrder,
+          coaches: formationForm.editing.coaches || [],
+        });
+      }
+
+      // 3. Delete excess positions and scrub their IDs from TeamRoster.preferredPositions
+      if (toDeleteIds.length > 0) {
+        const deletedSet = new Set(toDeleteIds);
+        const affectedTeamIds = new Set(
+          teams.filter(t => t.formationId === formationForm.editing!.id).map(t => t.id),
+        );
+        for (const rosterEntry of teamRosters) {
+          if (!affectedTeamIds.has(rosterEntry.teamId ?? '')) continue;
+          const cleaned = scrubDeletedPositionPreferences(rosterEntry.preferredPositions, deletedSet);
+          if (cleaned !== rosterEntry.preferredPositions) {
+            await client.models.TeamRoster.update({
+              id: rosterEntry.id,
+              preferredPositions: cleaned ?? undefined,
+            });
+          }
+        }
+        for (const id of toDeleteIds) {
+          await client.models.FormationPosition.delete({ id });
+        }
+      }
 
       formationDispatch({ type: 'RESET' });
     } catch (error) {
