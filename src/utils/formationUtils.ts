@@ -58,8 +58,13 @@ export function computeFormationPositionDiff(
   existingPositions: ExistingFormationPosition[],
   newPositions: NewPositionFormData[],
 ): FormationPositionDiff {
-  // Sort existing by sortOrder so index-based matching is deterministic
-  const sorted = [...existingPositions].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  // Sort existing by sortOrder so index-based matching is deterministic.
+  // Use id as a tiebreaker to guarantee stable ordering when multiple positions
+  // share the same sortOrder (e.g. null/0), preventing non-deterministic ID assignment.
+  const sorted = [...existingPositions].sort((a, b) => {
+    const diff = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+    return diff !== 0 ? diff : a.id.localeCompare(b.id);
+  });
 
   const minLen = Math.min(sorted.length, newPositions.length);
 

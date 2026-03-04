@@ -172,6 +172,29 @@ describe('computeFormationPositionDiff', () => {
     computeFormationPositionDiff(input, [newPos('GK', 'GK'), newPos('DEF', 'DEF')]);
     expect(input).toEqual(original);
   });
+
+  // i-2: stable sort when multiple positions share the same sortOrder
+  it('uses stable id-tiebreaker sort when two positions share the same sortOrder', () => {
+    const input = [
+      existing('id-b', 'DEF', 'DEF', 1),
+      existing('id-a', 'GK',  'GK',  1), // same sortOrder as id-b
+    ];
+    const { toUpdate } = computeFormationPositionDiff(input, [newPos('GK', 'GK'), newPos('DEF', 'DEF')]);
+    // id-a sorts before id-b lexicographically when sortOrder is equal
+    expect(toUpdate[0].id).toBe('id-a');
+    expect(toUpdate[1].id).toBe('id-b');
+  });
+
+  it('is deterministic across multiple calls with same-sortOrder positions', () => {
+    const input = [
+      existing('id-z', 'FWD', 'FWD', 0),
+      existing('id-a', 'GK',  'GK',  0),
+      existing('id-m', 'DEF', 'DEF', 0),
+    ];
+    const result1 = computeFormationPositionDiff(input, [newPos('A','A'), newPos('B','B'), newPos('C','C')]);
+    const result2 = computeFormationPositionDiff(input, [newPos('A','A'), newPos('B','B'), newPos('C','C')]);
+    expect(result1.toUpdate.map(p => p.id)).toEqual(result2.toUpdate.map(p => p.id));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -223,4 +246,11 @@ describe('scrubDeletedPositionPreferences', () => {
     const result = scrubDeletedPositionPreferences('id-1, id-2', new Set());
     expect(result).toBe('id-1, id-2');
   });
-});
+  // i-3: single ID string with no comma
+  it('handles a single ID string with no comma — keeps it when not deleted', () => {
+    expect(scrubDeletedPositionPreferences('id-1', new Set(['id-2']))).toBe('id-1');
+  });
+
+  it('handles a single ID string with no comma — removes it when deleted', () => {
+    expect(scrubDeletedPositionPreferences('id-1', new Set(['id-1']))).toBeNull();
+  });});
