@@ -301,6 +301,7 @@ const schema = a.schema({
       count: a.integer().required(),
       ttl: a.integer(), // Unix timestamp for DynamoDB TTL auto-expiry (2 hours)
     })
+    .identifier(['userId', 'hourBucket'])
     .authorization((allow) => [
       // No client access — only Lambda IAM role accesses this table
       allow.authenticated().to([]),

@@ -73,6 +73,11 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
         systemInfo: JSON.stringify(systemInfo),
       });
 
+      // Surface GraphQL-level errors (Amplify puts them in result.errors, not throws)
+      if (result.errors && result.errors.length > 0) {
+        throw new Error(result.errors[0].message ?? 'Failed to submit bug report. Please try again.');
+      }
+
       // Parse response to get issue number and URL
       try {
         let parsed: unknown = result.data;
@@ -107,20 +112,22 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
                 ? `Your report has been filed as GitHub Issue #${issueNumber}.`
                 : 'Your bug report has been submitted successfully.'}
             </p>
-            {issueUrl && (
-              <a
-                href={issueUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-secondary"
-                style={{ display: 'inline-block', marginTop: '12px' }}
-              >
-                View on GitHub
-              </a>
-            )}
-            <button onClick={onClose} className="btn-primary" style={{ marginTop: '12px' }}>
-              Close
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '16px' }}>
+              {issueUrl && (
+                <a
+                  href={issueUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary"
+                  style={{ display: 'block', textAlign: 'center' }}
+                >
+                  View on GitHub
+                </a>
+              )}
+              <button onClick={onClose} className="btn-primary">
+                Close
+              </button>
+            </div>
           </div>
         </div>
       </div>
