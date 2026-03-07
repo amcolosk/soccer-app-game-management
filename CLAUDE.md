@@ -130,21 +130,15 @@ npm run seed              # Seed the database with sample data
 - `SeasonReport.tsx` - Team statistics and play time reports
 - `Management.tsx` - Team/player/formation administration
 - `InvitationManagement.tsx` - Share teams with other coaches
-- `BugReport.tsx` - Bug/feedback report submission UI
+- `BugReport.tsx` - Bug/feedback report submission UI (files issues in GitHub)
 - `ConfirmModal.tsx` - Reusable confirmation dialog
 - `UpdatePrompt.tsx` - PWA update notification
 - `PlayerSelect.tsx` - Player selection dropdown
-- `DevDashboard/` - Developer issue tracking dashboard
-  - `DevDashboard.tsx` - Dashboard main view
-  - `IssueList.tsx` - Issue list with filtering
-  - `IssueDetailModal.tsx` - Issue detail view
-  - `IssueStatusBadge.tsx` - Status indicator badge
 - `routes/` - Route wrapper components
   - `GameManagementRoute.tsx`
   - `GamePlannerRoute.tsx`
   - `SeasonReportRoute.tsx`
   - `InvitationRoute.tsx`
-  - `DevDashboardRoute.tsx`
 
 `src/services/` - Business logic (should be pure functions, testable)
 - `rotationPlannerService.ts` - Fair rotation algorithm based on player availability
@@ -169,8 +163,6 @@ npm run seed              # Seed the database with sample data
 `src/hooks/` - Custom React hooks
 - `useTeamData.ts` - Loads team with roster, positions, and games
 - `useAmplifyQuery.ts` - Generic Amplify query wrapper
-- `useBugReports.ts` - Bug report submission and issue management
-- `useDeveloperAccess.ts` - Developer mode access control
 - `useSwipeDelete.ts` - Swipe-to-delete gesture
 
 `src/contexts/`
@@ -195,14 +187,13 @@ npm run seed              # Seed the database with sample data
 - `send-invitation-email/` - DynamoDB Stream trigger on TeamInvitation table; sends emails via SES
 - `accept-invitation/` - Custom GraphQL mutation with elevated permissions to add user to team's coaches array
 - `get-user-invitations/` - Custom query to fetch invitations by user email
-- `send-bug-report/` - Processes bug report submissions; writes to Issue table, increments IssueCounter
-- `update-issue-status/` - Custom mutation for agent-driven status updates (API key auth)
+- `create-github-issue/` - Creates a GitHub Issue from an in-app bug report; handles screenshot upload and rate limiting
 
 **Important Backend Patterns:**
 
 1. **Authorization Model**: All models use `allow.ownersDefinedIn('coaches')` where `coaches` is a string array field containing user IDs. When creating records, always populate the `coaches` field with current user ID.
 
-2. **Custom Mutations**: Some operations require elevated permissions beyond standard CRUDL. Example: `acceptInvitation` mutation updates Team.coaches array even though user isn't yet an owner. `updateIssueStatus` uses API key auth for agent access.
+2. **Custom Mutations**: Some operations require elevated permissions beyond standard CRUDL. Example: `acceptInvitation` mutation updates Team.coaches array even though user isn't yet an owner.
 
 3. **GraphQL Client Usage**:
    ```typescript
@@ -244,16 +235,13 @@ npm run seed              # Seed the database with sample data
 - `TeamInvitation` → email-based invitations with status (PENDING/ACCEPTED/DECLINED)
 - Uses secondary index on email+status for efficient queries
 
-**Issue Tracking:**
-- `IssueCounter` → sequential counter for issue numbers (no client access; Lambda only)
-- `Issue` → bug/feature report tracking; GSIs on issueNumber and reporterUserId
-- Status lifecycle: `OPEN → IN_PROGRESS → FIXED | DEPLOYED | CLOSED` (terminal states set `closedAt`)
+**Bug Reporting:**
+- `BugReportRateLimit` → lightweight table for rate limiting (5 reports/hour/user); no client access
 
 **Custom Operations:**
 - `acceptInvitation` - Elevated permission mutation for joining a team
 - `getUserInvitations` - Query invitations by email
-- `submitBugReport` - Creates Issue record with auto-incremented number
-- `updateIssueStatus` - Agent-accessible mutation (API key auth + secret header)
+- `createGitHubIssue` - Files a GitHub Issue from a bug report (Cognito auth required)
 
 ### Game Timer Implementation
 
@@ -277,26 +265,25 @@ The game timer runs client-side with periodic sync to DynamoDB:
 
 ### Bug Report System
 
-- Full issue tracking via DynamoDB `Issue` table with sequential `IssueCounter`
-- Agent access: API key header + `SECRET:<AGENT_API_SECRET>|<resolution>` in resolution field
-- Rate limit: 5 reports/hour/user (via `reporterUserId` GSI)
-- GSI `getIssueByNumber` for direct lookup; `listIssues` for filtering by status
-- Docs: `docs/BUG-REPORT-SYSTEM.md` (architecture), `docs/AGENT-ISSUE-MANAGEMENT.md` (agent workflow)
-- Agent env vars: `APPSYNC_URL` (from amplify_outputs.json → data.url), `API_KEY` (data.api_key), `AGENT_API_SECRET` (AWS env, never in repo)
+- Users file reports via **Manage → App → Report Issue** in `BugReport.tsx`
+- `createGitHubIssue` mutation → `create-github-issue` Lambda → GitHub Issues API
+- Optional screenshot (PNG/JPEG, 5 MB max) uploaded and embedded in the issue body
+- Rate limit: 5 reports/hour/user via `BugReportRateLimit` DynamoDB table (Lambda-only)
+- Spec: `docs/specs/Bug-Reporting-GitHub.md`
 
 #### Agent Bug Triage
 
-Agents may only set `IN_PROGRESS` or `FIXED`. `FIXED` requires a git commit SHA in the resolution. `CLOSED` and `DEPLOYED` require developer action in the dashboard.
+Agents interact with GitHub Issues directly using the `gh` CLI. Agents may add labels and comment; only developers may close issues.
 
 Three slash commands for triage (run in Claude Code):
 
 | Command | Description |
 |---------|-------------|
-| `/list-issues` | Display OPEN and IN_PROGRESS issues sorted by severity |
-| `/fix-issue <N>` | Mark issue #N as FIXED with the current commit SHA (prompts for confirmation) |
-| `/triage-issues` | Full automated loop: claim → investigate → fix → test → commit → mark FIXED |
+| `/list-issues` | Display open bugs sorted by severity |
+| `/fix-issue <N>` | Mark issue #N fixed with a `status:fixed` label + HEAD SHA comment (prompts for confirmation) |
+| `/triage-issues` | Full automated loop: claim → investigate → fix → test → commit → mark fixed |
 
-**Env var setup:** `source .env.local && claude` (`.env.local` should export `APPSYNC_URL`, `API_KEY`, and `AGENT_API_SECRET`)
+**Env var setup:** `.env.local` must export `GITHUB_TOKEN` (fine-grained PAT, `issues: write`) and `GITHUB_REPO` (`owner/repo`). Run `source .env.local && claude`.
 
 ## Testing Guidelines
 

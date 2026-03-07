@@ -8,8 +8,7 @@ import { storage } from './storage/resource';
 import { sendInvitationEmail } from './functions/send-invitation-email/resource';
 import { acceptInvitation } from './functions/accept-invitation/resource';
 import { getUserInvitations } from './functions/get-user-invitations/resource';
-import { sendBugReport } from './functions/send-bug-report/resource';
-import { updateIssueStatus } from './functions/update-issue-status/resource';
+import { createGitHubIssue } from './functions/create-github-issue/resource';
 
 const backend = defineBackend({
   auth,
@@ -18,8 +17,7 @@ const backend = defineBackend({
   sendInvitationEmail,
   acceptInvitation,
   getUserInvitations,
-  sendBugReport,
-  updateIssueStatus,
+  createGitHubIssue,
 });
 
 // Add deployment ID to outputs
@@ -48,19 +46,10 @@ const sesIdentityArn = `arn:aws:ses:${region}:${accountId}:identity/coachteamtra
 // SES configuration set ARN (used automatically by SES when a config set is attached to the identity)
 const sesConfigSetArn = `arn:aws:ses:${region}:${accountId}:configuration-set/teamtrack-email-configuration`;
 
-// Grant the Lambda functions permission to send emails via SES
-// Both the identity ARN and configuration set ARN are required — SES AccessDenied occurs
-// when a configuration set is attached to the identity but the Lambda role lacks permission on it.
+// Grant the sendInvitationEmail Lambda permission to send emails via SES
 backend.sendInvitationEmail.resources.lambda.addToRolePolicy(
   new PolicyStatement({
     actions: ['ses:SendEmail', 'ses:SendRawEmail'],
-    resources: [sesIdentityArn, sesConfigSetArn],
-  })
-);
-
-backend.sendBugReport.resources.lambda.addToRolePolicy(
-  new PolicyStatement({
-    actions: ['ses:SendEmail'],
     resources: [sesIdentityArn, sesConfigSetArn],
   })
 );
@@ -108,63 +97,18 @@ const branchName = process.env.AWS_BRANCH || 'local';
 const appUrl = branchName === 'main' ? 'https://coachteamtrack.com' : 'http://localhost:5173';
 backend.sendInvitationEmail.addEnvironment('APP_URL', appUrl);
 
-// Add bug report email from environment variable
-const bugReportEmail = process.env.BUG_REPORT_EMAIL || 'admin@coachteamtrack.com';
-backend.sendBugReport.addEnvironment('TO_EMAIL', bugReportEmail);
+// Grant table access for createGitHubIssue Lambda (rate limiting table only)
+const rateLimitTable = backend.data.resources.tables['BugReportRateLimit'];
+rateLimitTable.grantReadWriteData(backend.createGitHubIssue.resources.lambda);
+backend.createGitHubIssue.addEnvironment('RATE_LIMIT_TABLE_NAME', rateLimitTable.tableName);
 
-// Grant sendBugReport Lambda access to Issue and IssueCounter tables and their GSIs
-const issueTable = backend.data.resources.tables['Issue'];
-const issueCounterTable = backend.data.resources.tables['IssueCounter'];
-issueTable.grantReadWriteData(backend.sendBugReport.resources.lambda);
-backend.sendBugReport.resources.lambda.addToRolePolicy(
-  new PolicyStatement({
-    actions: ['dynamodb:Query'],
-    resources: [`${issueTable.tableArn}/index/*`],
-  })
-);
-issueCounterTable.grantReadWriteData(backend.sendBugReport.resources.lambda);
-backend.sendBugReport.addEnvironment('ISSUE_TABLE_NAME', issueTable.tableName);
-backend.sendBugReport.addEnvironment('ISSUE_COUNTER_TABLE_NAME', issueCounterTable.tableName);
-
-// Grant updateIssueStatus Lambda access to Issue table and its GSIs
-issueTable.grantReadWriteData(backend.updateIssueStatus.resources.lambda);
-backend.updateIssueStatus.resources.lambda.addToRolePolicy(
-  new PolicyStatement({
-    actions: ['dynamodb:Query'],
-    resources: [`${issueTable.tableArn}/index/*`],
-  })
-);
-backend.updateIssueStatus.addEnvironment('ISSUE_TABLE_NAME', issueTable.tableName);
-
-// Grant updateIssueStatus Lambda permission to look up user email from Cognito
-// (needed because Amplify sends access tokens to AppSync, which don't include email)
-backend.updateIssueStatus.resources.lambda.addToRolePolicy(
-  new PolicyStatement({
-    actions: ['cognito-idp:AdminGetUser'],
-    resources: [backend.auth.resources.userPool.userPoolArn],
-  })
-);
-backend.updateIssueStatus.addEnvironment('USER_POOL_ID', backend.auth.resources.userPool.userPoolId);
-
-// Inject S3 bucket name into Lambdas that need it and grant scoped access.
-// We use CDK grants here instead of allow.resource() in defineStorage to avoid a
-// circular CloudFormation stack dependency (storage→function→data→storage).
-const storageBucket = backend.storage.resources.bucket;
-backend.sendBugReport.addEnvironment('STORAGE_BUCKET_NAME', storageBucket.bucketName);
-backend.updateIssueStatus.addEnvironment('STORAGE_BUCKET_NAME', storageBucket.bucketName);
-// sendBugReport: needs s3:GetObject + s3:HeadObject on bug-screenshots prefix
-storageBucket.grantRead(backend.sendBugReport.resources.lambda, 'bug-screenshots/*');
-// updateIssueStatus: needs s3:DeleteObject on bug-screenshots prefix
-storageBucket.grantDelete(backend.updateIssueStatus.resources.lambda, 'bug-screenshots/*');
-
-// Agent API secret for updateIssueStatus authentication
-const agentApiSecret = process.env.AGENT_API_SECRET || '';
-if (agentApiSecret) {
-  backend.updateIssueStatus.addEnvironment('AGENT_API_SECRET', agentApiSecret);
+// GitHub API credentials for creating issues from bug reports
+// Store GITHUB_TOKEN in .env.local (never commit) and set via Amplify secrets in CI
+const githubToken = process.env.GITHUB_TOKEN || '';
+if (githubToken) {
+  backend.createGitHubIssue.addEnvironment('GITHUB_TOKEN', githubToken);
 }
-
-// Developer emails allowlist for updateIssueStatus authentication
-const developerEmails = process.env.DEVELOPER_EMAILS || '';
-if (developerEmails) {
-  backend.updateIssueStatus.addEnvironment('DEVELOPER_EMAILS', developerEmails);
+const githubRepo = process.env.GITHUB_REPO || '';
+if (githubRepo) {
+  backend.createGitHubIssue.addEnvironment('GITHUB_REPO', githubRepo);
 }

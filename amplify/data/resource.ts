@@ -1,8 +1,7 @@
 import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
 import { acceptInvitation } from "../functions/accept-invitation/resource";
 import { getUserInvitations } from "../functions/get-user-invitations/resource";
-import { sendBugReport } from "../functions/send-bug-report/resource";
-import { updateIssueStatus } from "../functions/update-issue-status/resource";
+import { createGitHubIssue } from "../functions/create-github-issue/resource";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -295,38 +294,16 @@ const schema = a.schema({
       index('email').sortKeys(['status']).queryField('listInvitationsByEmail'),
     ]),
 
-  IssueCounter: a
+  BugReportRateLimit: a
     .model({
-      counterName: a.string().required(), // e.g., "issue"
-      currentValue: a.integer().required(),
+      userId: a.string().required(),
+      hourBucket: a.string().required(), // ISO hour e.g. "2026-03-07T14"
+      count: a.integer().required(),
+      ttl: a.integer(), // Unix timestamp for DynamoDB TTL auto-expiry (2 hours)
     })
     .authorization((allow) => [
-      // No client access — only Lambda IAM roles access this table
+      // No client access — only Lambda IAM role accesses this table
       allow.authenticated().to([]),
-    ]),
-
-  Issue: a
-    .model({
-      issueNumber: a.integer().required(),
-      type: a.enum(['BUG', 'FEATURE_REQUEST']),
-      severity: a.string(),
-      status: a.enum(['OPEN', 'IN_PROGRESS', 'FIXED', 'DEPLOYED', 'CLOSED']),
-      description: a.string().required(),
-      steps: a.string(),
-      systemInfo: a.string(),
-      resolution: a.string(),
-      closedAt: a.datetime(),
-      reporterEmail: a.string(),
-      reporterUserId: a.string(),
-      screenshotKey: a.string(),
-    })
-    .secondaryIndexes((index) => [
-      index('issueNumber').queryField('getIssueByNumber'),
-      index('reporterUserId'), // For rate limiting queries
-    ])
-    .authorization((allow) => [
-      allow.authenticated().to(['read']),
-      allow.publicApiKey().to(['read']),
     ]),
 
   // Custom mutation for accepting invitations with elevated permissions
@@ -347,31 +324,19 @@ const schema = a.schema({
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(getUserInvitations)),
 
-  // Custom mutation for submitting bug reports via email
-  submitBugReport: a
+  // Custom mutation for filing a bug report as a GitHub Issue
+  createGitHubIssue: a
     .mutation()
     .arguments({
+      type: a.string().required(),
+      severity: a.string().required(),
       description: a.string().required(),
       steps: a.string(),
-      severity: a.string().required(),
       systemInfo: a.string(),
-      screenshotKey: a.string(),
     })
     .returns(a.json())
     .authorization((allow) => [allow.authenticated()])
-    .handler(a.handler.function(sendBugReport)),
-
-  // Custom mutation for updating issue status (AI agent + authenticated users)
-  updateIssueStatus: a
-    .mutation()
-    .arguments({
-      issueNumber: a.integer().required(),
-      status: a.string().required(),
-      resolution: a.string(),
-    })
-    .returns(a.json())
-    .authorization((allow) => [allow.publicApiKey(), allow.authenticated()])
-    .handler(a.handler.function(updateIssueStatus)),
+    .handler(a.handler.function(createGitHubIssue)),
 });
 
 export type Schema = ClientSchema<typeof schema>;
@@ -380,9 +345,6 @@ export const data = defineData({
   schema,
   authorizationModes: {
     defaultAuthorizationMode: "userPool",
-    apiKeyAuthorizationMode: {
-      expiresInDays: 365,
-    },
   },
 });
 
