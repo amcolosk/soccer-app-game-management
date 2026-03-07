@@ -375,6 +375,21 @@ describe("BugReport – submission", () => {
     const systemInfo = JSON.parse(arg.systemInfo);
     expect(systemInfo.url).toBe(window.location.href);
   });
+
+  it("does not show success screen when API returns errors array", async () => {
+    mockCreateGitHubIssue.mockResolvedValue({
+      data: null,
+      errors: [{ message: "Rate limit exceeded. Try again later." }],
+    });
+    const user = userEvent.setup();
+    renderBugReport();
+
+    await user.type(screen.getByRole("textbox", { name: /what went wrong/i }), "Crash");
+    await user.click(screen.getByRole("button", { name: /submit report/i }));
+
+    await waitFor(() => expect(mockHandleApiError).toHaveBeenCalled());
+    expect(screen.queryByText(/thank you/i)).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
