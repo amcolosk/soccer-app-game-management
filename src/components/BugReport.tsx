@@ -1,7 +1,5 @@
 import { useState } from 'react';
 import { generateClient } from 'aws-amplify/data';
-import { uploadData } from 'aws-amplify/storage';
-import { fetchAuthSession } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
 import { showWarning } from '../utils/toast';
 import { handleApiError } from '../utils/errorHandler';
@@ -17,16 +15,6 @@ interface BugReportProps {
 const MAX_DESCRIPTION_LENGTH = 5000;
 const MAX_STEPS_LENGTH = 10000;
 
-function validateScreenshot(file: File): string | null {
-  if (!['image/png', 'image/jpeg'].includes(file.type)) {
-    return 'Only PNG and JPEG screenshots are supported';
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    return 'Screenshot must be under 5 MB';
-  }
-  return null;
-}
-
 export function BugReport({ onClose, debugContext }: BugReportProps) {
   const [description, setDescription] = useState('');
   const [steps, setSteps] = useState('');
@@ -34,9 +22,7 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [issueNumber, setIssueNumber] = useState<number | null>(null);
-  const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
-  const [screenshotError, setScreenshotError] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
+  const [issueUrl, setIssueUrl] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
 
   function handleCopySnapshot() {
@@ -52,18 +38,6 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
     });
   }
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
-    if (!file) {
-      setScreenshotFile(null);
-      setScreenshotError(null);
-      return;
-    }
-    const err = validateScreenshot(file);
-    setScreenshotError(err);
-    setScreenshotFile(err ? null : file);
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -77,34 +51,9 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
       return;
     }
 
-    if (screenshotError) return;
-
     setIsSubmitting(true);
 
     try {
-      // Upload screenshot to S3 first (identity-scoped path prevents cross-user overwrite)
-      let screenshotKey: string | undefined;
-      if (screenshotFile) {
-        const ext = screenshotFile.type === 'image/png' ? 'png' : 'jpg';
-        setIsUploading(true);
-        try {
-          const session = await fetchAuthSession();
-          const identityId = session.identityId;
-          if (!identityId) throw new Error('Could not resolve identity for upload');
-          const path = `bug-screenshots/${identityId}/${crypto.randomUUID()}.${ext}`;
-          await uploadData({
-            path,
-            data: screenshotFile,
-            options: { contentType: screenshotFile.type },
-          }).result;
-          screenshotKey = path;
-        } catch {
-          showWarning('Screenshot could not be uploaded — submitting report without it');
-        } finally {
-          setIsUploading(false);
-        }
-      }
-
       // Collect system information
       const systemInfo = {
         userAgent: navigator.userAgent,
@@ -115,33 +64,30 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
         version: import.meta.env.VITE_APP_VERSION || '1.1.0',
       };
 
-      // Send bug report via email (Lambda + SES) and create Issue record
-      const result = await client.mutations.submitBugReport({
+      // Send bug report to GitHub Issues via Lambda
+      const result = await client.mutations.createGitHubIssue({
+        type: severity === 'feature-request' ? 'FEATURE_REQUEST' : 'BUG',
         description,
         steps: steps || undefined,
         severity,
         systemInfo: JSON.stringify(systemInfo),
-        screenshotKey,
       });
 
-      // Parse response to get issue number (AWSJSON may be double-encoded)
+      // Parse response to get issue number and URL
       try {
         let parsed: unknown = result.data;
         while (typeof parsed === 'string') {
           parsed = JSON.parse(parsed);
         }
-        const issueNum = (parsed as Record<string, unknown>)?.issueNumber;
-        if (typeof issueNum === 'number') {
-          setIssueNumber(issueNum);
-        }
+        const data = parsed as Record<string, unknown>;
+        if (typeof data?.issueNumber === 'number') setIssueNumber(data.issueNumber);
+        if (typeof data?.issueUrl === 'string') setIssueUrl(data.issueUrl);
       } catch {
         // Response parsing is best-effort; submission still succeeded
       }
 
       setIsSubmitted(true);
-      setTimeout(() => {
-        onClose();
-      }, 2000);
+      // No auto-close — user may want to follow the GitHub issue link
     } catch (error) {
       handleApiError(error, 'Failed to submit bug report. Please try again.');
     } finally {
@@ -158,16 +104,30 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
             <h3>Thank you!</h3>
             <p>
               {issueNumber
-                ? `Your report has been submitted as Issue #${issueNumber}.`
+                ? `Your report has been filed as GitHub Issue #${issueNumber}.`
                 : 'Your bug report has been submitted successfully.'}
             </p>
+            {issueUrl && (
+              <a
+                href={issueUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary"
+                style={{ display: 'inline-block', marginTop: '12px' }}
+              >
+                View on GitHub
+              </a>
+            )}
+            <button onClick={onClose} className="btn-primary" style={{ marginTop: '12px' }}>
+              Close
+            </button>
           </div>
         </div>
       </div>
     );
   }
 
-  const isBusy = isSubmitting || isUploading;
+  const isBusy = isSubmitting;
 
   return (
     <div className="bug-report-overlay" onClick={onClose}>
@@ -233,38 +193,6 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
           </div>
 
           <div className="form-group">
-            <label>Screenshot (optional)</label>
-            <div className="screenshot-upload-area">
-              <label htmlFor="screenshot" className="screenshot-attach-btn">
-                📎 Attach screenshot
-              </label>
-              <input
-                id="screenshot"
-                type="file"
-                accept="image/png, image/jpeg"
-                onChange={handleFileChange}
-                disabled={isBusy}
-                className="screenshot-file-input"
-              />
-              <p className="screenshot-hint">PNG or JPEG, max 5 MB</p>
-            </div>
-            {screenshotError && <p className="screenshot-error">{screenshotError}</p>}
-            {screenshotFile && !screenshotError && (
-              <div className="screenshot-preview-row">
-                <span>🖼 {screenshotFile.name} ({(screenshotFile.size / 1024 / 1024).toFixed(1)} MB)</span>
-                <button
-                  type="button"
-                  onClick={() => { setScreenshotFile(null); setScreenshotError(null); }}
-                  aria-label="Remove screenshot"
-                  disabled={isBusy}
-                >
-                  ✕
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="form-group">
             <label htmlFor="severity">Severity</label>
             <select
               id="severity"
@@ -297,9 +225,9 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
             <button
               type="submit"
               className="btn-primary"
-              disabled={isBusy || screenshotError !== null}
+              disabled={isBusy}
             >
-              {isUploading ? 'Uploading screenshot…' : isSubmitting ? 'Submitting…' : 'Submit Report'}
+              {isSubmitting ? 'Submitting…' : 'Submit Report'}
             </button>
           </div>
         </form>

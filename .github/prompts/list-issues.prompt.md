@@ -1,50 +1,45 @@
 ---
 mode: agent
 tools: ['runInTerminal']
-description: Fetch and display all OPEN and IN_PROGRESS issues from the TeamTrack issue tracker, sorted by severity and issue number.
+description: Fetch and display all open TeamTrack bug reports from GitHub Issues.
 ---
 
 # List Open Issues
 
-Fetch and display all OPEN and IN_PROGRESS issues from the TeamTrack issue tracker.
+Fetch and display open TeamTrack bug reports from GitHub Issues.
 
 ## Steps
 
-1. **Env check** — Load `.env.local` to set `APPSYNC_URL` and `API_KEY` into the current session:
+1. **Env check** - Verify `GITHUB_TOKEN` and `GITHUB_REPO` are set. If either is missing, print a clear error naming the absent variable and stop. Do not print the token value.
+
+2. **Fetch issues** - Run:
    ```powershell
-   Get-Content .env.local | ForEach-Object {
-     if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
-       [System.Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim(), 'Process')
-     }
-   }
+   $env:GH_TOKEN = $env:GITHUB_TOKEN
+   gh issue list --repo $env:GITHUB_REPO `
+     --label bug `
+     --state open `
+     --json number,title,labels,createdAt `
+     --limit 100
    ```
-   If either variable is still missing after loading, stop and print an error directing the user to check `.env.local` and `amplify_outputs.json`.
 
-2. **Fetch issues** — Make two GraphQL POST requests to `$env:APPSYNC_URL` with header `x-api-key: $env:API_KEY`:
+3. **Sort** - By severity label: `severity:high` first, then `severity:medium`, `severity:low`, then issue number ascending.
 
-   - Filter `status: { eq: OPEN }`
-   - Filter `status: { eq: IN_PROGRESS }`
-
-   Fields to retrieve: `issueNumber`, `severity`, `status`, `description`, `createdAt`
-
-3. **Merge and sort** — Combine both result sets. Sort by:
-   - Severity order: `high` → `medium` → `low` → `feature-request`
-   - Within the same severity, sort by `issueNumber` ascending (oldest first)
-
-4. **Display as table** — Print a formatted table:
+4. **Display as table**:
    ```
-   #     | Sev             | Status      | Age   | Description
-   ------|-----------------|-------------|-------|------------------------------------------------------------
-   42    | high            | OPEN        | 3d    | Button click crashes the app on iOS (tru...
-   17    | medium          | IN_PROGRESS | 12h   | Timer doesn't pause at halftime correctly
+   #  | Sev    | Status       | Age  | Title (first 70 chars)
+   ---|--------|--------------|------|-----------------------------
+   42 | high   | in-progress  | 2d   | Timer resets at halftime
+   17 | medium | open         | 5h   | Player select shows wrong list
    ```
-   - **#**: issueNumber
-   - **Sev**: severity as-is
-   - **Status**: status value
-   - **Age**: `Xd` for days, `Xh` for hours since `createdAt`
-   - **Description**: first 80 characters, truncated with `...` if longer
+   - **#**: issue number
+   - **Sev**: highest `severity:*` label, or `unknown` if absent
+   - **Status**: `in-progress` if the issue has a `status:in-progress` label, else `open`
+   - **Age**: time since `createdAt` - Xd for days, Xh for hours
+   - **Title**: first 70 chars, truncated with `...` if longer
 
 5. **Print summary** after the table:
    ```
-   Total: X OPEN, Y IN_PROGRESS
+   Total - open: N, in-progress: N
    ```
+
+> Do **not** print `GITHUB_TOKEN` in any output.
