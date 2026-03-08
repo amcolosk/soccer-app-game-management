@@ -14,7 +14,7 @@ async function navigateToProfile(page: Page) {
     const okButton = page.locator('.update-prompt button:has-text("OK")');
     await okButton.click({ timeout: 1000 });
     await page.waitForTimeout(300);
-  } catch (e) {
+  } catch {
     // Prompt not present
   }
   

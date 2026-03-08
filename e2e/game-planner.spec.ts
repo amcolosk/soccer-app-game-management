@@ -415,7 +415,7 @@ async function verifyTimeline(page: Page) {
   // Check that HT (halftime) marker exists (with longer timeout for observeQuery to update)
   try {
     await expect(page.locator('.planner-timeline-pill--halftime')).toBeVisible({ timeout: 10000 });
-  } catch (e) {
+  } catch {
     console.warn('⚠ Halftime marker not found - this might be expected for shorter games');
   }
   
