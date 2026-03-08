@@ -207,7 +207,11 @@ export function HelpModal({ helpContext, onClose, onNavigate }: HelpModalProps) 
                     type="button"
                     className="help-related-pill"
                     onClick={() => {
-                      onNavigate ? onNavigate(key) : onClose();
+                      if (onNavigate) {
+                        onNavigate(key);
+                      } else {
+                        onClose();
+                      }
                     }}
                   >
                     {HELP_CONTENT[key]?.screenTitle ?? key}

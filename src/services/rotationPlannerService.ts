@@ -602,7 +602,7 @@ export function validateRotationPlan(
     let subs: PlannedSubstitution[] = [];
     try {
       subs = JSON.parse(rotation.plannedSubstitutions as string);
-    } catch (e) {
+    } catch {
       errors.push(`Rotation ${rotation.rotationNumber}: Failed to parse substitutions data`);
       return;
     }

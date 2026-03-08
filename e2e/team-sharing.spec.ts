@@ -225,7 +225,7 @@ test.describe.serial('Team Sharing and Collaboration', () => {
         try {
           await page.waitForSelector('button:has-text("Skip")', { timeout: 2000 });
           await clickButton(page, 'Skip');
-        } catch (e) {
+        } catch {
           // Skip button may not appear
         }
         

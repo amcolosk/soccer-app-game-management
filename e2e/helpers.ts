@@ -105,7 +105,7 @@ export async function closePWAPrompt(page: Page) {
       
       await expect(overlay).not.toBeVisible({ timeout: 5000 });
     }
-  } catch (e) {
+  } catch {
     // Prompt may not appear or already closed
   }
 }

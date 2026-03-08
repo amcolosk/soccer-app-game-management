@@ -12,10 +12,12 @@ export function UpdatePrompt() {
     onRegistered(r) {
       console.log('SW Registered:', r);
       // Check for updates every 60 seconds
-      r && setInterval(() => {
-        console.log('Checking for updates...');
-        r.update();
-      }, 60000);
+      if (r) {
+        setInterval(() => {
+          console.log('Checking for updates...');
+          r.update();
+        }, 60000);
+      }
     },
     onRegisterError(error) {
       console.log('SW registration error:', error);

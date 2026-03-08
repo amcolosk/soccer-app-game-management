@@ -37,7 +37,7 @@ test.describe('Authentication', () => {
     try {
       await page.waitForSelector('button:has-text("Skip")', { timeout: 5000 });
       await clickButton(page, 'Skip');
-    } catch (e) {
+    } catch {
       // Skip button may not appear if already verified
     }
     
@@ -74,7 +74,7 @@ test.describe('Authentication', () => {
     try {
       await page.waitForSelector('button:has-text("Skip")', { timeout: 5000 });
       await clickButton(page, 'Skip');
-    } catch (e) {
+    } catch {
       // Skip button may not appear if already verified
     }
     
