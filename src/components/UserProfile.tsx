@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuthenticator } from '@aws-amplify/ui-react';
 import { useOutletContext } from 'react-router-dom';
 import { updatePassword, deleteUser, fetchUserAttributes } from 'aws-amplify/auth';
@@ -12,6 +12,8 @@ import {
 } from '../services/invitationService';
 import { useConfirm } from './ConfirmModal';
 import { useHelpFab } from '../contexts/HelpFabContext';
+import { buildFlatDebugSnapshot } from '../utils/debugUtils';
+import type { UserProfileDebugContext } from '../types/debug';
 
 const client = generateClient<Schema>();
 
@@ -19,7 +21,7 @@ export function UserProfile() {
   const confirm = useConfirm();
   const { user } = useAuthenticator();
   const { signOut } = useOutletContext<{ signOut: () => void }>();
-  const { setHelpContext } = useHelpFab();
+  const { setHelpContext, setDebugContext } = useHelpFab();
 
   // Register 'profile' help context while this screen is mounted.
   // @help-content: profile
@@ -40,6 +42,28 @@ export function UserProfile() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [loadingInvitations, setLoadingInvitations] = useState(false);
   const [userEmail, setUserEmail] = useState('');
+
+  const userProfileDebugContext = useMemo((): UserProfileDebugContext => {
+    const atIndex = userEmail.indexOf('@');
+    const emailDomain = atIndex >= 0 ? userEmail.slice(atIndex + 1) : '(loading)';
+    return {
+      emailDomain,
+      pendingInvitationCount: pendingInvitations.teamInvitations.length,
+      invitationTeamCount: teams.length,
+      isChangingPassword,
+      isDeletingAccount,
+    };
+  }, [userEmail, pendingInvitations, teams, isChangingPassword, isDeletingAccount]);
+
+  const userProfileDebugSnapshot = useMemo(
+    () => buildFlatDebugSnapshot('User Profile Debug Snapshot', { ...userProfileDebugContext }),
+    [userProfileDebugContext]
+  );
+
+  useEffect(() => {
+    setDebugContext(userProfileDebugSnapshot);
+    return () => setDebugContext(null);
+  }, [userProfileDebugSnapshot, setDebugContext]);
 
   useEffect(() => {
     loadPendingInvitations();
