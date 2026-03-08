@@ -31,12 +31,12 @@ test.describe('Issue Tracking', () => {
     await page.fill('#description', uniqueDescription);
     await page.selectOption('#severity', 'low');
 
-    // 5. Intercept the submitBugReport mutation response to capture the issue number
+    // 5. Intercept the createGitHubIssue mutation response to capture the issue number
     const responsePromise = page.waitForResponse(async (resp) => {
       if (!resp.url().includes('appsync-api') || resp.request().method() !== 'POST') return false;
       try {
         const body = resp.request().postDataJSON();
-        return body?.query?.includes('submitBugReport') ?? false;
+        return body?.query?.includes('createGitHubIssue') ?? false;
       } catch {
         return false;
       }
@@ -51,12 +51,12 @@ test.describe('Issue Tracking', () => {
 
     // Check for Lambda errors
     if (responseBody.errors?.length) {
-      console.error('submitBugReport mutation failed:', JSON.stringify(responseBody.errors, null, 2));
+      console.error('createGitHubIssue mutation failed:', JSON.stringify(responseBody.errors, null, 2));
     }
     expect(responseBody.errors).toBeFalsy();
 
     // AWSJSON scalar may double-encode: parse until we get an object
-    let parsed: unknown = responseBody.data.submitBugReport;
+    let parsed: unknown = responseBody.data.createGitHubIssue;
     while (typeof parsed === 'string') {
       try { parsed = JSON.parse(parsed); } catch { break; }
     }
@@ -135,7 +135,7 @@ test.describe('agent status restrictions', () => {
       if (!resp.url().includes('appsync-api') || resp.request().method() !== 'POST') return false;
       try {
         const body = resp.request().postDataJSON();
-        return body?.query?.includes('submitBugReport') ?? false;
+        return body?.query?.includes('createGitHubIssue') ?? false;
       } catch {
         return false;
       }
@@ -146,7 +146,7 @@ test.describe('agent status restrictions', () => {
     const graphqlResponse = await responsePromise;
     const responseBody = await graphqlResponse.json();
 
-    let parsed: unknown = responseBody.data.submitBugReport;
+    let parsed: unknown = responseBody.data.createGitHubIssue;
     while (typeof parsed === 'string') {
       try { parsed = JSON.parse(parsed); } catch { break; }
     }
