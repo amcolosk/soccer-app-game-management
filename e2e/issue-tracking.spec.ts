@@ -15,8 +15,10 @@ const amplifyOutputs = JSON.parse(
 );
 
 test.describe('Issue Tracking', () => {
-  test('submitted bug report creates an issue retrievable via API key', async ({ page, request }) => {
+  test('submitted bug report shows success UI with issue number', async ({ page }) => {
     test.setTimeout(TEST_CONFIG.timeout.medium);
+
+    const FAKE_ISSUE_NUMBER = 9999;
 
     // 1. Login
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
@@ -26,84 +28,43 @@ test.describe('Issue Tracking', () => {
     await page.getByRole('menuitem', { name: 'Report a Bug' }).click();
     await page.waitForSelector('.bug-report-modal', { state: 'visible', timeout: 5000 });
 
-    // 4. Fill out the bug report form with a unique description
+    // 3. Fill out the bug report form with a unique description
     const uniqueDescription = `E2E Test Issue ${Date.now()}`;
     await page.fill('#description', uniqueDescription);
     await page.selectOption('#severity', 'low');
 
-    // 5. Intercept the createGitHubIssue mutation response to capture the issue number
-    const responsePromise = page.waitForResponse(async (resp) => {
-      if (!resp.url().includes('appsync-api') || resp.request().method() !== 'POST') return false;
-      try {
-        const body = resp.request().postDataJSON();
-        return body?.query?.includes('createGitHubIssue') ?? false;
-      } catch {
-        return false;
+    // 4. Intercept the createGitHubIssue mutation so no real GitHub issue is created.
+    //    Capture the request body so we can assert the correct payload was sent.
+    let interceptedVariables: Record<string, unknown> | undefined;
+    await page.route('**appsync-api**', async (route, request) => {
+      const body = request.postDataJSON() as Record<string, unknown> | null;
+      if (body?.query && String(body.query).includes('createGitHubIssue')) {
+        interceptedVariables = body.variables as Record<string, unknown>;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            data: { createGitHubIssue: JSON.stringify({ issueNumber: FAKE_ISSUE_NUMBER }) },
+          }),
+        });
+      } else {
+        await route.continue();
       }
     });
 
-    // 6. Submit the report
+    // 5. Submit the report
     await clickButton(page, 'Submit Report');
 
-    // 7. Capture the issue number from the mutation response
-    const graphqlResponse = await responsePromise;
-    const responseBody = await graphqlResponse.json();
-
-    // Check for Lambda errors
-    if (responseBody.errors?.length) {
-      console.error('createGitHubIssue mutation failed:', JSON.stringify(responseBody.errors, null, 2));
-    }
-    expect(responseBody.errors).toBeFalsy();
-
-    // AWSJSON scalar may double-encode: parse until we get an object
-    let parsed: unknown = responseBody.data.createGitHubIssue;
-    while (typeof parsed === 'string') {
-      try { parsed = JSON.parse(parsed); } catch { break; }
-    }
-    const issueNumber = (parsed as Record<string, unknown>)?.issueNumber;
-    expect(issueNumber).toBeTruthy();
-    console.log(`Bug report submitted as Issue #${issueNumber}`);
-
-    // 8. Wait for success UI confirmation
+    // 6. Verify the success UI shows the faked issue number
     const successEl = page.locator('.bug-report-success');
     await expect(successEl).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(`GitHub Issue #${FAKE_ISSUE_NUMBER}`)).toBeVisible();
 
-    // 9. Query the issue via API key (no Cognito token needed)
-    const { url: appsyncUrl, api_key: apiKey } = amplifyOutputs.data;
-
-    const response = await request.post(appsyncUrl, {
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-      },
-      data: {
-        query: `query GetIssueByNumber {
-          getIssueByNumber(issueNumber: ${issueNumber}) {
-            items {
-              issueNumber
-              description
-              status
-              type
-              severity
-            }
-          }
-        }`,
-      },
-    });
-
-    expect(response.ok()).toBeTruthy();
-    const body = await response.json();
-    const items = body.data.getIssueByNumber.items;
-    expect(items.length).toBe(1);
-
-    const issue = items[0];
-    expect(issue.issueNumber).toBe(issueNumber);
-    expect(issue.description).toContain(uniqueDescription);
-    expect(issue.status).toBe('OPEN');
-    expect(issue.type).toBe('BUG');
-    expect(issue.severity).toBe('low');
-
-    console.log(`Issue #${issueNumber} verified via API key query`);
+    // 7. Assert the mutation was called with the correct payload
+    expect(interceptedVariables).toBeTruthy();
+    expect(interceptedVariables?.description).toContain(uniqueDescription);
+    expect(interceptedVariables?.severity).toBe('low');
+    expect(interceptedVariables?.type).toBe('BUG');
   });
 });
 
