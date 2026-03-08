@@ -316,8 +316,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
       await Promise.all(updates);
 
-      showSuccess('Rotations recalculated based on current availability! Review each rotation to verify.');
-    } catch (error) {
+      showSuccess('Rotations recalculated based on current availability! Review each rotation to verify.');      trackEvent(AnalyticsEvents.ROTATION_RECALCULATED.category, AnalyticsEvents.ROTATION_RECALCULATED.action);    } catch (error) {
       handleApiError(error, 'Failed to recalculate rotations');
     } finally {
       setIsRecalculating(false);
@@ -357,6 +356,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       } else {
         showInfo(`${playerName} marked as injured and removed from the field.`);
       }
+      trackEvent(AnalyticsEvents.PLAYER_MARKED_INJURED.category, AnalyticsEvents.PLAYER_MARKED_INJURED.action);
 
       // Prompt to substitute if the position is now empty
       if (assignment) {
@@ -493,6 +493,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       
       // Ensure current time stays at halftime value
       setCurrentTime(halftimeSeconds);
+      trackEvent(AnalyticsEvents.GAME_HALFTIME.category, AnalyticsEvents.GAME_HALFTIME.action);
     } catch (error) {
       handleApiError(error, 'Failed to set halftime');
       halftimeInProgressRef.current = false; // Reset on error so user can retry
@@ -572,6 +573,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       setCurrentTime(resumeTime);
       console.log(`Resuming game at time ${resumeTime}s`);
       setIsRunning(true);
+      trackEvent(AnalyticsEvents.GAME_SECOND_HALF_STARTED.category, AnalyticsEvents.GAME_SECOND_HALF_STARTED.action);
     } catch (error) {
       handleApiError(error, 'Failed to start second half');
     }
@@ -676,6 +678,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           if (!confirmed) return;
           try {
             await deleteGameCascade(game.id);
+            trackEvent(AnalyticsEvents.GAME_DELETED.category, AnalyticsEvents.GAME_DELETED.action);
             onBack();
           } catch (error) {
             handleApiError(error, 'Failed to delete game');
@@ -738,7 +741,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           plannedRotations={plannedRotations}
           onPauseTimer={handlePauseTimer}
           onResumeTimer={handleResumeTimer}
-          onShowRotationModal={() => setRotationModalOpen(true)}
+          onShowRotationModal={() => { setRotationModalOpen(true); trackEvent(AnalyticsEvents.ROTATION_WIDGET_OPENED.category, AnalyticsEvents.ROTATION_WIDGET_OPENED.action); }}
         />
 
         {/* Rotation and late-arrival modals (always mounted for in-progress) */}
@@ -756,7 +759,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           substitutionQueue={substitutionQueue}
           onQueueSubstitution={handleQueueSubstitution}
           isRotationModalOpen={rotationModalOpen}
-          onOpenRotationModal={() => setRotationModalOpen(true)}
+          onOpenRotationModal={() => { setRotationModalOpen(true); trackEvent(AnalyticsEvents.ROTATION_WIDGET_OPENED.category, AnalyticsEvents.ROTATION_WIDGET_OPENED.action); }}
           onCloseRotationModal={() => setRotationModalOpen(false)}
         />
 

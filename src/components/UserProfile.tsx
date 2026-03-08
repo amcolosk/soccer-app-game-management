@@ -11,6 +11,7 @@ import {
   declineTeamInvitation,
 } from '../services/invitationService';
 import { useConfirm } from './ConfirmModal';
+import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { useHelpFab } from '../contexts/HelpFabContext';
 import { buildFlatDebugSnapshot } from '../utils/debugUtils';
 import type { UserProfileDebugContext } from '../types/debug';
@@ -105,6 +106,7 @@ export function UserProfile() {
     try {
       await acceptTeamInvitation(invitationId);
       setMessage({ type: 'success', text: 'Team invitation accepted!' });
+      trackEvent(AnalyticsEvents.INVITATION_ACCEPTED.category, AnalyticsEvents.INVITATION_ACCEPTED.action);
       await loadPendingInvitations();
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to accept invitation' });
@@ -123,6 +125,7 @@ export function UserProfile() {
     try {
       await declineTeamInvitation(invitationId);
       setMessage({ type: 'success', text: 'Invitation declined' });
+      trackEvent(AnalyticsEvents.INVITATION_DECLINED.category, AnalyticsEvents.INVITATION_DECLINED.action);
       await loadPendingInvitations();
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to decline invitation' });
@@ -151,6 +154,7 @@ export function UserProfile() {
       setOldPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      trackEvent(AnalyticsEvents.PASSWORD_CHANGED.category, AnalyticsEvents.PASSWORD_CHANGED.action);
     } catch (error) {
       console.error('Error changing password:', error);
       setMessage({
@@ -185,6 +189,7 @@ export function UserProfile() {
     setMessage(null);
 
     try {
+      trackEvent(AnalyticsEvents.ACCOUNT_DELETED.category, AnalyticsEvents.ACCOUNT_DELETED.action);
       await deleteUser();
       // User will be automatically signed out after deletion
     } catch (error) {

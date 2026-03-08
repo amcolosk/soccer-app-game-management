@@ -1,6 +1,7 @@
 import { updatePlayerAvailability } from "../services/rotationPlannerService";
 import { useAvailability } from "../contexts/AvailabilityContext";
 import { handleApiError } from "../utils/errorHandler";
+import { trackEvent, AnalyticsEvents } from "../utils/analytics";
 
 interface Player {
   id: string;
@@ -92,6 +93,7 @@ export function PlayerAvailabilityGrid({
 
     try {
       await updatePlayerAvailability(gameId, playerId, newStatus, undefined, coaches, availableFromMinute, availableUntilMinute);
+      trackEvent(AnalyticsEvents.AVAILABILITY_MARKED.category, AnalyticsEvents.AVAILABILITY_MARKED.action, newStatus);
     } catch (error) {
       handleApiError(error, 'Failed to update player availability');
     }

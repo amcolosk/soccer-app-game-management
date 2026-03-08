@@ -5,6 +5,7 @@ import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
 import type { Game, Team } from '../types/schema';
 import { showError, showWarning } from '../utils/toast';
+import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { handleApiError, logError } from '../utils/errorHandler';
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
 import { useHelpFab } from '../contexts/HelpFabContext';
@@ -148,7 +149,7 @@ export function Home() {
       setIsHome(true);
       setSelectedTeamForGame('');
       setIsCreatingGame(false);
-      
+      trackEvent(AnalyticsEvents.GAME_CREATED.category, AnalyticsEvents.GAME_CREATED.action);
       console.log('✓ Game created successfully:', gameData);
     } catch (error) {
       handleApiError(error, 'Failed to create game');

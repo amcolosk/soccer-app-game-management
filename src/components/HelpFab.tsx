@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { BugReport } from './BugReport';
 import { HelpModal } from './HelpModal';
 import { useHelpFab } from '../contexts/HelpFabContext';
+import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import './HelpFab.css';
 
 export function HelpFab() {
@@ -78,11 +79,13 @@ export function HelpFab() {
   }
 
   function handleOpenBugReport() {
+    trackEvent(AnalyticsEvents.BUG_REPORT_OPENED.category, AnalyticsEvents.BUG_REPORT_OPENED.action);
     openBugReportAfterClose.current = true;
     closeSheet();
   }
 
   function handleOpenHelp() {
+    if (helpContext) trackEvent(AnalyticsEvents.HELP_OPENED.category, AnalyticsEvents.HELP_OPENED.action, helpContext);
     openHelpAfterClose.current = true;
     closeSheet();
   }

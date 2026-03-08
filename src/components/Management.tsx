@@ -251,7 +251,7 @@ export function Management() {
   const handleDeleteTeam = (id: string) => confirmAndDelete(confirm, {
     title: 'Delete Team',
     message: 'Are you sure you want to delete this team? This will also delete all players, positions, and games.',
-    deleteFn: () => deleteTeamCascade(id),
+    deleteFn: async () => { await deleteTeamCascade(id); trackEvent(AnalyticsEvents.TEAM_DELETED.category, AnalyticsEvents.TEAM_DELETED.action); },
     entityName: 'team',
   });
 
@@ -317,6 +317,7 @@ export function Management() {
 
       rosterDispatch({ type: 'RESET' });
       setBirthYearFilters([]);
+      trackEvent(AnalyticsEvents.PLAYER_ADDED_TO_ROSTER.category, AnalyticsEvents.PLAYER_ADDED_TO_ROSTER.action);
     } catch (error) {
       handleApiError(error, 'Failed to add player to roster');
     }
@@ -396,7 +397,7 @@ export function Management() {
   const handleDeletePlayer = (id: string) => confirmAndDelete(confirm, {
     title: 'Delete Player',
     message: 'Are you sure you want to delete this player? This will remove them from all team rosters.',
-    deleteFn: () => deletePlayerCascade(id),
+    deleteFn: async () => { await deletePlayerCascade(id); trackEvent(AnalyticsEvents.PLAYER_DELETED.category, AnalyticsEvents.PLAYER_DELETED.action); },
     entityName: 'player',
   });
 
@@ -505,6 +506,7 @@ export function Management() {
         await createFormationPositions(formation.data.id, formationForm.positions, [currentUserId]);
       }
       formationDispatch({ type: 'RESET' });
+      trackEvent(AnalyticsEvents.FORMATION_CREATED.category, AnalyticsEvents.FORMATION_CREATED.action);
     } catch (error) {
       handleApiError(error, 'Failed to create formation');
     }
@@ -613,7 +615,7 @@ export function Management() {
   const handleDeleteFormation = (id: string) => confirmAndDelete(confirm, {
     title: 'Delete Formation',
     message: 'Are you sure you want to delete this formation? This will also delete all positions in the formation.',
-    deleteFn: () => deleteFormationCascade(id),
+    deleteFn: async () => { await deleteFormationCascade(id); trackEvent(AnalyticsEvents.FORMATION_DELETED.category, AnalyticsEvents.FORMATION_DELETED.action); },
     entityName: 'formation',
   });
 

@@ -3,6 +3,7 @@ import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import { showWarning } from '../utils/toast';
 import { handleApiError } from '../utils/errorHandler';
+import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 
 const client = generateClient<Schema>();
 
@@ -92,6 +93,7 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
       }
 
       setIsSubmitted(true);
+      trackEvent(AnalyticsEvents.BUG_REPORT_SUBMITTED.category, AnalyticsEvents.BUG_REPORT_SUBMITTED.action, severity);
       // No auto-close — user may want to follow the GitHub issue link
     } catch (error) {
       handleApiError(error, 'Failed to submit bug report. Please try again.');

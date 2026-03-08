@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
 import { showWarning } from "../../utils/toast";
+import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
 import { handleApiError } from "../../utils/errorHandler";
 import { useConfirm } from "../ConfirmModal";
 import {
@@ -136,6 +137,7 @@ export function SubstitutionPanel({
       }
 
       onQueueChange([]);
+      trackEvent(AnalyticsEvents.ALL_SUBSTITUTIONS_EXECUTED.category, AnalyticsEvents.ALL_SUBSTITUTIONS_EXECUTED.action);
     } catch (error) {
       handleApiError(error, 'Failed to execute all substitutions. Some may have been completed.');
     }
@@ -168,6 +170,7 @@ export function SubstitutionPanel({
       );
 
       handleRemoveFromQueue(newPlayerId, positionId);
+      trackEvent(AnalyticsEvents.SUBSTITUTION_MADE.category, AnalyticsEvents.SUBSTITUTION_MADE.action);
     } catch (error) {
       handleApiError(error, 'Failed to make substitution');
     }
@@ -198,6 +201,7 @@ export function SubstitutionPanel({
 
       setShowSubstitution(false);
       setSubstitutionPosition(null);
+      trackEvent(AnalyticsEvents.SUBSTITUTION_MADE.category, AnalyticsEvents.SUBSTITUTION_MADE.action);
     } catch (error) {
       handleApiError(error, 'Failed to make substitution');
     }
