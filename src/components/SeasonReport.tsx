@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import type { Team, Player, TeamRoster, Goal, GameNote, PlayTimeRecord, Game } from '../types/schema';
@@ -21,6 +21,8 @@ import {
 } from "../utils/gameCalculations";
 import { useAmplifyQuery } from "../hooks/useAmplifyQuery";
 import { useHelpFab } from "../contexts/HelpFabContext";
+import { buildFlatDebugSnapshot } from "../utils/debugUtils";
+import type { SeasonReportDebugContext } from "../types/debug";
 
 const client = generateClient<Schema>();
 
@@ -51,7 +53,7 @@ interface PlayerDetails {
 }
 
 export function TeamReport({ team }: TeamReportProps) {
-  const { setHelpContext } = useHelpFab();
+  const { setHelpContext, setDebugContext } = useHelpFab();
 
   // Register 'season-reports' help context while this screen is mounted.
   // @help-content: season-reports
@@ -84,6 +86,29 @@ export function TeamReport({ team }: TeamReportProps) {
   // Track sync status for Phase 2 data (fetched via list(), not observeQuery)
   const [phase2Synced, setPhase2Synced] = useState(false);
   const allSynced = rostersSynced && playersSynced && gamesSynced && positionsSynced && phase2Synced;
+
+  const seasonReportDebugContext = useMemo((): SeasonReportDebugContext => ({
+    teamIdPrefix: team.id.slice(0, 8),
+    teamName: team.name,
+    rosterSize: teamRosters.length,
+    totalGames: allGames.length,
+    completedGames: allGames.filter(g => g.status === 'completed').length,
+    scheduledGames: allGames.filter(g => g.status === 'scheduled' || !g.status).length,
+    allSynced,
+    loading,
+    playerStatsCount: playerStats.length,
+    hasSelectedPlayer: selectedPlayer !== null,
+  }), [team, teamRosters, allGames, allSynced, loading, playerStats, selectedPlayer]);
+
+  const seasonReportDebugSnapshot = useMemo(
+    () => buildFlatDebugSnapshot('Season Report Debug Snapshot', { ...seasonReportDebugContext }),
+    [seasonReportDebugContext]
+  );
+
+  useEffect(() => {
+    setDebugContext(seasonReportDebugSnapshot);
+    return () => setDebugContext(null);
+  }, [seasonReportDebugSnapshot, setDebugContext]);
 
   useEffect(() => {
     trackEvent(AnalyticsEvents.SEASON_REPORT_VIEWED.category, AnalyticsEvents.SEASON_REPORT_VIEWED.action);
@@ -179,14 +204,14 @@ export function TeamReport({ team }: TeamReportProps) {
       }
     };
 
-    loadGameData();
+    void loadGameData();
 
     // Schedule a reload after 2 seconds to catch records missed by
     // eventually consistent DynamoDB Scans. This handles the case where
     // records were written very recently and the initial Scan didn't see them.
     const reloadTimer = setTimeout(() => {
       console.log('[TeamReport] Reloading game data (eventual consistency retry)...');
-      loadGameData();
+      void loadGameData();
     }, 2000);
 
     return () => clearTimeout(reloadTimer);
@@ -496,7 +521,7 @@ export function TeamReport({ team }: TeamReportProps) {
                     key={stat.player.id}
                     onClick={() => {
                       setSelectedRoster(stat.roster);
-                      loadPlayerDetails(stat.player);
+                      void loadPlayerDetails(stat.player);
                     }}
                     className={`clickable-row ${selectedPlayer?.id === stat.player.id ? 'selected' : ''}`}
                   >

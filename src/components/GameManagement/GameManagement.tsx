@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
@@ -26,6 +26,8 @@ import type { Game, Team, FormationPosition, SubQueue } from "./types";
 import { AvailabilityProvider } from "../../contexts/AvailabilityContext";
 import { useHelpFab } from "../../contexts/HelpFabContext";
 import type { HelpScreenKey } from "../../help";
+import { buildFlatDebugSnapshot } from "../../utils/debugUtils";
+import type { GameManagementDebugContext } from "../../types/debug";
 
 const client = generateClient<Schema>();
 
@@ -83,7 +85,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   // gameState is live-updated via observeQuery so this recomputes reactively.
   const halfLengthSeconds = (gameState.halfLengthMinutes ?? team.halfLengthMinutes ?? 30) * 60;
 
-  const { setHelpContext } = useHelpFab();
+  const { setHelpContext, setDebugContext } = useHelpFab();
 
   // Map game status → help key. Reactive: re-runs when game status transitions.
   // @help-content: game-scheduled, game-in-progress, game-halftime, game-completed
@@ -99,6 +101,59 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     if (key) setHelpContext(key);
     return () => setHelpContext(null);
   }, [gameState.status, setHelpContext]);
+
+  const gameManagementDebugContext = useMemo((): GameManagementDebugContext => {
+    const availMap: Record<string, number> = {};
+    for (const a of playerAvailabilities) {
+      const status = a.status ?? 'unknown';
+      availMap[status] = (availMap[status] ?? 0) + 1;
+    }
+    const openPTR = playTimeRecords.filter(r => r.endGameSeconds == null).length;
+    const closedPTR = playTimeRecords.filter(r => r.endGameSeconds != null).length;
+    const starterCount = lineup.filter(l => l.isStarter).length;
+    // planConflictCount: computed via getPlanConflicts() which is a plain function above.
+    // We keep it at 0 here to avoid duplicating complex conflict logic in a useMemo.
+    const planConflictCount = 0;
+
+    return {
+      gameIdPrefix: gameState.id?.slice(0, 8) ?? '(none)',
+      status: gameState.status ?? 'unknown',
+      currentHalf: gameState.currentHalf ?? 1,
+      elapsedSeconds: currentTime,
+      halfLengthSeconds,
+      isRunning,
+      activeTab,
+      rosterSize: players.length,
+      lineupCount: lineup.length,
+      starterCount,
+      openPlayTimeRecordCount: openPTR,
+      closedPlayTimeRecordCount: closedPTR,
+      ourScore: gameState.ourScore ?? 0,
+      opponentScore: gameState.opponentScore ?? 0,
+      goalCount: goals.length,
+      gameNoteCount: gameNotes.length,
+      availabilityByStatus: availMap,
+      planExists: gamePlan !== null,
+      plannedRotationCount: plannedRotations.length,
+      planConflictCount,
+      substitutionQueueLength: substitutionQueue.length,
+    };
+  }, [gameState, currentTime, halfLengthSeconds, isRunning, activeTab, players, lineup,
+      playTimeRecords, goals, gameNotes, playerAvailabilities, gamePlan, plannedRotations,
+      substitutionQueue]);
+
+  const gameManagementDebugSnapshot = useMemo(() => {
+    const { availabilityByStatus, ...flat } = gameManagementDebugContext;
+    return buildFlatDebugSnapshot('Game Management Debug Snapshot', {
+      ...flat,
+      availabilityByStatus,
+    });
+  }, [gameManagementDebugContext]);
+
+  useEffect(() => {
+    setDebugContext(gameManagementDebugSnapshot);
+    return () => setDebugContext(null);
+  }, [gameManagementDebugSnapshot, setDebugContext]);
 
   const getPlayerAvailability = (playerId: string): string => {
     const availability = playerAvailabilities.find(a => a.playerId === playerId);

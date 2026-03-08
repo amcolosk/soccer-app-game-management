@@ -230,7 +230,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     });
 
     // Load previous games once (doesn't need real-time updates)
-    loadPreviousGames();
+    void loadPreviousGames();
 
     return () => {
       gamePlanSub.unsubscribe();
@@ -1326,7 +1326,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                         if (e.target.value) {
                           const newLineup = new Map(currentLineup);
                           newLineup.set(position.id, e.target.value);
-                          handleRotationLineupChange(rotation.rotationNumber, newLineup);
+                          void handleRotationLineupChange(rotation.rotationNumber, newLineup);
                         }
                       }}
                     >

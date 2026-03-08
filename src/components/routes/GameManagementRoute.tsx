@@ -67,7 +67,7 @@ export function GameManagementRoute() {
       }
     }
 
-    loadFromUrl();
+    void loadFromUrl();
   }, [gameId, stateGame, stateTeam]);
 
   if (loading) {

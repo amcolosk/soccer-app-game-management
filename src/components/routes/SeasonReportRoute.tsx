@@ -51,7 +51,7 @@ export function SeasonReportRoute() {
         // Auto-select if there's only one team and no teamId specified
         if (!teamId && !stateTeam && loadedTeams.length === 1) {
           setSelectedTeam(loadedTeams[0]);
-          navigate(`/reports/${loadedTeams[0].id}`, { replace: true });
+          void navigate(`/reports/${loadedTeams[0].id}`, { replace: true });
         }
       } catch (err) {
         logError("SeasonReportRoute.loadTeams", err);
@@ -60,7 +60,7 @@ export function SeasonReportRoute() {
       }
     }
 
-    loadTeams();
+    void loadTeams();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fallback: if teamId is in URL but wasn't found in the teams list, fetch directly
@@ -81,16 +81,16 @@ export function SeasonReportRoute() {
       }
     }
 
-    fetchTeamById();
+    void fetchTeamById();
   }, [teamId, stateTeam, selectedTeam]);
 
   const handleTeamChange = (newTeamId: string) => {
     const team = teams.find((t) => t.id === newTeamId) || null;
     setSelectedTeam(team);
     if (team) {
-      navigate(`/reports/${team.id}`, { replace: true });
+      void navigate(`/reports/${team.id}`, { replace: true });
     } else {
-      navigate("/reports", { replace: true });
+      void navigate("/reports", { replace: true });
     }
   };
 

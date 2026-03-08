@@ -43,6 +43,26 @@ export default tseslint.config(
     },
   },
 
+  // Type-checked rules scoped to src/ (covered by tsconfig.json), excluding test files
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    languageOptions: {
+      parserOptions: {
+        project: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': ['error', {
+        // async event handlers and subscription callbacks are valid patterns
+        checksVoidReturn: { attributes: false, properties: false },
+      }],
+      '@typescript-eslint/await-thenable': 'error',
+    },
+  },
+
   // Node.js globals for Lambda functions, Playwright e2e tests, and build/config scripts
   {
     files: ['amplify/**/*.ts', 'e2e/**/*.ts', '*.config.ts'],

@@ -64,7 +64,7 @@ export function GamePlannerRoute() {
       }
     }
 
-    loadFromUrl();
+    void loadFromUrl();
   }, [gameId, stateGame, stateTeam]);
 
   if (loading) {

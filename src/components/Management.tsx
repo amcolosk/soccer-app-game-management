@@ -1,4 +1,4 @@
-import { useState, useEffect, useReducer } from 'react';
+import { useState, useEffect, useReducer, useMemo } from 'react';
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
 import { InvitationManagement } from './InvitationManagement';
@@ -30,6 +30,8 @@ import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
 import { getAvailableBirthYears } from '../utils/rosterFilterUtils';
 import { useHelpFab } from '../contexts/HelpFabContext';
 import type { HelpScreenKey } from '../help';
+import { buildFlatDebugSnapshot } from '../utils/debugUtils';
+import type { ManagementDebugContext } from '../types/debug';
 
 const client = generateClient<Schema>();
 
@@ -121,7 +123,7 @@ export function Management() {
   const [activeSection, setActiveSection] = useState<'teams' | 'formations' | 'players' | 'sharing' | 'app'>('teams');
   const [currentUserId, setCurrentUserId] = useState<string>('');
 
-  const { setHelpContext } = useHelpFab();
+  const { setHelpContext, setDebugContext } = useHelpFab();
 
   // Map active section → help key. Reactive: re-runs when the coach switches tabs.
   // @help-content: manage-teams, manage-players, manage-formations, manage-sharing, manage-app
@@ -156,8 +158,31 @@ export function Management() {
   const [formationForm, formationDispatch] = useReducer(formationFormReducer, initialFormationForm);
   const [playerForm, playerDispatch] = useReducer(playerFormReducer, initialPlayerForm);
 
+  const managementDebugContext = useMemo((): ManagementDebugContext => ({
+    activeSection,
+    teamCount: teams.length,
+    playerCount: players.length,
+    rosterCount: teamRosters.length,
+    formationCount: formations.length,
+    formationPositionCount: formationPositions.length,
+    editingTeamId: teamForm.editing?.id?.slice(0, 8) ?? null,
+    editingFormationId: formationForm.editing?.id?.slice(0, 8) ?? null,
+    birthYearFilterCount: birthYearFilters.length,
+  }), [activeSection, teams, players, teamRosters, formations, formationPositions,
+      teamForm.editing, formationForm.editing, birthYearFilters]);
+
+  const managementDebugSnapshot = useMemo(
+    () => buildFlatDebugSnapshot('Management Debug Snapshot', { ...managementDebugContext }),
+    [managementDebugContext]
+  );
+
   useEffect(() => {
-    loadCurrentUser();
+    setDebugContext(managementDebugSnapshot);
+    return () => setDebugContext(null);
+  }, [managementDebugSnapshot, setDebugContext]);
+
+  useEffect(() => {
+    void loadCurrentUser();
   }, []);
 
 
@@ -898,7 +923,7 @@ export function Management() {
                         <div className="delete-action">
                           <button
                             onClick={() => {
-                              handleDeleteTeam(team.id);
+                              void handleDeleteTeam(team.id);
                               closeSwipe();
                             }}
                             className="btn-delete-swipe"
@@ -974,7 +999,7 @@ export function Management() {
                                       value=""
                                       onChange={(e) => {
                                         if (e.target.value) {
-                                          handleTogglePlayerPosition(e.target.value, position.id, true);
+                                          void handleTogglePlayerPosition(e.target.value, position.id, true);
                                         }
                                       }}
                                     >
@@ -1404,7 +1429,7 @@ export function Management() {
                       <div className="delete-action">
                         <button
                           onClick={() => {
-                            handleDeleteFormation(formation.id);
+                            void handleDeleteFormation(formation.id);
                             closeSwipe();
                           }}
                           className="btn-delete-swipe"
@@ -1545,7 +1570,7 @@ export function Management() {
                       <div className="delete-action">
                         <button
                           onClick={() => {
-                            handleDeletePlayer(player.id);
+                            void handleDeletePlayer(player.id);
                             closeSwipe();
                           }}
                           className="btn-delete-swipe"

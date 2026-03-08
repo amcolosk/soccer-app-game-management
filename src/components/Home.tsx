@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
@@ -8,12 +8,14 @@ import { showError, showWarning } from '../utils/toast';
 import { handleApiError, logError } from '../utils/errorHandler';
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
 import { useHelpFab } from '../contexts/HelpFabContext';
+import { buildFlatDebugSnapshot } from '../utils/debugUtils';
+import type { HomeDebugContext } from '../types/debug';
 
 const client = generateClient<Schema>();
 
 export function Home() {
   const navigate = useNavigate();
-  const { setHelpContext } = useHelpFab();
+  const { setHelpContext, setDebugContext } = useHelpFab();
 
   // Register 'home' help context while this screen is mounted
   useEffect(() => {
@@ -62,9 +64,28 @@ export function Home() {
     },
   });
 
+  const homeDebugContext = useMemo((): HomeDebugContext => ({
+    teamCount: teams.length,
+    gameCount: games.length,
+    scheduledCount: games.filter(g => g.status === 'scheduled' || !g.status).length,
+    inProgressCount: games.filter(g => g.status === 'in-progress' || g.status === 'halftime').length,
+    completedCount: games.filter(g => g.status === 'completed').length,
+    isCreatingGame,
+  }), [teams, games, isCreatingGame]);
+
+  const homeDebugSnapshot = useMemo(
+    () => buildFlatDebugSnapshot('Home Debug Snapshot', { ...homeDebugContext }),
+    [homeDebugContext]
+  );
+
   useEffect(() => {
-    loadCurrentUser();
-    loadTeams();
+    setDebugContext(homeDebugSnapshot);
+    return () => setDebugContext(null);
+  }, [homeDebugSnapshot, setDebugContext]);
+
+  useEffect(() => {
+    void loadCurrentUser();
+    void loadTeams();
   }, []);
 
   async function loadCurrentUser() {
@@ -180,14 +201,14 @@ export function Home() {
     // Amplify model instances contain lazy-loader functions for relations
     // which cannot be structured-cloned by history.pushState. JSON round-trip
     // strips those non-serializable properties.
-    navigate(`/game/${game.id}`, {
+    void navigate(`/game/${game.id}`, {
       state: JSON.parse(JSON.stringify({ game, team: team || null })),
     });
   };
 
   const handlePlanClick = (game: Game) => {
     const team = getTeam(game.teamId);
-    navigate(`/game/${game.id}/plan`, {
+    void navigate(`/game/${game.id}/plan`, {
       state: JSON.parse(JSON.stringify({ game, team: team || null })),
     });
   };

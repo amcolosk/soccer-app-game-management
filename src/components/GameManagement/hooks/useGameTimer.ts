@@ -15,8 +15,8 @@ interface UseGameTimerParams {
   isRunning: boolean;
   gamePlan: GamePlan | null;
   plannedRotations: PlannedRotation[];
-  onHalftime: () => void;
-  onEndGame: () => void;
+  onHalftime: () => void | Promise<void>;
+  onEndGame: () => void | Promise<void>;
 }
 
 export function useGameTimer({
@@ -74,7 +74,7 @@ export function useGameTimer({
 
             if (nextRotation) {
               // Mark as viewed and show modal
-              client.models.PlannedRotation.update({
+              void client.models.PlannedRotation.update({
                 id: nextRotation.id,
                 viewedAt: new Date().toISOString(),
               });
@@ -86,14 +86,14 @@ export function useGameTimer({
             halftimeTriggeredRef.current = true;
             // Schedule the callback outside the state updater to avoid
             // calling async operations from inside a React setState
-            setTimeout(() => onHalftimeRef.current(), 0);
+            setTimeout(() => void onHalftimeRef.current(), 0);
             return newTime;
           }
 
           // Auto-end game after 2 hours maximum (7200 seconds)
           if (newTime >= 7200 && !endGameTriggeredRef.current) {
             endGameTriggeredRef.current = true;
-            setTimeout(() => onEndGameRef.current(), 0);
+            setTimeout(() => void onEndGameRef.current(), 0);
             return newTime;
           }
 

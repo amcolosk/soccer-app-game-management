@@ -115,7 +115,7 @@ export function LineupPanel({
     const existing = lineup.find(l => l.playerId === player.id);
 
     if (existing) {
-      handleRemoveFromLineup(existing.id);
+      void handleRemoveFromLineup(existing.id);
     } else {
       if (startersCount >= team.maxPlayersOnField) {
         showWarning(`Maximum ${team.maxPlayersOnField} starters allowed`);
@@ -247,7 +247,7 @@ export function LineupPanel({
                             <button
                               onClick={() => {
                                 const assignment = lineup.find(l => l.positionId === position.id);
-                                if (assignment) handleRemoveFromLineup(assignment.id);
+                                if (assignment) void handleRemoveFromLineup(assignment.id);
                               }}
                               className="btn-remove-small"
                             >
