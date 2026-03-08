@@ -84,8 +84,8 @@ export function Home() {
   }, [homeDebugSnapshot, setDebugContext]);
 
   useEffect(() => {
-    loadCurrentUser();
-    loadTeams();
+    void loadCurrentUser();
+    void loadTeams();
   }, []);
 
   async function loadCurrentUser() {
@@ -201,14 +201,14 @@ export function Home() {
     // Amplify model instances contain lazy-loader functions for relations
     // which cannot be structured-cloned by history.pushState. JSON round-trip
     // strips those non-serializable properties.
-    navigate(`/game/${game.id}`, {
+    void navigate(`/game/${game.id}`, {
       state: JSON.parse(JSON.stringify({ game, team: team || null })),
     });
   };
 
   const handlePlanClick = (game: Game) => {
     const team = getTeam(game.teamId);
-    navigate(`/game/${game.id}/plan`, {
+    void navigate(`/game/${game.id}/plan`, {
       state: JSON.parse(JSON.stringify({ game, team: team || null })),
     });
   };

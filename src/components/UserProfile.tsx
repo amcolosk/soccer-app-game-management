@@ -66,8 +66,8 @@ export function UserProfile() {
   }, [userProfileDebugSnapshot, setDebugContext]);
 
   useEffect(() => {
-    loadPendingInvitations();
-    loadUserAttributes();
+    void loadPendingInvitations();
+    void loadUserAttributes();
   }, []);
 
   async function loadUserAttributes() {

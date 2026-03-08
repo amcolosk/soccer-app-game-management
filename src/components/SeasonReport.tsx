@@ -204,14 +204,14 @@ export function TeamReport({ team }: TeamReportProps) {
       }
     };
 
-    loadGameData();
+    void loadGameData();
 
     // Schedule a reload after 2 seconds to catch records missed by
     // eventually consistent DynamoDB Scans. This handles the case where
     // records were written very recently and the initial Scan didn't see them.
     const reloadTimer = setTimeout(() => {
       console.log('[TeamReport] Reloading game data (eventual consistency retry)...');
-      loadGameData();
+      void loadGameData();
     }, 2000);
 
     return () => clearTimeout(reloadTimer);
@@ -521,7 +521,7 @@ export function TeamReport({ team }: TeamReportProps) {
                     key={stat.player.id}
                     onClick={() => {
                       setSelectedRoster(stat.roster);
-                      loadPlayerDetails(stat.player);
+                      void loadPlayerDetails(stat.player);
                     }}
                     className={`clickable-row ${selectedPlayer?.id === stat.player.id ? 'selected' : ''}`}
                   >

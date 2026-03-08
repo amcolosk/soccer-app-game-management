@@ -182,7 +182,7 @@ export function Management() {
   }, [managementDebugSnapshot, setDebugContext]);
 
   useEffect(() => {
-    loadCurrentUser();
+    void loadCurrentUser();
   }, []);
 
 
@@ -923,7 +923,7 @@ export function Management() {
                         <div className="delete-action">
                           <button
                             onClick={() => {
-                              handleDeleteTeam(team.id);
+                              void handleDeleteTeam(team.id);
                               closeSwipe();
                             }}
                             className="btn-delete-swipe"
@@ -999,7 +999,7 @@ export function Management() {
                                       value=""
                                       onChange={(e) => {
                                         if (e.target.value) {
-                                          handleTogglePlayerPosition(e.target.value, position.id, true);
+                                          void handleTogglePlayerPosition(e.target.value, position.id, true);
                                         }
                                       }}
                                     >
@@ -1429,7 +1429,7 @@ export function Management() {
                       <div className="delete-action">
                         <button
                           onClick={() => {
-                            handleDeleteFormation(formation.id);
+                            void handleDeleteFormation(formation.id);
                             closeSwipe();
                           }}
                           className="btn-delete-swipe"
@@ -1570,7 +1570,7 @@ export function Management() {
                       <div className="delete-action">
                         <button
                           onClick={() => {
-                            handleDeletePlayer(player.id);
+                            void handleDeletePlayer(player.id);
                             closeSwipe();
                           }}
                           className="btn-delete-swipe"

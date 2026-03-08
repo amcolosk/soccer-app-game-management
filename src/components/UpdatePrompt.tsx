@@ -15,7 +15,7 @@ export function UpdatePrompt() {
       if (r) {
         setInterval(() => {
           console.log('Checking for updates...');
-          r.update();
+          r.update().catch(() => undefined);
         }, 60000);
       }
     },
@@ -47,7 +47,7 @@ export function UpdatePrompt() {
   };
 
   const reload = () => {
-    updateServiceWorker(true);
+    void updateServiceWorker(true);
   };
 
   if (!showPrompt && !offlineReady) {

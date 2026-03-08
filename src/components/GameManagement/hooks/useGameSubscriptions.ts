@@ -127,7 +127,7 @@ export function useGameSubscriptions({
           currentGamePlanId = plan.id;
 
           // Load rotations for this game plan
-          client.models.PlannedRotation.list({
+            void client.models.PlannedRotation.list({
             filter: { gamePlanId: { eq: plan.id } },
           }).then(({ data: rotations }) => {
             if (rotations) {
@@ -216,7 +216,7 @@ export function useGameSubscriptions({
       }
     };
 
-    syncLineupFromGamePlan();
+    void syncLineupFromGamePlan();
   }, [gamePlan, gameState.status, game.id, team.coaches, lineup.length]);
 
   return {

@@ -25,7 +25,7 @@ function InvitationAcceptance({ invitationId, onComplete }: InvitationAcceptance
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
-    loadInvitation();
+    void loadInvitation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invitationId]);
 
