@@ -12,6 +12,7 @@ interface QuickStartChecklistProps {
   onDismiss: () => void;
   onExpand: () => void;
   onNavigate: (stepId: number) => void;
+  onRemoveDemoData?: () => Promise<void>;
 }
 
 interface OnboardingStep {
@@ -38,8 +39,10 @@ export function QuickStartChecklist({
   onDismiss,
   onExpand,
   onNavigate,
+  onRemoveDemoData,
 }: QuickStartChecklistProps) {
   const [isComplete, setIsComplete] = useState(false);
+  const [isRemovingDemo, setIsRemovingDemo] = useState(false);
   
   // Track previous step states to detect transitions (for analytics)
   const prevStepsRef = useRef<boolean[]>([]);
@@ -158,6 +161,17 @@ export function QuickStartChecklist({
     );
   }
 
+  const handleRemoveDemoAndDismiss = async () => {
+    if (!onRemoveDemoData) return;
+    setIsRemovingDemo(true);
+    try {
+      await onRemoveDemoData();
+    } finally {
+      setIsRemovingDemo(false);
+      onDismiss();
+    }
+  };
+
   // If complete, show completion state (replaces step list)
   if (isComplete) {
     return (
@@ -166,13 +180,34 @@ export function QuickStartChecklist({
           <div className="quick-start-completion-icon" aria-hidden="true">🎉</div>
           <h3 className="quick-start-completion-title">You're ready!</h3>
           <p className="quick-start-completion-message">All set — enjoy game day</p>
-          <button
-            className="quick-start-completion-button"
-            onClick={onDismiss}
-            type="button"
-          >
-            Got it
-          </button>
+          {demoTeamId && onRemoveDemoData ? (
+            <div className="quick-start-completion-actions">
+              <button
+                className="quick-start-completion-button"
+                onClick={() => { void handleRemoveDemoAndDismiss(); }}
+                disabled={isRemovingDemo}
+                type="button"
+              >
+                {isRemovingDemo ? 'Removing…' : 'Done — remove demo data'}
+              </button>
+              <button
+                className="quick-start-completion-button quick-start-completion-button--ghost"
+                onClick={onDismiss}
+                disabled={isRemovingDemo}
+                type="button"
+              >
+                Keep demo data
+              </button>
+            </div>
+          ) : (
+            <button
+              className="quick-start-completion-button"
+              onClick={onDismiss}
+              type="button"
+            >
+              Got it
+            </button>
+          )}
         </div>
       </div>
     );

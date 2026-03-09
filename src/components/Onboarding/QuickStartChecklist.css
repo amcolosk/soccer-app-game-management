@@ -269,6 +269,29 @@
   background: var(--light-green);
 }
 
+.quick-start-completion-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.quick-start-completion-button--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 2px solid var(--border-color);
+}
+
+.quick-start-completion-button--ghost:hover {
+  background: var(--hover-background);
+}
+
+.quick-start-completion-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  align-items: center;
+}
+
 /* Resume banner (collapsed state) */
 .quick-start-resume-banner {
   background: var(--card-background);

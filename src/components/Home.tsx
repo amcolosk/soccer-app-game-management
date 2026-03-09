@@ -12,7 +12,7 @@ import { useHelpFab } from '../contexts/HelpFabContext';
 import { buildFlatDebugSnapshot } from '../utils/debugUtils';
 import type { HomeDebugContext } from '../types/debug';
 import { useOnboarding } from '../contexts/OnboardingContext';
-import { createDemoTeam } from '../services/demoDataService';
+import { createDemoTeam, removeDemoData } from '../services/demoDataService';
 import { WelcomeModal } from './Onboarding/WelcomeModal';
 import { QuickStartChecklist } from './Onboarding/QuickStartChecklist';
 
@@ -120,6 +120,16 @@ export function Home() {
       handleApiError(error, 'Failed to create demo team');
     } finally {
       setIsDemoLoading(false);
+    }
+  };
+
+  const handleRemoveDemoData = async () => {
+    if (!demoTeamId) return;
+    try {
+      await removeDemoData(demoTeamId);
+    } catch (error) {
+      handleApiError(error, 'Failed to remove demo data');
+      throw error; // re-throw so checklist stays open if removal fails
     }
   };
 
@@ -308,6 +318,7 @@ export function Home() {
           onDismiss={dismiss}
           onExpand={expand}
           onNavigate={handleNavigateFromChecklist}
+          onRemoveDemoData={demoTeamId ? handleRemoveDemoData : undefined}
         />
       )}
 
