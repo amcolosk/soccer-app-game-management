@@ -1123,6 +1123,23 @@
   color: white;
 }
 
+.open-game-button {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  background: var(--primary-green);
+  border: 2px solid var(--primary-green);
+  color: white;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.open-game-button:hover {
+  background: var(--accent-green);
+  border-color: var(--accent-green);
+}
+
 .game-card.active-game {
   border-color: var(--primary-green);
   background: linear-gradient(to right, #f0f9f4, var(--card-background));

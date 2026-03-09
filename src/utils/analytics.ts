@@ -41,6 +41,7 @@ export const AnalyticsEvents = {
   GAME_SECOND_HALF_STARTED: { category: 'Game', action: 'Start Second Half' },
   GAME_COMPLETED: { category: 'Game', action: 'Complete Game' },
   GAME_DELETED: { category: 'Game', action: 'Delete Game' },
+  GAME_OPENED: { category: 'Game', action: 'Open Game' },
 
   // In-game actions
   SUBSTITUTION_MADE: { category: 'GameDay', action: 'Substitution Made' },

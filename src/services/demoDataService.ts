@@ -33,7 +33,6 @@ export async function createDemoTeam(currentUserId: string): Promise<void> {
     const teamResponse = await client.models.Team.create({
       name: 'Eagles Demo',
       coaches: [currentUserId],
-      formationId: null,
       maxPlayersOnField: 7,
       halfLengthMinutes: 30,
       sport: 'Soccer',
@@ -41,7 +40,8 @@ export async function createDemoTeam(currentUserId: string): Promise<void> {
     });
 
     if (!teamResponse.data) {
-      throw new Error('Failed to create demo team');
+      const msg = teamResponse.errors?.map(e => e.message).join('; ') ?? 'Unknown error';
+      throw new Error(`Failed to create demo team: ${msg}`);
     }
 
     const teamId = teamResponse.data.id;

@@ -447,6 +447,16 @@ export function Home() {
                     >
                       📋 Plan Game
                     </button>
+                    <button
+                      className="open-game-button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        trackEvent(AnalyticsEvents.GAME_OPENED.category, AnalyticsEvents.GAME_OPENED.action);
+                        handleGameClick(game);
+                      }}
+                    >
+                      ▶ Open Game
+                    </button>
                   </div>
               </div>
             );
