@@ -658,7 +658,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const handleQueueSubstitution = (playerId: string, positionId: string) => {
-    // Check if already queued for this position
+    // Validate against current snapshot for immediate single-click feedback
     const alreadyQueued = substitutionQueue.some(
       q => q.playerId === playerId && q.positionId === positionId
     );
@@ -667,14 +667,19 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       return;
     }
 
-    // Check if player is already queued for a different position
     const queuedElsewhere = substitutionQueue.find(q => q.playerId === playerId);
     if (queuedElsewhere) {
       showWarning("This player is already queued for another position");
       return;
     }
 
-    setSubstitutionQueue([...substitutionQueue, { playerId, positionId }]);
+    // Use functional updater so batched calls (e.g. Queue All) each see the
+    // latest queue state instead of the stale closure captured at render time.
+    setSubstitutionQueue(prev => {
+      if (prev.some(q => q.playerId === playerId && q.positionId === positionId)) return prev;
+      if (prev.some(q => q.playerId === playerId)) return prev;
+      return [...prev, { playerId, positionId }];
+    });
   };
 
   const handleAddTestTime = (minutes: number) => {
@@ -834,6 +839,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                 players={players}
                 gameId={game.id}
                 coaches={team.coaches || []}
+                lineupPlayerIds={lineup.filter(l => l.isStarter).map(l => l.playerId)}
               />
             )}
 

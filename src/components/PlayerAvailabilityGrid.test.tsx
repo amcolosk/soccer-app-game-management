@@ -233,4 +233,90 @@ describe("PlayerAvailabilityGrid", () => {
       15     // availableUntilMinute — set to elapsed game minutes
     );
   });
+
+  describe("lineup players skip 'injured' status", () => {
+    it("cycles available -> absent for a lineup player (skips injured)", async () => {
+      const user = userEvent.setup();
+      mockUpdate.mockResolvedValue(undefined);
+
+      render(
+        <PlayerAvailabilityGrid
+          {...defaultProps}
+          lineupPlayerIds={["p1"]}
+        />
+      );
+      await user.click(screen.getAllByRole("button")[0]);
+
+      expect(mockUpdate).toHaveBeenCalledWith(
+        "game-1", "p1", "absent", undefined, ["coach-1"], null, null
+      );
+    });
+
+    it("cycles late-arrival -> available for a lineup player (wraps without injured)", async () => {
+      const user = userEvent.setup();
+      mockUpdate.mockResolvedValue(undefined);
+      mockUseAvailability.mockReturnValue({
+        availabilities: [],
+        getPlayerAvailability: () => "late-arrival",
+      });
+
+      render(
+        <PlayerAvailabilityGrid
+          {...defaultProps}
+          lineupPlayerIds={["p1"]}
+        />
+      );
+      await user.click(screen.getAllByRole("button")[0]);
+
+      expect(mockUpdate).toHaveBeenCalledWith(
+        "game-1", "p1", "available", undefined, ["coach-1"], null, null
+      );
+    });
+
+    it("cycles available -> injured for a non-lineup player (unaffected)", async () => {
+      const user = userEvent.setup();
+      mockUpdate.mockResolvedValue(undefined);
+      mockUseAvailability.mockReturnValue({
+        availabilities: [],
+        getPlayerAvailability: () => "late-arrival",
+      });
+
+      render(
+        <PlayerAvailabilityGrid
+          {...defaultProps}
+          lineupPlayerIds={["p2"]} // p2 is in lineup, p1 is not
+          elapsedGameMinutes={10}
+        />
+      );
+      // Click p1 (not in lineup) — should still reach "injured"
+      await user.click(screen.getAllByRole("button")[0]);
+
+      expect(mockUpdate).toHaveBeenCalledWith(
+        "game-1", "p1", "injured", undefined, ["coach-1"], null, 10
+      );
+    });
+
+    it("does not cycle to injured when lineupPlayerIds is empty array", async () => {
+      const user = userEvent.setup();
+      mockUpdate.mockResolvedValue(undefined);
+      mockUseAvailability.mockReturnValue({
+        availabilities: [],
+        getPlayerAvailability: () => "late-arrival",
+      });
+
+      render(
+        <PlayerAvailabilityGrid
+          {...defaultProps}
+          lineupPlayerIds={[]}
+          elapsedGameMinutes={20}
+        />
+      );
+      // No players in lineup, so all should reach "injured"
+      await user.click(screen.getAllByRole("button")[0]);
+
+      expect(mockUpdate).toHaveBeenCalledWith(
+        "game-1", "p1", "injured", undefined, ["coach-1"], null, 20
+      );
+    });
+  });
 });
