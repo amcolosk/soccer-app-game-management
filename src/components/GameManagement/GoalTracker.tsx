@@ -2,6 +2,7 @@ import { useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
 import { showWarning } from "../../utils/toast";
+import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
 import { handleApiError } from "../../utils/errorHandler";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { PlayerSelect } from "../PlayerSelect";
@@ -74,6 +75,7 @@ export function GoalTracker({
 
       onScoreUpdate(newOurScore, newOpponentScore);
       setShowGoalModal(false);
+      trackEvent(AnalyticsEvents.GOAL_RECORDED.category, AnalyticsEvents.GOAL_RECORDED.action, goalScoredByUs ? 'own' : 'opponent');
     } catch (error) {
       handleApiError(error, 'Failed to record goal');
     }

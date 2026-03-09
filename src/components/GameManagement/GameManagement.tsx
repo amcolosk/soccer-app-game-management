@@ -28,6 +28,8 @@ import { useHelpFab } from "../../contexts/HelpFabContext";
 import type { HelpScreenKey } from "../../help";
 import { buildFlatDebugSnapshot } from "../../utils/debugUtils";
 import type { GameManagementDebugContext } from "../../types/debug";
+import { useWakeLock } from "../../hooks/useWakeLock";
+import { useGameNotification } from "../../hooks/useGameNotification";
 
 const client = generateClient<Schema>();
 
@@ -154,6 +156,22 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     setDebugContext(gameManagementDebugSnapshot);
     return () => setDebugContext(null);
   }, [gameManagementDebugSnapshot, setDebugContext]);
+
+  // Wake Lock: prevent screen sleep during active game
+  const isGameActive = gameState.status === 'in-progress' || gameState.status === 'halftime';
+  useWakeLock(isGameActive);
+
+  // Persistent notification: show live score in notification shade
+  useGameNotification({
+    isActive: isGameActive,
+    requestPermissionNow: isGameActive,
+    teamName: team.name,
+    opponent: gameState.opponent ?? '',
+    ourScore: gameState.ourScore ?? 0,
+    opponentScore: gameState.opponentScore ?? 0,
+    currentHalf: gameState.currentHalf ?? 1,
+    currentTime,
+  });
 
   const getPlayerAvailability = (playerId: string): string => {
     const availability = playerAvailabilities.find(a => a.playerId === playerId);
@@ -316,8 +334,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
       await Promise.all(updates);
 
-      showSuccess('Rotations recalculated based on current availability! Review each rotation to verify.');
-    } catch (error) {
+      showSuccess('Rotations recalculated based on current availability! Review each rotation to verify.');      trackEvent(AnalyticsEvents.ROTATION_RECALCULATED.category, AnalyticsEvents.ROTATION_RECALCULATED.action);    } catch (error) {
       handleApiError(error, 'Failed to recalculate rotations');
     } finally {
       setIsRecalculating(false);
@@ -357,6 +374,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       } else {
         showInfo(`${playerName} marked as injured and removed from the field.`);
       }
+      trackEvent(AnalyticsEvents.PLAYER_MARKED_INJURED.category, AnalyticsEvents.PLAYER_MARKED_INJURED.action);
 
       // Prompt to substitute if the position is now empty
       if (assignment) {
@@ -493,6 +511,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       
       // Ensure current time stays at halftime value
       setCurrentTime(halftimeSeconds);
+      trackEvent(AnalyticsEvents.GAME_HALFTIME.category, AnalyticsEvents.GAME_HALFTIME.action);
     } catch (error) {
       handleApiError(error, 'Failed to set halftime');
       halftimeInProgressRef.current = false; // Reset on error so user can retry
@@ -572,6 +591,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       setCurrentTime(resumeTime);
       console.log(`Resuming game at time ${resumeTime}s`);
       setIsRunning(true);
+      trackEvent(AnalyticsEvents.GAME_SECOND_HALF_STARTED.category, AnalyticsEvents.GAME_SECOND_HALF_STARTED.action);
     } catch (error) {
       handleApiError(error, 'Failed to start second half');
     }
@@ -638,7 +658,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const handleQueueSubstitution = (playerId: string, positionId: string) => {
-    // Check if already queued for this position
+    // Validate against current snapshot for immediate single-click feedback
     const alreadyQueued = substitutionQueue.some(
       q => q.playerId === playerId && q.positionId === positionId
     );
@@ -647,14 +667,19 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       return;
     }
 
-    // Check if player is already queued for a different position
     const queuedElsewhere = substitutionQueue.find(q => q.playerId === playerId);
     if (queuedElsewhere) {
       showWarning("This player is already queued for another position");
       return;
     }
 
-    setSubstitutionQueue([...substitutionQueue, { playerId, positionId }]);
+    // Use functional updater so batched calls (e.g. Queue All) each see the
+    // latest queue state instead of the stale closure captured at render time.
+    setSubstitutionQueue(prev => {
+      if (prev.some(q => q.playerId === playerId && q.positionId === positionId)) return prev;
+      if (prev.some(q => q.playerId === playerId)) return prev;
+      return [...prev, { playerId, positionId }];
+    });
   };
 
   const handleAddTestTime = (minutes: number) => {
@@ -676,6 +701,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           if (!confirmed) return;
           try {
             await deleteGameCascade(game.id);
+            trackEvent(AnalyticsEvents.GAME_DELETED.category, AnalyticsEvents.GAME_DELETED.action);
             onBack();
           } catch (error) {
             handleApiError(error, 'Failed to delete game');
@@ -738,7 +764,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           plannedRotations={plannedRotations}
           onPauseTimer={handlePauseTimer}
           onResumeTimer={handleResumeTimer}
-          onShowRotationModal={() => setRotationModalOpen(true)}
+          onShowRotationModal={() => { setRotationModalOpen(true); trackEvent(AnalyticsEvents.ROTATION_WIDGET_OPENED.category, AnalyticsEvents.ROTATION_WIDGET_OPENED.action); }}
         />
 
         {/* Rotation and late-arrival modals (always mounted for in-progress) */}
@@ -756,7 +782,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           substitutionQueue={substitutionQueue}
           onQueueSubstitution={handleQueueSubstitution}
           isRotationModalOpen={rotationModalOpen}
-          onOpenRotationModal={() => setRotationModalOpen(true)}
+          onOpenRotationModal={() => { setRotationModalOpen(true); trackEvent(AnalyticsEvents.ROTATION_WIDGET_OPENED.category, AnalyticsEvents.ROTATION_WIDGET_OPENED.action); }}
           onCloseRotationModal={() => setRotationModalOpen(false)}
         />
 
@@ -813,6 +839,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                 players={players}
                 gameId={game.id}
                 coaches={team.coaches || []}
+                lineupPlayerIds={lineup.filter(l => l.isStarter).map(l => l.playerId)}
               />
             )}
 

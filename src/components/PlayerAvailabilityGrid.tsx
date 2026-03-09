@@ -1,6 +1,7 @@
 import { updatePlayerAvailability } from "../services/rotationPlannerService";
 import { useAvailability } from "../contexts/AvailabilityContext";
 import { handleApiError } from "../utils/errorHandler";
+import { trackEvent, AnalyticsEvents } from "../utils/analytics";
 
 interface Player {
   id: string;
@@ -17,6 +18,10 @@ interface PlayerAvailabilityGridProps {
   halfLengthMinutes?: number;
   /** Current elapsed game minutes — used to set availableUntilMinute for injuries */
   elapsedGameMinutes?: number;
+  /** IDs of players currently in the starting lineup. These players skip the
+   * 'injured' status — a player on the field who is injured should be
+   * substituted out rather than marked as injured in the availability grid. */
+  lineupPlayerIds?: string[];
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -65,14 +70,19 @@ export function PlayerAvailabilityGrid({
   coaches,
   halfLengthMinutes,
   elapsedGameMinutes,
+  lineupPlayerIds,
 }: PlayerAvailabilityGridProps) {
   const { getPlayerAvailability } = useAvailability();
   const handleToggle = async (playerId: string) => {
     const currentStatus = getPlayerAvailability(playerId);
-    const currentIndex = STATUS_CYCLE.indexOf(
-      currentStatus as (typeof STATUS_CYCLE)[number]
-    );
-    const newStatus = STATUS_CYCLE[(currentIndex + 1) % STATUS_CYCLE.length];
+    // Players in the active lineup cannot be marked injured from this grid —
+    // they should be substituted out instead. Use a shorter cycle for them.
+    const inLineup = (lineupPlayerIds ?? []).includes(playerId);
+    const cycle = inLineup
+      ? (STATUS_CYCLE.filter(s => s !== 'injured') as Array<'available' | 'absent' | 'late-arrival'>)
+      : STATUS_CYCLE;
+    const currentIndex = cycle.indexOf(currentStatus as typeof STATUS_CYCLE[number]);
+    const newStatus = cycle[(currentIndex + 1) % cycle.length];
 
     // Derive availability window for special statuses.
     // Pass null for available/absent to clear any stale window values in the DB.
@@ -92,6 +102,7 @@ export function PlayerAvailabilityGrid({
 
     try {
       await updatePlayerAvailability(gameId, playerId, newStatus, undefined, coaches, availableFromMinute, availableUntilMinute);
+      trackEvent(AnalyticsEvents.AVAILABILITY_MARKED.category, AnalyticsEvents.AVAILABILITY_MARKED.action, newStatus);
     } catch (error) {
       handleApiError(error, 'Failed to update player availability');
     }

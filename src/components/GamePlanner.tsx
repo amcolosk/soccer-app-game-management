@@ -20,6 +20,7 @@ import type { GamePlannerDebugContext } from "../types/debug";
 import { AvailabilityProvider } from "../contexts/AvailabilityContext";
 import { showSuccess, showWarning } from "../utils/toast";
 import { handleApiError, logError } from "../utils/errorHandler";
+import { trackEvent, AnalyticsEvents } from "../utils/analytics";
 import { useConfirm } from "./ConfirmModal";
 import { UI_CONSTANTS } from "../constants/ui";
 import { useAmplifyQuery } from "../hooks/useAmplifyQuery";
@@ -656,6 +657,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       // Data will update automatically via observeQuery subscriptions
 
       showSuccess(gamePlan ? "Plan updated!" : "Plan created! Now set up each rotation.");
+      trackEvent(AnalyticsEvents.PLAN_SAVED.category, AnalyticsEvents.PLAN_SAVED.action);
     } catch (error) {
       handleApiError(error, 'Failed to update rotation plan');
     } finally {
@@ -755,6 +757,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       await Promise.all(updates);
 
       showSuccess('Rotations auto-generated! Review each rotation to verify.');
+      trackEvent(AnalyticsEvents.AUTO_GENERATE_ROTATIONS.category, AnalyticsEvents.AUTO_GENERATE_ROTATIONS.action);
     } catch (error) {
       handleApiError(error, 'Failed to auto-generate rotations');
     } finally {
@@ -784,6 +787,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       // Data will update automatically via observeQuery subscriptions
 
       showSuccess("Plan copied successfully!");
+      trackEvent(AnalyticsEvents.COPY_PLAN_FROM_GAME.category, AnalyticsEvents.COPY_PLAN_FROM_GAME.action);
     } catch (error) {
       handleApiError(error, 'Failed to copy game plan');
     } finally {

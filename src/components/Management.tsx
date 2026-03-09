@@ -1,4 +1,5 @@
 import { useState, useEffect, useReducer, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
 import { InvitationManagement } from './InvitationManagement';
@@ -18,6 +19,7 @@ import {
 } from '../utils/validation';
 import { useConfirm } from './ConfirmModal';
 import { deleteTeamCascade, deletePlayerCascade, deleteFormationCascade } from '../services/cascadeDeleteService';
+import { removeDemoData } from '../services/demoDataService';
 import { computeFormationPositionDiff, scrubDeletedPositionPreferences } from '../utils/formationUtils';
 import { useSwipeDelete } from '../hooks/useSwipeDelete';
 import {
@@ -115,13 +117,26 @@ async function createFormationPositions(
 
 export function Management() {
   const confirm = useConfirm();
+  const [searchParams] = useSearchParams();
   const { data: teams } = useAmplifyQuery('Team');
   const { data: players } = useAmplifyQuery('Player');
   const { data: teamRosters } = useAmplifyQuery('TeamRoster');
   const { data: formations } = useAmplifyQuery('Formation');
   const { data: formationPositions } = useAmplifyQuery('FormationPosition');
-  const [activeSection, setActiveSection] = useState<'teams' | 'formations' | 'players' | 'sharing' | 'app'>('teams');
+  
+  // Initialize activeSection from query param (read-only, one-way entry point)
+  const [activeSection, setActiveSection] = useState<'teams' | 'formations' | 'players' | 'sharing' | 'app'>(() => {
+    const section = searchParams.get('section');
+    const valid = ['teams', 'players', 'formations', 'sharing', 'app'];
+    return (valid.includes(section ?? '') ? section : 'teams') as 'teams' | 'formations' | 'players' | 'sharing' | 'app';
+  });
+  
   const [currentUserId, setCurrentUserId] = useState<string>('');
+  
+  // Read demo team ID from localStorage
+  const [demoTeamId] = useState(() => 
+    typeof window !== 'undefined' ? localStorage.getItem('onboarding:demoTeamId') : null
+  );
 
   const { setHelpContext, setDebugContext } = useHelpFab();
 
@@ -251,7 +266,7 @@ export function Management() {
   const handleDeleteTeam = (id: string) => confirmAndDelete(confirm, {
     title: 'Delete Team',
     message: 'Are you sure you want to delete this team? This will also delete all players, positions, and games.',
-    deleteFn: () => deleteTeamCascade(id),
+    deleteFn: async () => { await deleteTeamCascade(id); trackEvent(AnalyticsEvents.TEAM_DELETED.category, AnalyticsEvents.TEAM_DELETED.action); },
     entityName: 'team',
   });
 
@@ -317,6 +332,7 @@ export function Management() {
 
       rosterDispatch({ type: 'RESET' });
       setBirthYearFilters([]);
+      trackEvent(AnalyticsEvents.PLAYER_ADDED_TO_ROSTER.category, AnalyticsEvents.PLAYER_ADDED_TO_ROSTER.action);
     } catch (error) {
       handleApiError(error, 'Failed to add player to roster');
     }
@@ -396,7 +412,7 @@ export function Management() {
   const handleDeletePlayer = (id: string) => confirmAndDelete(confirm, {
     title: 'Delete Player',
     message: 'Are you sure you want to delete this player? This will remove them from all team rosters.',
-    deleteFn: () => deletePlayerCascade(id),
+    deleteFn: async () => { await deletePlayerCascade(id); trackEvent(AnalyticsEvents.PLAYER_DELETED.category, AnalyticsEvents.PLAYER_DELETED.action); },
     entityName: 'player',
   });
 
@@ -505,6 +521,7 @@ export function Management() {
         await createFormationPositions(formation.data.id, formationForm.positions, [currentUserId]);
       }
       formationDispatch({ type: 'RESET' });
+      trackEvent(AnalyticsEvents.FORMATION_CREATED.category, AnalyticsEvents.FORMATION_CREATED.action);
     } catch (error) {
       handleApiError(error, 'Failed to create formation');
     }
@@ -613,9 +630,28 @@ export function Management() {
   const handleDeleteFormation = (id: string) => confirmAndDelete(confirm, {
     title: 'Delete Formation',
     message: 'Are you sure you want to delete this formation? This will also delete all positions in the formation.',
-    deleteFn: () => deleteFormationCascade(id),
+    deleteFn: async () => { await deleteFormationCascade(id); trackEvent(AnalyticsEvents.FORMATION_DELETED.category, AnalyticsEvents.FORMATION_DELETED.action); },
     entityName: 'formation',
   });
+
+  const handleRemoveDemoData = async () => {
+    if (!demoTeamId) return;
+    
+    const confirmed = await confirm({
+      title: 'Remove Demo Data',
+      message: 'This will delete the demo team and all related data (players, games, etc.). Are you sure?',
+      confirmText: 'Remove',
+      variant: 'danger',
+    });
+    
+    if (!confirmed) return;
+    
+    try {
+      await removeDemoData(demoTeamId);
+    } catch (error) {
+      handleApiError(error, 'Failed to remove demo data');
+    }
+  };
 
   const updateFormationPosition = (index: number, field: 'positionName' | 'abbreviation', value: string) => {
     formationDispatch({ type: 'UPDATE_POSITION', index, field, value });
@@ -1682,6 +1718,22 @@ export function Management() {
                 </span>
               </div>
             </div>
+
+            {demoTeamId && (
+              <div className="app-info-card" style={{ marginTop: '16px' }}>
+                <h3>🧪 Demo Data</h3>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                  You have a demo team active. This is sample data for exploring the app.
+                </p>
+                <button
+                  onClick={handleRemoveDemoData}
+                  className="btn-delete"
+                  style={{ width: 'auto' }}
+                >
+                  Remove Demo Data
+                </button>
+              </div>
+            )}
 
           </div>
         </div>

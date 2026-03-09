@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "@testing-library/react";
 import { GameManagement } from "./GameManagement";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
+import { useWakeLock } from "../../hooks/useWakeLock";
+import { useGameNotification } from "../../hooks/useGameNotification";
 
 // ---------------------------------------------------------------------------
 // Hoisted Amplify mock functions – must use vi.hoisted so they are available
@@ -84,6 +86,8 @@ vi.mock("./hooks/useGameTimer", () => ({ useGameTimer: vi.fn() }));
 vi.mock("../../hooks/useTeamData", () => ({
   useTeamData: vi.fn().mockReturnValue({ players: [], positions: [] }),
 }));
+vi.mock("../../hooks/useWakeLock", () => ({ useWakeLock: vi.fn() }));
+vi.mock("../../hooks/useGameNotification", () => ({ useGameNotification: vi.fn() }));
 
 // ---------------------------------------------------------------------------
 // Service / utility mocks
@@ -389,5 +393,93 @@ describe("GameManagement – help context wiring", () => {
     render(<GameManagement game={{ ...mockGame, status: 'unknown-status' as any }} team={mockTeam} onBack={vi.fn()} />);
     // setHelpContext should NOT be called with any game key for unknown status
     expect(mockSetHelpContext).not.toHaveBeenCalledWith(expect.stringMatching(/^game-/));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Wake Lock + Notification hook integration
+// ---------------------------------------------------------------------------
+describe("GameManagement – useWakeLock and useGameNotification", () => {
+  const mockUseWakeLock = vi.mocked(useWakeLock);
+  const mockUseGameNotification = vi.mocked(useGameNotification);
+
+  beforeEach(() => {
+    mockUseGameSubscriptions.mockReturnValue(defaultSubscription);
+    mockUseWakeLock.mockClear();
+    mockUseGameNotification.mockClear();
+  });
+
+  it("passes isActive=true to both hooks when status is 'in-progress'", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+    });
+    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    expect(mockUseWakeLock).toHaveBeenCalledWith(true);
+    expect(mockUseGameNotification).toHaveBeenCalledWith(expect.objectContaining({ isActive: true }));
+  });
+
+  it("passes isActive=true to both hooks when status is 'halftime'", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'halftime' },
+    });
+    render(<GameManagement game={{ ...mockGame, status: 'halftime' }} team={mockTeam} onBack={vi.fn()} />);
+    expect(mockUseWakeLock).toHaveBeenCalledWith(true);
+    expect(mockUseGameNotification).toHaveBeenCalledWith(expect.objectContaining({ isActive: true }));
+  });
+
+  it("passes isActive=false to both hooks when status is 'scheduled'", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled' },
+    });
+    render(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+    expect(mockUseWakeLock).toHaveBeenCalledWith(false);
+    expect(mockUseGameNotification).toHaveBeenCalledWith(expect.objectContaining({ isActive: false }));
+  });
+
+  it("passes isActive=false to both hooks when status is 'completed'", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'completed' },
+    });
+    render(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
+    expect(mockUseWakeLock).toHaveBeenCalledWith(false);
+    expect(mockUseGameNotification).toHaveBeenCalledWith(expect.objectContaining({ isActive: false }));
+  });
+
+  it("passes requestPermissionNow=false when status is 'completed'", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'completed' },
+    });
+    render(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
+    expect(mockUseGameNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ requestPermissionNow: false })
+    );
+  });
+
+  it("passes requestPermissionNow=true when status is 'in-progress'", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+    });
+    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    expect(mockUseGameNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ requestPermissionNow: true })
+    );
+  });
+
+  it("passes team name and opponent to useGameNotification", () => {
+    const teamWithName = { ...mockTeam, name: 'Eagles' };
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress', opponent: 'Lions', ourScore: 2, opponentScore: 1 },
+    });
+    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={teamWithName} onBack={vi.fn()} />);
+    expect(mockUseGameNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ teamName: 'Eagles', opponent: 'Lions', ourScore: 2, opponentScore: 1 })
+    );
   });
 });
