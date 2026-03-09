@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Outlet, NavLink, useLocation } from "react-router-dom";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import { Toaster } from "react-hot-toast";
+import { OnboardingProvider } from "../contexts/OnboardingContext";
 import { ConfirmProvider } from "./ConfirmModal";
 import { HelpFabProvider } from "../contexts/HelpFabContext";
 import { HelpFab } from "./HelpFab";
@@ -18,9 +19,10 @@ export function AppLayout() {
   }, [location.pathname]);
 
   return (
-    <ConfirmProvider>
-      <HelpFabProvider>
-        <main className="app-container">
+    <OnboardingProvider>
+      <ConfirmProvider>
+        <HelpFabProvider>
+          <main className="app-container">
         <Toaster
           position="top-center"
           toastOptions={{
@@ -91,7 +93,8 @@ export function AppLayout() {
         </nav>
           <HelpFab />
         </main>
-      </HelpFabProvider>
-    </ConfirmProvider>
+        </HelpFabProvider>
+      </ConfirmProvider>
+    </OnboardingProvider>
   );
 }

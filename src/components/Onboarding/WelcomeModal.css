@@ -1,0 +1,307 @@
+/* ==========================================================================
+   WelcomeModal.css
+   Styles for the one-time welcome modal (first authenticated load).
+   z-index: 1000 matches other modal overlays (HelpModal, ConfirmModal, BugReport).
+   ========================================================================== */
+
+/* Backdrop overlay */
+.welcome-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+/* Modal card */
+.welcome-modal-card {
+  background: var(--card-background);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  width: min(95vw, 480px);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: welcomeSlideUp 250ms ease-out;
+  will-change: transform, opacity;
+}
+
+/* Entrance animation */
+@keyframes welcomeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Header (sticky inside card) */
+.welcome-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--card-background);
+}
+
+.welcome-modal-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--primary-green);
+  margin: 0;
+  flex: 1;
+  padding-right: 12px;
+}
+
+/* Suppress visible outline on programmatic focus */
+.welcome-modal-title:focus {
+  outline: none;
+}
+
+/* Close button (✕ top-right) */
+.welcome-modal-close {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+  flex-shrink: 0;
+  font-family: inherit;
+  min-height: 44px;
+  min-width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.welcome-modal-close:hover {
+  background: var(--hover-background);
+  color: var(--text-primary);
+}
+
+/* Scrollable body */
+.welcome-modal-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 20px;
+  flex: 1;
+}
+
+/* Hero section */
+.welcome-hero {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.welcome-hero-icon {
+  font-size: 3rem;
+  margin-bottom: 12px;
+}
+
+.welcome-hero-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+
+.welcome-hero-tagline {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Section containers */
+.welcome-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color);
+}
+
+.welcome-section:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.welcome-section-heading {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+}
+
+/* How it works — three icon + text rows */
+.welcome-how-it-works {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.welcome-how-it-works-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.welcome-how-it-works-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.welcome-how-it-works-text {
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+/* Callout card (green accent border) */
+.welcome-callout {
+  background: rgba(76, 175, 80, 0.06);
+  border: 2px solid var(--accent-green);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.welcome-callout-text {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Demo data section */
+.welcome-demo-section {
+  text-align: center;
+}
+
+.welcome-demo-label {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+}
+
+.welcome-demo-button {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 10px 20px;
+  font-size: 0.9rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  min-height: 44px;
+  font-weight: 500;
+}
+
+.welcome-demo-button:hover:not(:disabled) {
+  background: var(--hover-background);
+  border-color: var(--accent-green);
+}
+
+.welcome-demo-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Footer (sticky at bottom) */
+.welcome-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+  background: var(--card-background);
+  gap: 12px;
+}
+
+.welcome-skip-link {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 8px;
+  font-family: inherit;
+  min-height: 44px;
+}
+
+.welcome-skip-link:hover {
+  color: var(--text-primary);
+}
+
+.welcome-primary-button {
+  background: var(--accent-green);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  min-height: 44px;
+  flex-shrink: 0;
+}
+
+.welcome-primary-button:hover:not(:disabled) {
+  background: var(--light-green);
+}
+
+.welcome-primary-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Responsive adjustments for narrow phones */
+@media (max-width: 360px) {
+  .welcome-hero-icon {
+    font-size: 2.5rem;
+  }
+
+  .welcome-hero-title {
+    font-size: 1.1rem;
+  }
+
+  .welcome-hero-tagline {
+    font-size: 0.875rem;
+  }
+
+  .welcome-modal-footer {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .welcome-primary-button {
+    width: 100%;
+  }
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .welcome-modal-card {
+    animation: none;
+  }
+}

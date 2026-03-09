@@ -1,35 +1,51 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuthenticator } from '@aws-amplify/ui-react';
 import { generateClient } from 'aws-amplify/data';
-import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
-import type { Game, Team } from '../types/schema';
-import { showError, showWarning } from '../utils/toast';
+import type { Game } from '../types/schema';
+import { showError, showWarning, showSuccess } from '../utils/toast';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
-import { handleApiError, logError } from '../utils/errorHandler';
+import { handleApiError } from '../utils/errorHandler';
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
 import { useHelpFab } from '../contexts/HelpFabContext';
 import { buildFlatDebugSnapshot } from '../utils/debugUtils';
 import type { HomeDebugContext } from '../types/debug';
+import { useOnboarding } from '../contexts/OnboardingContext';
+import { createDemoTeam } from '../services/demoDataService';
+import { WelcomeModal } from './Onboarding/WelcomeModal';
+import { QuickStartChecklist } from './Onboarding/QuickStartChecklist';
 
 const client = generateClient<Schema>();
 
 export function Home() {
   const navigate = useNavigate();
+  const { user } = useAuthenticator((context) => [context.user]);
   const { setHelpContext, setDebugContext } = useHelpFab();
+  const { welcomed, dismissed, collapsed, markWelcomed, expand, dismiss } = useOnboarding();
 
   // Register 'home' help context while this screen is mounted
   useEffect(() => {
     setHelpContext('home');
     return () => setHelpContext(null);
   }, [setHelpContext]);
-  const [teams, setTeams] = useState<Team[]>([]);
+
   const [isCreatingGame, setIsCreatingGame] = useState(false);
   const [selectedTeamForGame, setSelectedTeamForGame] = useState('');
   const [opponent, setOpponent] = useState('');
   const [gameDate, setGameDate] = useState('');
   const [isHome, setIsHome] = useState(true);
-  const [currentUserId, setCurrentUserId] = useState<string>('');
+  const [isDemoLoading, setIsDemoLoading] = useState(false);
+
+  const scheduleGameButtonRef = useRef<HTMLButtonElement>(null);
+
+  const currentUserId = user.userId;
+
+  // Subscribe to teams, roster, and gamePlans for onboarding progress
+  const { data: teams } = useAmplifyQuery('Team');
+  const { data: teamRosters } = useAmplifyQuery('TeamRoster');
+  // Only subscribe to GamePlan if onboarding is not dismissed (optimization)
+  const { data: gamePlans } = useAmplifyQuery('GamePlan', {}, [dismissed ? 'skip' : '']);
 
   const { data: games } = useAmplifyQuery('Game', {
     sort: (a, b) => {
@@ -84,28 +100,74 @@ export function Home() {
     return () => setDebugContext(null);
   }, [homeDebugSnapshot, setDebugContext]);
 
-  useEffect(() => {
-    void loadCurrentUser();
-    void loadTeams();
-  }, []);
+  // Read demo team ID from localStorage
+  const demoTeamId = typeof window !== 'undefined' ? localStorage.getItem('onboarding:demoTeamId') : null;
 
-  async function loadCurrentUser() {
-    try {
-      const user = await getCurrentUser();
-      setCurrentUserId(user.userId);
-    } catch (error) {
-      logError('getCurrentUser', error);
+  // Handle demo data loading
+  const handleLoadDemoData = async () => {
+    if (!navigator.onLine) {
+      showError('Demo data requires an internet connection');
+      return;
     }
-  }
 
-  async function loadTeams() {
+    setIsDemoLoading(true);
     try {
-      const teamsResponse = await client.models.Team.list();
-      setTeams(teamsResponse.data || []);
+      await createDemoTeam(currentUserId);
+      showSuccess('Demo team created!');
+      markWelcomed();
+      expand();
     } catch (error) {
-      handleApiError(error, 'Failed to load teams');
+      handleApiError(error, 'Failed to create demo team');
+    } finally {
+      setIsDemoLoading(false);
     }
-  }
+  };
+
+  // Handle navigation from checklist
+  const handleNavigateFromChecklist = (stepId: number) => {
+    switch (stepId) {
+      case 1:
+        void navigate('/manage?section=teams');
+        break;
+      case 2:
+        void navigate('/manage?section=players');
+        break;
+      case 3:
+        void navigate('/manage?section=teams');
+        break;
+      case 4:
+        // Scroll to Schedule Game button
+        scheduleGameButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        scheduleGameButtonRef.current?.focus();
+        break;
+      case 5: {
+        // Navigate to first scheduled game's plan
+        const firstScheduledGame = games.find(g => (g.status || 'scheduled') === 'scheduled');
+        if (firstScheduledGame) {
+          void navigate(`/game/${firstScheduledGame.id}/plan`);
+        }
+        break;
+      }
+      case 6: {
+        // Navigate to first in-progress or scheduled game
+        const firstGame = games.find(g => g.status === 'in-progress' || g.status === 'halftime') ||
+                          games.find(g => (g.status || 'scheduled') === 'scheduled');
+        if (firstGame) {
+          void navigate(`/game/${firstGame.id}`);
+        } else {
+          // Fallback: scroll to step 4 button
+          scheduleGameButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          scheduleGameButtonRef.current?.focus();
+        }
+        break;
+      }
+    }
+  };
+
+  const handleOpenQuickStart = () => {
+    markWelcomed();
+    expand();
+  };
 
   const getTeam = (teamId: string) => {
     return teams.find(t => t.id === teamId);
@@ -224,9 +286,37 @@ export function Home() {
 
   return (
     <div className="home">
+      {/* Show WelcomeModal if not yet welcomed */}
+      {!welcomed && (
+        <WelcomeModal
+          onClose={markWelcomed}
+          onLoadDemoData={handleLoadDemoData}
+          onOpenQuickStart={handleOpenQuickStart}
+          isDemoLoading={isDemoLoading}
+        />
+      )}
+
+      {/* Show QuickStartChecklist if not dismissed */}
+      {!dismissed && welcomed && (
+        <QuickStartChecklist
+          teams={teams}
+          games={games}
+          teamRosters={teamRosters}
+          gamePlans={gamePlans}
+          collapsed={collapsed}
+          demoTeamId={demoTeamId}
+          onDismiss={dismiss}
+          onExpand={expand}
+          onNavigate={handleNavigateFromChecklist}
+        />
+      )}
 
       {!isCreatingGame && (
-        <button onClick={() => setIsCreatingGame(true)} className="btn-primary">
+        <button
+          ref={scheduleGameButtonRef}
+          onClick={() => setIsCreatingGame(true)}
+          className="btn-primary"
+        >
           + Schedule New Game
         </button>
       )}

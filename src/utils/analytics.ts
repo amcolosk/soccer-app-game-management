@@ -76,4 +76,13 @@ export const AnalyticsEvents = {
   // Account
   PASSWORD_CHANGED: { category: 'Account', action: 'Change Password' },
   ACCOUNT_DELETED: { category: 'Account', action: 'Delete Account' },
+
+  // Onboarding
+  ONBOARDING_STEP_COMPLETE: { category: 'Onboarding', action: 'Step Complete' },
+  DEMO_TEAM_CREATED: { category: 'Onboarding', action: 'Demo Team Created' },
+  DEMO_TEAM_REMOVED: { category: 'Onboarding', action: 'Demo Team Removed' },
+  WELCOME_MODAL_OPENED: { category: 'Onboarding', action: 'Welcome Modal Opened' },
+  WELCOME_MODAL_SKIPPED: { category: 'Onboarding', action: 'Welcome Modal Skipped' },
+  QUICK_START_OPENED: { category: 'Onboarding', action: 'Quick Start Opened' },
+  QUICK_START_DISMISSED: { category: 'Onboarding', action: 'Quick Start Dismissed' },
 };

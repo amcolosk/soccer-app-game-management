@@ -1,4 +1,5 @@
 import { useState, useEffect, useReducer, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
 import { InvitationManagement } from './InvitationManagement';
@@ -18,6 +19,7 @@ import {
 } from '../utils/validation';
 import { useConfirm } from './ConfirmModal';
 import { deleteTeamCascade, deletePlayerCascade, deleteFormationCascade } from '../services/cascadeDeleteService';
+import { removeDemoData } from '../services/demoDataService';
 import { computeFormationPositionDiff, scrubDeletedPositionPreferences } from '../utils/formationUtils';
 import { useSwipeDelete } from '../hooks/useSwipeDelete';
 import {
@@ -115,13 +117,26 @@ async function createFormationPositions(
 
 export function Management() {
   const confirm = useConfirm();
+  const [searchParams] = useSearchParams();
   const { data: teams } = useAmplifyQuery('Team');
   const { data: players } = useAmplifyQuery('Player');
   const { data: teamRosters } = useAmplifyQuery('TeamRoster');
   const { data: formations } = useAmplifyQuery('Formation');
   const { data: formationPositions } = useAmplifyQuery('FormationPosition');
-  const [activeSection, setActiveSection] = useState<'teams' | 'formations' | 'players' | 'sharing' | 'app'>('teams');
+  
+  // Initialize activeSection from query param (read-only, one-way entry point)
+  const [activeSection, setActiveSection] = useState<'teams' | 'formations' | 'players' | 'sharing' | 'app'>(() => {
+    const section = searchParams.get('section');
+    const valid = ['teams', 'players', 'formations', 'sharing', 'app'];
+    return (valid.includes(section ?? '') ? section : 'teams') as 'teams' | 'formations' | 'players' | 'sharing' | 'app';
+  });
+  
   const [currentUserId, setCurrentUserId] = useState<string>('');
+  
+  // Read demo team ID from localStorage
+  const [demoTeamId] = useState(() => 
+    typeof window !== 'undefined' ? localStorage.getItem('onboarding:demoTeamId') : null
+  );
 
   const { setHelpContext, setDebugContext } = useHelpFab();
 
@@ -618,6 +633,25 @@ export function Management() {
     deleteFn: async () => { await deleteFormationCascade(id); trackEvent(AnalyticsEvents.FORMATION_DELETED.category, AnalyticsEvents.FORMATION_DELETED.action); },
     entityName: 'formation',
   });
+
+  const handleRemoveDemoData = async () => {
+    if (!demoTeamId) return;
+    
+    const confirmed = await confirm({
+      title: 'Remove Demo Data',
+      message: 'This will delete the demo team and all related data (players, games, etc.). Are you sure?',
+      confirmText: 'Remove',
+      variant: 'danger',
+    });
+    
+    if (!confirmed) return;
+    
+    try {
+      await removeDemoData(demoTeamId);
+    } catch (error) {
+      handleApiError(error, 'Failed to remove demo data');
+    }
+  };
 
   const updateFormationPosition = (index: number, field: 'positionName' | 'abbreviation', value: string) => {
     formationDispatch({ type: 'UPDATE_POSITION', index, field, value });
@@ -1684,6 +1718,22 @@ export function Management() {
                 </span>
               </div>
             </div>
+
+            {demoTeamId && (
+              <div className="app-info-card" style={{ marginTop: '16px' }}>
+                <h3>🧪 Demo Data</h3>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                  You have a demo team active. This is sample data for exploring the app.
+                </p>
+                <button
+                  onClick={handleRemoveDemoData}
+                  className="btn-delete"
+                  style={{ width: 'auto' }}
+                >
+                  Remove Demo Data
+                </button>
+              </div>
+            )}
 
           </div>
         </div>
