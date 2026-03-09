@@ -28,6 +28,8 @@ import { useHelpFab } from "../../contexts/HelpFabContext";
 import type { HelpScreenKey } from "../../help";
 import { buildFlatDebugSnapshot } from "../../utils/debugUtils";
 import type { GameManagementDebugContext } from "../../types/debug";
+import { useWakeLock } from "../../hooks/useWakeLock";
+import { useGameNotification } from "../../hooks/useGameNotification";
 
 const client = generateClient<Schema>();
 
@@ -154,6 +156,22 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     setDebugContext(gameManagementDebugSnapshot);
     return () => setDebugContext(null);
   }, [gameManagementDebugSnapshot, setDebugContext]);
+
+  // Wake Lock: prevent screen sleep during active game
+  const isGameActive = gameState.status === 'in-progress' || gameState.status === 'halftime';
+  useWakeLock(isGameActive);
+
+  // Persistent notification: show live score in notification shade
+  useGameNotification({
+    isActive: isGameActive,
+    requestPermissionNow: isGameActive,
+    teamName: team.name,
+    opponent: gameState.opponent ?? '',
+    ourScore: gameState.ourScore ?? 0,
+    opponentScore: gameState.opponentScore ?? 0,
+    currentHalf: gameState.currentHalf ?? 1,
+    currentTime,
+  });
 
   const getPlayerAvailability = (playerId: string): string => {
     const availability = playerAvailabilities.find(a => a.playerId === playerId);
