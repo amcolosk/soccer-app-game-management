@@ -42,7 +42,17 @@ export function Home() {
   const currentUserId = user.userId;
 
   // Subscribe to teams, roster, and gamePlans for onboarding progress
-  const { data: teams } = useAmplifyQuery('Team');
+  const { data: teams, isSynced: isTeamsSynced } = useAmplifyQuery('Team');
+
+  // Auto-welcome users who already had teams before the onboarding feature launched.
+  // Once teams have fully synced and the user has at least one team, skip the WelcomeModal.
+  // This prevents existing coaches from accidentally loading unwanted demo data.
+  useEffect(() => {
+    if (!welcomed && isTeamsSynced && teams.length > 0) {
+      markWelcomed();
+    }
+  }, [welcomed, isTeamsSynced, teams.length, markWelcomed]);
+
   const { data: teamRosters } = useAmplifyQuery('TeamRoster');
   // Only subscribe to GamePlan if onboarding is not dismissed (optimization)
   const { data: gamePlans } = useAmplifyQuery('GamePlan', {}, [dismissed ? 'skip' : '']);
@@ -296,8 +306,9 @@ export function Home() {
 
   return (
     <div className="home">
-      {/* Show WelcomeModal if not yet welcomed */}
-      {!welcomed && (
+      {/* Show WelcomeModal only once we know the user has no existing teams,
+          preventing a flash for existing users being auto-welcomed */}
+      {!welcomed && isTeamsSynced && (
         <WelcomeModal
           onClose={markWelcomed}
           onLoadDemoData={handleLoadDemoData}
