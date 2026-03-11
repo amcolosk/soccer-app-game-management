@@ -124,16 +124,21 @@ export function QuickStartChecklist({
     prevStepsRef.current = currentStates;
   }, [step1Complete, step2Complete, step3Complete, step4Complete, step5Complete, step6Complete]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-dismiss on completion (after 4 seconds)
+  // Auto-dismiss on completion (after 4 seconds).
+  // Uses a ref (not state) to guard against double-firing so that changing the
+  // guard value does NOT trigger a re-render, which would run the effect cleanup
+  // and cancel the timer before it fires.
+  const autoCloseStartedRef = useRef(false);
   useEffect(() => {
-    if (allComplete && !isComplete) {
+    if (allComplete && !autoCloseStartedRef.current) {
+      autoCloseStartedRef.current = true;
       setIsComplete(true);
       const timer = setTimeout(() => {
         onDismiss();
       }, 4000);
       return () => clearTimeout(timer);
     }
-  }, [allComplete, isComplete, onDismiss]);
+  }, [allComplete, onDismiss]);
 
   // Track analytics when checklist expands from collapsed
   const prevCollapsedRef = useRef(collapsed);

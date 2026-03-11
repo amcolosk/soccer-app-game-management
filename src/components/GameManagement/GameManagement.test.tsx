@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render } from "@testing-library/react";
+import { render, act, waitFor } from "@testing-library/react";
 import { GameManagement } from "./GameManagement";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
 import { useWakeLock } from "../../hooks/useWakeLock";
@@ -49,6 +49,8 @@ vi.mock("aws-amplify/data", () => ({
 const mockCaptures: {
   onApplyHalftimeSub?: (sub: PlannedSubstitution) => Promise<void>;
   onMarkInjured?: (playerId: string) => Promise<void>;
+  onQueueSubstitution?: (playerId: string, positionId: string) => void;
+  latestSubstitutionQueue?: { playerId: string; positionId: string }[];
 } = {};
 
 vi.mock("./GameTimer", () => ({
@@ -63,7 +65,13 @@ vi.mock("./GameTimer", () => ({
 vi.mock("./GameHeader",       () => ({ GameHeader:       () => <div /> }));
 vi.mock("./GoalTracker",      () => ({ GoalTracker:      () => <div /> }));
 vi.mock("./PlayerNotesPanel", () => ({ PlayerNotesPanel: () => <div /> }));
-vi.mock("./RotationWidget",   () => ({ RotationWidget:   () => <div /> }));
+vi.mock("./RotationWidget", () => ({
+  RotationWidget: vi.fn((props: any) => {
+    mockCaptures.onQueueSubstitution = props.onQueueSubstitution;
+    mockCaptures.latestSubstitutionQueue = props.substitutionQueue;
+    return <div />;
+  }),
+}));
 vi.mock("./SubstitutionPanel",() => ({ SubstitutionPanel:() => <div /> }));
 vi.mock("./LineupPanel", () => ({
   LineupPanel: vi.fn((props: any) => {
@@ -481,5 +489,65 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
     expect(mockUseGameNotification).toHaveBeenCalledWith(
       expect.objectContaining({ teamName: 'Eagles', opponent: 'Lions', ourScore: 2, opponentScore: 1 })
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleQueueSubstitution – batching regression (Issue #20)
+// ---------------------------------------------------------------------------
+describe("GameManagement – handleQueueSubstitution batching", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCaptures.onQueueSubstitution = undefined;
+    mockCaptures.latestSubstitutionQueue = undefined;
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+    });
+  });
+
+  it("wires onQueueSubstitution into RotationWidget props", () => {
+    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    expect(typeof mockCaptures.onQueueSubstitution).toBe("function");
+  });
+
+  it("queues all players when called multiple times synchronously (regression: Queue All batching)", async () => {
+    // Regression test for Issue #20.
+    // Before the fix, setSubstitutionQueue([...substitutionQueue, item]) captured the same
+    // stale empty array for all batched calls, so only the last item ended up in the queue.
+    // The fix uses a functional updater (prev => [...prev, item]) so each call sees the
+    // latest state and all items accumulate correctly.
+    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    expect(typeof mockCaptures.onQueueSubstitution).toBe("function");
+
+    // Simulate Queue All: three synchronous calls (as handleQueueAll does via forEach)
+    act(() => {
+      mockCaptures.onQueueSubstitution!("player-1", "pos-1");
+      mockCaptures.onQueueSubstitution!("player-2", "pos-2");
+      mockCaptures.onQueueSubstitution!("player-3", "pos-3");
+    });
+
+    await waitFor(() => {
+      expect(mockCaptures.latestSubstitutionQueue).toHaveLength(3);
+    });
+
+    expect(mockCaptures.latestSubstitutionQueue).toContainEqual({ playerId: "player-1", positionId: "pos-1" });
+    expect(mockCaptures.latestSubstitutionQueue).toContainEqual({ playerId: "player-2", positionId: "pos-2" });
+    expect(mockCaptures.latestSubstitutionQueue).toContainEqual({ playerId: "player-3", positionId: "pos-3" });
+  });
+
+  it("does not add a duplicate entry when the same player+position is queued again", async () => {
+    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    act(() => {
+      mockCaptures.onQueueSubstitution!("player-1", "pos-1");
+    });
+    await waitFor(() => expect(mockCaptures.latestSubstitutionQueue).toHaveLength(1));
+
+    act(() => {
+      mockCaptures.onQueueSubstitution!("player-1", "pos-1");
+    });
+    // Queue should still be length 1 — no duplicate added
+    await waitFor(() => expect(mockCaptures.latestSubstitutionQueue).toHaveLength(1));
   });
 });

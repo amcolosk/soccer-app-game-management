@@ -211,6 +211,105 @@ describe("RotationWidget", () => {
     );
   });
 
+  // ── Queue All button ─────────────────────────────────────────────────────
+  it("Queue All calls onQueueSubstitution for every available substitution in the rotation", async () => {
+    // Rotation with TWO distinct substitutions — exercises the batching fix
+    // (Issue #20: without functional updater only the first player was queued)
+    const multiRotation = {
+      ...makeRotation(20),
+      plannedSubstitutions: JSON.stringify([
+        { playerOutId: "p1", playerInId: "p2", positionId: "pos-1" },
+        { playerOutId: "p3", playerInId: "p4", positionId: "pos-2" },
+      ]),
+    };
+    const extraPlayers = [
+      ...players,
+      { id: "p3", playerNumber: 5, firstName: "Carol", lastName: "White", isActive: true, preferredPositions: "" },
+      { id: "p4", playerNumber: 9, firstName: "Dave",  lastName: "Black", isActive: true, preferredPositions: "" },
+    ] as any[];
+
+    const user = userEvent.setup();
+    const onQueueSubstitution = vi.fn();
+    mockGetPlayerAvailability.mockReturnValue("available");
+
+    render(
+      <RotationWidget
+        {...baseProps}
+        players={extraPlayers}
+        plannedRotations={[multiRotation] as any}
+        isRotationModalOpen={true}
+        onCloseRotationModal={vi.fn()}
+        onQueueSubstitution={onQueueSubstitution}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /Queue All/i }));
+
+    expect(onQueueSubstitution).toHaveBeenCalledTimes(2);
+    expect(onQueueSubstitution).toHaveBeenCalledWith("p2", "pos-1");
+    expect(onQueueSubstitution).toHaveBeenCalledWith("p4", "pos-2");
+  });
+
+  it("Queue All skips players who are already in the substitution queue", async () => {
+    const multiRotation = {
+      ...makeRotation(20),
+      plannedSubstitutions: JSON.stringify([
+        { playerOutId: "p1", playerInId: "p2", positionId: "pos-1" },
+        { playerOutId: "p3", playerInId: "p4", positionId: "pos-2" },
+      ]),
+    };
+    const extraPlayers = [
+      ...players,
+      { id: "p3", playerNumber: 5, firstName: "Carol", lastName: "White", isActive: true, preferredPositions: "" },
+      { id: "p4", playerNumber: 9, firstName: "Dave",  lastName: "Black", isActive: true, preferredPositions: "" },
+    ] as any[];
+
+    const user = userEvent.setup();
+    const onQueueSubstitution = vi.fn();
+    mockGetPlayerAvailability.mockReturnValue("available");
+
+    // p2 is already queued — should be skipped by Queue All
+    render(
+      <RotationWidget
+        {...baseProps}
+        players={extraPlayers}
+        plannedRotations={[multiRotation] as any}
+        substitutionQueue={[{ playerId: "p2", positionId: "pos-1" }] as any}
+        isRotationModalOpen={true}
+        onCloseRotationModal={vi.fn()}
+        onQueueSubstitution={onQueueSubstitution}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /Queue All/i }));
+
+    expect(onQueueSubstitution).toHaveBeenCalledTimes(1);
+    expect(onQueueSubstitution).toHaveBeenCalledWith("p4", "pos-2");
+    expect(onQueueSubstitution).not.toHaveBeenCalledWith("p2", "pos-1");
+  });
+
+  it("Queue All button is disabled when all substitutions are already queued", () => {
+    const multiRotation = {
+      ...makeRotation(20),
+      plannedSubstitutions: JSON.stringify([
+        { playerOutId: "p1", playerInId: "p2", positionId: "pos-1" },
+      ]),
+    };
+    mockGetPlayerAvailability.mockReturnValue("available");
+
+    render(
+      <RotationWidget
+        {...baseProps}
+        plannedRotations={[multiRotation] as any}
+        substitutionQueue={[{ playerId: "p2", positionId: "pos-1" }] as any}
+        isRotationModalOpen={true}
+        onCloseRotationModal={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /Queue All/i })).toBeDisabled();
+  });
+
   // ── Malformed JSON graceful fallback ─────────────────────────────────────
   it("shows a fallback message when plannedSubstitutions contains malformed JSON", () => {
     const malformedRotation = { ...makeRotation(20), plannedSubstitutions: "not-valid-json" };

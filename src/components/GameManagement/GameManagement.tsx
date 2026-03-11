@@ -658,7 +658,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const handleQueueSubstitution = (playerId: string, positionId: string) => {
-    // Validate against current snapshot for immediate single-click feedback
+    // Early-return guards read the closure snapshot for immediate single-click
+    // warning feedback. In batched scenarios (e.g. Queue All) these checks see
+    // stale state and will not fire; the functional updater below is the
+    // authoritative duplicate check for all cases.
     const alreadyQueued = substitutionQueue.some(
       q => q.playerId === playerId && q.positionId === positionId
     );
