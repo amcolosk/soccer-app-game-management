@@ -6,12 +6,11 @@
  *   - LineupBuilder renders only when status === 'scheduled'
  *   - Position grid renders for in-progress / halftime / completed
  *   - Halftime extras: 'Second Half Lineup' header, halftime hint, 'Clear All' button
- *   - In-progress position slot shows substitute + mark-injured buttons
+ *   - In-progress position slot shows substitute button
  *   - Non-in-progress slot shows remove button instead
  *   - hideAvailablePlayers flag hides the available-players section
  *   - Empty position click in halftime calls onSubstitute
  *   - Substitute button calls onSubstitute with the matching position
- *   - Mark-injured flow: confirm → onMarkInjured
  *   - Clear All flow: confirm → deletes all lineup assignments
  *   - Position picker: opens on available-player click, assigns on pick, cancels
  */
@@ -94,7 +93,7 @@ vi.mock('../LineupBuilder', () => ({
 // ---------------------------------------------------------------------------
 
 import { LineupPanel } from './LineupPanel';
-import type { Game, Team, PlayerWithRoster, FormationPosition, LineupAssignment, PlayTimeRecord, GamePlan } from './types';
+import type { Game, Team, PlayerWithRoster, FormationPosition, LineupAssignment, PlayTimeRecord } from './types';
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -143,11 +142,6 @@ const lineupAssignment: LineupAssignment = {
   isStarter: true,
 } as unknown as LineupAssignment;
 
-const mockGamePlan: GamePlan = {
-  id: 'gp-1',
-  gameId: 'game-1',
-} as unknown as GamePlan;
-
 const defaultProps = {
   gameState: makeGame('in-progress'),
   game: makeGame('in-progress'),
@@ -157,9 +151,7 @@ const defaultProps = {
   lineup: [lineupAssignment],
   playTimeRecords: [] as PlayTimeRecord[],
   currentTime: 600,
-  gamePlan: null as GamePlan | null,
   onSubstitute: vi.fn(),
-  onMarkInjured: vi.fn(),
 };
 
 // ---------------------------------------------------------------------------
@@ -314,29 +306,6 @@ describe('LineupPanel', () => {
 
     await user.click(screen.getByTitle('Make substitution'));
     expect(onSubstitute).toHaveBeenCalledWith(pos1);
-  });
-
-  // ── Mark injured flow (requires gamePlan prop to be non-null) -------------
-
-  it('mark injured: confirm → calls onMarkInjured', async () => {
-    const user = userEvent.setup();
-    const onMarkInjured = vi.fn();
-    render(<LineupPanel {...defaultProps} gamePlan={mockGamePlan} onMarkInjured={onMarkInjured} />);
-
-    await user.click(screen.getByTitle('Mark player as injured'));
-    await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
-    await waitFor(() => expect(onMarkInjured).toHaveBeenCalledWith('player-1'));
-  });
-
-  it('mark injured: cancel → onMarkInjured not called', async () => {
-    mockConfirm.mockResolvedValue(false);
-    const user = userEvent.setup();
-    const onMarkInjured = vi.fn();
-    render(<LineupPanel {...defaultProps} gamePlan={mockGamePlan} onMarkInjured={onMarkInjured} />);
-
-    await user.click(screen.getByTitle('Mark player as injured'));
-    await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
-    expect(onMarkInjured).not.toHaveBeenCalled();
   });
 
   // ── Clear All flow ---------------------------------------------------------

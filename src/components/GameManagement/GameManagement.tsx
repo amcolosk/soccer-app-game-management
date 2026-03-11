@@ -2,13 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
-import { showSuccess, showWarning, showInfo } from "../../utils/toast";
+import { showSuccess, showWarning } from "../../utils/toast";
 import { handleApiError } from "../../utils/errorHandler";
 import { useConfirm } from "../ConfirmModal";
-import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
-import { updatePlayerAvailability, calculateFairRotations, type PlannedSubstitution } from "../../services/rotationPlannerService";
+import { calculateFairRotations, type PlannedSubstitution } from "../../services/rotationPlannerService";
 import { useTeamData } from "../../hooks/useTeamData";
 import { useGameSubscriptions } from "./hooks/useGameSubscriptions";
 import { useGameTimer } from "./hooks/useGameTimer";
@@ -242,22 +241,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     return conflicts;
   };
 
-  // Check which future rotations reference a specific player
-  const getRotationsReferencingPlayer = (playerId: string): number[] => {
-    const rotationNums: number[] = [];
-    const currentMinutes = Math.floor(currentTime / 60);
-    for (const rotation of plannedRotations) {
-      if (rotation.gameMinute <= currentMinutes) continue;
-      try {
-        const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
-        if (subs.some(s => s.playerOutId === playerId || s.playerInId === playerId)) {
-          rotationNums.push(rotation.rotationNumber);
-        }
-      } catch { /* ignore */ }
-    }
-    return rotationNums;
-  };
-
   const handleRecalculateRotations = async () => {
     if (!gamePlan || plannedRotations.length === 0) return;
 
@@ -338,53 +321,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       handleApiError(error, 'Failed to recalculate rotations');
     } finally {
       setIsRecalculating(false);
-    }
-  };
-
-  const handleMarkInjured = async (playerId: string) => {
-    try {
-      await updatePlayerAvailability(
-        game.id,
-        playerId,
-        'injured',
-        `Injured at ${formatGameTimeDisplay(currentTime, gameState.currentHalf || 1)}`,
-        team.coaches || [],
-        null,                           // clear stale availableFromMinute
-        Math.floor(currentTime / 60)   // record game minute when injury occurred
-      );
-      
-      // Close active play time record
-      await closeActivePlayTimeRecords(playTimeRecords, currentTime, [playerId]);
-
-      // Remove from lineup so the position shows as empty
-      const assignment = lineup.find(l => l.playerId === playerId);
-      if (assignment) {
-        await client.models.LineupAssignment.delete({ id: assignment.id });
-      }
-
-      // Check if this player is in future planned rotations
-      const affectedRotations = getRotationsReferencingPlayer(playerId);
-      const player = players.find(p => p.id === playerId);
-      const playerName = player ? `#${player.playerNumber} ${player.firstName}` : 'Player';
-
-      if (affectedRotations.length > 0) {
-        showWarning(
-          `${playerName} marked as injured. Rotation(s) ${affectedRotations.join(', ')} need adjustment.`
-        );
-      } else {
-        showInfo(`${playerName} marked as injured and removed from the field.`);
-      }
-      trackEvent(AnalyticsEvents.PLAYER_MARKED_INJURED.category, AnalyticsEvents.PLAYER_MARKED_INJURED.action);
-
-      // Prompt to substitute if the position is now empty
-      if (assignment) {
-        const position = positions.find(p => p.id === assignment.positionId);
-        if (position) {
-          setSubstitutionRequest(position);
-        }
-      }
-    } catch (error) {
-      handleApiError(error, 'Failed to mark player injured');
     }
   };
 
@@ -726,9 +662,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     lineup,
     playTimeRecords,
     currentTime,
-    gamePlan,
     onSubstitute: handleSubstitute,
-    onMarkInjured: handleMarkInjured,
   };
 
   const sharedGoalTrackerProps = {
