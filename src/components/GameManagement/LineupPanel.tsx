@@ -21,7 +21,6 @@ import type {
   FormationPosition,
   LineupAssignment,
   PlayTimeRecord,
-  GamePlan,
 } from "./types";
 
 const client = generateClient<Schema>();
@@ -35,10 +34,8 @@ interface LineupPanelProps {
   lineup: LineupAssignment[];
   playTimeRecords: PlayTimeRecord[];
   currentTime: number;
-  gamePlan: GamePlan | null;
   hideAvailablePlayers?: boolean;
   onSubstitute: (position: FormationPosition) => void;
-  onMarkInjured: (playerId: string) => void;
 }
 
 export function LineupPanel({
@@ -50,10 +47,8 @@ export function LineupPanel({
   lineup,
   playTimeRecords,
   currentTime,
-  gamePlan,
   hideAvailablePlayers = false,
   onSubstitute,
-  onMarkInjured,
 }: LineupPanelProps) {
   const confirm = useConfirm();
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -262,26 +257,6 @@ export function LineupPanel({
                               >
                                 ⇄
                               </button>
-                              {gamePlan && (
-                                <button
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    const confirmed = await confirm({
-                                      title: 'Mark Injured',
-                                      message: `Mark ${assignedPlayer.firstName} as injured?`,
-                                      confirmText: 'Mark Injured',
-                                      variant: 'warning',
-                                    });
-                                    if (confirmed) {
-                                      onMarkInjured(assignedPlayer.id);
-                                    }
-                                  }}
-                                  className="btn-mark-injured"
-                                  title="Mark player as injured"
-                                >
-                                  🩹
-                                </button>
-                              )}
                             </div>
                           )}
                         </div>

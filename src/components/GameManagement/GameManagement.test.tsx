@@ -48,7 +48,6 @@ vi.mock("aws-amplify/data", () => ({
 // ---------------------------------------------------------------------------
 const mockCaptures: {
   onApplyHalftimeSub?: (sub: PlannedSubstitution) => Promise<void>;
-  onMarkInjured?: (playerId: string) => Promise<void>;
   onQueueSubstitution?: (playerId: string, positionId: string) => void;
   latestSubstitutionQueue?: { playerId: string; positionId: string }[];
 } = {};
@@ -74,8 +73,7 @@ vi.mock("./RotationWidget", () => ({
 }));
 vi.mock("./SubstitutionPanel",() => ({ SubstitutionPanel:() => <div /> }));
 vi.mock("./LineupPanel", () => ({
-  LineupPanel: vi.fn((props: any) => {
-    mockCaptures.onMarkInjured = props.onMarkInjured;
+  LineupPanel: vi.fn(() => {
     return <div />;
   }),
 }));
@@ -191,7 +189,6 @@ describe("GameManagement – handleApplyHalftimeSub", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCaptures.onApplyHalftimeSub = undefined;
-    mockCaptures.onMarkInjured = undefined;
     mockUseGameSubscriptions.mockReturnValue(defaultSubscription);
   });
 
@@ -288,75 +285,12 @@ describe("GameManagement – handleApplyHalftimeSub", () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleMarkInjured
-// ---------------------------------------------------------------------------
-describe("GameManagement – handleMarkInjured", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockCaptures.onApplyHalftimeSub = undefined;
-    mockCaptures.onMarkInjured = undefined;
-    mockUseGameSubscriptions.mockReturnValue(defaultSubscription);
-  });
-
-  it("wires onMarkInjured into LineupPanel props", () => {
-    renderComponent();
-    expect(typeof mockCaptures.onMarkInjured).toBe("function");
-  });
-
-  it("calls updatePlayerAvailability with null and the injury game minute", async () => {
-    const { updatePlayerAvailability } = await import("../../services/rotationPlannerService");
-    renderComponent();
-    // game.elapsedSeconds = 1800 → currentTime = 1800 → Math.floor(1800/60) = 30
-    await mockCaptures.onMarkInjured!("p1");
-    expect(updatePlayerAvailability).toHaveBeenCalledWith(
-      "game-1",
-      "p1",
-      "injured",
-      expect.any(String),
-      ["coach-1"],
-      null,
-      30
-    );
-  });
-
-  it("closes active play time records for the injured player", async () => {
-    const { closeActivePlayTimeRecords } = await import("../../services/substitutionService");
-    renderComponent();
-    await mockCaptures.onMarkInjured!("p1");
-    expect(closeActivePlayTimeRecords).toHaveBeenCalledWith(
-      expect.any(Array),
-      expect.any(Number),
-      ["p1"]
-    );
-  });
-
-  it("deletes the LineupAssignment for the injured player", async () => {
-    renderComponent();
-    await mockCaptures.onMarkInjured!("p1");
-    expect(mockLineupDelete).toHaveBeenCalledWith({ id: "la-1" });
-  });
-
-  it("calls handleApiError when an API call fails", async () => {
-    const { handleApiError } = await import("../../utils/errorHandler");
-    const { updatePlayerAvailability } = await import("../../services/rotationPlannerService");
-    vi.mocked(updatePlayerAvailability).mockRejectedValueOnce(new Error("DB error"));
-    renderComponent();
-    await mockCaptures.onMarkInjured!("p1");
-    expect(handleApiError).toHaveBeenCalledWith(
-      expect.any(Error),
-      expect.stringMatching(/injured/i)
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Help context wiring
 // ---------------------------------------------------------------------------
 describe("GameManagement – help context wiring", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCaptures.onApplyHalftimeSub = undefined;
-    mockCaptures.onMarkInjured = undefined;
     // Reset subscription mock to a working default after clearAllMocks
     mockUseGameSubscriptions.mockReturnValue(defaultSubscription);
   });
