@@ -452,11 +452,15 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }
   };
 
-  // Per-game half length handler — saves to the Game record immediately
+  // Per-game half length handler — saves to the Game record immediately.
+  // Keeps the rotations-per-half count constant and recalculates the interval
+  // so that both coupled inputs stay in sync with the new half length.
   const handleHalfLengthChange = async (newHalf: number) => {
     const clamped = Math.max(1, Math.min(newHalf, 99));
     setHalfLengthMinutes(clamped);
-    setRotationsPerHalfInput(Math.max(0, Math.floor(clamped / rotationIntervalMinutes) - 1));
+    const newInterval = Math.max(1, Math.round(clamped / (rotationsPerHalfInput + 1)));
+    setRotationIntervalMinutes(newInterval);
+    setRotationsPerHalfInput(Math.max(0, Math.floor(clamped / newInterval) - 1));
     try {
       await client.models.Game.update({ id: game.id, halfLengthMinutes: clamped });
     } catch (error) {
@@ -466,7 +470,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
   const handleResetHalfLength = async () => {
     setHalfLengthMinutes(teamDefaultHalfLength);
-    setRotationsPerHalfInput(Math.max(0, Math.floor(teamDefaultHalfLength / rotationIntervalMinutes) - 1));
+    const newInterval = Math.max(1, Math.round(teamDefaultHalfLength / (rotationsPerHalfInput + 1)));
+    setRotationIntervalMinutes(newInterval);
+    setRotationsPerHalfInput(Math.max(0, Math.floor(teamDefaultHalfLength / newInterval) - 1));
     try {
       await client.models.Game.update({ id: game.id, halfLengthMinutes: null });
     } catch (error) {
