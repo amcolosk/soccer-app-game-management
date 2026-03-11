@@ -7,7 +7,7 @@ import security from 'eslint-plugin-security'
 
 export default tseslint.config(
   // Global ignores (replaces ignorePatterns)
-  { ignores: ['dist', 'dev-dist', 'eslint.config.js', '.amplify/**'] },
+  { ignores: ['dist', 'dev-dist', 'coverage', 'eslint.config.js', '.amplify/**'] },
 
   {
     extends: [

@@ -193,7 +193,7 @@ describe('WelcomeModal — focus management', () => {
     trigger.focus();
     expect(document.activeElement).toBe(trigger);
 
-    const { onClose, unmount } = renderModal();
+    const { unmount } = renderModal();
     // Simulate onClose → unmount
     unmount();
 
