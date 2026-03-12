@@ -1,12 +1,9 @@
 import { useState } from "react";
-import { generateClient } from "aws-amplify/data";
-import type { Schema } from "../../../amplify/data/resource";
 import { handleApiError } from "../../utils/errorHandler";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { PlayerSelect } from "../PlayerSelect";
+import type { GameMutationInput } from "../../hooks/useOfflineMutations";
 import type { Game, Team, PlayerWithRoster, GameNote } from "./types";
-
-const client = generateClient<Schema>();
 
 interface PlayerNotesPanelProps {
   gameState: Game;
@@ -15,6 +12,7 @@ interface PlayerNotesPanelProps {
   players: PlayerWithRoster[];
   gameNotes: GameNote[];
   currentTime: number;
+  mutations: GameMutationInput;
 }
 
 export function PlayerNotesPanel({
@@ -24,6 +22,7 @@ export function PlayerNotesPanel({
   players,
   gameNotes,
   currentTime,
+  mutations,
 }: PlayerNotesPanelProps) {
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [noteType, setNoteType] = useState<'gold-star' | 'yellow-card' | 'red-card' | 'other'>('other');
@@ -44,12 +43,12 @@ export function PlayerNotesPanel({
       // For completed games, use the total game time; otherwise use current half time
       const timeInSeconds = gameState.status === 'completed' ? currentTime : getCurrentGameTime();
 
-      await client.models.GameNote.create({
+      await mutations.createGameNote({
         gameId: game.id,
         noteType,
         playerId: notePlayerId || undefined,
         gameSeconds: timeInSeconds,
-        half: gameState.currentHalf || 2, // Default to 2nd half for completed games
+        half: gameState.currentHalf || 2,
         notes: noteText || undefined,
         timestamp: new Date().toISOString(),
         coaches: team.coaches,

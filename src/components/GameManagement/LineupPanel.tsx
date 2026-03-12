@@ -1,6 +1,4 @@
 import { useState } from "react";
-import { generateClient } from "aws-amplify/data";
-import type { Schema } from "../../../amplify/data/resource";
 import { showWarning } from "../../utils/toast";
 import { handleApiError } from "../../utils/errorHandler";
 import { useConfirm } from "../ConfirmModal";
@@ -13,6 +11,7 @@ import {
   isPlayerInLineup,
 } from "../../utils/lineupUtils";
 import { LineupBuilder } from "../LineupBuilder";
+import type { GameMutationInput } from "../../hooks/useOfflineMutations";
 import type {
   Game,
   Team,
@@ -22,8 +21,6 @@ import type {
   LineupAssignment,
   PlayTimeRecord,
 } from "./types";
-
-const client = generateClient<Schema>();
 
 interface LineupPanelProps {
   gameState: Game;
@@ -36,6 +33,7 @@ interface LineupPanelProps {
   currentTime: number;
   hideAvailablePlayers?: boolean;
   onSubstitute: (position: FormationPosition) => void;
+  mutations: GameMutationInput;
 }
 
 export function LineupPanel({
@@ -49,6 +47,7 @@ export function LineupPanel({
   currentTime,
   hideAvailablePlayers = false,
   onSubstitute,
+  mutations,
 }: LineupPanelProps) {
   const confirm = useConfirm();
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -81,7 +80,7 @@ export function LineupPanel({
 
   const handleRemoveFromLineup = async (lineupId: string) => {
     try {
-      await client.models.LineupAssignment.delete({ id: lineupId });
+      await mutations.deleteLineupAssignment(lineupId);
     } catch (error) {
       handleApiError(error, 'Failed to remove player from lineup');
     }
@@ -98,7 +97,7 @@ export function LineupPanel({
 
     try {
       const deletePromises = lineup.map(assignment =>
-        client.models.LineupAssignment.delete({ id: assignment.id })
+        mutations.deleteLineupAssignment(assignment.id)
       );
       await Promise.all(deletePromises);
     } catch (error) {
@@ -133,7 +132,7 @@ export function LineupPanel({
     if (!selectedPlayer) return;
 
     try {
-      await client.models.LineupAssignment.create({
+      await mutations.createLineupAssignment({
         gameId: game.id,
         playerId: selectedPlayer.id,
         positionId: positionId,
@@ -142,7 +141,7 @@ export function LineupPanel({
       });
 
       if (gameState.status === 'in-progress') {
-        await client.models.PlayTimeRecord.create({
+        await mutations.createPlayTimeRecord({
           gameId: game.id,
           playerId: selectedPlayer.id,
           positionId: positionId,
@@ -192,21 +191,18 @@ export function LineupPanel({
 
               if (playerId === '') {
                 if (existing) {
-                  await client.models.LineupAssignment.delete({ id: existing.id });
+                  await mutations.deleteLineupAssignment(existing.id);
                 }
               } else {
                 const playerExisting = lineup.find(l => l.playerId === playerId);
                 if (playerExisting) {
-                  await client.models.LineupAssignment.delete({ id: playerExisting.id });
+                  await mutations.deleteLineupAssignment(playerExisting.id);
                 }
 
                 if (existing) {
-                  await client.models.LineupAssignment.update({
-                    id: existing.id,
-                    playerId,
-                  });
+                  await mutations.updateLineupAssignment(existing.id, { playerId });
                 } else {
-                  await client.models.LineupAssignment.create({
+                  await mutations.createLineupAssignment({
                     gameId: game.id,
                     playerId,
                     positionId,

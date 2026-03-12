@@ -85,7 +85,7 @@ describe('useGameTimer', () => {
     expect(setIntervalSpy).not.toHaveBeenCalled();
   });
 
-  it('creates a 1000ms interval when isRunning=true and gameState.status=in-progress', () => {
+  it('creates a 500ms interval when isRunning=true and gameState.status=in-progress', () => {
     const setIntervalSpy = vi.spyOn(global, 'setInterval');
     const props = createDefaultProps();
     props.isRunning = true;
@@ -93,7 +93,7 @@ describe('useGameTimer', () => {
 
     renderHook(() => useGameTimer(props));
 
-    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 500);
   });
 
   it('creates a 5000ms save interval when timer starts', () => {
@@ -108,17 +108,13 @@ describe('useGameTimer', () => {
     expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
   });
 
-  it('calling setCurrentTime after 1000ms increments current time by 1', () => {
-    const mockSetCurrentTime = vi.fn((updater: ((prev: number) => number) | number) => {
-      if (typeof updater === 'function') {
-        return updater(0);
-      }
-      return updater;
-    });
+  it('setCurrentTime is called with wall-clock derived time (increments each second)', () => {
+    const mockSetCurrentTime = vi.fn();
 
     const props = createDefaultProps();
     props.isRunning = true;
     props.gameState.status = 'in-progress';
+    props.currentTime = 0;
     props.setCurrentTime = mockSetCurrentTime;
 
     renderHook(() => useGameTimer(props));
@@ -127,12 +123,14 @@ describe('useGameTimer', () => {
       vi.advanceTimersByTime(1000);
     });
 
+    // Two 500ms ticks fire; derived at 1000ms = floor(1000/1000) = 1
     expect(mockSetCurrentTime).toHaveBeenCalled();
-    const updater = mockSetCurrentTime.mock.calls[0][0];
-    expect(updater(0)).toBe(1);
+    const lastArg = mockSetCurrentTime.mock.lastCall![0];
+    expect(typeof lastArg).toBe('number');
+    expect(lastArg).toBe(1);
   });
 
-  it('calls onHalftime when currentTime reaches halfLengthSeconds (in first half)', () => {
+  it('calls onHalftime when derived time reaches halfLengthSeconds (in first half)', () => {
     const mockOnHalftime = vi.fn();
     const mockSetCurrentTime = vi.fn();
 
@@ -141,30 +139,20 @@ describe('useGameTimer', () => {
     props.gameState.status = 'in-progress';
     props.gameState.currentHalf = 1;
     props.halfLengthSeconds = 10;
-    props.currentTime = 0;
+    // Anchor at 9s so 1s of wall-clock time brings derived to 10 = halfLengthSeconds
+    props.currentTime = 9;
     props.setCurrentTime = mockSetCurrentTime;
     props.onHalftime = mockOnHalftime;
 
     renderHook(() => useGameTimer(props));
 
-    // Advance timer by 1000ms to trigger the interval once
     act(() => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1000); // derived = 9 + floor(1000/1000) = 10 >= halfLengthSeconds
     });
 
-    // setCurrentTime should have been called
     expect(mockSetCurrentTime).toHaveBeenCalled();
-
-    // Get the updater function and verify halftime logic
-    const updater = mockSetCurrentTime.mock.calls[0][0];
-    expect(typeof updater).toBe('function');
-
-    // Simulate what happens when currentTime goes from 9 to 10
-    const result = updater(9);
-    expect(result).toBe(10);
-
-    // The halftime callback should be scheduled via setTimeout
-    vi.advanceTimersByTime(0);
+    // The halftime callback is scheduled via setTimeout(0)
+    act(() => { vi.advanceTimersByTime(0); });
     expect(mockOnHalftime).toHaveBeenCalled();
   });
 
@@ -177,39 +165,30 @@ describe('useGameTimer', () => {
     props.gameState.status = 'in-progress';
     props.gameState.currentHalf = 1;
     props.halfLengthSeconds = 10;
-    props.currentTime = 0;
+    props.currentTime = 9; // derived = 10 after 1000ms → fires halftime
     props.setCurrentTime = mockSetCurrentTime;
     props.onHalftime = mockOnHalftime;
 
     const { rerender } = renderHook(() => useGameTimer(props));
 
-    // First tick
+    // First advance — triggers halftime
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-
-    const updater = mockSetCurrentTime.mock.calls[0][0];
-    updater(9); // Triggers halftime
-    vi.advanceTimersByTime(0);
+    act(() => { vi.advanceTimersByTime(0); });
     expect(mockOnHalftime).toHaveBeenCalledTimes(1);
 
-    // Update currentTime to 10 and rerender (simulates being past halftime)
-    props.currentTime = 10;
+    // Simulate time advancing further — guard should block second call
     mockSetCurrentTime.mockClear();
+    props.currentTime = 10;
     rerender();
 
-    // Another tick
     act(() => {
       vi.advanceTimersByTime(1000);
     });
+    act(() => { vi.advanceTimersByTime(0); });
 
-    if (mockSetCurrentTime.mock.calls.length > 0) {
-      const updater2 = mockSetCurrentTime.mock.calls[0][0];
-      updater2(10); // Should not trigger halftime again
-      vi.advanceTimersByTime(0);
-    }
-
-    // Should still be called only once
+    // Guard prevents re-firing
     expect(mockOnHalftime).toHaveBeenCalledTimes(1);
   });
 
@@ -222,20 +201,15 @@ describe('useGameTimer', () => {
     props.gameState.status = 'in-progress';
     props.gameState.currentHalf = 2;
     props.halfLengthSeconds = 10;
+    // Even though derived will reach >= 10, currentHalf === 2 blocks the halftime guard
     props.currentTime = 9;
     props.setCurrentTime = mockSetCurrentTime;
     props.onHalftime = mockOnHalftime;
 
     renderHook(() => useGameTimer(props));
 
-    // Advance 1000ms so the interval actually fires
     act(() => { vi.advanceTimersByTime(1000); });
-    // Manually invoke the updater with a value that would trigger halftime if half===1
-    if (mockSetCurrentTime.mock.calls.length > 0) {
-      const updater = mockSetCurrentTime.mock.calls[0][0];
-      updater(9); // newTime=10 = halfLengthSeconds, but currentHalf===2 so guard blocks
-      vi.advanceTimersByTime(0); // flush any setTimeout(0) that might have been scheduled
-    }
+    act(() => { vi.advanceTimersByTime(0); });
     expect(mockOnHalftime).not.toHaveBeenCalled();
   });
 
@@ -253,7 +227,7 @@ describe('useGameTimer', () => {
     expect(props.gameState.currentHalf).toBe(2);
   });
 
-  it('calls onEndGame when currentTime reaches 7200', () => {
+  it('calls onEndGame when derived time reaches 7200', () => {
     const mockOnEndGame = vi.fn();
     const mockSetCurrentTime = vi.fn();
 
@@ -261,22 +235,18 @@ describe('useGameTimer', () => {
     props.isRunning = true;
     props.gameState.status = 'in-progress';
     props.halfLengthSeconds = 8000; // > 7200 so halftime check does not fire first
-    props.currentTime = 0;
+    // Anchor at 7199s so 1s of wall-clock brings derived to 7200
+    props.currentTime = 7199;
     props.setCurrentTime = mockSetCurrentTime;
     props.onEndGame = mockOnEndGame;
 
     renderHook(() => useGameTimer(props));
 
     act(() => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1000); // derived = 7199 + floor(1000/1000) = 7200 >= 7200
     });
 
-    expect(mockSetCurrentTime).toHaveBeenCalled();
-    const updater = mockSetCurrentTime.mock.calls[0][0];
-    const newTime = updater(7199);
-    expect(newTime).toBe(7200);
-
-    vi.advanceTimersByTime(0);
+    act(() => { vi.advanceTimersByTime(0); });
     expect(mockOnEndGame).toHaveBeenCalled();
   });
 
@@ -288,7 +258,7 @@ describe('useGameTimer', () => {
     props.isRunning = true;
     props.gameState.status = 'in-progress';
     props.halfLengthSeconds = 8000; // > 7200 so halftime check does not fire first
-    props.currentTime = 0;
+    props.currentTime = 7199; // Anchor at 7199s; after 1s derived = 7200 → end game fires
     props.setCurrentTime = mockSetCurrentTime;
     props.onEndGame = mockOnEndGame;
 
@@ -297,28 +267,19 @@ describe('useGameTimer', () => {
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-
-    const updater = mockSetCurrentTime.mock.calls[0][0];
-    updater(7199); // Triggers end game
-    vi.advanceTimersByTime(0);
+    act(() => { vi.advanceTimersByTime(0); });
     expect(mockOnEndGame).toHaveBeenCalledTimes(1);
 
-    // Update currentTime to 7200 and rerender
-    props.currentTime = 7200;
+    // More time passes — guard must block re-trigger
     mockSetCurrentTime.mockClear();
+    props.currentTime = 7200;
     rerender();
 
     act(() => {
       vi.advanceTimersByTime(1000);
     });
+    act(() => { vi.advanceTimersByTime(0); });
 
-    if (mockSetCurrentTime.mock.calls.length > 0) {
-      const updater2 = mockSetCurrentTime.mock.calls[0][0];
-      updater2(7200);
-      vi.advanceTimersByTime(0);
-    }
-
-    // Should not call onEndGame again
     expect(mockOnEndGame).toHaveBeenCalledTimes(1);
   });
 
@@ -363,7 +324,8 @@ describe('useGameTimer', () => {
     props.isRunning = true;
     props.gameState.status = 'in-progress';
     props.gameState.currentHalf = 1;
-    props.currentTime = 0;
+    // Anchor at 539s; after 1s derived = 540 = 9:00 = gameMinute(10) - 1 minute
+    props.currentTime = 539;
     props.setCurrentTime = mockSetCurrentTime;
     props.gamePlan = { id: 'plan-1' } as GamePlan;
     props.plannedRotations = [rotation];
@@ -374,11 +336,7 @@ describe('useGameTimer', () => {
       vi.advanceTimersByTime(1000);
     });
 
-    // Simulate the timer tick from 539 to 540 (9:00)
-    expect(mockSetCurrentTime).toHaveBeenCalled();
-    const updater = mockSetCurrentTime.mock.calls[0][0];
-    updater(539); // This should trigger at 540 seconds (9:00)
-
+    // derived = 540, Math.floor(540/60) = 9 = gameMinute-1 → rotation viewed
     expect(mockPlannedRotationUpdate).toHaveBeenCalledWith({
       id: 'rotation-1',
       viewedAt: expect.any(String),
@@ -398,7 +356,8 @@ describe('useGameTimer', () => {
     props.isRunning = true;
     props.gameState.status = 'in-progress';
     props.gameState.currentHalf = 1;
-    props.currentTime = 0;
+    // Same threshold timing, but viewedAt is set
+    props.currentTime = 539;
     props.setCurrentTime = mockSetCurrentTime;
     props.gamePlan = { id: 'plan-1' } as GamePlan;
     props.plannedRotations = [rotation];
@@ -409,12 +368,82 @@ describe('useGameTimer', () => {
       vi.advanceTimersByTime(1000);
     });
 
-    expect(mockSetCurrentTime).toHaveBeenCalled();
-    const updater = mockSetCurrentTime.mock.calls[0][0];
-    updater(539);
-
     expect(mockPlannedRotationUpdate).not.toHaveBeenCalled();
   });
+
+  // ── iOS backgrounding (issue #31) ────────────────────────────────────────
+
+  it('derives correct game time after a large wall-clock jump (simulates iOS backgrounding)', () => {
+    // Demonstrates the wall-clock fix: even if only ONE interval tick fires after
+    // a 60-second background period, the derived time is correct (100 + 60 = 160),
+    // unlike the old functional-updater approach which would only give 101.
+    const mockSetCurrentTime = vi.fn();
+    const props = createDefaultProps();
+    props.isRunning = true;
+    props.gameState.status = 'in-progress';
+    props.currentTime = 100; // anchor at 100s
+    props.setCurrentTime = mockSetCurrentTime;
+
+    renderHook(() => useGameTimer(props));
+
+    // Jump Date.now() forward 60 seconds WITHOUT firing intermediate ticks
+    // (simulates the OS throttling timers while the app is backgrounded)
+    act(() => {
+      vi.setSystemTime(new Date(Date.now() + 60000));
+      vi.advanceTimersByTime(500); // fire exactly one tick
+    });
+
+    // The single tick must derive 100 + floor(60500/1000) = 100 + 60 = 160
+    const lastArg = mockSetCurrentTime.mock.lastCall![0];
+    expect(typeof lastArg).toBe('number');
+    expect(lastArg).toBe(160);
+  });
+
+  it('resetAnchor re-bases wall-clock derivation to the new game time', () => {
+    const mockSetCurrentTime = vi.fn();
+    const props = createDefaultProps();
+    props.isRunning = true;
+    props.gameState.status = 'in-progress';
+    props.currentTime = 0;
+    props.setCurrentTime = mockSetCurrentTime;
+
+    const { result } = renderHook(() => useGameTimer(props));
+
+    // Call resetAnchor to jump to 500s (e.g. from +5 minute test control)
+    act(() => {
+      result.current.resetAnchor(500);
+    });
+
+    // After 1 second of wall-clock time, derived should be 500 + 1 = 501
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    const lastArg = mockSetCurrentTime.mock.lastCall![0];
+    expect(lastArg).toBe(501);
+  });
+
+  it('persists elapsed time to the database every 5 seconds', () => {
+    const props = createDefaultProps();
+    props.isRunning = true;
+    props.gameState.status = 'in-progress';
+    props.currentTime = 0;
+    props.setCurrentTime = vi.fn();
+
+    renderHook(() => useGameTimer(props));
+
+    act(() => {
+      vi.advanceTimersByTime(5000); // trigger the save interval
+    });
+
+    expect(mockGameUpdate).toHaveBeenCalledWith({
+      id: 'game-1',
+      elapsedSeconds: 5,
+      lastStartTime: expect.any(String),
+    });
+  });
+
+  // ── Callback ref correctness ─────────────────────────────────────────────
 
   it('uses latest onHalftime/onEndGame via refs — updated callbacks are invoked, not stale ones', () => {
     const mockOnHalftime1 = vi.fn();
@@ -426,7 +455,8 @@ describe('useGameTimer', () => {
     props.gameState.status = 'in-progress';
     props.gameState.currentHalf = 1;
     props.halfLengthSeconds = 10;
-    props.currentTime = 0;
+    // Anchor at 9s so 1s of wall-clock brings derived to 10 = halfLengthSeconds
+    props.currentTime = 9;
     props.setCurrentTime = mockSetCurrentTime;
     props.onHalftime = mockOnHalftime1;
 
@@ -438,14 +468,10 @@ describe('useGameTimer', () => {
 
     // Now trigger the interval
     act(() => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1000); // derived = 10 >= halfLengthSeconds
     });
 
-    const updater = mockSetCurrentTime.mock.calls[0][0];
-    updater(9); // Triggers halftime
-
-    // Now advance the setTimeout
-    vi.advanceTimersByTime(0);
+    act(() => { vi.advanceTimersByTime(0); });
 
     // Should call the new callback, not the old one
     expect(mockOnHalftime2).toHaveBeenCalled();

@@ -9,6 +9,7 @@ import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, type PlannedSubstitution } from "../../services/rotationPlannerService";
 import { useTeamData } from "../../hooks/useTeamData";
+import { useOfflineMutations } from "../../hooks/useOfflineMutations";
 import { useGameSubscriptions } from "./hooks/useGameSubscriptions";
 import { useGameTimer } from "./hooks/useGameTimer";
 import { CommandBand } from "./CommandBand";
@@ -21,6 +22,7 @@ import { RotationWidget } from "./RotationWidget";
 import { SubstitutionPanel } from "./SubstitutionPanel";
 import { LineupPanel } from "./LineupPanel";
 import { PlayerAvailabilityGrid } from "../PlayerAvailabilityGrid";
+import { OfflineBanner } from "../OfflineBanner";
 import type { Game, Team, FormationPosition, SubQueue } from "./types";
 import { AvailabilityProvider } from "../../contexts/AvailabilityContext";
 import { useHelpFab } from "../../contexts/HelpFabContext";
@@ -30,6 +32,7 @@ import type { GameManagementDebugContext } from "../../types/debug";
 import { useWakeLock } from "../../hooks/useWakeLock";
 import { useGameNotification } from "../../hooks/useGameNotification";
 
+// Used only for planning operations (PlannedRotation.update) — not live-game mutations.
 const client = generateClient<Schema>();
 
 interface GameManagementProps {
@@ -85,6 +88,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   // Use per-game half length override when set; fall back to team default.
   // gameState is live-updated via observeQuery so this recomputes reactively.
   const halfLengthSeconds = (gameState.halfLengthMinutes ?? team.halfLengthMinutes ?? 30) * 60;
+
+  // Offline-aware mutation wrapper — routes writes to IndexedDB when offline,
+  // drains automatically on reconnect (fixes issue #35).
+  const { mutations, isOnline, pendingCount: pendingMutationCount, isSyncing } = useOfflineMutations();
 
   const { setHelpContext, setDebugContext } = useHelpFab();
 
@@ -351,8 +358,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     try {
       const startTime = new Date().toISOString();
       
-      await client.models.Game.update({
-        id: game.id,
+      await mutations.updateGame(game.id, {
         status: 'in-progress',
         lastStartTime: startTime,
       });
@@ -369,12 +375,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         });
 
       const starterPromises = startersWithoutActiveRecords.map(l =>
-        client.models.PlayTimeRecord.create({
+        mutations.createPlayTimeRecord({
           gameId: game.id,
           playerId: l.playerId,
           positionId: l.positionId,
           startGameSeconds: currentTime,
-          coaches: team.coaches, // Copy coaches array from team
+          coaches: team.coaches,
         })
       );
 
@@ -392,8 +398,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     manuallyPausedRef.current = true; // Prevent observeQuery from auto-resuming
     setIsRunning(false);
     try {
-      await client.models.Game.update({
-        id: game.id,
+      await mutations.updateGame(game.id, {
         elapsedSeconds: currentTime,
         lastStartTime: null, // Clear lastStartTime to prevent auto-resume from observeQuery
       });
@@ -408,8 +413,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const handleResumeTimer = async () => {
     setIsRunning(true);
     try {
-      await client.models.Game.update({
-        id: game.id,
+      await mutations.updateGame(game.id, {
         lastStartTime: new Date().toISOString(),
         elapsedSeconds: currentTime,
       });
@@ -433,11 +437,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       // End all active play time records
       // Close all active play time records at halftime
       // Pass game.id so DB is queried for records not yet in React state
-      await closeActivePlayTimeRecords(playTimeRecords, halftimeSeconds, undefined, game.id);
+      await closeActivePlayTimeRecords(playTimeRecords, halftimeSeconds, undefined, game.id, mutations);
 
       // Update game status - preserve the exact halftime seconds
-      await client.models.Game.update({
-        id: game.id,
+      await mutations.updateGame(game.id, {
         status: 'halftime',
         elapsedSeconds: halftimeSeconds,
       });
@@ -460,15 +463,15 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       if (!currentAssignment) return;
       if (currentAssignment.playerId === sub.playerInId) return; // already applied
 
-      await client.models.LineupAssignment.delete({ id: currentAssignment.id });
-      await client.models.LineupAssignment.create({
+      await mutations.deleteLineupAssignment(currentAssignment.id);
+      await mutations.createLineupAssignment({
         gameId: game.id,
         playerId: sub.playerInId,
         positionId: sub.positionId,
         isStarter: true,
         coaches: team.coaches,
       });
-      await client.models.Substitution.create({
+      await mutations.createSubstitution({
         gameId: game.id,
         positionId: sub.positionId,
         playerOutId: sub.playerOutId,
@@ -502,12 +505,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       
       const starterPromises = starters.map(l => {
         console.log(`Creating record for player ${l.playerId} at position ${l.positionId}`);
-        return client.models.PlayTimeRecord.create({
+        return mutations.createPlayTimeRecord({
           gameId: game.id,
           playerId: l.playerId,
           positionId: l.positionId,
           startGameSeconds: resumeTime,
-          coaches: team.coaches, // Copy coaches array from team
+          coaches: team.coaches,
         });
       });
 
@@ -515,12 +518,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       console.log('All second half play time records created');
 
       // Update game status - keep resumeTime to continue from halftime
-      await client.models.Game.update({
-        id: game.id,
+      await mutations.updateGame(game.id, {
         status: 'in-progress',
         currentHalf: 2,
         lastStartTime: startTime,
-        elapsedSeconds: resumeTime, // Continue from halftime time
+        elapsedSeconds: resumeTime,
       });
 
       // Explicitly set current time and start running
@@ -549,11 +551,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       
       // End all active play time records
       // Pass game.id so DB is queried for records not yet in React state
-      await closeActivePlayTimeRecords(playTimeRecords, endGameTime, undefined, game.id);
+      await closeActivePlayTimeRecords(playTimeRecords, endGameTime, undefined, game.id, mutations);
       
       // Update game with final time - use endGameTime to ensure consistency
-      await client.models.Game.update({
-        id: game.id,
+      await mutations.updateGame(game.id, {
         status: 'completed',
         elapsedSeconds: endGameTime,
       });
@@ -568,8 +569,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }
   };
 
-  // Timer hook - handles 1s tick, DB sync every 5s, auto-halftime/auto-end
-  useGameTimer({
+  // Timer hook - handles 500ms wall-clock tick, DB sync every 5s, auto-halftime/auto-end (fixes #31)
+  const { resetAnchor } = useGameTimer({
     game,
     gameState,
     halfLengthSeconds,
@@ -622,9 +623,9 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const handleAddTestTime = (minutes: number) => {
-    const secondsToAdd = minutes * 60;
-    const newTime = currentTime + secondsToAdd;
+    const newTime = currentTime + minutes * 60;
     setCurrentTime(newTime);
+    resetAnchor(newTime);
   };
 
   const deleteGameButton = (
@@ -663,6 +664,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     playTimeRecords,
     currentTime,
     onSubstitute: handleSubstitute,
+    mutations,
   };
 
   const sharedGoalTrackerProps = {
@@ -675,6 +677,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     onScoreUpdate: (ourScore: number, opponentScore: number) => {
       setGameState({ ...gameState, ourScore, opponentScore });
     },
+    mutations,
   };
 
   const sharedNotesPanelProps = {
@@ -684,6 +687,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     players,
     gameNotes,
     currentTime,
+    mutations,
   };
 
   return (
@@ -737,6 +741,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           onQueueChange={setSubstitutionQueue}
           substitutionRequest={substitutionRequest}
           onSubstitutionRequestHandled={() => setSubstitutionRequest(null)}
+          mutations={mutations}
         />
 
         {/* ── PRE-GAME ─────────────────────────────────────────────── */}
@@ -795,6 +800,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         {/* ── IN-PROGRESS ──────────────────────────────────────────── */}
         {gameState.status === 'in-progress' && (
           <>
+            <OfflineBanner isOnline={isOnline} pendingCount={pendingMutationCount} isSyncing={isSyncing} />
             <TabNav
               activeTab={activeTab}
               onTabChange={setActiveTab}
@@ -871,6 +877,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         {/* ── HALFTIME ─────────────────────────────────────────────── */}
         {gameState.status === 'halftime' && (
           <div className="halftime-layout">
+            <OfflineBanner isOnline={isOnline} pendingCount={pendingMutationCount} isSyncing={isSyncing} />
             <GameTimer
               gameState={gameState}
               game={game}

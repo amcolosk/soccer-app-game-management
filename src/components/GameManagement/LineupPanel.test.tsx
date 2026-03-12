@@ -152,6 +152,18 @@ const defaultProps = {
   playTimeRecords: [] as PlayTimeRecord[],
   currentTime: 600,
   onSubstitute: vi.fn(),
+  mutations: {
+    deleteLineupAssignment: (id: string) => mockDeleteLineupAssignment({ id }),
+    createLineupAssignment: mockCreateLineupAssignment,
+    updateLineupAssignment: vi.fn().mockResolvedValue({}),
+    updateGame:             vi.fn().mockResolvedValue({}),
+    createPlayTimeRecord:   vi.fn().mockResolvedValue({}),
+    updatePlayTimeRecord:   vi.fn().mockResolvedValue({}),
+    createSubstitution:     vi.fn().mockResolvedValue({}),
+    createGoal:             vi.fn().mockResolvedValue({}),
+    createGameNote:         vi.fn().mockResolvedValue({}),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any,
 };
 
 // ---------------------------------------------------------------------------
