@@ -189,6 +189,8 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
 
       const remaining = await getQueuePendingCount();
       setQueuedCount(remaining);
+    } catch (err) {
+      console.error('Unexpected error during offline queue drain:', err);
     } finally {
       setIsSyncing(false);
     }
