@@ -1,6 +1,4 @@
 import { useState, useEffect } from "react";
-import { generateClient } from "aws-amplify/data";
-import type { Schema } from "../../../amplify/data/resource";
 import { showWarning } from "../../utils/toast";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
 import { handleApiError } from "../../utils/errorHandler";
@@ -15,6 +13,7 @@ import {
 import { formatMinutesSeconds } from "../../utils/gameTimeUtils";
 import { executeSubstitution } from "../../services/substitutionService";
 import { useAvailability } from "../../contexts/AvailabilityContext";
+import type { GameMutationInput } from "../../hooks/useOfflineMutations";
 import type {
   Game,
   Team,
@@ -24,8 +23,6 @@ import type {
   PlayTimeRecord,
   SubQueue,
 } from "./types";
-
-const client = generateClient<Schema>();
 
 interface SubstitutionPanelProps {
   gameState: Game;
@@ -40,6 +37,7 @@ interface SubstitutionPanelProps {
   onQueueChange: (queue: SubQueue[]) => void;
   substitutionRequest: FormationPosition | null;
   onSubstitutionRequestHandled: () => void;
+  mutations: GameMutationInput;
 }
 
 export function SubstitutionPanel({
@@ -55,6 +53,7 @@ export function SubstitutionPanel({
   onQueueChange,
   substitutionRequest,
   onSubstitutionRequestHandled,
+  mutations,
 }: SubstitutionPanelProps) {
   const confirm = useConfirm();
   const { getPlayerAvailability } = useAvailability();
@@ -132,7 +131,8 @@ export function SubstitutionPanel({
           gameState.currentHalf || 1,
           playTimeRecords,
           currentAssignment.id,
-          team.coaches || []
+          team.coaches || [],
+          mutations
         );
       }
 
@@ -166,7 +166,8 @@ export function SubstitutionPanel({
         gameState.currentHalf || 1,
         playTimeRecords,
         currentAssignment.id,
-        team.coaches || []
+        team.coaches || [],
+        mutations
       );
 
       handleRemoveFromQueue(newPlayerId, positionId);
@@ -196,7 +197,8 @@ export function SubstitutionPanel({
         gameState.currentHalf || 1,
         playTimeRecords,
         currentAssignment.id,
-        team.coaches || []
+        team.coaches || [],
+        mutations
       );
 
       setShowSubstitution(false);
@@ -209,7 +211,7 @@ export function SubstitutionPanel({
 
   const handleAssignPosition = async (positionId: string, playerId: string) => {
     try {
-      await client.models.LineupAssignment.create({
+      await mutations.createLineupAssignment({
         gameId: game.id,
         playerId,
         positionId,
@@ -218,7 +220,7 @@ export function SubstitutionPanel({
       });
 
       if (gameState.status === 'in-progress') {
-        await client.models.PlayTimeRecord.create({
+        await mutations.createPlayTimeRecord({
           gameId: game.id,
           playerId,
           positionId,

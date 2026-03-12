@@ -1,6 +1,7 @@
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import type { PlayTimeRecord } from "../types/schema";
+import type { GameMutationInput } from "../hooks/useOfflineMutations";
 
 const client = generateClient<Schema>();
 
@@ -20,7 +21,8 @@ export async function closeActivePlayTimeRecords(
   playTimeRecords: PlayTimeRecord[],
   endGameSeconds: number,
   playerIds?: string[],
-  gameId?: string
+  gameId?: string,
+  mutations?: GameMutationInput
 ): Promise<void> {
   // Start with in-memory records
   const allRecords = [...playTimeRecords];
@@ -84,7 +86,9 @@ export async function closeActivePlayTimeRecords(
   const endPromises = activeRecords.map(async (record) => {
     const duration = endGameSeconds - record.startGameSeconds;
     console.log(`Closing record for player ${record.playerId}, duration: ${duration}s`);
-    
+    if (mutations) {
+      return mutations.updatePlayTimeRecord(record.id, { endGameSeconds });
+    }
     return client.models.PlayTimeRecord.update({
       id: record.id,
       endGameSeconds: endGameSeconds,
@@ -120,8 +124,9 @@ export async function closeActivePlayTimeRecords(
       );
       if (stillActive.length > 0) {
         console.log(`Retry: closing ${stillActive.length} records missed by first pass`);
-        await Promise.all(stillActive.map(r =>
-          client.models.PlayTimeRecord.update({ id: r.id, endGameSeconds: endGameSeconds })
+        await Promise.all(stillActive.map(r => mutations
+          ? mutations.updatePlayTimeRecord(r.id, { endGameSeconds })
+          : client.models.PlayTimeRecord.update({ id: r.id, endGameSeconds: endGameSeconds })
         ));
       }
     } catch (error) {
@@ -158,7 +163,8 @@ export async function executeSubstitution(
   currentHalf: number,
   playTimeRecords: PlayTimeRecord[],
   oldAssignmentId: string,
-  coaches: string[]
+  coaches: string[],
+  mutations: GameMutationInput
 ): Promise<void> {
   console.log(`Executing substitution: ${oldPlayerId} OUT, ${newPlayerId} IN at position ${positionId}`);
 
@@ -171,48 +177,45 @@ export async function executeSubstitution(
 
   if (activeRecord) {
     console.log(`Ending play time record ${activeRecord.id} at ${currentGameSeconds}s`);
-    await client.models.PlayTimeRecord.update({
-      id: activeRecord.id,
-      endGameSeconds: currentGameSeconds,
-    });
+    await mutations.updatePlayTimeRecord(activeRecord.id, { endGameSeconds: currentGameSeconds });
   } else {
     console.warn(`No active play time record found for player ${oldPlayerId} at position ${positionId}`);
   }
 
   // 2. Remove old lineup assignment
   console.log(`Removing lineup assignment ${oldAssignmentId}`);
-  await client.models.LineupAssignment.delete({ id: oldAssignmentId });
+  await mutations.deleteLineupAssignment(oldAssignmentId);
 
   // 3. Create new lineup assignment
   console.log(`Creating new lineup assignment for player ${newPlayerId}`);
-  await client.models.LineupAssignment.create({
+  await mutations.createLineupAssignment({
     gameId: gameId,
     playerId: newPlayerId,
     positionId: positionId,
-    isStarter: true, // Player is now on the field
-    coaches: coaches, // Copy coaches array from team
+    isStarter: true,
+    coaches: coaches,
   });
 
   // 4. Start play time for incoming player
   console.log(`Creating play time record for player ${newPlayerId} starting at ${currentGameSeconds}s`);
-  await client.models.PlayTimeRecord.create({
+  await mutations.createPlayTimeRecord({
     gameId: gameId,
     playerId: newPlayerId,
     positionId: positionId,
     startGameSeconds: currentGameSeconds,
-    coaches: coaches, // Copy coaches array from team
+    coaches: coaches,
   });
 
   // 5. Record the substitution
   console.log(`Recording substitution in database`);
-  await client.models.Substitution.create({
+  await mutations.createSubstitution({
     gameId: gameId,
     positionId: positionId,
     playerOutId: oldPlayerId,
     playerInId: newPlayerId,
     half: currentHalf,
     gameSeconds: currentGameSeconds,
-    coaches: coaches, // Copy coaches array from team
+    coaches: coaches,
   });
 
   console.log('Substitution completed successfully');

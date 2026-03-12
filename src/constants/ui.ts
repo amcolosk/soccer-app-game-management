@@ -19,3 +19,16 @@ export const UI_CONSTANTS = {
     OPEN_WIDTH_PX: 80,          // Width when swipe is opened (for delete button reveal)
   },
 } as const;
+
+/**
+ * z-index stack for layered UI elements.
+ * Keep in sync with CSS class comments in CLAUDE.md.
+ */
+export const Z_INDEX = {
+  BOTTOM_NAV: 100,
+  GAME_TAB_NAV: 190,
+  OFFLINE_BANNER: 195,
+  COMMAND_BAND: 200,
+  MODAL_OVERLAY: 1000,
+  NOTIFICATIONS: 9999,
+} as const;

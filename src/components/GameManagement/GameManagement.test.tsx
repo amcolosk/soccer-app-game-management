@@ -88,7 +88,25 @@ const { mockUseGameSubscriptions } = vi.hoisted(() => ({
 vi.mock("./hooks/useGameSubscriptions", () => ({
   useGameSubscriptions: mockUseGameSubscriptions,
 }));
-vi.mock("./hooks/useGameTimer", () => ({ useGameTimer: vi.fn() }));
+vi.mock("./hooks/useGameTimer", () => ({ useGameTimer: vi.fn().mockReturnValue({ resetAnchor: vi.fn() }) }));
+vi.mock("../../hooks/useOfflineMutations", () => ({
+  useOfflineMutations: vi.fn().mockReturnValue({
+    mutations: {
+      updateGame:             (...args: unknown[]) => mockGameUpdate(...args),
+      createPlayTimeRecord:   (...args: unknown[]) => mockPlayTimeCreate(...args),
+      updatePlayTimeRecord:   vi.fn().mockResolvedValue(undefined),
+      createSubstitution:     (...args: unknown[]) => mockSubstitutionCreate(...args),
+      createLineupAssignment: (...args: unknown[]) => mockLineupCreate(...args),
+      deleteLineupAssignment: (id: string) => mockLineupDelete({ id }),
+      updateLineupAssignment: vi.fn().mockResolvedValue(undefined),
+      createGoal:             vi.fn().mockResolvedValue(undefined),
+      createGameNote:         vi.fn().mockResolvedValue(undefined),
+    },
+    isOnline:     true,
+    pendingCount: 0,
+    isSyncing:    false,
+  }),
+}));
 vi.mock("../../hooks/useTeamData", () => ({
   useTeamData: vi.fn().mockReturnValue({ players: [], positions: [] }),
 }));

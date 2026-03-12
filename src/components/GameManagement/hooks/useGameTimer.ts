@@ -19,6 +19,11 @@ interface UseGameTimerParams {
   onEndGame: () => void | Promise<void>;
 }
 
+interface UseGameTimerResult {
+  /** Update the wall-clock anchor after programmatic time changes (e.g. test controls). */
+  resetAnchor: (atSeconds: number) => void;
+}
+
 export function useGameTimer({
   game,
   gameState,
@@ -30,14 +35,15 @@ export function useGameTimer({
   plannedRotations,
   onHalftime,
   onEndGame,
-}: UseGameTimerParams) {
+}: UseGameTimerParams): UseGameTimerResult {
   // Guards to prevent duplicate auto-halftime / auto-end-game calls.
-  // Without these, the timer can fire onHalftime() multiple times before
-  // the React state update (setIsRunning(false)) takes effect, and also
-  // re-fire onHalftime() at the start of the second half when
-  // gameState.currentHalf hasn't yet propagated from the DB subscription.
   const halftimeTriggeredRef = useRef(false);
   const endGameTriggeredRef = useRef(false);
+
+  // Wall-clock anchor refs — allow deriving game time from Date.now() so the
+  // timer recovers correctly after iOS PWA backgrounding (fixes #31).
+  const startMsRef = useRef<number | null>(null);   // null = paused
+  const startElapsedRef = useRef<number>(0);        // game seconds at last anchor
 
   // Reset the halftime guard when we enter the second half
   useEffect(() => {
@@ -53,59 +59,69 @@ export function useGameTimer({
   const onEndGameRef = useRef(onEndGame);
   onEndGameRef.current = onEndGame;
 
+  // Capture anchor whenever isRunning transitions.
+  // currentTime is intentionally excluded from deps so we only read it at the
+  // exact moment of the transition, not on every tick.
+  useEffect(() => {
+    if (isRunning) {
+      startMsRef.current = Date.now();
+      startElapsedRef.current = currentTime;
+    } else {
+      startMsRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRunning]);
+
   useEffect(() => {
     let interval: NodeJS.Timeout;
     let saveInterval: NodeJS.Timeout;
 
     if (isRunning && gameState.status === 'in-progress') {
+      // 500 ms tick — derives game time from wall clock so iOS backgrounding
+      // no longer causes the counter to fall behind.
       interval = setInterval(() => {
-        setCurrentTime(prev => {
-          const newTime = prev + 1;
+        if (startMsRef.current === null) return;
+        const derived = startElapsedRef.current + Math.floor((Date.now() - startMsRef.current) / 1000);
 
-          // Check for upcoming rotations
-          if (gamePlan && plannedRotations.length > 0) {
-            const currentMinutes = Math.floor(newTime / 60);
-            const nextRotation = plannedRotations.find(r => {
-              const rotationMinute = r.gameMinute;
-              return r.half === gameState.currentHalf &&
-                     currentMinutes === rotationMinute - 1 && // 1 minute before
-                     !r.viewedAt; // Not yet viewed
+        // Check for upcoming rotations
+        if (gamePlan && plannedRotations.length > 0) {
+          const currentMinutes = Math.floor(derived / 60);
+          const nextRotation = plannedRotations.find(r => {
+            return r.half === gameState.currentHalf &&
+                   currentMinutes === r.gameMinute - 1 &&
+                   !r.viewedAt;
+          });
+          if (nextRotation) {
+            void client.models.PlannedRotation.update({
+              id: nextRotation.id,
+              viewedAt: new Date().toISOString(),
             });
-
-            if (nextRotation) {
-              // Mark as viewed and show modal
-              void client.models.PlannedRotation.update({
-                id: nextRotation.id,
-                viewedAt: new Date().toISOString(),
-              });
-            }
           }
+        }
 
-          // Auto-pause at halftime (only in first half, only once)
-          if (gameState.currentHalf === 1 && newTime >= halfLengthSeconds && !halftimeTriggeredRef.current) {
-            halftimeTriggeredRef.current = true;
-            // Schedule the callback outside the state updater to avoid
-            // calling async operations from inside a React setState
-            setTimeout(() => void onHalftimeRef.current(), 0);
-            return newTime;
-          }
+        // Auto-pause at halftime (only in first half, only once)
+        if (gameState.currentHalf === 1 && derived >= halfLengthSeconds && !halftimeTriggeredRef.current) {
+          halftimeTriggeredRef.current = true;
+          void onHalftimeRef.current();
+        }
 
-          // Auto-end game after 2 hours maximum (7200 seconds)
-          if (newTime >= 7200 && !endGameTriggeredRef.current) {
-            endGameTriggeredRef.current = true;
-            setTimeout(() => void onEndGameRef.current(), 0);
-            return newTime;
-          }
+        // Auto-end game after 2 hours maximum (7200 seconds)
+        if (derived >= 7200 && !endGameTriggeredRef.current) {
+          endGameTriggeredRef.current = true;
+          void onEndGameRef.current();
+        }
 
-          return newTime;
-        });
-      }, 1000);
+        setCurrentTime(derived);
+      }, 500);
 
       // Save elapsed time to database every 5 seconds
       saveInterval = setInterval(() => {
+        const derivedNow = startMsRef.current !== null
+          ? startElapsedRef.current + Math.floor((Date.now() - startMsRef.current) / 1000)
+          : startElapsedRef.current;
         client.models.Game.update({
           id: game.id,
-          elapsedSeconds: currentTime,
+          elapsedSeconds: derivedNow,
           lastStartTime: new Date().toISOString(),
         }).catch(err => handleApiError(err, 'Failed to save game time'));
       }, 5000);
@@ -116,5 +132,16 @@ export function useGameTimer({
       if (saveInterval) clearInterval(saveInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRunning, gameState.status, gameState.currentHalf, halfLengthSeconds, currentTime, game.id]);
+  }, [isRunning, gameState.status, gameState.currentHalf, halfLengthSeconds, game.id]);
+  // NOTE: currentTime removed from deps — timer derives from wall clock refs, not accumulated state
+
+  /** Sync anchor refs after a programmatic jump in currentTime (e.g. test controls). */
+  const resetAnchor = (atSeconds: number): void => {
+    startElapsedRef.current = atSeconds;
+    if (startMsRef.current !== null) {
+      startMsRef.current = Date.now();
+    }
+  };
+
+  return { resetAnchor };
 }

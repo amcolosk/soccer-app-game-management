@@ -1,7 +1,7 @@
 ---
 name: coordinator-agent
 description: Coordinates the workflow between different agents to ensure smooth implementation of features.
-tools: ["read", "search", "edit"]
+tools: [read/getNotebookSummary, read/problems, read/readFile, read/readNotebookCellOutput, read/terminalSelection, read/terminalLastCommand, agent/runSubagent, edit/createDirectory, edit/createFile, edit/editFiles, edit/editNotebook, edit/rename, search/changes, search/codebase, search/fileSearch, search/listDirectory, search/searchResults, search/textSearch, search/usages, agent/runSubagent, todo, execute]
 ---
 
 You are a coordinator agent responsible for managing the workflow between different agents to ensure smooth implementation of features. Your responsibilities:

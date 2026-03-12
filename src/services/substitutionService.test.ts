@@ -259,6 +259,21 @@ describe('closeActivePlayTimeRecords', () => {
 describe('executeSubstitution', () => {
   const coaches = ['coach-1'];
 
+  // Bridge the Amplify client mocks into the mutations interface shape
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mockMutations: any = {
+    updatePlayTimeRecord:   async (id: string, fields: Record<string, unknown>) =>
+      mockPlayTimeRecordUpdate({ id, ...fields }),
+    deleteLineupAssignment: async (id: string) =>
+      mockLineupAssignmentDelete({ id }),
+    createLineupAssignment: async (fields: Record<string, unknown>) =>
+      mockLineupAssignmentCreate(fields),
+    createPlayTimeRecord:   async (fields: Record<string, unknown>) =>
+      mockPlayTimeRecordCreate(fields),
+    createSubstitution:     async (fields: Record<string, unknown>) =>
+      mockSubstitutionCreate(fields),
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockPlayTimeRecordUpdate.mockResolvedValue({ data: {} });
@@ -273,19 +288,19 @@ describe('executeSubstitution', () => {
       makeRecord({ id: 'record-1', playerId: 'old-player', positionId: 'position-1', endGameSeconds: null }),
     ];
 
-    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, records, 'assignment-1', coaches);
+    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, records, 'assignment-1', coaches, mockMutations);
 
     expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'record-1', endGameSeconds: 600 });
   });
 
   it('should delete the old lineup assignment', async () => {
-    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches);
+    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations);
 
     expect(mockLineupAssignmentDelete).toHaveBeenCalledWith({ id: 'assignment-1' });
   });
 
   it('should create a new lineup assignment for the incoming player', async () => {
-    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches);
+    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations);
 
     expect(mockLineupAssignmentCreate).toHaveBeenCalledWith({
       gameId: 'game-1',
@@ -297,7 +312,7 @@ describe('executeSubstitution', () => {
   });
 
   it('should create a play time record for the incoming player', async () => {
-    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches);
+    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations);
 
     expect(mockPlayTimeRecordCreate).toHaveBeenCalledWith({
       gameId: 'game-1',
@@ -309,7 +324,7 @@ describe('executeSubstitution', () => {
   });
 
   it('should record the substitution with correct half and game seconds', async () => {
-    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches);
+    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations);
 
     expect(mockSubstitutionCreate).toHaveBeenCalledWith({
       gameId: 'game-1',
@@ -327,7 +342,7 @@ describe('executeSubstitution', () => {
       makeRecord({ id: 'record-1', playerId: 'old-player', positionId: 'position-1', endGameSeconds: null }),
     ];
 
-    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, records, 'assignment-1', coaches);
+    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, records, 'assignment-1', coaches, mockMutations);
 
     expect(mockPlayTimeRecordUpdate).toHaveBeenCalledTimes(1);   // close old record
     expect(mockLineupAssignmentDelete).toHaveBeenCalledTimes(1); // remove old assignment
@@ -342,7 +357,7 @@ describe('executeSubstitution', () => {
       makeRecord({ id: 'record-1', playerId: 'different-player', positionId: 'position-1', endGameSeconds: null }),
     ];
 
-    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, records, 'assignment-1', coaches);
+    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, records, 'assignment-1', coaches, mockMutations);
 
     expect(mockPlayTimeRecordUpdate).not.toHaveBeenCalled();
     // All other 4 operations still execute
@@ -357,7 +372,7 @@ describe('executeSubstitution', () => {
       makeRecord({ id: 'record-1', playerId: 'old-player', positionId: 'position-1', endGameSeconds: 300 }),
     ];
 
-    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, records, 'assignment-1', coaches);
+    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, records, 'assignment-1', coaches, mockMutations);
 
     expect(mockPlayTimeRecordUpdate).not.toHaveBeenCalled();
   });
@@ -367,7 +382,7 @@ describe('executeSubstitution', () => {
       makeRecord({ id: 'record-1', playerId: 'old-player', positionId: 'position-1', startGameSeconds: 1800, endGameSeconds: null }),
     ];
 
-    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 2100, 2, records, 'assignment-1', coaches);
+    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 2100, 2, records, 'assignment-1', coaches, mockMutations);
 
     expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'record-1', endGameSeconds: 2100 });
     expect(mockSubstitutionCreate).toHaveBeenCalledWith(expect.objectContaining({ half: 2, gameSeconds: 2100 }));
@@ -380,7 +395,7 @@ describe('executeSubstitution', () => {
       makeRecord({ id: 'correct',      playerId: 'old-player',    positionId: 'position-1',         endGameSeconds: null }),
     ];
 
-    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, records, 'assignment-1', coaches);
+    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, records, 'assignment-1', coaches, mockMutations);
 
     expect(mockPlayTimeRecordUpdate).toHaveBeenCalledTimes(1);
     expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'correct', endGameSeconds: 600 });
@@ -389,7 +404,7 @@ describe('executeSubstitution', () => {
   it('should pass the coaches array to all create operations', async () => {
     const multiCoaches = ['coach-1', 'coach-2', 'coach-3'];
 
-    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', multiCoaches);
+    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', multiCoaches, mockMutations);
 
     expect(mockLineupAssignmentCreate).toHaveBeenCalledWith(expect.objectContaining({ coaches: multiCoaches }));
     expect(mockPlayTimeRecordCreate).toHaveBeenCalledWith(expect.objectContaining({ coaches: multiCoaches }));

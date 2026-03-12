@@ -1,14 +1,11 @@
 import { useState } from "react";
-import { generateClient } from "aws-amplify/data";
-import type { Schema } from "../../../amplify/data/resource";
 import { showWarning } from "../../utils/toast";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
 import { handleApiError } from "../../utils/errorHandler";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { PlayerSelect } from "../PlayerSelect";
+import type { GameMutationInput } from "../../hooks/useOfflineMutations";
 import type { Game, Team, PlayerWithRoster, Goal } from "./types";
-
-const client = generateClient<Schema>();
 
 interface GoalTrackerProps {
   gameState: Game;
@@ -18,6 +15,7 @@ interface GoalTrackerProps {
   goals: Goal[];
   currentTime: number;
   onScoreUpdate: (ourScore: number, opponentScore: number) => void;
+  mutations: GameMutationInput;
 }
 
 export function GoalTracker({
@@ -28,6 +26,7 @@ export function GoalTracker({
   goals,
   currentTime,
   onScoreUpdate,
+  mutations,
 }: GoalTrackerProps) {
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [goalScoredByUs, setGoalScoredByUs] = useState(true);
@@ -52,7 +51,7 @@ export function GoalTracker({
     }
 
     try {
-      await client.models.Goal.create({
+      await mutations.createGoal({
         gameId: game.id,
         scoredByUs: goalScoredByUs,
         gameSeconds: getCurrentGameTime(),
@@ -67,8 +66,7 @@ export function GoalTracker({
       const newOurScore = goalScoredByUs ? (gameState.ourScore || 0) + 1 : (gameState.ourScore || 0);
       const newOpponentScore = !goalScoredByUs ? (gameState.opponentScore || 0) + 1 : (gameState.opponentScore || 0);
 
-      await client.models.Game.update({
-        id: game.id,
+      await mutations.updateGame(game.id, {
         ourScore: newOurScore,
         opponentScore: newOpponentScore,
       });
