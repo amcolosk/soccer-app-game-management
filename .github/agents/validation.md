@@ -1,5 +1,5 @@
 ---
-name: coordinator-agent
+name: validation-agent
 description: Ensures the successful implementation of features by coordinating between the  agents.
 tools: ["read", "search", "edit"]
 ---
