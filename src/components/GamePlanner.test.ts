@@ -602,13 +602,106 @@ function computeRotationsTabBadge(
 ): string | null {
   if (rotations.length === 0) return null;
   const unfilledCount = rotations.filter((r) => {
-    try {
-      return (JSON.parse(r.plannedSubstitutions) as unknown[]).length === 0;
-    } catch {
-      return true;
-    }
+    return parsePlannedSubstitutions(r.plannedSubstitutions).length === 0;
   }).length;
   return unfilledCount > 0 ? String(unfilledCount) : null;
+}
+
+type RotationSelection = number | 'starting' | 'halftime';
+
+function parsePlannedSubstitutions(plannedSubstitutions: string): PlannedSubstitution[] {
+  try {
+    const parsed = JSON.parse(plannedSubstitutions) as unknown;
+    return Array.isArray(parsed) ? parsed as PlannedSubstitution[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function isPersistedLineupEntry(value: unknown): value is { positionId: string; playerId: string } {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { positionId: string }).positionId === 'string'
+    && typeof (value as { playerId: string }).playerId === 'string';
+}
+
+function parsePersistedLineup(persistedLineup: string): Map<string, string> {
+  try {
+    const parsed = JSON.parse(persistedLineup) as unknown;
+    if (!Array.isArray(parsed) || !parsed.every(isPersistedLineupEntry)) {
+      return new Map();
+    }
+
+    return new Map(parsed.map(({ positionId, playerId }) => [positionId, playerId]));
+  } catch {
+    return new Map();
+  }
+}
+
+function normalizeRotationsForHelperCalls<TRotation extends { rotationNumber: number; plannedSubstitutions: string }>(
+  rotations: TRotation[],
+): Array<TRotation & { plannedSubstitutions: string }> {
+  return rotations.map((rotation) => ({
+    ...rotation,
+    plannedSubstitutions: JSON.stringify(parsePlannedSubstitutions(rotation.plannedSubstitutions)),
+  }));
+}
+
+function getRotationSubstitutionsCount(rotation: { plannedSubstitutions: string }): number {
+  return parsePlannedSubstitutions(rotation.plannedSubstitutions).length;
+}
+
+function getBenchPlayersForLineup<TPlayer extends { id: string }>(
+  availablePlayers: TPlayer[],
+  lineup: Map<string, string>,
+): TPlayer[] {
+  const assignedPlayerIds = new Set(lineup.values());
+  return availablePlayers.filter((player) => !assignedPlayerIds.has(player.id));
+}
+
+function buildRotationTimelineItems(
+  rotations: Array<{ id: string; rotationNumber: number; gameMinute: number; plannedSubstitutions: string }>,
+  halftimeRotationNumber?: number,
+): Array<{
+  key: string;
+  label: string;
+  selection: RotationSelection;
+  substitutionsCount: number;
+  variant: 'starting' | 'rotation' | 'halftime';
+}> {
+  return [
+    {
+      key: 'starting',
+      label: 'Start',
+      selection: 'starting',
+      substitutionsCount: 0,
+      variant: 'starting',
+    },
+    ...rotations.map((rotation) => {
+      const isHalftime = rotation.rotationNumber === halftimeRotationNumber;
+      const selection: RotationSelection = isHalftime ? 'halftime' : rotation.rotationNumber;
+      const variant: 'starting' | 'rotation' | 'halftime' = isHalftime ? 'halftime' : 'rotation';
+
+      return {
+        key: isHalftime ? `halftime-${rotation.id}` : `rotation-${rotation.id}`,
+        label: isHalftime ? 'HT' : `${rotation.gameMinute}'`,
+        selection,
+        substitutionsCount: getRotationSubstitutionsCount(rotation),
+        variant,
+      };
+    }),
+  ];
+}
+
+function resolveRotationSelection(
+  selectedRotation: RotationSelection | null,
+  halftimeRotationNumber?: number,
+): RotationSelection | null {
+  if (typeof selectedRotation === 'number' && selectedRotation === halftimeRotationNumber) {
+    return 'halftime';
+  }
+
+  return selectedRotation;
 }
 
 // ---------------------------------------------------------------------------
@@ -800,11 +893,147 @@ describe('computeRotationsTabBadge', () => {
     expect(computeRotationsTabBadge(rotations)).toBe('2');
   });
 
+  it('treats valid non-array JSON as unfilled instead of crashing or miscounting', () => {
+    const rotations = [
+      { plannedSubstitutions: JSON.stringify({ playerOutId: 'a' }) },
+      { plannedSubstitutions: JSON.stringify([]) },
+    ];
+    expect(computeRotationsTabBadge(rotations)).toBe('2');
+  });
+
   it('returns null when all rotations are filled', () => {
     const rotations = [
       { plannedSubstitutions: JSON.stringify([{ playerOutId: 'a', playerInId: 'b', positionId: 'p1' }]) },
     ];
     expect(computeRotationsTabBadge(rotations)).toBeNull();
+  });
+});
+
+describe('persisted planner data hardening', () => {
+  it('normalizes malformed and non-array substitution JSON before lineup helpers run', () => {
+    const startingLineup = new Map([
+      ['pos1', 'A'],
+      ['pos2', 'B'],
+    ]);
+
+    const normalizedRotations = normalizeRotationsForHelperCalls([
+      { rotationNumber: 1, plannedSubstitutions: '{bad json' },
+      { rotationNumber: 2, plannedSubstitutions: JSON.stringify({ playerOutId: 'A' }) },
+    ]);
+
+    expect(normalizedRotations[0].plannedSubstitutions).toBe(JSON.stringify([]));
+    expect(normalizedRotations[1].plannedSubstitutions).toBe(JSON.stringify([]));
+
+    const result = computeLineupAtRotation(startingLineup, normalizedRotations, 2);
+    expect(Array.from(result.entries())).toEqual(Array.from(startingLineup.entries()));
+  });
+
+  it('degrades wrong-shape starting lineup JSON to an empty lineup', () => {
+    const lineup = parsePersistedLineup(JSON.stringify([
+      { positionId: 'pos1', playerId: 'A' },
+      { positionId: 'pos2' },
+    ]));
+
+    expect(lineup.size).toBe(0);
+  });
+
+  it('degrades non-array halftime lineup JSON to an empty lineup', () => {
+    const lineup = parsePersistedLineup(JSON.stringify({ positionId: 'pos1', playerId: 'A' }));
+
+    expect(lineup.size).toBe(0);
+  });
+
+  it('accepts valid persisted lineup arrays unchanged', () => {
+    const lineup = parsePersistedLineup(JSON.stringify([
+      { positionId: 'pos1', playerId: 'A' },
+      { positionId: 'pos2', playerId: 'B' },
+    ]));
+
+    expect(Array.from(lineup.entries())).toEqual([
+      ['pos1', 'A'],
+      ['pos2', 'B'],
+    ]);
+  });
+});
+
+describe('rotation timeline helpers', () => {
+  it('prepends Start and replaces the halftime rotation label with HT', () => {
+    const timelineItems = buildRotationTimelineItems([
+      { id: 'rot-1', rotationNumber: 1, gameMinute: 10, plannedSubstitutions: JSON.stringify([]) },
+      { id: 'rot-2', rotationNumber: 2, gameMinute: 20, plannedSubstitutions: JSON.stringify([{ playerOutId: 'p1', playerInId: 'p2', positionId: 'pos1' }]) },
+      { id: 'rot-3', rotationNumber: 3, gameMinute: 30, plannedSubstitutions: JSON.stringify([]) },
+    ], 2);
+
+    expect(timelineItems.map((item) => item.label)).toEqual(['Start', "10'", 'HT', "30'"]);
+    expect(timelineItems.map((item) => item.selection)).toEqual(['starting', 1, 'halftime', 3]);
+    expect(timelineItems[2].substitutionsCount).toBe(1);
+  });
+
+  it('keeps numbered rotation labels when no halftime boundary applies', () => {
+    const timelineItems = buildRotationTimelineItems([
+      { id: 'rot-1', rotationNumber: 1, gameMinute: 10, plannedSubstitutions: JSON.stringify([]) },
+    ]);
+
+    expect(timelineItems.map((item) => item.label)).toEqual(['Start', "10'"]);
+    expect(timelineItems[1].variant).toBe('rotation');
+  });
+
+  it('treats malformed substitution json as zero badges in the timeline', () => {
+    const timelineItems = buildRotationTimelineItems([
+      { id: 'rot-1', rotationNumber: 1, gameMinute: 10, plannedSubstitutions: 'bad-json' },
+    ]);
+
+    expect(timelineItems[1].substitutionsCount).toBe(0);
+  });
+
+  it('treats valid non-array substitution json as zero badges in the timeline', () => {
+    const timelineItems = buildRotationTimelineItems([
+      { id: 'rot-1', rotationNumber: 1, gameMinute: 10, plannedSubstitutions: JSON.stringify({ bad: true }) },
+    ]);
+
+    expect(timelineItems[1].substitutionsCount).toBe(0);
+  });
+});
+
+describe('starting panel player sourcing', () => {
+  it('builds the Start bench from kickoff-eligible players only', () => {
+    const startingLineup = new Map([
+      ['pos1', 'p1'],
+      ['pos2', 'p2'],
+    ]);
+    const kickoffEligiblePlayers = [
+      { id: 'p1' },
+      { id: 'p2' },
+      { id: 'p3' },
+    ];
+    const rotationPoolPlayers = [
+      ...kickoffEligiblePlayers,
+      { id: 'p4' },
+    ];
+
+    const kickoffBench = getBenchPlayersForLineup(kickoffEligiblePlayers, startingLineup).map((player) => player.id);
+    const broaderRotationBench = getBenchPlayersForLineup(rotationPoolPlayers, startingLineup).map((player) => player.id);
+
+    expect(kickoffBench).toEqual(['p3']);
+    expect(broaderRotationBench).toEqual(['p3', 'p4']);
+  });
+});
+
+describe('resolveRotationSelection', () => {
+  it('normalizes the halftime rotation number to halftime mode', () => {
+    expect(resolveRotationSelection(3, 3)).toBe('halftime');
+  });
+
+  it('preserves the starting selection', () => {
+    expect(resolveRotationSelection('starting', 3)).toBe('starting');
+  });
+
+  it('preserves non-halftime numbered rotations', () => {
+    expect(resolveRotationSelection(2, 3)).toBe(2);
+  });
+
+  it('preserves null when nothing is selected', () => {
+    expect(resolveRotationSelection(null, 3)).toBeNull();
   });
 });
 
@@ -1064,15 +1293,13 @@ describe('Second Half Lineup Feature', () => {
     const playerId = 'playerB';
     const positionId = 'pos3';
 
-    if (playerId !== '') {
-      for (const [pos, pid] of newLineup.entries()) {
-        if (pid === playerId && pos !== positionId) {
-          newLineup.delete(pos);
-          break;
-        }
+    for (const [pos, pid] of newLineup.entries()) {
+      if (pid === playerId && pos !== positionId) {
+        newLineup.delete(pos);
+        break;
       }
-      newLineup.set(positionId, playerId);
     }
+    newLineup.set(positionId, playerId);
 
     // playerB should now be at pos3, not pos2
     expect(newLineup.get('pos3')).toBe('playerB');
@@ -1275,13 +1502,13 @@ describe("handleCopyFromPreviousRotation halftime clearing guard", () => {
   it("triggers halftime clear when rotationNumber equals halftimeRotationNumber", () => {
     const htRotNum = 3;
     const rotToClear = 3;
-    expect(rotToClear === htRotNum).toBe(true);
+    expect(rotToClear).toBe(htRotNum);
   });
 
   it("does NOT trigger halftime clear when rotationNumber differs from halftimeRotationNumber", () => {
     const htRotNum = 3;
     const rotToClear = 2;
-    expect(rotToClear === htRotNum).toBe(false);
+    expect(rotToClear).not.toBe(htRotNum);
   });
 
   it("serializes the cleared halftime lineup as [] not as null or undefined", () => {
