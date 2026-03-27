@@ -5,28 +5,59 @@
 Every new feature must go through this agent pipeline in order. Do not skip stages or proceed to the next stage until the current one is complete.
 
 ```
-planner → plan-architect → [ui-designer] → implementer → validation-engineer + security-reviewer → commit
+coordinator-agent → implementation-planner → architect-agent → [ui-designer] → coding-agent → validation-agent + security-engineer → commit gate
 ```
 
-**Stage 1 — Plan** (`planner` agent)
+`coordinator-agent` is the entry point for this workflow. It owns workflow state, gathers context, delegates to the stage-specific agents below, and requires structured responses before advancing stages.
+
+**Stage 1 — Plan** (`implementation-planner` agent)
 - Research the codebase and produce a detailed implementation plan
-- Output: file-by-file change list, data model impacts, edge cases
+- Output must include:
+- Requirements gaps and assumptions made
+- Risks, dependencies, sequencing, and edge cases
+- File-by-file change list
+- Data model and API impacts
+- Test strategy and any plan documents created or updated
+- If blocked: `Status: blocked`, `Required Next Step: ask-user`, and only the minimum non-obvious clarification questions needed to finish the plan
 
-**Stage 2 — Architect Review** (`plan-architect` agent)
+**Stage 2 — Architect Review** (`architect-agent` agent)
 - Reviews the plan for correctness, architectural fit, and risks
-- All issues and improvements raised must be incorporated into the plan before moving on
+- Output must include:
+- Architectural findings with severity and rationale
+- Reuse opportunities, dependency concerns, migration risks, and missing design decisions
+- Approved architecture decisions and any rejected or deferred approaches
+- Required plan changes that must be incorporated before moving on
+- If blocked: `Status: blocked`, `Required Next Step: ask-user`, and only the minimum non-obvious clarification questions needed to unblock the design review
 
-**Stage 3 — UI Design** (`UI designer` agent) *(skip if no UI changes)*
+**Stage 3 — UI Design** (`ui-designer` agent) *(skip if no UI changes)*
 - Reviews the plan and produces UI/UX guidance aligned with `docs/specs/UI-SPEC.md`
+- Output must include:
+- UI and UX findings with severity and rationale
+- Missing states, accessibility concerns, responsive layout risks, and interaction issues
+- Screen or component-specific guidance
+- UI-SPEC alignment notes and unresolved design decisions
 - All proposed changes must be incorporated into the plan before moving on
 
-**Stage 4 — Implement** (`implementer` agent)
+**Stage 4 — Implement** (`coding-agent` agent)
 - Executes the finalized plan
-- Writes code, updates tests, follows existing patterns
+- Output must include:
+- Files changed
+- Tests added or updated
+- Commands run and their outcomes
+- Plan items completed, remaining gaps, and any deviations from plan with rationale
+- Review hotspots, blockers, or unresolved issues
 
-**Stage 5 — Review** (`validation-engineer` + `security-reviewer` agents, run in parallel)
+**Stage 5 — Review** (`validation-agent` + `security-engineer` agents, run in parallel)
 - Both agents independently review the implementation
-- If either agent finds a **Major or higher severity issue**, the implementer must fix it and the reviewing agent must re-run until no Major+ issues remain
+- `validation-agent` output must include:
+- Validation findings with severity and rationale
+- Requirement gaps, behavioral regressions, and test coverage gaps
+- Files reviewed, tests or commands executed, and pass/fail summary against requirements and plan
+- `security-engineer` output must include:
+- Security findings with severity and rationale
+- Authentication, authorization, data handling, injection, or unsafe workflow risks
+- Files reviewed, checks executed, residual risks, and pass/fail summary for major security areas reviewed
+- If either agent finds a **Major or higher severity issue**, the `coding-agent` must fix it and the reviewing agent must re-run until no Major+ issues remain
 - Minor/informational findings are recorded but do not block progress
 
 **Stage 6 — Commit gate**
@@ -35,17 +66,30 @@ planner → plan-architect → [ui-designer] → implementer → validation-engi
 - `npm run lint` — linting must pass
 - Only commit after all checks are green
 
+**Communication contract**
+- `coordinator-agent` passes stage, requirements, relevant files, risks, and success criteria into every sub-agent call
+- Every sub-agent response must include: `Status`, `Findings`, `Artifacts`, `Required Next Step`, and `Handoff Prompt`
+- If a sub-agent omits any required section, `coordinator-agent` must request a restated response before continuing
+- If a sub-agent needs more information, it must return `Status: blocked`, `Required Next Step: ask-user`, and the minimum clarification questions needed to unblock the stage
+- Major/Critical findings from review stages block progression until `coding-agent` resolves them and the blocking reviewer re-runs
+
+**Clarification loop**
+- Sub-agents do not ask the user questions directly
+- When a stage is blocked on missing information, the sub-agent returns `Status: blocked` and `Required Next Step: ask-user`
+- The blocked sub-agent must include `Questions for User:` with only the minimum questions needed to continue
+- `coordinator-agent` asks the user those questions and then re-runs the same stage with the clarified context
+
 ### Defect Fix Pipeline
 
 For a simple defect fix touching **one or two files**:
 
 ```
-fix → validation-engineer → commit
+coordinator-agent → coding-agent → validation-agent → commit gate
 ```
 
-1. Implement the fix directly
-2. `validation-engineer` agent reviews the changed files
+1. `coordinator-agent` gathers scope and routes the fix to `coding-agent`
+2. `validation-agent` reviews the changed files
 3. If Major+ issues are found, fix them and re-run the agent
-4. `npm run test:run` and `npm run build` must both pass before committing
+4. `npm run test:run`, `npm run build`, and `npm run lint` must all pass before committing
 
 > For defect fixes spanning more than two files, or that require architectural changes, use the full New Feature Pipeline instead. Mark issue as fixed using github hash.

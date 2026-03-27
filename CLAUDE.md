@@ -13,28 +13,30 @@ TeamTrack is a progressive web app for coaches to manage teams, players, and gam
 Every new feature must go through this agent pipeline in order. Do not skip stages or proceed to the next stage until the current one is complete.
 
 ```
-planner → plan-architect → [ui-designer] → implementer → validation-engineer + security-reviewer → commit
+coordinator-agent → implementation-planner → architect-agent → [ui-designer] → coding-agent → validation-agent + security-engineer → commit gate
 ```
 
-**Stage 1 — Plan** (`planner` agent)
+`coordinator-agent` is the entry point for this workflow. It owns workflow state, gathers context, delegates to the stage-specific agents below, and requires structured responses before advancing stages.
+
+**Stage 1 — Plan** (`implementation-planner` agent)
 - Research the codebase and produce a detailed implementation plan
 - Output: file-by-file change list, data model impacts, edge cases
 
-**Stage 2 — Architect Review** (`plan-architect` agent)
+**Stage 2 — Architect Review** (`architect-agent` agent)
 - Reviews the plan for correctness, architectural fit, and risks
 - All issues and improvements raised must be incorporated into the plan before moving on
 
-**Stage 3 — UI Design** (`UI designer` agent) *(skip if no UI changes)*
+**Stage 3 — UI Design** (`ui-designer` agent) *(skip if no UI changes)*
 - Reviews the plan and produces UI/UX guidance aligned with `docs/specs/UI-SPEC.md`
 - All proposed changes must be incorporated into the plan before moving on
 
-**Stage 4 — Implement** (`implementer` agent)
+**Stage 4 — Implement** (`coding-agent` agent)
 - Executes the finalized plan
 - Writes code, updates tests, follows existing patterns
 
-**Stage 5 — Review** (`validation-engineer` + `security-reviewer` agents, run in parallel)
+**Stage 5 — Review** (`validation-agent` + `security-engineer` agents, run in parallel)
 - Both agents independently review the implementation
-- If either agent finds a **Major or higher severity issue**, the implementer must fix it and the reviewing agent must re-run until no Major+ issues remain
+- If either agent finds a **Major or higher severity issue**, the `coding-agent` must fix it and the reviewing agent must re-run until no Major+ issues remain
 - Minor/informational findings are recorded but do not block progress
 
 **Stage 6 — Commit gate**
@@ -42,16 +44,23 @@ planner → plan-architect → [ui-designer] → implementer → validation-engi
 - `npm run build` — production build must succeed
 - Only commit after both checks are green
 
+**Communication contract**
+- `coordinator-agent` passes stage, requirements, relevant files, risks, and success criteria into every sub-agent call
+- Every sub-agent response must include: `Status`, `Findings`, `Artifacts`, `Required Next Step`, and `Handoff Prompt`
+- If a sub-agent omits any required section, `coordinator-agent` must request a restated response before continuing
+- If a sub-agent needs more information, it must return `Status: blocked`, `Required Next Step: ask-user`, and the minimum clarification questions needed to unblock the stage
+- Major/Critical findings from review stages block progression until `coding-agent` resolves them and the blocking reviewer re-runs
+
 ### Defect Fix Pipeline
 
 For a simple defect fix touching **one or two files**:
 
 ```
-fix → validation-engineer → commit
+coordinator-agent → coding-agent → validation-agent → commit gate
 ```
 
-1. Implement the fix directly
-2. `validation-engineer` agent reviews the changed files
+1. `coordinator-agent` gathers scope and routes the fix to `coding-agent`
+2. `validation-agent` reviews the changed files
 3. If Major+ issues are found, fix them and re-run the agent
 4. `npm run test:run` and `npm run build` must both pass before committing
 
