@@ -39,7 +39,7 @@ export function Home() {
 
   const scheduleGameButtonRef = useRef<HTMLButtonElement>(null);
 
-  const currentUserId = user.userId;
+  const currentUserId = user?.userId;
 
   // Subscribe to teams, roster, and gamePlans for onboarding progress
   const { data: teams, isSynced: isTeamsSynced } = useAmplifyQuery('Team');
@@ -303,6 +303,10 @@ export function Home() {
   });
   const scheduledGames = games.filter(g => (g.status || 'scheduled') === 'scheduled');
   const completedGames = games.filter(g => g.status === 'completed');
+
+  // Guard: user object may be undefined briefly during the authenticated→app
+  // transition (Amplify Authenticator context race). Render nothing until ready.
+  if (!user) return null;
 
   return (
     <div className="home">

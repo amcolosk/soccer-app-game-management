@@ -5123,6 +5123,28 @@
   background: white;
   color: #ff9800;
 }
+.assigned-player--readonly {
+  cursor: default;
+}
+.assigned-player--readonly:hover {
+  background: white;
+  border-color: var(--primary-green);
+}
+.bench-player--readonly {
+  cursor: default;
+}
+.bench-player--readonly:hover {
+  border-color: var(--border-color);
+  transform: none;
+}
+.planner-readonly-empty-slot {
+  padding: 0.4rem 0.6rem;
+  border: 2px dashed var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  background: white;
+}
 
 /* Collapsible Play Time */
 .planner-playtime-details {
