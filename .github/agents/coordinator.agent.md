@@ -64,9 +64,7 @@ implementation-planner -> architect-agent -> [ui-designer] -> coding-agent -> va
 
 ### Stage 6 - Commit Gate
 
-- Run `npm run test:run`.
-- Run `npm run build`.
-- Run `npm run lint`.
+- Run `npm run gate:commit` (local fail-fast commit gate: lint -> test:run -> build).
 - If any gate fails, route the failure details to `coding-agent` and repeat the gate after fixes.
 
 ## Defect Fix Pipeline
@@ -90,6 +88,7 @@ Use the full new feature pipeline when the defect spans three or more files, cha
 For every sub-agent call:
 
 - Include the current workflow stage, requirements, relevant files, constraints, known risks, and explicit success criteria.
+- The coordinator must reference `npm run gate:commit` as the only local commit-gate command in implementation/review handoffs; do not request separate `npm run lint`, `npm run test:run`, and `npm run build` unless troubleshooting a failing gate step.
 - Require the sub-agent to answer with its `## Output Format` section.
 - Do not advance on partial or loosely formatted responses.
 - If a response is missing `Status`, `Findings`, `Artifacts`, `Required Next Step`, or `Handoff Prompt`, ask for a corrected restatement.

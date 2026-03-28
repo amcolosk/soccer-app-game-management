@@ -267,3 +267,7 @@ To include a test in smoke, add its spec file path to this command. Keep the smo
 | SSM config is outdated (stale `amplify_outputs.json` in parameter) | Update the SSM parameter value via AWS Console or CLI: `aws ssm put-parameter --name <PARAM> --value "$(cat amplify_outputs.json)" --overwrite`. Re-run the failed workflow. |
 | CI job hangs near its `timeout-minutes` limit | Check whether the dev server failed to start (`webServer.timeout` is 120 sec) or a test is stuck in a retry loop (`retries: 2`). Inspect the Playwright HTML report artifact. Reduce `maxFailures` or add a `globalTimeout` guard if tests are consistently timing out. |
 | Monthly budget near 90% | Apply **Action** downgrade: remove the `run-smoke-e2e` auto-trigger from PRs (label-driven only) or temporarily reduce the expected run frequency. Monitor for two consecutive low-burn weeks before restoring normal mode. |
+
+### Local pre-push verification
+
+Run `npm run gate:commit` before push or commit. It executes lint, unit tests, and production build in order (`npm run lint` → `npm run test:run` → `npm run build`) with fail-fast behavior, so the command exits on the first failing step.
