@@ -188,7 +188,12 @@ jobs:
       (needs.detect-risk.outputs.e2e_risk == 'true' || needs.calc-mode.outputs.smoke_label == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
     env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+      AMPLIFY_OUTPUTS_SSM_PARAMETER: ${{ vars.AMPLIFY_OUTPUTS_SSM_PARAMETER }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_EMAIL_2: ${{ secrets.TEST_USER_EMAIL_2 }}
@@ -206,8 +211,58 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Use CI Amplify outputs
-        run: cp amplify_outputs.ci.json amplify_outputs.json
+      - name: Enforce trusted secret-backed contexts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request_target" ]]; then
+            echo 'Secret-backed smoke E2E is forbidden in pull_request_target.'
+            exit 1
+          fi
+
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            head_repo="$(jq -r '.pull_request.head.repo.full_name // ""' "$GITHUB_EVENT_PATH")"
+            if [[ "$head_repo" != "$GITHUB_REPOSITORY" ]]; then
+              echo 'Secret-backed smoke E2E is forbidden for fork PRs.'
+              exit 1
+            fi
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: ci-smoke-e2e-${{ github.run_id }}
+
+      - name: Fetch Amplify outputs from SSM
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${AMPLIFY_OUTPUTS_SSM_PARAMETER}" ]]; then
+            echo 'AMPLIFY_OUTPUTS_SSM_PARAMETER repo variable is required for smoke E2E.'
+            exit 1
+          fi
+
+          aws ssm get-parameter \
+            --name "${AMPLIFY_OUTPUTS_SSM_PARAMETER}" \
+            --with-decryption \
+            --query 'Parameter.Value' \
+            --output text > amplify_outputs.json
+
+      - name: Validate Amplify outputs payload
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          jq -e '
+            .version and
+            .auth and .auth.user_pool_id and .auth.aws_region and
+            .data and .data.url and .data.aws_region and
+            .storage and .storage.bucket_name
+          ' amplify_outputs.json > /dev/null
 
       - name: Validate E2E test credentials
         shell: bash
@@ -262,7 +317,7 @@ jobs:
       contents: read
       id-token: write
     env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
       AMPLIFY_OUTPUTS_SSM_PARAMETER: ${{ vars.AMPLIFY_OUTPUTS_SSM_PARAMETER }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
