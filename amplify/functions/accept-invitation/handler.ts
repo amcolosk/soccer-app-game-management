@@ -63,6 +63,20 @@ export function shouldBackfillCoaches(existing: string[] | undefined, incoming: 
   return merged.length !== existing.length || merged.some((coachId) => !existing.includes(coachId));
 }
 
+async function withBoundedConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const batchResults = await Promise.all(batch.map(fn));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
 function isConditionalCheckFailed(error: unknown): boolean {
   if (!error || typeof error !== 'object') {
     return false;
@@ -228,6 +242,7 @@ export const handler: Schema['acceptInvitation']['functionHandler'] = async (eve
   const playerTable = process.env.PLAYER_TABLE;
   const formationTable = process.env.FORMATION_TABLE;
   const formationPositionTable = process.env.FORMATION_POSITION_TABLE;
+  const gameTable = process.env.GAME_TABLE;
 
   if (
     !teamInvitationTable ||
@@ -235,7 +250,8 @@ export const handler: Schema['acceptInvitation']['functionHandler'] = async (eve
     !teamRosterTable ||
     !playerTable ||
     !formationTable ||
-    !formationPositionTable
+    !formationPositionTable ||
+    !gameTable
   ) {
     throw new Error('Required environment variables not set');
   }
@@ -439,6 +455,18 @@ export const handler: Schema['acceptInvitation']['functionHandler'] = async (eve
       )
     );
   }
+
+  // Backfill Game coaches for this team so shared users can see games.
+  const gameRecords = await scanByField<CoachScopedRecord>(
+    gameTable,
+    'teamId',
+    invitation.teamId,
+    ['id', 'coaches'],
+  );
+
+  await withBoundedConcurrency(gameRecords, 10, (record) =>
+    updateRecordCoachesIfNeeded(gameTable, record, mergedTeamCoaches, updatedAtIso)
+  );
 
   // 4. Return the updated team
   const teamResponse = await docClient.send(new GetCommand({

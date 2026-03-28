@@ -158,6 +158,7 @@ If teams were shared before the concurrency-safe acceptance patch, some related 
 - `Player` records linked through team roster
 - `Formation`
 - `FormationPosition`
+- `Game` records for the team
 
 Command examples:
 
@@ -169,7 +170,8 @@ npm run repair:sharing-permissions -- \
   --team-roster-table=<TeamRosterTableName> \
   --player-table=<PlayerTableName> \
   --formation-table=<FormationTableName> \
-  --formation-position-table=<FormationPositionTableName>
+  --formation-position-table=<FormationPositionTableName> \
+  --game-table=<GameTableName>
 
 # Apply to one team only
 npm run repair:sharing-permissions -- --apply --team-id=<team-id> \
@@ -178,7 +180,8 @@ npm run repair:sharing-permissions -- --apply --team-id=<team-id> \
   --team-roster-table=<TeamRosterTableName> \
   --player-table=<PlayerTableName> \
   --formation-table=<FormationTableName> \
-  --formation-position-table=<FormationPositionTableName>
+  --formation-position-table=<FormationPositionTableName> \
+  --game-table=<GameTableName>
 
 # Apply to all teams (requires explicit global confirmation flag)
 npm run repair:sharing-permissions -- --apply --all-teams \
@@ -187,7 +190,8 @@ npm run repair:sharing-permissions -- --apply --all-teams \
   --team-roster-table=<TeamRosterTableName> \
   --player-table=<PlayerTableName> \
   --formation-table=<FormationTableName> \
-  --formation-position-table=<FormationPositionTableName>
+  --formation-position-table=<FormationPositionTableName> \
+  --game-table=<GameTableName>
 ```
 
 You can also provide table names using env vars instead of flags:
@@ -197,3 +201,4 @@ You can also provide table names using env vars instead of flags:
 - `PLAYER_TABLE`
 - `FORMATION_TABLE`
 - `FORMATION_POSITION_TABLE`
+- `GAME_TABLE`

@@ -33,6 +33,7 @@ type ScriptConfig = {
   playerTable: string;
   formationTable: string;
   formationPositionTable: string;
+  gameTable: string;
   apply: boolean;
   teamId?: string;
 };
@@ -44,6 +45,7 @@ type RepairCounters = {
   playersUpdated: number;
   formationsUpdated: number;
   formationPositionsUpdated: number;
+  gamesUpdated: number;
 };
 
 function getArgValue(flag: string): string | undefined {
@@ -92,6 +94,7 @@ function parseConfig(): ScriptConfig {
     playerTable: getRequiredValue('player table', 'PLAYER_TABLE', '--player-table'),
     formationTable: getRequiredValue('formation table', 'FORMATION_TABLE', '--formation-table'),
     formationPositionTable: getRequiredValue('formation position table', 'FORMATION_POSITION_TABLE', '--formation-position-table'),
+    gameTable: getRequiredValue('game table', 'GAME_TABLE', '--game-table'),
     apply,
     teamId,
   };
@@ -344,6 +347,21 @@ async function repairTeamPermissions(
     )
   );
   counters.formationPositionsUpdated += positionUpdateResults.filter(Boolean).length;
+
+  // Backfill Game coaches so shared users can see games for this team.
+  const gameRecords = await scanByField<CoachScopedRecord>(
+    config.gameTable,
+    'teamId',
+    teamId,
+    ['id', 'coaches'],
+  );
+
+  const gameUpdateResults = await Promise.all(
+    gameRecords.map((record) =>
+      updateRecordCoachesIfNeeded(config.gameTable, record, mergedTeamCoaches, updatedAtIso, !config.apply)
+    )
+  );
+  counters.gamesUpdated += gameUpdateResults.filter(Boolean).length;
 }
 
 async function main(): Promise<void> {
@@ -365,6 +383,7 @@ async function main(): Promise<void> {
     playersUpdated: 0,
     formationsUpdated: 0,
     formationPositionsUpdated: 0,
+    gamesUpdated: 0,
   };
 
   const acceptedInvitations = await scanAcceptedInvitations(config.teamInvitationTable);

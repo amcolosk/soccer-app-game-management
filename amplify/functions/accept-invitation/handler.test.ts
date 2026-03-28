@@ -59,6 +59,7 @@ describe('accept invitation handler', () => {
     process.env.PLAYER_TABLE = 'PlayerTable';
     process.env.FORMATION_TABLE = 'FormationTable';
     process.env.FORMATION_POSITION_TABLE = 'FormationPositionTable';
+    process.env.GAME_TABLE = 'GameTable';
   });
 
   afterEach(() => {
@@ -128,6 +129,14 @@ describe('accept invitation handler', () => {
             ],
           };
         }
+
+        if (table === 'GameTable') {
+          return {
+            Items: [
+              { id: 'game-1', coaches: ['owner-a'] },
+            ],
+          };
+        }
       }
 
       if (command.__type === 'UpdateCommand') {
@@ -155,6 +164,7 @@ describe('accept invitation handler', () => {
     expect(updatedTables).toContain('FormationTable');
     expect(updatedTables).toContain('FormationPositionTable');
     expect(updatedTables).toContain('TeamInvitationTable');
+    expect(updatedTables).toContain('GameTable');
 
     const invitationClaimUpdate = updateInputs.find(
       (update) => update.TableName === 'TeamInvitationTable' && update.ConditionExpression === '#status = :pendingStatus'
@@ -219,6 +229,14 @@ describe('accept invitation handler', () => {
           return {
             Items: [
               { id: 'roster-1', playerId: 'player-1', coaches: ['owner-a', 'coach-b'] },
+            ],
+          };
+        }
+
+        if (table === 'GameTable') {
+          return {
+            Items: [
+              { id: 'game-1', coaches: ['owner-a', 'coach-b'] },
             ],
           };
         }
