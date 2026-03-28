@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthenticator } from '@aws-amplify/ui-react';
+import { getCurrentUser } from 'aws-amplify/auth';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import type { Game } from '../types/schema';
@@ -20,7 +21,7 @@ const client = generateClient<Schema>();
 
 export function Home() {
   const navigate = useNavigate();
-  const { user } = useAuthenticator((context) => [context.user]);
+  const { authStatus } = useAuthenticator((context) => [context.authStatus]);
   const { setHelpContext, setDebugContext } = useHelpFab();
   const { welcomed, dismissed, collapsed, markWelcomed, expand, dismiss } = useOnboarding();
 
@@ -36,10 +37,17 @@ export function Home() {
   const [gameDate, setGameDate] = useState('');
   const [isHome, setIsHome] = useState(true);
   const [isDemoLoading, setIsDemoLoading] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | undefined>();
 
   const scheduleGameButtonRef = useRef<HTMLButtonElement>(null);
 
-  const currentUserId = user?.userId;
+  useEffect(() => {
+    if (authStatus === 'authenticated') {
+      getCurrentUser().then(u => setCurrentUserId(u.userId)).catch(() => {});
+    } else {
+      setCurrentUserId(undefined);
+    }
+  }, [authStatus]);
 
   // Subscribe to teams, roster, and gamePlans for onboarding progress
   const { data: teams, isSynced: isTeamsSynced } = useAmplifyQuery('Team');
@@ -115,6 +123,7 @@ export function Home() {
 
   // Handle demo data loading
   const handleLoadDemoData = async () => {
+    if (!currentUserId) return;
     if (!navigator.onLine) {
       showError('Demo data requires an internet connection');
       return;
@@ -194,6 +203,11 @@ export function Home() {
   };
 
   const handleCreateGame = async () => {
+    if (!currentUserId) {
+      showError('User not found. Please refresh.');
+      return;
+    }
+
     if (!opponent.trim() || !selectedTeamForGame) {
       showWarning('Please enter opponent name and select a team');
       return;
@@ -304,9 +318,7 @@ export function Home() {
   const scheduledGames = games.filter(g => (g.status || 'scheduled') === 'scheduled');
   const completedGames = games.filter(g => g.status === 'completed');
 
-  // Guard: user object may be undefined briefly during the authenticated→app
-  // transition (Amplify Authenticator context race). Render nothing until ready.
-  if (!user) return null;
+  if (authStatus !== 'authenticated') return null;
 
   return (
     <div className="home">

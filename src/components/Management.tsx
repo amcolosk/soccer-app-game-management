@@ -63,7 +63,7 @@ function validateTeamForm(form: { name: string; maxPlayers: string; halfLength: 
   return result;
 }
 
-async function resolveFormationId(selectedFormation: string, currentUserId: string) {
+async function resolveFormationId(selectedFormation: string, currentUserId: string, coaches: string[] = [currentUserId]) {
   if (selectedFormation.startsWith('template-')) {
     const templateIndex = parseInt(selectedFormation.replace('template-', ''));
     const template = FORMATION_TEMPLATES[templateIndex];
@@ -72,7 +72,7 @@ async function resolveFormationId(selectedFormation: string, currentUserId: stri
         name: template.name,
         playerCount: template.playerCount,
         sport: 'Soccer',
-        coaches: [currentUserId],
+        coaches,
       });
       if (newFormation.data) {
         for (let i = 0; i < template.positions.length; i++) {
@@ -82,7 +82,7 @@ async function resolveFormationId(selectedFormation: string, currentUserId: stri
             positionName: pos.name,
             abbreviation: pos.abbr,
             sortOrder: i + 1,
-            coaches: [currentUserId],
+            coaches,
           });
         }
         return newFormation.data.id;
@@ -216,7 +216,7 @@ export function Management() {
     if (!currentUserId) { showError('User not authenticated'); return; }
 
     try {
-      const formationId = await resolveFormationId(teamForm.selectedFormation, currentUserId);
+      const formationId = await resolveFormationId(teamForm.selectedFormation, currentUserId, [currentUserId]);
       await client.models.Team.create({
         name: teamForm.name,
         coaches: [currentUserId],
@@ -243,7 +243,10 @@ export function Management() {
     if (!validated) return;
 
     try {
-      const formationId = await resolveFormationId(teamForm.selectedFormation, currentUserId);
+      const teamCoaches = teamForm.editing.coaches && teamForm.editing.coaches.length > 0
+        ? teamForm.editing.coaches
+        : [currentUserId];
+      const formationId = await resolveFormationId(teamForm.selectedFormation, currentUserId, teamCoaches);
       await client.models.Team.update({
         id: teamForm.editing.id,
         name: teamForm.name,
@@ -320,7 +323,8 @@ export function Management() {
     }
 
     try {
-      await client.models.TeamRoster.create({
+      const selectedPlayer = players.find(p => p.id === rosterForm.selectedPlayer);
+      const createRosterResponse = await client.models.TeamRoster.create({
         teamId,
         playerId: rosterForm.selectedPlayer,
         playerNumber: num,
@@ -329,6 +333,31 @@ export function Management() {
           : undefined,
         coaches: team.coaches, // Copy coaches array from team
       });
+
+      const mergedPlayerCoaches = Array.from(new Set([
+        ...(selectedPlayer?.coaches ?? []),
+        ...(team.coaches ?? []),
+      ]));
+
+      if (selectedPlayer && mergedPlayerCoaches.length !== (selectedPlayer.coaches?.length ?? 0)) {
+        try {
+          await client.models.Player.update({
+            id: selectedPlayer.id,
+            coaches: mergedPlayerCoaches,
+          });
+        } catch (playerUpdateError) {
+          // Compensate for partial success so roster/player permissions stay consistent.
+          const createdRosterId = createRosterResponse.data?.id;
+          if (createdRosterId) {
+            try {
+              await client.models.TeamRoster.delete({ id: createdRosterId });
+            } catch (rollbackError) {
+              logError('TeamRoster.delete rollback after Player.update failure', rollbackError);
+            }
+          }
+          throw playerUpdateError;
+        }
+      }
 
       rosterDispatch({ type: 'RESET' });
       setBirthYearFilters([]);

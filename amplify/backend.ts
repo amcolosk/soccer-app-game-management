@@ -68,12 +68,36 @@ backend.sendInvitationEmail.resources.lambda.addEventSource(
 
 // Grant table access for acceptInvitation Lambda
 const teamTable = backend.data.resources.tables['Team'];
+const playerTable = backend.data.resources.tables['Player'];
+const formationTable = backend.data.resources.tables['Formation'];
+const formationPositionTable = backend.data.resources.tables['FormationPosition'];
+const teamRosterTable = backend.data.resources.tables['TeamRoster'];
 teamTable.grantReadWriteData(backend.acceptInvitation.resources.lambda);
 teamInvitationTable.grantReadWriteData(backend.acceptInvitation.resources.lambda);
+playerTable.grantReadWriteData(backend.acceptInvitation.resources.lambda);
+formationTable.grantReadWriteData(backend.acceptInvitation.resources.lambda);
+formationPositionTable.grantReadWriteData(backend.acceptInvitation.resources.lambda);
+teamRosterTable.grantReadWriteData(backend.acceptInvitation.resources.lambda);
 
 // Add table names as environment variables
 backend.acceptInvitation.addEnvironment('TEAM_TABLE', teamTable.tableName);
 backend.acceptInvitation.addEnvironment('TEAM_INVITATION_TABLE', teamInvitationTable.tableName);
+backend.acceptInvitation.addEnvironment('PLAYER_TABLE', playerTable.tableName);
+backend.acceptInvitation.addEnvironment('FORMATION_TABLE', formationTable.tableName);
+backend.acceptInvitation.addEnvironment('FORMATION_POSITION_TABLE', formationPositionTable.tableName);
+backend.acceptInvitation.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);
+
+// Grant Cognito access for acceptInvitation Lambda to fetch user email if missing in claims
+backend.acceptInvitation.addEnvironment(
+  'USER_POOL_ID',
+  backend.auth.resources.userPool.userPoolId
+);
+backend.acceptInvitation.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['cognito-idp:AdminGetUser'],
+    resources: [backend.auth.resources.userPool.userPoolArn],
+  })
+);
 
 // Grant table access for getUserInvitations Lambda
 teamInvitationTable.grantReadData(backend.getUserInvitations.resources.lambda);
