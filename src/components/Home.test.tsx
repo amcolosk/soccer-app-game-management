@@ -42,6 +42,12 @@ const onboardingState = {
   collapsed: false,
 };
 
+// Mutable authenticator state — tests can override user/authStatus
+const authState: { user: { userId: string; username: string } | undefined; authStatus: string } = {
+  user: { userId: 'test-user-id', username: 'testuser' },
+  authStatus: 'authenticated',
+};
+
 // ---------------------------------------------------------------------------
 // Module mocks
 // ---------------------------------------------------------------------------
@@ -64,7 +70,7 @@ vi.mock('../contexts/OnboardingContext', () => ({
 }));
 
 vi.mock('@aws-amplify/ui-react', () => ({
-  useAuthenticator: () => ({ user: { userId: 'test-user-id', username: 'testuser' } }),
+  useAuthenticator: () => ({ user: authState.user, authStatus: authState.authStatus }),
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -137,6 +143,8 @@ function resetState() {
   teamQueryResult.isSynced = false;
   onboardingState.welcomed = false;
   onboardingState.dismissed = true;
+  authState.user = { userId: 'test-user-id', username: 'testuser' };
+  authState.authStatus = 'authenticated';
   localStorage.clear();
 }
 
@@ -223,5 +231,28 @@ describe('Home — auto-welcome for existing users (issue #22)', () => {
     render(<Home />);
 
     expect(screen.queryByTestId('welcome-modal')).not.toBeInTheDocument();
+  });
+});
+
+describe('Home — loading state on first login (blank page race)', () => {
+  beforeEach(resetState);
+
+  it('renders a loading indicator when authStatus is authenticated but user is not yet populated', () => {
+    authState.user = undefined;
+    authState.authStatus = 'authenticated';
+
+    render(<Home />);
+
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+  });
+
+  it('renders nothing when authStatus is not authenticated and user is absent', () => {
+    authState.user = undefined;
+    authState.authStatus = 'unauthenticated';
+
+    const { container } = render(<Home />);
+
+    expect(container.firstChild).toBeNull();
   });
 });

@@ -20,7 +20,7 @@ const client = generateClient<Schema>();
 
 export function Home() {
   const navigate = useNavigate();
-  const { user } = useAuthenticator((context) => [context.user]);
+  const { user, authStatus } = useAuthenticator((context) => [context.user, context.authStatus]);
   const { setHelpContext, setDebugContext } = useHelpFab();
   const { welcomed, dismissed, collapsed, markWelcomed, expand, dismiss } = useOnboarding();
 
@@ -305,8 +305,12 @@ export function Home() {
   const completedGames = games.filter(g => g.status === 'completed');
 
   // Guard: user object may be undefined briefly during the authenticated→app
-  // transition (Amplify Authenticator context race). Render nothing until ready.
-  if (!user) return null;
+  // transition (Amplify Authenticator context race).
+  if (!user) {
+    if (authStatus !== 'authenticated') return null;
+    // Auth confirmed but user object not yet populated — show loading state
+    return <div className="loading-state" aria-label="Loading..." role="status">Loading...</div>;
+  }
 
   return (
     <div className="home">
