@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 const mockSend = vi.hoisted(() => vi.fn());
+const mockCognitoSend = vi.hoisted(() => vi.fn());
 
 vi.mock('@aws-sdk/client-dynamodb', () => ({
   DynamoDBClient: vi.fn(function () {
@@ -15,6 +16,13 @@ vi.mock('@aws-sdk/lib-dynamodb', () => ({
   GetCommand: vi.fn(function (input) { return { __type: 'GetCommand', input }; }),
   ScanCommand: vi.fn(function (input) { return { __type: 'ScanCommand', input }; }),
   UpdateCommand: vi.fn(function (input) { return { __type: 'UpdateCommand', input }; }),
+}));
+
+vi.mock('@aws-sdk/client-cognito-identity-provider', () => ({
+  CognitoIdentityProviderClient: vi.fn(function () {
+    return { send: mockCognitoSend };
+  }),
+  AdminGetUserCommand: vi.fn(function (input) { return { __type: 'AdminGetUserCommand', input }; }),
 }));
 
 import { handler, mergeCoachLists, shouldBackfillCoaches } from './handler';
@@ -51,6 +59,10 @@ describe('accept invitation handler', () => {
     process.env.PLAYER_TABLE = 'PlayerTable';
     process.env.FORMATION_TABLE = 'FormationTable';
     process.env.FORMATION_POSITION_TABLE = 'FormationPositionTable';
+  });
+
+  afterEach(() => {
+    delete process.env.USER_POOL_ID;
   });
 
   it('backfills coaches to roster, players, formation, and formation positions', async () => {
@@ -513,6 +525,73 @@ describe('accept invitation handler', () => {
     const event = {
       arguments: { invitationId: 'invite-1' },
       identity: { sub: 'coach-b', claims: {} },
+    };
+
+    await expect(invokeHandler(event as HandlerEvent)).rejects.toThrow('Authenticated email claim missing');
+  });
+
+  it('resolves email from Cognito User Pool when no email in claims', async () => {
+    process.env.USER_POOL_ID = 'us-east-1_test';
+
+    mockCognitoSend.mockResolvedValueOnce({
+      UserAttributes: [{ Name: 'email', Value: 'coach@example.com' }],
+    });
+
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      if (command.__type === 'GetCommand') {
+        const table = command.input.TableName;
+        if (table === 'TeamInvitationTable') {
+          return {
+            Item: {
+              id: 'invite-1',
+              teamId: 'team-1',
+              email: 'coach@example.com',
+              status: 'PENDING',
+              expiresAt: '2099-01-01T00:00:00.000Z',
+            },
+          };
+        }
+        if (table === 'TeamTable') {
+          return {
+            Item: { id: 'team-1', formationId: null, coaches: ['owner-a', 'coach-b'] },
+          };
+        }
+      }
+      if (command.__type === 'ScanCommand') {
+        return { Items: [] };
+      }
+      if (command.__type === 'UpdateCommand') {
+        return {};
+      }
+      return {};
+    });
+
+    const event = {
+      arguments: { invitationId: 'invite-1' },
+      identity: { sub: 'coach-b', username: 'coach-b', claims: {} },
+    };
+
+    await expect(invokeHandler(event as HandlerEvent)).resolves.toBeTruthy();
+
+    // Verify AdminGetUser was called with the correct username
+    expect(mockCognitoSend).toHaveBeenCalledTimes(1);
+    const cognitoCallArg = mockCognitoSend.mock.calls[0][0] as { __type: string; input: { UserPoolId: string; Username: string } };
+    expect(cognitoCallArg.__type).toBe('AdminGetUserCommand');
+    expect(cognitoCallArg.input.UserPoolId).toBe('us-east-1_test');
+    expect(cognitoCallArg.input.Username).toBe('coach-b');
+  });
+
+  it('falls through to Authenticated email claim missing when AdminGetUser throws', async () => {
+    process.env.USER_POOL_ID = 'us-east-1_test';
+
+    mockCognitoSend.mockRejectedValueOnce(new Error('network error'));
+
+    const event = {
+      arguments: { invitationId: 'invite-1' },
+      // username has no '@' so the username-as-email fallback does not fire;
+      // Cognito is tried (USER_POOL_ID set, sub present), rejects, and the
+      // catch block is silent → authenticatedEmail stays empty.
+      identity: { sub: 'coach-b', username: 'no-at-sign', claims: {} },
     };
 
     await expect(invokeHandler(event as HandlerEvent)).rejects.toThrow('Authenticated email claim missing');

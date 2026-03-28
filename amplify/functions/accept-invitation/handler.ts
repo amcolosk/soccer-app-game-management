@@ -7,9 +7,11 @@ import {
   ScanCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { CognitoIdentityProviderClient, AdminGetUserCommand } from '@aws-sdk/client-cognito-identity-provider';
 
 const client = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(client);
+const cognitoClient = new CognitoIdentityProviderClient({});
 
 type CoachScopedRecord = {
   id: string;
@@ -175,7 +177,41 @@ export const handler: Schema['acceptInvitation']['functionHandler'] = async (eve
   // Get user ID from Cognito identity
   const identity = event.identity as AppSyncIdentityCognito;
   const userId = identity?.sub;
-  const authenticatedEmail = normalizeEmail(identity?.claims?.email);
+
+  // Resolve caller email using multi-step fallback (access tokens don't include email claim)
+  let authenticatedEmail = normalizeEmail(identity?.claims?.email);
+
+  // Fallback: if username looks like an email, use it
+  if (!authenticatedEmail && identity?.username && identity.username.includes('@')) {
+    authenticatedEmail = normalizeEmail(identity.username);
+  }
+
+  // Fallback 2: check claims.username
+  if (!authenticatedEmail && identity?.claims?.username) {
+    authenticatedEmail = normalizeEmail(identity.claims.username as string);
+  }
+
+  // Fallback 3: check claims['cognito:username']
+  if (!authenticatedEmail && identity?.claims && identity.claims['cognito:username']) {
+    authenticatedEmail = normalizeEmail(identity.claims['cognito:username'] as string);
+  }
+
+  // Fallback 4: Fetch from Cognito User Pool
+  if ((!authenticatedEmail || !authenticatedEmail.includes('@')) && process.env.USER_POOL_ID && (identity?.username || identity?.sub)) {
+    try {
+      const cognitoCommand = new AdminGetUserCommand({
+        UserPoolId: process.env.USER_POOL_ID,
+        Username: identity.username || identity.sub,
+      });
+      const cognitoResponse = await cognitoClient.send(cognitoCommand);
+      const emailAttr = cognitoResponse.UserAttributes?.find(attr => attr.Name === 'email');
+      if (emailAttr?.Value) {
+        authenticatedEmail = normalizeEmail(emailAttr.Value);
+      }
+    } catch (error) {
+      console.error('Error fetching user from Cognito:', error);
+    }
+  }
 
   if (!userId) {
     throw new Error('User not authenticated');
