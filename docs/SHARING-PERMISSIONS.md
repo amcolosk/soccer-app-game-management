@@ -149,3 +149,51 @@ Any authenticated user can technically query any player, formation, or game if t
 - Players are shown based on team access
 - Your own created players always appear regardless of team membership
 - Refresh the page after accepting an invitation
+
+## Remediation For Existing Shared Teams
+
+If teams were shared before the concurrency-safe acceptance patch, some related records may still have stale `coaches` arrays. Run the one-time repair script to backfill coaches across:
+- `Team`
+- `TeamRoster`
+- `Player` records linked through team roster
+- `Formation`
+- `FormationPosition`
+
+Command examples:
+
+```bash
+# Dry run all teams (default; recommended first)
+npm run repair:sharing-permissions -- \
+  --team-invitation-table=<TeamInvitationTableName> \
+  --team-table=<TeamTableName> \
+  --team-roster-table=<TeamRosterTableName> \
+  --player-table=<PlayerTableName> \
+  --formation-table=<FormationTableName> \
+  --formation-position-table=<FormationPositionTableName>
+
+# Apply to one team only
+npm run repair:sharing-permissions -- --apply --team-id=<team-id> \
+  --team-invitation-table=<TeamInvitationTableName> \
+  --team-table=<TeamTableName> \
+  --team-roster-table=<TeamRosterTableName> \
+  --player-table=<PlayerTableName> \
+  --formation-table=<FormationTableName> \
+  --formation-position-table=<FormationPositionTableName>
+
+# Apply to all teams (requires explicit global confirmation flag)
+npm run repair:sharing-permissions -- --apply --all-teams \
+  --team-invitation-table=<TeamInvitationTableName> \
+  --team-table=<TeamTableName> \
+  --team-roster-table=<TeamRosterTableName> \
+  --player-table=<PlayerTableName> \
+  --formation-table=<FormationTableName> \
+  --formation-position-table=<FormationPositionTableName>
+```
+
+You can also provide table names using env vars instead of flags:
+- `TEAM_INVITATION_TABLE`
+- `TEAM_TABLE`
+- `TEAM_ROSTER_TABLE`
+- `PLAYER_TABLE`
+- `FORMATION_TABLE`
+- `FORMATION_POSITION_TABLE`
