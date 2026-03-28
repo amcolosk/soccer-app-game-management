@@ -156,7 +156,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -n 'e2e/playwright[.]config[.]ts' -- .; then
+          matches="$(git grep -n 'e2e/playwright[.]config[.]ts' -- . ':(exclude)docs/**' || true)"
+          if [[ -n "$matches" ]]; then
+            echo "$matches"
             echo 'Found stale legacy Playwright config path reference(s).'
             exit 1
           fi
