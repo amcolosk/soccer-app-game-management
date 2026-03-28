@@ -304,7 +304,7 @@ Three slash commands for triage (run in Claude Code):
 
 ### E2E Tests (Playwright)
 - Located in `e2e/` directory
-- Config: `e2e/playwright.config.ts`
+- Config: `playwright.config.ts`
 - Setup script: `npm run test:e2e:setup` (creates test user/data)
 - Tests cover full user journeys (create team → add players → manage game)
 - Spec files: auth, data-isolation, formation-management, full-workflow, game-planner, issue-tracking, player-management, profile, team-management, team-sharing

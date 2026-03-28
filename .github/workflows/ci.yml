@@ -3,34 +3,358 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main') }}
+
+permissions:
+  contents: read
+  actions: read
 
 jobs:
-  ci:
-    name: CI
+  calc-mode:
+    name: Calculate CI Mode
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      is_pr: ${{ steps.mode.outputs.is_pr }}
+      is_trusted_pr: ${{ steps.mode.outputs.is_trusted_pr }}
+      is_push_main: ${{ steps.mode.outputs.is_push_main }}
+      is_merge_group: ${{ steps.mode.outputs.is_merge_group }}
+      is_workflow_dispatch: ${{ steps.mode.outputs.is_workflow_dispatch }}
+      is_mainline: ${{ steps.mode.outputs.is_mainline }}
+      full_label: ${{ steps.mode.outputs.full_label }}
+      smoke_label: ${{ steps.mode.outputs.smoke_label }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Compute deterministic mode outputs
+        id: mode
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          event_name="${GITHUB_EVENT_NAME}"
+          ref="${GITHUB_REF}"
+          repo="${GITHUB_REPOSITORY}"
+
+          is_pr=false
+          is_trusted_pr=false
+          full_label=false
+          smoke_label=false
+
+          if [[ "$event_name" == "pull_request" ]]; then
+            is_pr=true
+            head_repo="$(jq -r '.pull_request.head.repo.full_name // ""' "$GITHUB_EVENT_PATH")"
+            labels="$(jq -r '[.pull_request.labels[]?.name] | join(",")' "$GITHUB_EVENT_PATH")"
+
+            if [[ "$head_repo" == "$repo" ]]; then
+              is_trusted_pr=true
+            fi
+
+            if [[ ",$labels," == *",run-full-e2e,"* ]]; then
+              full_label=true
+            fi
+
+            if [[ ",$labels," == *",run-smoke-e2e,"* ]]; then
+              smoke_label=true
+            fi
+          fi
+
+          is_push_main=false
+          if [[ "$event_name" == "push" && "$ref" == "refs/heads/main" ]]; then
+            is_push_main=true
+          fi
+
+          is_merge_group=false
+          if [[ "$event_name" == "merge_group" ]]; then
+            is_merge_group=true
+          fi
+
+          is_workflow_dispatch=false
+          if [[ "$event_name" == "workflow_dispatch" ]]; then
+            is_workflow_dispatch=true
+          fi
+
+          is_mainline=false
+          if [[ "$is_push_main" == "true" || "$is_merge_group" == "true" || "$is_workflow_dispatch" == "true" ]]; then
+            is_mainline=true
+          fi
+
+          echo "is_pr=$is_pr" >> "$GITHUB_OUTPUT"
+          echo "is_trusted_pr=$is_trusted_pr" >> "$GITHUB_OUTPUT"
+          echo "is_push_main=$is_push_main" >> "$GITHUB_OUTPUT"
+          echo "is_merge_group=$is_merge_group" >> "$GITHUB_OUTPUT"
+          echo "is_workflow_dispatch=$is_workflow_dispatch" >> "$GITHUB_OUTPUT"
+          echo "is_mainline=$is_mainline" >> "$GITHUB_OUTPUT"
+          echo "full_label=$full_label" >> "$GITHUB_OUTPUT"
+          echo "smoke_label=$smoke_label" >> "$GITHUB_OUTPUT"
+
+  detect-risk:
+    name: Detect E2E Risk
+    needs: [calc-mode]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      e2e_risk: ${{ steps.combine.outputs.e2e_risk }}
+    steps:
+      - name: Checkout
+        if: ${{ needs.calc-mode.outputs.is_pr == 'true' }}
+        uses: actions/checkout@v4
+
+      - name: Paths risk filter
+        if: ${{ needs.calc-mode.outputs.is_pr == 'true' }}
+        id: paths
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            e2e_risk:
+              - 'src/**'
+              - 'amplify/**'
+              - 'e2e/**'
+              - 'playwright.config.ts'
+              - 'vite.config.ts'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/ci.yml'
+
+      - name: Combine risk outputs
+        id: combine
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          risk="false"
+          if [[ "${{ needs.calc-mode.outputs.is_pr }}" == "true" ]]; then
+            risk="${{ steps.paths.outputs.e2e_risk || 'false' }}"
+          fi
+
+          echo "e2e_risk=$risk" >> "$GITHUB_OUTPUT"
+
+  quality:
+    name: Quality
+    needs: [calc-mode]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-      - run: npm ci
-      - run: npm run lint
-      - run: cp amplify_outputs.ci.json amplify_outputs.json
-      - run: npx tsc --noEmit
-      - run: npm run test:run
-      - run: npm run build
+          cache: npm
 
-  ci-pass:
-    name: CI Pass
-    if: always()
-    needs: [ci]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check all jobs passed
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Guard old Playwright config path references
+        shell: bash
         run: |
-          if [[ "${{ needs.ci.result }}" != "success" ]]; then
-            echo "CI failed"
+          set -euo pipefail
+          if git grep -n 'e2e/playwright[.]config[.]ts' -- .; then
+            echo 'Found stale legacy Playwright config path reference(s).'
             exit 1
           fi
-          echo "All CI checks passed!"
+
+      - name: Use CI Amplify outputs
+        run: cp amplify_outputs.ci.json amplify_outputs.json
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm run test:run
+
+      - name: Build
+        run: npm run build
+
+  smoke-e2e:
+    name: Smoke E2E
+    needs: [calc-mode, detect-risk, quality]
+    if: >-
+      always() &&
+      needs.quality.result == 'success' &&
+      needs.calc-mode.outputs.is_trusted_pr == 'true' &&
+      (needs.detect-risk.outputs.e2e_risk == 'true' || needs.calc-mode.outputs.smoke_label == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Use CI Amplify outputs
+        run: cp amplify_outputs.ci.json amplify_outputs.json
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run smoke E2E suite
+        run: npx playwright test --config=playwright.config.ts e2e/auth.spec.ts e2e/team-management.spec.ts
+
+      - name: Cleanup Amplify outputs
+        if: always()
+        run: rm -f amplify_outputs.json
+
+  full-e2e:
+    name: Full E2E
+    needs: [calc-mode, quality]
+    if: >-
+      always() &&
+      needs.quality.result == 'success' &&
+      (
+        needs.calc-mode.outputs.is_mainline == 'true' ||
+        (
+          needs.calc-mode.outputs.is_trusted_pr == 'true' &&
+          needs.calc-mode.outputs.full_label == 'true'
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AMPLIFY_OUTPUTS_SSM_PARAMETER: ${{ vars.AMPLIFY_OUTPUTS_SSM_PARAMETER }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Enforce trusted secret-backed contexts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request_target" ]]; then
+            echo 'Secret-backed full E2E is forbidden in pull_request_target.'
+            exit 1
+          fi
+
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            head_repo="$(jq -r '.pull_request.head.repo.full_name // ""' "$GITHUB_EVENT_PATH")"
+            if [[ "$head_repo" != "$GITHUB_REPOSITORY" ]]; then
+              echo 'Secret-backed full E2E is forbidden for fork PRs.'
+              exit 1
+            fi
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: ci-full-e2e-${{ github.run_id }}
+
+      - name: Fetch Amplify outputs from SSM
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${AMPLIFY_OUTPUTS_SSM_PARAMETER}" ]]; then
+            echo 'AMPLIFY_OUTPUTS_SSM_PARAMETER repo variable is required for full E2E.'
+            exit 1
+          fi
+
+          aws ssm get-parameter \
+            --name "${AMPLIFY_OUTPUTS_SSM_PARAMETER}" \
+            --with-decryption \
+            --query 'Parameter.Value' \
+            --output text > amplify_outputs.json
+
+      - name: Validate Amplify outputs payload
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          jq -e '
+            .version and
+            .auth and .auth.user_pool_id and .auth.aws_region and
+            .data and .data.url and .data.aws_region and
+            .storage and .storage.bucket_name
+          ' amplify_outputs.json > /dev/null
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run full E2E suite
+        run: npx playwright test --config=playwright.config.ts
+
+      - name: Cleanup Amplify outputs
+        if: always()
+        run: rm -f amplify_outputs.json
+
+  ci-policy-gate:
+    name: CI Policy Gate
+    if: always()
+    needs: [calc-mode, detect-risk, quality, smoke-e2e, full-e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Evaluate required CI outcomes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          quality_result="${{ needs.quality.result }}"
+          smoke_result="${{ needs.smoke-e2e.result }}"
+          full_result="${{ needs.full-e2e.result }}"
+
+          is_trusted_pr="${{ needs.calc-mode.outputs.is_trusted_pr }}"
+          is_mainline="${{ needs.calc-mode.outputs.is_mainline }}"
+          full_label="${{ needs.calc-mode.outputs.full_label }}"
+          smoke_label="${{ needs.calc-mode.outputs.smoke_label }}"
+          e2e_risk="${{ needs.detect-risk.outputs.e2e_risk }}"
+
+          require_smoke=false
+          require_full=false
+
+          if [[ "$is_trusted_pr" == "true" && ("$e2e_risk" == "true" || "$smoke_label" == "true") ]]; then
+            require_smoke=true
+          fi
+
+          if [[ "$is_mainline" == "true" || ("$is_trusted_pr" == "true" && "$full_label" == "true") ]]; then
+            require_full=true
+          fi
+
+          if [[ "$quality_result" != "success" ]]; then
+            echo 'Quality job is required and did not pass.'
+            exit 1
+          fi
+
+          if [[ "$require_smoke" == "true" && "$smoke_result" != "success" ]]; then
+            echo 'Smoke E2E was required and did not pass.'
+            exit 1
+          fi
+
+          if [[ "$require_full" == "true" && "$full_result" != "success" ]]; then
+            echo 'Full E2E was required and did not pass.'
+            exit 1
+          fi
+
+          echo 'CI policy gate passed.'

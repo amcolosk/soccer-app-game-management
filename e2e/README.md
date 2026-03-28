@@ -60,7 +60,7 @@ npx playwright test e2e/team-management.spec.ts
 
 - **Browser**: Chromium (default)
 - **Base URL**: `http://localhost:5173`
-- **Timeout**: 3 minutes per test
+- **Timeout**: 90 seconds per test (CI) / 120 seconds locally
 - **Retries**: 2 on CI, 0 locally
 - **Artifacts on failure**: screenshots, videos, traces (in `test-results/`)
 
@@ -91,7 +91,7 @@ Tests create their own data and are designed to be repeatable. The full-workflow
 **Element not found / timeout:**
 - Run in headed mode to watch the browser: `npm run test:e2e:headed`
 - Check the HTML report and screenshots in `test-results/`
-- Increase timeout in `e2e/playwright.config.ts` if network is slow
+- Increase timeout in `playwright.config.ts` if network is slow
 
 **Stale data from previous runs:**
 - Delete the sandbox and recreate: `npx ampx sandbox delete` then `npx ampx sandbox`
@@ -111,6 +111,11 @@ test('your test name', async ({ page }) => {
 Use the helper functions in `e2e/helpers.ts` (e.g., `fillInput`, `clickButton`) to keep tests consistent.
 
 ## CI/CD
+
+Trusted and untrusted pull requests are handled differently in CI:
+- Trusted same-repo PRs can run smoke E2E when risk paths change (or a smoke label is applied).
+- Full E2E with AWS-backed config is never allowed for fork PRs or pull_request_target contexts.
+- On trusted contexts (merge queue, push to main, or labeled trusted PR), full E2E fetches `amplify_outputs.json` at runtime from AWS SSM SecureString via OIDC, and does not commit environment-specific Amplify outputs to the repo.
 
 ```yaml
 - name: Install Playwright
