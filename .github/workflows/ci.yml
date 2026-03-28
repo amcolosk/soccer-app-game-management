@@ -188,6 +188,11 @@ jobs:
       (needs.detect-risk.outputs.e2e_risk == 'true' || needs.calc-mode.outputs.smoke_label == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+      TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+      TEST_USER_EMAIL_2: ${{ secrets.TEST_USER_EMAIL_2 }}
+      TEST_USER_PASSWORD_2: ${{ secrets.TEST_USER_PASSWORD_2 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -203,6 +208,30 @@ jobs:
 
       - name: Use CI Amplify outputs
         run: cp amplify_outputs.ci.json amplify_outputs.json
+
+      - name: Validate E2E test credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_vars=(
+            TEST_USER_EMAIL
+            TEST_USER_PASSWORD
+            TEST_USER_EMAIL_2
+            TEST_USER_PASSWORD_2
+          )
+
+          missing_vars=()
+          for var_name in "${required_vars[@]}"; do
+            if [[ -z "${!var_name:-}" ]]; then
+              missing_vars+=("${var_name}")
+            fi
+          done
+
+          if (( ${#missing_vars[@]} > 0 )); then
+            echo "Missing required E2E credential secret mappings: ${missing_vars[*]}. Set repository secrets TEST_USER_EMAIL, TEST_USER_PASSWORD, TEST_USER_EMAIL_2, and TEST_USER_PASSWORD_2."
+            exit 1
+          fi
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
@@ -235,6 +264,10 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       AMPLIFY_OUTPUTS_SSM_PARAMETER: ${{ vars.AMPLIFY_OUTPUTS_SSM_PARAMETER }}
+      TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+      TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+      TEST_USER_EMAIL_2: ${{ secrets.TEST_USER_EMAIL_2 }}
+      TEST_USER_PASSWORD_2: ${{ secrets.TEST_USER_PASSWORD_2 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -300,6 +333,30 @@ jobs:
             .data and .data.url and .data.aws_region and
             .storage and .storage.bucket_name
           ' amplify_outputs.json > /dev/null
+
+      - name: Validate E2E test credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_vars=(
+            TEST_USER_EMAIL
+            TEST_USER_PASSWORD
+            TEST_USER_EMAIL_2
+            TEST_USER_PASSWORD_2
+          )
+
+          missing_vars=()
+          for var_name in "${required_vars[@]}"; do
+            if [[ -z "${!var_name:-}" ]]; then
+              missing_vars+=("${var_name}")
+            fi
+          done
+
+          if (( ${#missing_vars[@]} > 0 )); then
+            echo "Missing required E2E credential secret mappings: ${missing_vars[*]}. Set repository secrets TEST_USER_EMAIL, TEST_USER_PASSWORD, TEST_USER_EMAIL_2, and TEST_USER_PASSWORD_2."
+            exit 1
+          fi
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
