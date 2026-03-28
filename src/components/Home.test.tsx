@@ -14,7 +14,7 @@
  *  - WelcomeModal not rendered while teams are still syncing (prevents flash)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import React from 'react';
 
 // ---------------------------------------------------------------------------
@@ -25,11 +25,15 @@ const {
   mockSetHelpContext,
   mockSetDebugContext,
   mockNavigate,
+  mockGameCreate,
+  mockGetCurrentUser,
 } = vi.hoisted(() => ({
   mockMarkWelcomed: vi.fn(),
   mockSetHelpContext: vi.fn(),
   mockSetDebugContext: vi.fn(),
   mockNavigate: vi.fn(),
+  mockGameCreate: vi.fn(),
+  mockGetCurrentUser: vi.fn(),
 }));
 
 // Mutable query results — tests mutate these before rendering
@@ -42,9 +46,8 @@ const onboardingState = {
   collapsed: false,
 };
 
-// Mutable authenticator state — tests can override user/authStatus
-const authState: { user: { userId: string; username: string } | undefined; authStatus: string } = {
-  user: { userId: 'test-user-id', username: 'testuser' },
+// Mutable authenticator state — tests can override authStatus
+const authState: { authStatus: string } = {
   authStatus: 'authenticated',
 };
 
@@ -70,7 +73,11 @@ vi.mock('../contexts/OnboardingContext', () => ({
 }));
 
 vi.mock('@aws-amplify/ui-react', () => ({
-  useAuthenticator: () => ({ user: authState.user, authStatus: authState.authStatus }),
+  useAuthenticator: () => ({ authStatus: authState.authStatus }),
+}));
+
+vi.mock('aws-amplify/auth', () => ({
+  getCurrentUser: mockGetCurrentUser,
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -87,7 +94,7 @@ vi.mock('../contexts/HelpFabContext', () => ({
 vi.mock('aws-amplify/data', () => ({
   generateClient: () => ({
     models: {
-      Game: { create: vi.fn() },
+      Game: { create: mockGameCreate },
     },
   }),
 }));
@@ -139,11 +146,13 @@ import { Home } from './Home';
 // ---------------------------------------------------------------------------
 function resetState() {
   mockMarkWelcomed.mockClear();
+  mockGameCreate.mockReset();
+  mockGetCurrentUser.mockReset();
+  mockGetCurrentUser.mockResolvedValue({ userId: 'test-user-id' });
   teamQueryResult.data = [];
   teamQueryResult.isSynced = false;
   onboardingState.welcomed = false;
   onboardingState.dismissed = true;
-  authState.user = { userId: 'test-user-id', username: 'testuser' };
   authState.authStatus = 'authenticated';
   localStorage.clear();
 }
@@ -232,27 +241,50 @@ describe('Home — auto-welcome for existing users (issue #22)', () => {
 
     expect(screen.queryByTestId('welcome-modal')).not.toBeInTheDocument();
   });
-});
 
-describe('Home — loading state on first login (blank page race)', () => {
-  beforeEach(resetState);
+  it('returns null when authStatus transitions to non-authenticated', () => {
+    authState.authStatus = 'authenticated';
+    const { rerender } = render(<Home />);
 
-  it('renders a loading indicator when authStatus is authenticated but user is not yet populated', () => {
-    authState.user = undefined;
+    expect(screen.getByRole('button', { name: /schedule new game/i })).toBeInTheDocument();
+
+    authState.authStatus = 'unauthenticated';
+    rerender(<Home />);
+
+    expect(screen.queryByRole('button', { name: /schedule new game/i })).not.toBeInTheDocument();
+  });
+
+  it('renders Home content when authenticated without requiring useAuthenticator user object', () => {
     authState.authStatus = 'authenticated';
 
     render(<Home />);
 
-    expect(screen.getByRole('status')).toBeInTheDocument();
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /schedule new game/i })).toBeInTheDocument();
   });
 
-  it('renders nothing when authStatus is not authenticated and user is absent', () => {
-    authState.user = undefined;
-    authState.authStatus = 'unauthenticated';
+  it('does not call Game.create when currentUserId is unresolved', async () => {
+    let resolveUser: ((value: { userId: string }) => void) | undefined;
+    mockGetCurrentUser.mockImplementation(
+      () => new Promise<{ userId: string }>((resolve) => {
+        resolveUser = resolve;
+      })
+    );
 
-    const { container } = render(<Home />);
+    teamQueryResult.data = [{ id: 'team-1', name: 'Eagles', coaches: ['test-user-id'] }];
+    teamQueryResult.isSynced = true;
 
-    expect(container.firstChild).toBeNull();
+    render(<Home />);
+
+    fireEvent.click(screen.getByRole('button', { name: /schedule new game/i }));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'team-1' } });
+    fireEvent.change(screen.getByPlaceholderText('Opponent Team Name *'), { target: { value: 'Rivals FC' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => {
+      expect(mockGameCreate).not.toHaveBeenCalled();
+    });
+
+    resolveUser?.({ userId: 'late-user-id' });
   });
 });
+
