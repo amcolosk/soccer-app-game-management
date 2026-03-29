@@ -84,6 +84,23 @@ export interface GameNoteCreateFields {
   coaches?: string[] | null;
 }
 
+export interface PlayerAvailabilityCreateFields {
+  gameId: string;
+  playerId: string;
+  status: string;
+  markedAt: string;
+  coaches?: string[] | null;
+  availableUntilMinute?: number | null;
+  notes?: string | null;
+}
+
+export interface PlayerAvailabilityUpdateFields {
+  status?: string | null;
+  availableUntilMinute?: number | null;
+  markedAt?: string | null;
+  notes?: string | null;
+}
+
 export interface GameMutationInput {
   updateGame: (id: string, fields: GameUpdateFields) => Promise<void>;
   createPlayTimeRecord: (fields: PlayTimeRecordCreateFields) => Promise<void>;
@@ -94,6 +111,8 @@ export interface GameMutationInput {
   updateLineupAssignment: (id: string, fields: LineupAssignmentUpdateFields) => Promise<void>;
   createGoal: (fields: GoalCreateFields) => Promise<void>;
   createGameNote: (fields: GameNoteCreateFields) => Promise<void>;
+  createPlayerAvailability: (fields: PlayerAvailabilityCreateFields) => Promise<void>;
+  updatePlayerAvailability: (id: string, fields: PlayerAvailabilityUpdateFields) => Promise<void>;
 }
 
 export interface UseOfflineMutationsResult {
@@ -105,7 +124,7 @@ export interface UseOfflineMutationsResult {
 
 // ── Replay a single queued mutation against the live API ─────────────────────
 
-const ALLOWED_MODELS = new Set(['Game', 'PlayTimeRecord', 'Substitution', 'LineupAssignment', 'Goal', 'GameNote']);
+const ALLOWED_MODELS = new Set(['Game', 'PlayTimeRecord', 'Substitution', 'LineupAssignment', 'Goal', 'GameNote', 'PlayerAvailability']);
 const ALLOWED_OPS = new Set(['create', 'update', 'delete']);
 
 async function executeSingleMutation(item: QueuedMutation): Promise<void> {
@@ -339,6 +358,30 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
     [enqueueOrRun]
   );
 
+  const createPlayerAvailability = useCallback(
+    async (fields: PlayerAvailabilityCreateFields): Promise<void> => {
+      await enqueueOrRun(
+        'PlayerAvailability', 'create',
+        fields as unknown as Record<string, unknown>,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        () => client.models.PlayerAvailability.create(fields as any).then(() => undefined)
+      );
+    },
+    [enqueueOrRun]
+  );
+
+  const updatePlayerAvailability = useCallback(
+    async (id: string, fields: PlayerAvailabilityUpdateFields): Promise<void> => {
+      await enqueueOrRun(
+        'PlayerAvailability', 'update',
+        { id, ...fields } as Record<string, unknown>,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        () => client.models.PlayerAvailability.update({ id, ...fields } as any).then(() => undefined)
+      );
+    },
+    [enqueueOrRun]
+  );
+
   const mutations = useMemo(
     (): GameMutationInput => ({
       updateGame,
@@ -350,11 +393,13 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       updateLineupAssignment,
       createGoal,
       createGameNote,
+      createPlayerAvailability,
+      updatePlayerAvailability,
     }),
     [
       updateGame, createPlayTimeRecord, updatePlayTimeRecord, createSubstitution,
       createLineupAssignment, deleteLineupAssignment, updateLineupAssignment,
-      createGoal, createGameNote,
+      createGoal, createGameNote, createPlayerAvailability, updatePlayerAvailability,
     ]
   );
 

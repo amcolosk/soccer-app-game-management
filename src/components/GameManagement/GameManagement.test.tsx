@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, act, waitFor } from "@testing-library/react";
+import { render, act, waitFor, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { GameManagement } from "./GameManagement";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
 import { useWakeLock } from "../../hooks/useWakeLock";
@@ -441,6 +442,43 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
     expect(mockUseGameNotification).toHaveBeenCalledWith(
       expect.objectContaining({ teamName: 'Eagles', opponent: 'Lions', ourScore: 2, opponentScore: 1 })
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Halftime injury modal CTA coverage
+// ---------------------------------------------------------------------------
+describe("GameManagement – halftime bench availability CTA", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'halftime' },
+    });
+  });
+
+  it("shows the Manage Bench Availability CTA in halftime", () => {
+    renderComponent();
+
+    expect(screen.getByRole("button", { name: "Manage Bench Availability" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start Second Half" })).toBeInTheDocument();
+  });
+
+  it("opens and closes the bench availability modal from halftime CTA", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+
+    await user.click(screen.getByRole("button", { name: "Manage Bench Availability" }));
+
+    expect(screen.getByRole("heading", { name: "Bench Availability" })).toBeInTheDocument();
+    expect(screen.getByText(/Mark bench players injured or available before the second half\./i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Bench Availability" })).not.toBeInTheDocument();
+    });
   });
 });
 

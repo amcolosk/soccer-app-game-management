@@ -4711,13 +4711,25 @@
   gap: 0;
 }
 
+.bench-tab__player-row-container {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--card-background);
+}
+
+.bench-tab__player-row-container--injured {
+  background: color-mix(in srgb, var(--card-background) 88%, #fff4e5 12%);
+}
+
 .bench-tab__player-row {
   display: block;
   width: 100%;
   text-align: left;
   padding: 0.65rem 0.75rem;
   border: none;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: none;
   background: var(--card-background);
   cursor: pointer;
   transition: background 0.1s ease;
@@ -4736,10 +4748,27 @@
   background: var(--card-background);
 }
 
+.bench-tab__player-row--readonly {
+  cursor: default;
+}
+
+.bench-tab__player-row--injured {
+  cursor: not-allowed;
+}
+
+.bench-tab__player-row:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+}
+
 .bench-tab__player-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 0.35rem;
+}
+
+.bench-tab__player-meta {
   margin-bottom: 0.35rem;
 }
 
@@ -4778,6 +4807,47 @@
 
 .bench-tab__progress-fill--green {
   background: var(--accent-green);
+}
+
+.bench-tab__injury-action {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.45rem 0.65rem;
+  border-radius: 0;
+  border-left: 1px solid var(--border-color);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.halftime-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.halftime-injury-modal {
+  width: min(720px, 95vw);
+  max-height: 80vh;
+  overflow: auto;
+}
+
+.halftime-injury-modal__header {
+  margin-bottom: 0.5rem;
+}
+
+.halftime-injury-modal__header h3 {
+  margin-bottom: 0.25rem;
+}
+
+@media (max-width: 640px) {
+  .bench-tab__player-row-container {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bench-tab__injury-action {
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+    border-radius: 0;
+  }
 }
 
 /* ── Pre-game Layout ── */

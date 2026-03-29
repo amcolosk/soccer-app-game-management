@@ -7,6 +7,8 @@ import { renderHook, act } from '@testing-library/react';
 const {
   mockGameUpdate,
   mockPlayTimeRecordCreate,
+  mockPlayerAvailabilityCreate,
+  mockPlayerAvailabilityUpdate,
   mockEnqueue,
   mockDequeueAll,
   mockRequeueFailed,
@@ -19,6 +21,8 @@ const {
 } = vi.hoisted(() => ({
   mockGameUpdate: vi.fn(),
   mockPlayTimeRecordCreate: vi.fn(),
+  mockPlayerAvailabilityCreate: vi.fn(),
+  mockPlayerAvailabilityUpdate: vi.fn(),
   mockEnqueue: vi.fn(),
   mockDequeueAll: vi.fn(),
   mockRequeueFailed: vi.fn(),
@@ -46,6 +50,10 @@ vi.mock('aws-amplify/data', () => ({
       },
       Goal: { create: vi.fn().mockResolvedValue({ data: {} }) },
       GameNote: { create: vi.fn().mockResolvedValue({ data: {} }) },
+      PlayerAvailability: {
+        create: mockPlayerAvailabilityCreate,
+        update: mockPlayerAvailabilityUpdate,
+      },
     },
   })),
 }));
@@ -118,6 +126,8 @@ describe('useOfflineMutations', () => {
     setupOnline();
     mockGameUpdate.mockResolvedValue({ data: {} });
     mockPlayTimeRecordCreate.mockResolvedValue({ data: {} });
+    mockPlayerAvailabilityCreate.mockResolvedValue({ data: {} });
+    mockPlayerAvailabilityUpdate.mockResolvedValue({ data: {} });
     mockFetchAuthSession.mockResolvedValue(DEFAULT_SESSION);
     mockEnqueue.mockResolvedValue(undefined);
     mockDequeueAll.mockResolvedValue([]);
@@ -174,6 +184,41 @@ describe('useOfflineMutations', () => {
       expect(mockPlayTimeRecordCreate).toHaveBeenCalled();
       expect(mockEnqueue).not.toHaveBeenCalled();
     });
+
+    it('createPlayerAvailability calls the Amplify model directly', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createPlayerAvailability({
+          gameId: 'g1',
+          playerId: 'p1',
+          status: 'injured',
+          markedAt: new Date().toISOString(),
+          coaches: ['coach-1'],
+        });
+      });
+
+      expect(mockPlayerAvailabilityCreate).toHaveBeenCalled();
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('updatePlayerAvailability calls the Amplify model directly', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.updatePlayerAvailability('pa-1', {
+          status: 'available',
+          availableUntilMinute: null,
+        });
+      });
+
+      expect(mockPlayerAvailabilityUpdate).toHaveBeenCalledWith({
+        id: 'pa-1',
+        status: 'available',
+        availableUntilMinute: null,
+      });
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
   });
 
   // ── Offline path ─────────────────────────────────────────────────────────
@@ -222,6 +267,25 @@ describe('useOfflineMutations', () => {
       );
     });
 
+    it('createPlayerAvailability is queued while offline', async () => {
+      setupOffline();
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createPlayerAvailability({
+          gameId: 'g1',
+          playerId: 'p1',
+          status: 'injured',
+          markedAt: new Date().toISOString(),
+        });
+      });
+
+      expect(mockEnqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'PlayerAvailability', operation: 'create' })
+      );
+      expect(mockPlayerAvailabilityCreate).not.toHaveBeenCalled();
+    });
+
     it('still enqueues even when fetchAuthSession fails (no ownerSub)', async () => {
       setupOffline();
       mockFetchAuthSession.mockRejectedValue(new Error('Session expired'));
@@ -263,6 +327,33 @@ describe('useOfflineMutations', () => {
       expect(mockDeduplicateGameUpdates).toHaveBeenCalled();
       expect(mockDequeueAll).toHaveBeenCalled();
       expect(mockGameUpdate).toHaveBeenCalledWith({ id: 'g1', elapsedSeconds: 60 });
+    });
+
+    it('replays queued PlayerAvailability updates via the Amplify client', async () => {
+      mockDequeueAll.mockResolvedValue([
+        {
+          id: 'q1',
+          model: 'PlayerAvailability',
+          operation: 'update',
+          payload: { id: 'pa-1', status: 'available', availableUntilMinute: null },
+          enqueuedAt: 1,
+          retryCount: 0,
+          ownerSub: DEFAULT_SUB,
+        },
+      ]);
+
+      renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        capturedOnReconnect?.();
+      });
+      await flush();
+
+      expect(mockPlayerAvailabilityUpdate).toHaveBeenCalledWith({
+        id: 'pa-1',
+        status: 'available',
+        availableUntilMinute: null,
+      });
     });
 
     it('shows a warning and resets isSyncing when auth refresh fails', async () => {

@@ -1,4 +1,13 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  type ReactNode,
+} from 'react';
 
 interface ConfirmOptions {
   title?: string;
@@ -27,22 +36,62 @@ interface ConfirmState extends ConfirmOptions {
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ConfirmState | null>(null);
+  const returnFocusToRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+  const messageId = useId();
+
+  const restoreFocus = useCallback(() => {
+    const target = returnFocusToRef.current;
+    if (!target || !target.isConnected) return;
+    if ((target as HTMLButtonElement).disabled) return;
+
+    window.setTimeout(() => {
+      if (target.isConnected) {
+        target.focus({ preventScroll: true });
+      }
+    }, 0);
+  }, []);
 
   const confirm = useCallback((options: ConfirmOptions): Promise<boolean> => {
     return new Promise<boolean>((resolve) => {
+      const activeElement = document.activeElement;
+      returnFocusToRef.current = activeElement instanceof HTMLElement ? activeElement : null;
       setState({ ...options, resolve });
     });
   }, []);
 
-  const handleConfirm = () => {
-    state?.resolve(true);
+  const closeWithResult = useCallback((result: boolean) => {
+    const resolver = state?.resolve;
     setState(null);
+    if (resolver) {
+      resolver(result);
+    }
+    restoreFocus();
+  }, [restoreFocus, state]);
+
+  const handleConfirm = () => {
+    closeWithResult(true);
   };
 
   const handleCancel = () => {
-    state?.resolve(false);
-    setState(null);
+    closeWithResult(false);
   };
+
+  useEffect(() => {
+    if (!state) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeWithResult(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [closeWithResult, state]);
 
   return (
     <ConfirmContext.Provider value={{ confirm }}>
@@ -54,15 +103,15 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             onClick={(e) => e.stopPropagation()}
             role="alertdialog"
             aria-modal="true"
-            aria-labelledby="confirm-title"
-            aria-describedby="confirm-message"
+            aria-labelledby={state.title ? titleId : undefined}
+            aria-describedby={messageId}
           >
             {state.title && (
-              <h3 id="confirm-title" className="confirm-title">
+              <h3 id={titleId} className="confirm-title">
                 {state.title}
               </h3>
             )}
-            <p id="confirm-message" className="confirm-message">
+            <p id={messageId} className="confirm-message">
               {state.message}
             </p>
             <div className="confirm-actions">

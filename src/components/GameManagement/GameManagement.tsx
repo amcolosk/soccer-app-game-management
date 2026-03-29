@@ -54,6 +54,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [activeTab, setActiveTab] = useState<GameTab>("field");
   // Controlled state for rotation modal (opened from CommandBand)
   const [rotationModalOpen, setRotationModalOpen] = useState(false);
+  const [injuryModalOpen, setInjuryModalOpen] = useState(false);
 
   // Game planner integration
   const [isRecalculating, setIsRecalculating] = useState(false);
@@ -310,7 +311,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         team.maxPlayersOnField || positions.length,
         goaliePositionId,
         undefined,
-        { rotationIntervalMinutes, halfLengthMinutes, positions },
+        { rotationIntervalMinutes, halfLengthMinutes, positions, playerAvailabilities },
       );
 
       // Update each rotation with generated substitutions
@@ -854,6 +855,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                 playTimeRecords={playTimeRecords}
                 currentTime={currentTime}
                 halfLengthSeconds={halfLengthSeconds}
+                gameId={game.id}
+                coaches={Array.isArray(team.coaches) ? team.coaches : undefined}
+                playerAvailabilities={playerAvailabilities}
+                mutations={mutations}
                 onSelectPlayer={() => {
                   const emptyPosition = positions.find(
                     pos => !lineup.some(l => l.positionId === pos.id && l.isStarter)
@@ -904,6 +909,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               getPlanConflicts={getPlanConflicts}
             />
             <LineupPanel {...sharedLineupPanelProps} />
+            <div className="halftime-actions">
+              <button onClick={() => setInjuryModalOpen(true)} className="btn-secondary">
+                Manage Bench Availability
+              </button>
+            </div>
             <div className="halftime-start-cta">
               <button onClick={handleStartSecondHalf} className="btn-primary btn-large">
                 Start Second Half
@@ -918,6 +928,37 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             <GoalTracker {...sharedGoalTrackerProps} />
             <PlayerNotesPanel {...sharedNotesPanelProps} />
             {deleteGameButton}
+          </div>
+        )}
+
+        {injuryModalOpen && gameState.status === 'halftime' && (
+          <div className="modal-overlay" onClick={() => setInjuryModalOpen(false)}>
+            <div className="modal-content halftime-injury-modal" onClick={(event) => event.stopPropagation()}>
+              <div className="halftime-injury-modal__header">
+                <h3>Bench Availability</h3>
+                <p className="modal-subtitle">
+                  Mark bench players injured or available before the second half.
+                </p>
+              </div>
+              <BenchTab
+                players={players}
+                lineup={lineup}
+                playTimeRecords={playTimeRecords}
+                currentTime={currentTime}
+                halfLengthSeconds={halfLengthSeconds}
+                gameId={game.id}
+                coaches={Array.isArray(team.coaches) ? team.coaches : undefined}
+                playerAvailabilities={playerAvailabilities}
+                mutations={mutations}
+                allowSubstitution={false}
+                onSelectPlayer={() => undefined}
+              />
+              <div className="form-actions">
+                <button className="btn-primary" onClick={() => setInjuryModalOpen(false)}>
+                  Done
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

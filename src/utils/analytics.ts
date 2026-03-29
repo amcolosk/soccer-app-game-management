@@ -50,6 +50,7 @@ export const AnalyticsEvents = {
   ROTATION_WIDGET_OPENED: { category: 'GameDay', action: 'Rotation Widget Opened' },
   GOAL_RECORDED: { category: 'GameDay', action: 'Goal Recorded' },
   PLAYER_MARKED_INJURED: { category: 'GameDay', action: 'Player Marked Injured' },
+  PLAYER_RECOVERED_FROM_INJURY: { category: 'GameDay', action: 'Player Recovered From Injury' },
 
   // Game planner
   PLAN_SAVED: { category: 'GamePlanner', action: 'Plan Saved' },

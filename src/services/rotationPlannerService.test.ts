@@ -26,6 +26,64 @@ vi.mock('aws-amplify/data', () => ({
 
 describe('rotationPlannerService', () => {
   describe('calculateFairRotations', () => {
+    it('excludes injured players via playerAvailabilities option', () => {
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' },
+        { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: 'pos2' },
+        { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: 'pos3' },
+        { id: 'r4', playerId: 'p4', playerNumber: 4, preferredPositions: 'pos4' },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+      ];
+
+      const { rotations } = calculateFairRotations(
+        players,
+        startingLineup,
+        1,
+        0,
+        3,
+        undefined,
+        undefined,
+        {
+          rotationIntervalMinutes: 10,
+          halfLengthMinutes: 30,
+          playerAvailabilities: [{ playerId: 'p4', status: 'injured' }],
+        },
+      );
+
+      const flatSubs = rotations.flatMap((rotation) => rotation.substitutions);
+      const incomingPlayers = flatSubs.map((sub) => sub.playerInId);
+      expect(incomingPlayers).not.toContain('p4');
+    });
+
+    it('returns no rotations and warning when every candidate is injured', () => {
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' },
+      ];
+
+      const { rotations, warnings } = calculateFairRotations(
+        players,
+        [{ playerId: 'p1', positionId: 'pos1' }],
+        1,
+        0,
+        1,
+        undefined,
+        undefined,
+        {
+          rotationIntervalMinutes: 10,
+          halfLengthMinutes: 30,
+          playerAvailabilities: [{ playerId: 'p1', status: 'injured' }],
+        },
+      );
+
+      expect(rotations).toEqual([]);
+      expect(warnings).toContain('No available players-all have been marked injured.');
+    });
+
     it('should create 4 rotations for 30-minute halves with 10-minute intervals', () => {
       // 30 min halves, 10 min intervals = 2 rotations per half = 4 total
       const players: SimpleRoster[] = [

@@ -2,6 +2,7 @@ import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import { GAME_CONFIG } from "../constants/gameConfig";
 import type { GamePlan, PlannedRotation, PlannedSubstitution } from "../types/schema";
+import { isPlayerInjured } from "../utils/availabilityUtils";
 
 export type { PlannedSubstitution } from "../types/schema";
 
@@ -20,6 +21,7 @@ interface RotationOptions {
   rotationIntervalMinutes: number;
   halfLengthMinutes: number;
   positions?: Array<{ id: string; abbreviation?: string | null }>;
+  playerAvailabilities?: Array<{ playerId: string; status: string | null }>;
 }
 
 export interface RotationResult {
@@ -96,6 +98,15 @@ export function calculateFairRotations(
   const halfLengthMinutes = options?.halfLengthMinutes ?? 30;
   const totalGameMinutes = halfLengthMinutes * 2;
 
+  const filteredAvailablePlayers = availablePlayers.filter(
+    (player) => !isPlayerInjured(player.playerId, options?.playerAvailabilities),
+  );
+
+  if (filteredAvailablePlayers.length === 0) {
+    warnings.push('No available players-all have been marked injured.');
+    return { rotations: [], warnings };
+  }
+
   // Build position group map from options
   const positionGroupMap = new Map<string, PositionGroup>();
   if (options?.positions) {
@@ -104,12 +115,12 @@ export function calculateFairRotations(
     }
   }
 
-  const playerIds = availablePlayers.map(p => p.playerId);
-  const playerById = new Map<string, SimpleRoster>(availablePlayers.map(p => [p.playerId, p]));
+  const playerIds = filteredAvailablePlayers.map(p => p.playerId);
+  const playerById = new Map<string, SimpleRoster>(filteredAvailablePlayers.map(p => [p.playerId, p]));
 
   // Build preferred positions lookup: playerId -> Set of positionIds
   const preferredPositionsMap = new Map<string, Set<string>>();
-  for (const player of availablePlayers) {
+  for (const player of filteredAvailablePlayers) {
     if (player.preferredPositions) {
       const prefs = player.preferredPositions.split(',').map(s => s.trim()).filter(Boolean);
       preferredPositionsMap.set(player.playerId, new Set(prefs));
@@ -130,14 +141,14 @@ export function calculateFairRotations(
   // Pre-loop validation
   // TC-09: Check for GK-preferred players
   if (goaliePositionId) {
-    const hasGoalieCandidates = availablePlayers.some(p => isGkPreferred(p.playerId));
+    const hasGoalieCandidates = filteredAvailablePlayers.some(p => isGkPreferred(p.playerId));
     if (!hasGoalieCandidates) {
       warnings.push('No eligible goalies available. Please assign a goalkeeper manually.');
     }
   }
 
   // TC-10: Short bench detection — skip fatigue and 50% rules
-  const noSubsAvailable = availablePlayers.length <= maxPlayersOnField;
+  const noSubsAvailable = filteredAvailablePlayers.length <= maxPlayersOnField;
 
   /**
    * Assign bench candidates to positions respecting GK lock and preferences.

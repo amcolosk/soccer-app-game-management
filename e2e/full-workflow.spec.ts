@@ -166,7 +166,8 @@ async function createGame(page: Page, gameData: { opponent: string; date: string
   await page.waitForSelector('button:has-text("+ Schedule New Game")', { timeout: 5000 });
   
   // Create game from Home page
-  await clickButton(page, '+ Schedule New Game');
+  await page.getByRole('button', { name: '+ Schedule New Game', exact: true }).click();
+  await page.waitForTimeout(UI_TIMING.STANDARD);
   await waitForPageLoad(page);
   
   // Select team from dropdown
@@ -185,7 +186,8 @@ async function createGame(page: Page, gameData: { opponent: string; date: string
     await homeCheckbox.uncheck();
   }
   
-  await clickButton(page, 'Create');
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.waitForTimeout(UI_TIMING.STANDARD);
   await waitForPageLoad(page);
   
   // Verify game was created
@@ -963,6 +965,83 @@ test.describe('Soccer App Full Workflow', () => {
     console.log('');
     
     console.log('=== E2E Test Suite Completed Successfully ===\n');
+  });
+
+  test('Injury workflow filters and restores bench player eligibility', async ({ page }) => {
+    test.setTimeout(TEST_CONFIG.timeout.long);
+
+    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+
+    // Keep fixture setup isolated so we can deterministically assert injury behavior.
+    await cleanupTestData(page);
+
+    await createFormation(page, TEST_DATA.formation);
+    const formationLabel = `${TEST_DATA.formation.name} (${TEST_DATA.formation.playerCount} players)`;
+    await createTeam(page, TEST_DATA.team, formationLabel);
+    await createPlayers(page);
+    await addPlayersToRoster(page);
+    await createGame(page, TEST_DATA.game1);
+    await setupLineup(page, TEST_DATA.game1.opponent);
+    await createGamePlan(page, TEST_DATA.game1.opponent);
+
+    await clickButton(page, 'Start Game');
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
+
+    const availabilityHeading = page.getByRole('heading', { name: 'Player Availability Check' });
+    if (await availabilityHeading.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await page.getByRole('button', { name: 'Start Game' }).nth(1).click();
+      await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    }
+
+    await page.getByRole('tab', { name: 'Bench' }).click();
+    await page.waitForTimeout(UI_TIMING.QUICK);
+
+    await page.getByRole('button', { name: /Mark Hannah Harris injured/i }).click();
+    await page.getByRole('button', { name: 'Mark Injured' }).click();
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+    await expect(page.getByRole('button', { name: /Mark Hannah Harris available/i })).toBeVisible();
+
+    await page.getByRole('tab', { name: 'Field' }).click();
+    await page.waitForTimeout(UI_TIMING.QUICK);
+
+    await page.locator('button.btn-substitute').first().click({ force: true });
+    await expect(page.getByText(/No eligible substitutes\. All bench players are marked injured\./i)).toBeVisible();
+    await page.getByRole('button', { name: 'Close' }).first().click();
+
+    const viewPlanButton = page.locator('button.btn-view-rotation', { hasText: 'View Plan' });
+    if (await viewPlanButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await viewPlanButton.click();
+      await expect(
+        page.getByText(/No rotation changes available\. Planned players are marked injured\./i),
+      ).toBeVisible();
+      await page.getByRole('button', { name: 'Close' }).last().click();
+    }
+
+    await page.getByRole('tab', { name: 'Bench' }).click();
+    await page.waitForTimeout(UI_TIMING.QUICK);
+
+    await page.getByRole('button', { name: /Mark Hannah Harris available/i }).click();
+    await page.getByRole('button', { name: 'Mark Available' }).click();
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+    await expect(page.getByRole('button', { name: /Mark Hannah Harris injured/i })).toBeVisible();
+
+    await page.getByRole('tab', { name: 'Field' }).click();
+    await page.waitForTimeout(UI_TIMING.QUICK);
+
+    await page.locator('button.btn-substitute').first().click({ force: true });
+    await expect(page.getByText(/#8\s+Hannah\s+Harris/i)).toBeVisible();
+    await expect(page.getByText(/No eligible substitutes\. All bench players are marked injured\./i)).not.toBeVisible();
+    await page.getByRole('button', { name: 'Close' }).first().click();
+
+    if (await viewPlanButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await viewPlanButton.click();
+      const queueButton = page.locator('.planned-sub-item .btn-queue-sub:not(.queued)').first();
+      await expect(queueButton).toBeVisible();
+      await expect(queueButton).toBeEnabled();
+      await page.getByRole('button', { name: 'Close' }).last().click();
+    }
   });
 });
 

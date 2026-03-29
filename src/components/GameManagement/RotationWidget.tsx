@@ -219,7 +219,21 @@ export function RotationWidget({
                 } catch {
                   return <p className="empty-state">Unable to load rotation data.</p>;
                 }
-                return subs.map((sub, idx) => {
+
+                const queueEligibleSubs = subs.filter((sub) => {
+                  const inAvailability = getPlayerAvailability(sub.playerInId);
+                  return inAvailability !== 'injured';
+                });
+
+                if (queueEligibleSubs.length === 0) {
+                  return (
+                    <p className="empty-state">
+                      No rotation changes available. Planned players are marked injured. Recover a player or update the plan.
+                    </p>
+                  );
+                }
+
+                return queueEligibleSubs.map((sub, idx) => {
                   const playerOut = players.find(p => p.id === sub.playerOutId);
                   const playerIn = players.find(p => p.id === sub.playerInId);
                   const position = positions.find(p => p.id === sub.positionId);

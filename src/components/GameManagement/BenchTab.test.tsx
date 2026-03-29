@@ -1,8 +1,28 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BenchTab } from "./BenchTab";
+
+const mockConfirm = vi.hoisted(() => vi.fn());
+const mockTrackEvent = vi.hoisted(() => vi.fn());
+const mockHandleApiError = vi.hoisted(() => vi.fn());
+
+vi.mock("../ConfirmModal", () => ({
+  useConfirm: () => mockConfirm,
+}));
+
+vi.mock("../../utils/analytics", () => ({
+  trackEvent: (...args: unknown[]) => mockTrackEvent(...args),
+  AnalyticsEvents: {
+    PLAYER_MARKED_INJURED: { category: "GameDay", action: "Player Marked Injured" },
+    PLAYER_RECOVERED_FROM_INJURY: { category: "GameDay", action: "Player Recovered From Injury" },
+  },
+}));
+
+vi.mock("../../utils/errorHandler", () => ({
+  handleApiError: (...args: unknown[]) => mockHandleApiError(...args),
+}));
 
 const HALF_LENGTH = 1800; // 30 minutes
 
@@ -49,12 +69,20 @@ const defaultProps = {
   playTimeRecords: [] as any[],
   currentTime: 900, // 15 minutes elapsed
   halfLengthSeconds: HALF_LENGTH,
+  gameId: "game-1",
+  coaches: ["coach-1"],
+  playerAvailabilities: [] as any[],
+  mutations: {
+    createPlayerAvailability: vi.fn().mockResolvedValue(undefined),
+    updatePlayerAvailability: vi.fn().mockResolvedValue(undefined),
+  } as any,
   onSelectPlayer: vi.fn(),
 };
 
 describe("BenchTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockConfirm.mockResolvedValue(true);
   });
 
   // ── Empty state ──────────────────────────────────────────────────────────
@@ -62,7 +90,7 @@ describe("BenchTab", () => {
     const players = [makePlayer("p1", 7, "Alice")];
     const lineup = [makeLineupAssignment("p1")];
     render(<BenchTab {...defaultProps} players={players as any} lineup={lineup as any} />);
-    expect(screen.getByText(/No players on the bench/i)).toBeInTheDocument();
+    expect(screen.getByText(/No bench players available/i)).toBeInTheDocument();
   });
 
   it("does not show the bench section header when bench is empty", () => {
@@ -198,8 +226,7 @@ describe("BenchTab", () => {
   it("renders bench players as clickable button elements", () => {
     const players = [makePlayer("p1", 7, "Alice")];
     render(<BenchTab {...defaultProps} players={players as any} />);
-    // All bench rows rendered as <button>
-    expect(screen.getByRole("button", { name: /Alice/ })).toBeInTheDocument();
+    expect(screen.getByTitle(/Tap to substitute Alice in/)).toBeInTheDocument();
   });
 
   it("renders on-field players as non-interactive (not buttons)", () => {
@@ -220,7 +247,7 @@ describe("BenchTab", () => {
       />
     );
     // Alice is a bench button; Bob appears only in the on-field section (not a button)
-    expect(screen.getByRole("button", { name: /Alice/ })).toBeInTheDocument();
+    expect(screen.getByTitle(/Tap to substitute Alice in/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Bob/ })).not.toBeInTheDocument();
   });
 
@@ -236,7 +263,89 @@ describe("BenchTab", () => {
         onSelectPlayer={onSelectPlayer}
       />
     );
-    await user.click(screen.getByRole("button", { name: /Alice/ }));
+    await user.click(screen.getByTitle(/Tap to substitute Alice in/));
     expect(onSelectPlayer).toHaveBeenCalledWith("p1");
+  });
+
+  it("shows injured indicator text and recovery button for injured bench players", () => {
+    const players = [makePlayer("p1", 7, "Alice")];
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        playerAvailabilities={[{ id: "pa-1", playerId: "p1", status: "injured" }] as any}
+      />,
+    );
+
+    expect(screen.getByText("Injured")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /mark alice test available/i })).toBeInTheDocument();
+  });
+
+  it("marks player injured using create mutation when no existing availability record", async () => {
+    const user = userEvent.setup();
+    const players = [makePlayer("p1", 7, "Alice")];
+    const createPlayerAvailability = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        mutations={{ ...defaultProps.mutations, createPlayerAvailability } as any}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /mark alice test injured/i }));
+
+    await waitFor(() => {
+      expect(createPlayerAvailability).toHaveBeenCalledWith(
+        expect.objectContaining({
+          gameId: "game-1",
+          playerId: "p1",
+          status: "injured",
+          availableUntilMinute: 15,
+        }),
+      );
+    });
+    expect(mockTrackEvent).toHaveBeenCalled();
+  });
+
+  it("marks player available using update mutation when currently injured", async () => {
+    const user = userEvent.setup();
+    const players = [makePlayer("p1", 7, "Alice")];
+    const updatePlayerAvailability = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        playerAvailabilities={[{ id: "pa-1", playerId: "p1", status: "injured" }] as any}
+        mutations={{ ...defaultProps.mutations, updatePlayerAvailability } as any}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /mark alice test available/i }));
+
+    await waitFor(() => {
+      expect(updatePlayerAvailability).toHaveBeenCalledWith(
+        "pa-1",
+        expect.objectContaining({ status: "available", availableUntilMinute: null }),
+      );
+    });
+  });
+
+  it("does not trigger substitution selection when injury action is clicked", async () => {
+    const user = userEvent.setup();
+    const onSelectPlayer = vi.fn();
+    const players = [makePlayer("p1", 7, "Alice")];
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        onSelectPlayer={onSelectPlayer}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /mark alice test injured/i }));
+    expect(onSelectPlayer).not.toHaveBeenCalled();
   });
 });

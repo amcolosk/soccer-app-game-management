@@ -57,7 +57,7 @@ const {
   mockIsPlayerInLineup: vi.fn().mockReturnValue(false),
   mockFormatMinutesSeconds: vi.fn().mockReturnValue('10:00'),
   mockExecuteSubstitution: vi.fn().mockResolvedValue(undefined),
-  mockGetPlayerAvailability: vi.fn().mockReturnValue({ status: 'available' }),
+  mockGetPlayerAvailability: vi.fn().mockReturnValue('available'),
 }));
 
 vi.mock('aws-amplify/data', () => ({
@@ -83,7 +83,7 @@ vi.mock('../../utils/analytics', () => ({
   trackEvent: (...args: unknown[]) => mockTrackEvent(...args),
   AnalyticsEvents: {
     SUBSTITUTION_MADE: { category: 'game', action: 'substitution_made' },
-    ALL_SUBSTITUTIONS_MADE: { category: 'game', action: 'all_substitutions_made' },
+    ALL_SUBSTITUTIONS_EXECUTED: { category: 'game', action: 'all_substitutions_executed' },
   },
 }));
 
@@ -116,7 +116,7 @@ vi.mock('../../services/substitutionService', () => ({
 vi.mock('../../contexts/AvailabilityContext', () => ({
   useAvailability: vi.fn(() => ({
     getPlayerAvailability: mockGetPlayerAvailability,
-    availabilities: {},
+    availabilities: [],
   })),
 }));
 
@@ -225,7 +225,7 @@ describe('SubstitutionPanel', () => {
     mockConfirm.mockResolvedValue(true);
     mockIsPlayerInLineup.mockReturnValue(false);
     mockIsPlayerCurrentlyPlaying.mockReturnValue(false);
-    mockGetPlayerAvailability.mockReturnValue({ status: 'available' });
+    mockGetPlayerAvailability.mockReturnValue('available');
     mockExecuteSubstitution.mockResolvedValue(undefined);
   });
 
@@ -407,5 +407,39 @@ describe('SubstitutionPanel', () => {
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument(),
     );
+  });
+
+  it('filters injured players from substitution candidates', async () => {
+    mockIsPlayerCurrentlyPlaying.mockImplementation((playerId: string) => playerId === 'player-1');
+    mockGetPlayerAvailability.mockImplementation((playerId: string) =>
+      playerId === 'player-2' ? 'injured' : 'available',
+    );
+
+    render(<SubstitutionPanel {...defaultProps} substitutionRequest={pos1} />);
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Bob Jones/)).not.toBeInTheDocument();
+      expect(screen.getByText(/No eligible substitutes\. All bench players are marked injured\./i)).toBeInTheDocument();
+    });
+  });
+
+  it('removes queued injured player and announces warning', async () => {
+    mockGetPlayerAvailability.mockImplementation((playerId: string) =>
+      playerId === 'player-2' ? 'injured' : 'available',
+    );
+    const onQueueChange = vi.fn();
+
+    render(
+      <SubstitutionPanel
+        {...defaultProps}
+        substitutionQueue={[{ playerId: 'player-2', positionId: 'pos-1' }]}
+        onQueueChange={onQueueChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onQueueChange).toHaveBeenCalledWith([]);
+      expect(mockShowWarning).toHaveBeenCalledWith('Removed from queue: player marked injured.');
+    });
   });
 });
