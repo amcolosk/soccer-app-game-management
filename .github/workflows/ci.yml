@@ -193,7 +193,7 @@ jobs:
       id-token: write
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
-      AMPLIFY_OUTPUTS_SSM_PARAMETER: ${{ vars.AMPLIFY_OUTPUTS_SSM_PARAMETER }}
+      AMPLIFY_OUTPUTS_S3_URI: ${{ vars.AMPLIFY_OUTPUTS_S3_URI }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_EMAIL_2: ${{ secrets.TEST_USER_EMAIL_2 }}
@@ -236,21 +236,17 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: ci-smoke-e2e-${{ github.run_id }}
 
-      - name: Fetch Amplify outputs from SSM
+      - name: Fetch Amplify outputs from S3
         shell: bash
         run: |
           set -euo pipefail
 
-          if [[ -z "${AMPLIFY_OUTPUTS_SSM_PARAMETER}" ]]; then
-            echo 'AMPLIFY_OUTPUTS_SSM_PARAMETER repo variable is required for smoke E2E.'
+          if [[ -z "${AMPLIFY_OUTPUTS_S3_URI}" ]]; then
+            echo 'AMPLIFY_OUTPUTS_S3_URI repo variable is required for smoke E2E S3 fetch.'
             exit 1
           fi
 
-          aws ssm get-parameter \
-            --name "${AMPLIFY_OUTPUTS_SSM_PARAMETER}" \
-            --with-decryption \
-            --query 'Parameter.Value' \
-            --output text > amplify_outputs.json
+          aws s3 cp "${AMPLIFY_OUTPUTS_S3_URI}" amplify_outputs.json
 
       - name: Validate Amplify outputs payload
         shell: bash
@@ -318,7 +314,7 @@ jobs:
       id-token: write
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
-      AMPLIFY_OUTPUTS_SSM_PARAMETER: ${{ vars.AMPLIFY_OUTPUTS_SSM_PARAMETER }}
+      AMPLIFY_OUTPUTS_S3_URI: ${{ vars.AMPLIFY_OUTPUTS_S3_URI }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_EMAIL_2: ${{ secrets.TEST_USER_EMAIL_2 }}
@@ -361,21 +357,17 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: ci-full-e2e-${{ github.run_id }}
 
-      - name: Fetch Amplify outputs from SSM
+      - name: Fetch Amplify outputs from S3
         shell: bash
         run: |
           set -euo pipefail
 
-          if [[ -z "${AMPLIFY_OUTPUTS_SSM_PARAMETER}" ]]; then
-            echo 'AMPLIFY_OUTPUTS_SSM_PARAMETER repo variable is required for full E2E.'
+          if [[ -z "${AMPLIFY_OUTPUTS_S3_URI}" ]]; then
+            echo 'AMPLIFY_OUTPUTS_S3_URI repo variable is required for full E2E S3 fetch.'
             exit 1
           fi
 
-          aws ssm get-parameter \
-            --name "${AMPLIFY_OUTPUTS_SSM_PARAMETER}" \
-            --with-decryption \
-            --query 'Parameter.Value' \
-            --output text > amplify_outputs.json
+          aws s3 cp "${AMPLIFY_OUTPUTS_S3_URI}" amplify_outputs.json
 
       - name: Validate Amplify outputs payload
         shell: bash
