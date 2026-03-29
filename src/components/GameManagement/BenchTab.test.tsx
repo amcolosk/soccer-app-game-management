@@ -6,7 +6,10 @@ import { BenchTab } from "./BenchTab";
 
 const mockConfirm = vi.hoisted(() => vi.fn());
 const mockTrackEvent = vi.hoisted(() => vi.fn());
-const mockHandleApiError = vi.hoisted(() => vi.fn());
+const mockShowSuccess = vi.hoisted(() => vi.fn());
+const mockShowWarning = vi.hoisted(() => vi.fn());
+const mockShowInfo = vi.hoisted(() => vi.fn());
+const mockShowError = vi.hoisted(() => vi.fn());
 
 vi.mock("../ConfirmModal", () => ({
   useConfirm: () => mockConfirm,
@@ -20,8 +23,11 @@ vi.mock("../../utils/analytics", () => ({
   },
 }));
 
-vi.mock("../../utils/errorHandler", () => ({
-  handleApiError: (...args: unknown[]) => mockHandleApiError(...args),
+vi.mock("../../utils/toast", () => ({
+  showSuccess: (...args: unknown[]) => mockShowSuccess(...args),
+  showWarning: (...args: unknown[]) => mockShowWarning(...args),
+  showInfo: (...args: unknown[]) => mockShowInfo(...args),
+  showError: (...args: unknown[]) => mockShowError(...args),
 }));
 
 const HALF_LENGTH = 1800; // 30 minutes
@@ -307,6 +313,7 @@ describe("BenchTab", () => {
       );
     });
     expect(mockTrackEvent).toHaveBeenCalled();
+    expect(mockShowSuccess).toHaveBeenCalledWith("Player status updated.");
   });
 
   it("marks player available using update mutation when currently injured", async () => {
@@ -331,6 +338,7 @@ describe("BenchTab", () => {
         expect.objectContaining({ status: "available", availableUntilMinute: null }),
       );
     });
+    expect(mockShowSuccess).toHaveBeenCalledWith("Player status updated.");
   });
 
   it("does not trigger substitution selection when injury action is clicked", async () => {
@@ -347,5 +355,46 @@ describe("BenchTab", () => {
 
     await user.click(screen.getByRole("button", { name: /mark alice test injured/i }));
     expect(onSelectPlayer).not.toHaveBeenCalled();
+  });
+
+  it("shows queued offline feedback when injury mutation is enqueued", async () => {
+    const user = userEvent.setup();
+    const players = [makePlayer("p1", 7, "Alice")];
+
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        isOnline={false}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /mark alice test injured/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Queued offline\. Will sync when online\./i)).toBeInTheDocument();
+    });
+    expect(mockShowWarning).toHaveBeenCalledWith("Saved offline. Will sync automatically.");
+  });
+
+  it("shows retryable failure feedback when injury mutation fails", async () => {
+    const user = userEvent.setup();
+    const players = [makePlayer("p1", 7, "Alice")];
+    const createPlayerAvailability = vi.fn().mockRejectedValue(new Error("network failed"));
+
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        mutations={{ ...defaultProps.mutations, createPlayerAvailability } as any}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /mark alice test injured/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Retry available\./i)).toBeInTheDocument();
+    });
+    expect(mockShowError).toHaveBeenCalledWith("Could not update player status.");
   });
 });

@@ -3,7 +3,7 @@
 ## Overview
 Add ability for coaches to mark bench players as injured during active games. Injured players are removed from substitution suggestions and rotation planning, can be recovered and re-subbed, and display a visual injury indicator on the bench.
 
-**Status:** Architecture approved; UI revisions incorporated and ready for ui-designer verification
+**Status:** Architecture locked (Option B FIFO trust, no schema/Lambda/resolver changes); UI-designer delta revisions incorporated
 **Scope:** 1–2 day implementation
 **Risk Level:** Medium (touches multiple filtering paths, but reuses existing patterns)
 
@@ -129,6 +129,62 @@ Add ability for coaches to mark bench players as injured during active games. In
 - Reuse existing tokenized status/badge styles from current design system patterns.
 - Do not use emoji-only injury indicators; icon usage is optional but must be paired with visible text.
 - Ensure injury/recovery button styling matches existing secondary/icon button language.
+
+### 6. UI-Designer Delta Revision (Issue #45)
+
+#### Architecture lock reaffirmed (non-negotiable)
+- Keep **Option B FIFO trust** for offline replay ordering.
+- Keep **no schema changes, no Lambda changes, no resolver changes**.
+- Keep **service-level filtering + frontend implementation** as the execution strategy.
+
+#### Interaction-state matrix (BenchTab rows + halftime injury modal)
+
+| State | Bench row behavior | Halftime modal behavior | Button disable rules | Row-level status messaging | Toast + live-region text |
+|---|---|---|---|---|---|
+| `idle` | Injury/recovery CTA enabled | Primary/secondary actions enabled | None disabled | No transient status | None |
+| `confirming` | Row CTA opens confirm UI; no mutation yet | Confirm UI visible for selected player | Confirm CTA enabled unless no target player | `Awaiting confirmation` shown for selected row only | None |
+| `submitting` | Selected row enters in-flight state | Confirm CTA shows progress text | Disable selected row injury/recovery CTA, modal confirm CTA, and repeated trigger controls | `Saving injury status...` or `Saving recovery status...` | Toast: `Saving change...`; Live region: `Submitting injury update for {PlayerName}.` |
+| `queued-offline` | Row immediately reflects pending intent badge | Modal closes after enqueue success | Disable only until enqueue promise resolves, then re-enable | `Queued offline. Will sync when online.` | Toast: `Saved offline. Will sync automatically.`; Live region: `Injury update queued offline for {PlayerName}.` |
+| `sync-success` | Row status settles to injured/available | No blocking modal | Controls enabled | `Synced` (short-lived, then removed) | Toast: `Player status updated.`; Live region: `Injury status updated for {PlayerName}.` |
+| `sync-failure` | Row shows failure chip and retry affordance | Modal remains closed; failure surfaced inline | Re-enable controls after failure state set | `Sync failed. Change not applied.` | Toast: `Could not update player status.`; Live region: `Injury update failed for {PlayerName}.` |
+| `retryable-failure` | Row exposes retry action | If retry launched from modal context, confirm action relaunches submit path | Retry CTA enabled; submit CTA disabled while retry in-flight | `Retry available.` | Toast: `Tap to retry.`; Live region: `Retry available for {PlayerName} injury update.` |
+
+#### Explicit halftime modal accessibility criteria
+- Modal uses `role="dialog"`; use `role="alertdialog"` only when presenting destructive/high-urgency confirm content.
+- Modal has `aria-labelledby` wired to the visible title element and `aria-describedby` wired to the impact/help copy.
+- Initial focus target is the primary confirm CTA in confirm mode; in non-confirm picker mode, initial focus is modal heading or first actionable control.
+- Focus trap is strict: Tab/Shift+Tab cycles within modal until close.
+- Escape closes modal only when not in non-interruptible submit state; during in-flight submit, Escape is ignored.
+- Backdrop click closes modal in `idle`/`confirming`; backdrop click is ignored in `submitting`.
+- On close (confirm, cancel, Escape, backdrop), focus returns deterministically to the invoking halftime CTA.
+
+#### Accidental-tap hardening criteria
+- One-shot confirm behavior while in-flight: after first confirm activation, further confirm activations are ignored until enqueue/submit resolves.
+- Duplicate-submit prevention with per-player action lock + short debounce window on confirm activation.
+- Confirm CTA remains disabled with progress label (`Marking Injured...` / `Marking Available...`) until enqueue/submit promise settles.
+
+#### Discoverability rules
+- On phone breakpoints, injury/recovery action uses persistent text label (not icon-only).
+- Action prominence must remain visually higher than row metadata (jersey/aux details) via placement, weight, and spacing.
+- Halftime modal header includes helper hint text: `Mark injured players unavailable for substitutions and rotations until recovered.`
+
+#### Injured indicator legibility acceptance criteria
+- Minimum contrast target: badge/text achieves at least WCAG AA contrast for normal text (4.5:1).
+- Minimum typography target: injured label renders at >= 12px equivalent and medium weight or stronger.
+- Non-color cue is mandatory and remains visible in compact rows (explicit `Injured` text or equivalent text badge).
+
+#### Responsive acceptance criteria expansion
+- Validate at 320px portrait width.
+- Validate narrow landscape (small-height viewport) with no clipped primary actions.
+- Validate at 200% text zoom without overlap between injury/recovery action and row content.
+- Long names/strings use truncation/wrapping strategy that preserves minimum action tap target (44x44) and keeps CTA discoverable.
+
+#### Resolved decision log (this revision)
+- **Halftime CTA copy chosen:** `Manage Injuries`.
+- **Offline feedback pattern chosen:** row-level status **plus** global toast/live-region echo.
+- **Recovery action label by breakpoint:**
+  - Phone: `Mark Available` (full text label).
+  - Tablet/desktop: `Mark Available` (full text; icon optional but never icon-only).
 
 ---
 
@@ -718,6 +774,13 @@ Add ability for coaches to mark bench players as injured during active games. In
 - [ ] `PLAYER_RECOVERED_FROM_INJURY` event fired on recovery
 - [ ] Accessibility criteria met (aria-labels, visible `Injured` text, SR announcements, focus return, keyboard path)
 - [ ] Responsive criteria met on phone (no overlap) and tablet (visual rhythm preserved)
+- [ ] Interaction-state matrix implemented for BenchTab + halftime injury modal (`idle`, `confirming`, `submitting`, `queued-offline`, `sync-success`, `sync-failure`, `retryable-failure`)
+- [ ] Modal accessibility criteria met (role, labels/descriptions, initial focus, focus trap, Escape/backdrop behavior, deterministic focus return)
+- [ ] Accidental-tap hardening active (one-shot in-flight confirm, duplicate-submit prevention, progress-label disabling)
+- [ ] Discoverability rules met (persistent text label on phone, action prominence, halftime helper hint)
+- [ ] Injured indicator legibility targets met (contrast, size/weight, non-color cue in compact rows)
+- [ ] Expanded responsive checks pass (320px portrait, narrow landscape, 200% zoom, long-string overflow strategy preserving tap targets)
+- [ ] Decision lock applied: halftime CTA copy `Manage Injuries`; offline feedback row + global echo; recovery label strategy by breakpoint
 - [ ] Visual consistency uses tokenized status patterns and avoids emoji-only indicators
 - [ ] All unit tests pass for modified components/services
 - [ ] E2E test covers full workflow (mark → detect filtering → recover)

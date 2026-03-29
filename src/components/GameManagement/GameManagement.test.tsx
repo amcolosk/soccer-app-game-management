@@ -457,10 +457,10 @@ describe("GameManagement – halftime bench availability CTA", () => {
     });
   });
 
-  it("shows the Manage Bench Availability CTA in halftime", () => {
+  it("shows the Manage Injuries CTA in halftime", () => {
     renderComponent();
 
-    expect(screen.getByRole("button", { name: "Manage Bench Availability" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Manage Injuries" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start Second Half" })).toBeInTheDocument();
   });
 
@@ -468,16 +468,31 @@ describe("GameManagement – halftime bench availability CTA", () => {
     const user = userEvent.setup();
     renderComponent();
 
-    await user.click(screen.getByRole("button", { name: "Manage Bench Availability" }));
+    await user.click(screen.getByRole("button", { name: "Manage Injuries" }));
 
-    expect(screen.getByRole("heading", { name: "Bench Availability" })).toBeInTheDocument();
-    expect(screen.getByText(/Mark bench players injured or available before the second half\./i)).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Manage Injuries" })).toBeInTheDocument();
+    expect(screen.getByText(/Mark injured players unavailable for substitutions and rotations until recovered\./i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Done" }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("heading", { name: "Bench Availability" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Manage Injuries" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("returns focus to the invoking CTA when closing the injury modal", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+
+    const trigger = screen.getByRole("button", { name: "Manage Injuries" });
+    trigger.focus();
+
+    await user.click(trigger);
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => {
+      expect(trigger).toHaveFocus();
     });
   });
 });
