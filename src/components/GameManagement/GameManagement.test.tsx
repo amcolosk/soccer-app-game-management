@@ -553,6 +553,65 @@ describe("GameManagement – halftime bench availability CTA", () => {
     expect(doneButton).toHaveFocus();
   });
 
+  it("traverses multiple injury modal controls in order and wraps on Tab/Shift+Tab", async () => {
+    const user = userEvent.setup();
+    mockUseTeamData.mockReturnValue({
+      players: [
+        {
+          id: "bench-1",
+          playerNumber: 7,
+          firstName: "Pat",
+          lastName: "One",
+          isActive: true,
+          preferredPositions: "",
+        },
+        {
+          id: "bench-2",
+          playerNumber: 9,
+          firstName: "Sam",
+          lastName: "Two",
+          isActive: true,
+          preferredPositions: "",
+        },
+      ],
+      positions: [],
+    });
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'halftime' },
+      lineup: [],
+    });
+
+    renderComponent();
+
+    await user.click(screen.getByRole("button", { name: "Manage Injuries" }));
+
+    const firstAction = screen.getByRole("button", { name: /mark pat one injured/i });
+    const secondAction = screen.getByRole("button", { name: /mark sam two injured/i });
+    const doneButton = screen.getByRole("button", { name: "Done" });
+
+    firstAction.focus();
+    expect(firstAction).toHaveFocus();
+
+    await user.tab();
+    expect(secondAction).toHaveFocus();
+
+    await user.tab();
+    expect(doneButton).toHaveFocus();
+
+    await user.tab();
+    expect(firstAction).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(doneButton).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(secondAction).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(firstAction).toHaveFocus();
+  });
+
   it("ignores Escape and backdrop click while injury mutation is pending", async () => {
     const user = userEvent.setup();
     let resolveCreate: (() => void) | undefined;
