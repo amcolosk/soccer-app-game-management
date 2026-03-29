@@ -44,7 +44,7 @@ test.describe('Authentication', () => {
     // Wait for successful login - should see main app (Home page)
     await waitForPageLoad(page);
     await expect(page.locator('.home')).toBeVisible();
-    await expect(page.getByRole('button', { name: '+ Schedule New Game' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '+ Schedule New Game', exact: true })).toBeVisible();
 
     console.log('✓ Login successful');
   });
@@ -81,7 +81,7 @@ test.describe('Authentication', () => {
     // Wait for successful login - should see main app (Home page)
     await waitForPageLoad(page);
     await expect(page.locator('.home')).toBeVisible();
-    await expect(page.getByRole('button', { name: '+ Schedule New Game' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '+ Schedule New Game', exact: true })).toBeVisible();
 
     console.log('✓ Second user login successful');
   });
