@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
@@ -54,6 +54,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [activeTab, setActiveTab] = useState<GameTab>("field");
   // Controlled state for rotation modal (opened from CommandBand)
   const [rotationModalOpen, setRotationModalOpen] = useState(false);
+  const [injuryModalOpen, setInjuryModalOpen] = useState(false);
+  const [isInjuryMutationPending, setIsInjuryMutationPending] = useState(false);
 
   // Game planner integration
   const [isRecalculating, setIsRecalculating] = useState(false);
@@ -64,6 +66,9 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   // auto-trigger (from useGameTimer) and a manual button click fire concurrently.
   const halftimeInProgressRef = useRef(false);
   const endGameInProgressRef = useRef(false);
+  const injuryModalRef = useRef<HTMLDivElement | null>(null);
+  const injuryModalHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const injuryModalReturnFocusRef = useRef<HTMLElement | null>(null);
 
   // Subscriptions hook - manages game observation, data subscriptions, and lineup sync
   const {
@@ -310,7 +315,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         team.maxPlayersOnField || positions.length,
         goaliePositionId,
         undefined,
-        { rotationIntervalMinutes, halfLengthMinutes, positions },
+        { rotationIntervalMinutes, halfLengthMinutes, positions, playerAvailabilities },
       );
 
       // Update each rotation with generated substitutions
@@ -628,6 +633,77 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     resetAnchor(newTime);
   };
 
+  const closeInjuryModal = useCallback(() => {
+    if (isInjuryMutationPending) {
+      return;
+    }
+    setInjuryModalOpen(false);
+  }, [isInjuryMutationPending]);
+
+  useEffect(() => {
+    if (!injuryModalOpen) {
+      if (injuryModalReturnFocusRef.current) {
+        injuryModalReturnFocusRef.current.focus({ preventScroll: true });
+      }
+      return;
+    }
+
+    injuryModalHeadingRef.current?.focus();
+    const modal = injuryModalRef.current;
+    if (!modal) {
+      return;
+    }
+
+    const focusableSelectors = [
+      'button:not(:disabled)',
+      '[href]',
+      'input:not(:disabled)',
+      'select:not(:disabled)',
+      'textarea:not(:disabled)',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(', ');
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (isInjuryMutationPending) {
+          event.preventDefault();
+          return;
+        }
+        event.preventDefault();
+        closeInjuryModal();
+        return;
+      }
+
+      if (event.key !== 'Tab') {
+        return;
+      }
+
+      const focusable = Array.from(modal.querySelectorAll<HTMLElement>(focusableSelectors));
+      if (focusable.length === 0) {
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+        return;
+      }
+
+      if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    modal.addEventListener('keydown', onKeyDown);
+    return () => {
+      modal.removeEventListener('keydown', onKeyDown);
+    };
+  }, [closeInjuryModal, injuryModalOpen, isInjuryMutationPending]);
+
   const deleteGameButton = (
     <div className="delete-game-section">
       <button
@@ -854,6 +930,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                 playTimeRecords={playTimeRecords}
                 currentTime={currentTime}
                 halfLengthSeconds={halfLengthSeconds}
+                gameId={game.id}
+                coaches={Array.isArray(team.coaches) ? team.coaches : undefined}
+                playerAvailabilities={playerAvailabilities}
+                mutations={mutations}
+                isOnline={isOnline}
                 onSelectPlayer={() => {
                   const emptyPosition = positions.find(
                     pos => !lineup.some(l => l.positionId === pos.id && l.isStarter)
@@ -904,6 +985,19 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               getPlanConflicts={getPlanConflicts}
             />
             <LineupPanel {...sharedLineupPanelProps} />
+            <div className="halftime-actions">
+              <button
+                onClick={() => {
+                  injuryModalReturnFocusRef.current = document.activeElement instanceof HTMLElement
+                    ? document.activeElement
+                    : null;
+                  setInjuryModalOpen(true);
+                }}
+                className="btn-secondary"
+              >
+                Manage Injuries
+              </button>
+            </div>
             <div className="halftime-start-cta">
               <button onClick={handleStartSecondHalf} className="btn-primary btn-large">
                 Start Second Half
@@ -918,6 +1012,47 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             <GoalTracker {...sharedGoalTrackerProps} />
             <PlayerNotesPanel {...sharedNotesPanelProps} />
             {deleteGameButton}
+          </div>
+        )}
+
+        {injuryModalOpen && gameState.status === 'halftime' && (
+          <div className="modal-overlay" onClick={closeInjuryModal}>
+            <div
+              ref={injuryModalRef}
+              className="modal-content halftime-injury-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="halftime-injury-modal-title"
+              aria-describedby="halftime-injury-modal-description"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="halftime-injury-modal__header">
+                <h3 id="halftime-injury-modal-title" tabIndex={-1} ref={injuryModalHeadingRef}>Manage Injuries</h3>
+                <p className="modal-subtitle" id="halftime-injury-modal-description">
+                  Mark injured players unavailable for substitutions and rotations until recovered.
+                </p>
+              </div>
+              <BenchTab
+                players={players}
+                lineup={lineup}
+                playTimeRecords={playTimeRecords}
+                currentTime={currentTime}
+                halfLengthSeconds={halfLengthSeconds}
+                gameId={game.id}
+                coaches={Array.isArray(team.coaches) ? team.coaches : undefined}
+                playerAvailabilities={playerAvailabilities}
+                mutations={mutations}
+                isOnline={isOnline}
+                allowSubstitution={false}
+                onInjuryMutationPendingChange={setIsInjuryMutationPending}
+                onSelectPlayer={() => undefined}
+              />
+              <div className="form-actions">
+                <button className="btn-primary" onClick={closeInjuryModal} disabled={isInjuryMutationPending}>
+                  Done
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

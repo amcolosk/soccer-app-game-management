@@ -59,6 +59,8 @@ export function SubstitutionPanel({
   const { getPlayerAvailability } = useAvailability();
   const [showSubstitution, setShowSubstitution] = useState(false);
   const [substitutionPosition, setSubstitutionPosition] = useState<FormationPosition | null>(null);
+  const [liveAnnouncement, setLiveAnnouncement] = useState("");
+  const shouldFilterInjured = gameState.status === 'in-progress' || gameState.status === 'halftime';
 
   // Pick up substitution requests from the orchestrator (triggered by LineupPanel)
   useEffect(() => {
@@ -68,6 +70,22 @@ export function SubstitutionPanel({
       onSubstitutionRequestHandled();
     }
   }, [substitutionRequest, onSubstitutionRequestHandled]);
+
+  useEffect(() => {
+    if (!shouldFilterInjured || substitutionQueue.length === 0) {
+      return;
+    }
+
+    const filteredQueue = substitutionQueue.filter(
+      (queuedSubstitution) => getPlayerAvailability(queuedSubstitution.playerId) !== 'injured',
+    );
+
+    if (filteredQueue.length !== substitutionQueue.length) {
+      onQueueChange(filteredQueue);
+      setLiveAnnouncement('Removed from queue: player marked injured.');
+      showWarning('Removed from queue: player marked injured.');
+    }
+  }, [getPlayerAvailability, onQueueChange, shouldFilterInjured, substitutionQueue]);
 
   const isInLineup = (playerId: string) => isPlayerInLineup(playerId, lineup);
   const isCurrentlyPlaying = (playerId: string) => isPlayerCurrentlyPlaying(playerId, playTimeRecords);
@@ -238,6 +256,7 @@ export function SubstitutionPanel({
 
   return (
     <>
+      <div className="sr-only" aria-live="polite">{liveAnnouncement}</div>
       {/* Substitution Queue */}
       {substitutionQueue.length > 0 && gameState.status === 'in-progress' && (
         <div className="sub-queue-section">
@@ -341,8 +360,19 @@ export function SubstitutionPanel({
                         .filter(p => !substitutionQueue.some(q => q.playerId === p.id))
                         .filter(p => {
                           const status = getPlayerAvailability(p.id);
-                          return status !== 'absent' && status !== 'injured';
+                          if (status === 'absent') return false;
+                          if (shouldFilterInjured && status === 'injured') return false;
+                          return true;
                         });
+
+                      const candidatePlayers = players
+                        .filter(p => isEmptyPosition ? !isInLineup(p.id) : !isCurrentlyPlaying(p.id))
+                        .filter(p => !substitutionQueue.some(q => q.playerId === p.id))
+                        .filter(p => getPlayerAvailability(p.id) !== 'absent');
+                      const hasInjuredOnly = shouldFilterInjured
+                        && candidatePlayers.length > 0
+                        && availablePlayers.length === 0
+                        && candidatePlayers.every((candidatePlayer) => getPlayerAvailability(candidatePlayer.id) === 'injured');
 
                       const recommendedPlayers = availablePlayers.filter(p => {
                         if (!p.preferredPositions) return false;
@@ -462,6 +492,12 @@ export function SubstitutionPanel({
                                 );
                               })}
                             </>
+                          )}
+
+                          {availablePlayers.length === 0 && hasInjuredOnly && (
+                            <p className="empty-state">
+                              No eligible substitutes. All bench players are marked injured. Recover a player to enable substitutions.
+                            </p>
                           )}
                         </>
                       );

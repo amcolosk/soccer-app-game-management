@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, act, waitFor } from "@testing-library/react";
+import { render, act, waitFor, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { GameManagement } from "./GameManagement";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
 import { useWakeLock } from "../../hooks/useWakeLock";
@@ -16,6 +17,8 @@ const {
   mockSubstitutionCreate,
   mockGameUpdate,
   mockPlayTimeCreate,
+  mockCreatePlayerAvailability,
+  mockUpdatePlayerAvailability,
   mockSetHelpContext,
 } = vi.hoisted(() => ({
   mockLineupDelete:      vi.fn().mockResolvedValue({}),
@@ -23,6 +26,8 @@ const {
   mockSubstitutionCreate: vi.fn().mockResolvedValue({ data: {} }),
   mockGameUpdate:        vi.fn().mockResolvedValue({ data: {} }),
   mockPlayTimeCreate:    vi.fn().mockResolvedValue({ data: {} }),
+  mockCreatePlayerAvailability: vi.fn().mockResolvedValue(undefined),
+  mockUpdatePlayerAvailability: vi.fn().mockResolvedValue(undefined),
   mockSetHelpContext:    vi.fn(),
 }));
 
@@ -85,6 +90,10 @@ const { mockUseGameSubscriptions } = vi.hoisted(() => ({
   mockUseGameSubscriptions: vi.fn(),
 }));
 
+const { mockUseTeamData } = vi.hoisted(() => ({
+  mockUseTeamData: vi.fn(),
+}));
+
 vi.mock("./hooks/useGameSubscriptions", () => ({
   useGameSubscriptions: mockUseGameSubscriptions,
 }));
@@ -101,6 +110,8 @@ vi.mock("../../hooks/useOfflineMutations", () => ({
       updateLineupAssignment: vi.fn().mockResolvedValue(undefined),
       createGoal:             vi.fn().mockResolvedValue(undefined),
       createGameNote:         vi.fn().mockResolvedValue(undefined),
+      createPlayerAvailability: (...args: unknown[]) => mockCreatePlayerAvailability(...args),
+      updatePlayerAvailability: (...args: unknown[]) => mockUpdatePlayerAvailability(...args),
     },
     isOnline:     true,
     pendingCount: 0,
@@ -108,7 +119,7 @@ vi.mock("../../hooks/useOfflineMutations", () => ({
   }),
 }));
 vi.mock("../../hooks/useTeamData", () => ({
-  useTeamData: vi.fn().mockReturnValue({ players: [], positions: [] }),
+  useTeamData: mockUseTeamData,
 }));
 vi.mock("../../hooks/useWakeLock", () => ({ useWakeLock: vi.fn() }));
 vi.mock("../../hooks/useGameNotification", () => ({ useGameNotification: vi.fn() }));
@@ -121,12 +132,15 @@ vi.mock("../../utils/analytics", () => ({
   AnalyticsEvents: {
     GAME_STARTED:   { category: "game", action: "started" },
     GAME_COMPLETED: { category: "game", action: "completed" },
+    PLAYER_MARKED_INJURED: { category: "GameDay", action: "Player Marked Injured" },
+    PLAYER_RECOVERED_FROM_INJURY: { category: "GameDay", action: "Player Recovered From Injury" },
   },
 }));
 vi.mock("../../utils/toast", () => ({
   showSuccess: vi.fn(),
   showWarning: vi.fn(),
   showInfo:    vi.fn(),
+  showError:   vi.fn(),
 }));
 vi.mock("../../utils/errorHandler",  () => ({ handleApiError: vi.fn() }));
 vi.mock("../../utils/gameTimeUtils", () => ({
@@ -200,6 +214,15 @@ const defaultSubscription = {
 const renderComponent = () =>
   render(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
 
+const makeBenchPlayer = (id = "bench-1") => ({
+  id,
+  playerNumber: 9,
+  firstName: "Alex",
+  lastName: "Bench",
+  isActive: true,
+  preferredPositions: "",
+});
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -207,6 +230,7 @@ describe("GameManagement – handleApplyHalftimeSub", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCaptures.onApplyHalftimeSub = undefined;
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
     mockUseGameSubscriptions.mockReturnValue(defaultSubscription);
   });
 
@@ -309,6 +333,7 @@ describe("GameManagement – help context wiring", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCaptures.onApplyHalftimeSub = undefined;
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
     // Reset subscription mock to a working default after clearAllMocks
     mockUseGameSubscriptions.mockReturnValue(defaultSubscription);
   });
@@ -364,6 +389,7 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
   const mockUseGameNotification = vi.mocked(useGameNotification);
 
   beforeEach(() => {
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
     mockUseGameSubscriptions.mockReturnValue(defaultSubscription);
     mockUseWakeLock.mockClear();
     mockUseGameNotification.mockClear();
@@ -445,11 +471,191 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Halftime injury modal CTA coverage
+// ---------------------------------------------------------------------------
+describe("GameManagement – halftime bench availability CTA", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'halftime' },
+    });
+  });
+
+  it("shows the Manage Injuries CTA in halftime", () => {
+    renderComponent();
+
+    expect(screen.getByRole("button", { name: "Manage Injuries" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start Second Half" })).toBeInTheDocument();
+  });
+
+  it("opens and closes the bench availability modal from halftime CTA", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+
+    await user.click(screen.getByRole("button", { name: "Manage Injuries" }));
+
+    expect(screen.getByRole("dialog", { name: "Manage Injuries" })).toBeInTheDocument();
+    expect(screen.getByText(/Mark injured players unavailable for substitutions and rotations until recovered\./i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Manage Injuries" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("returns focus to the invoking CTA when closing the injury modal", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+
+    const trigger = screen.getByRole("button", { name: "Manage Injuries" });
+    trigger.focus();
+
+    await user.click(trigger);
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => {
+      expect(trigger).toHaveFocus();
+    });
+  });
+
+  it("closes the injury modal on Escape when no injury mutation is pending", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+
+    await user.click(screen.getByRole("button", { name: "Manage Injuries" }));
+    expect(screen.getByRole("dialog", { name: "Manage Injuries" })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Manage Injuries" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps focus trapped in the injury modal on Tab and Shift+Tab", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+
+    await user.click(screen.getByRole("button", { name: "Manage Injuries" }));
+
+    const doneButton = screen.getByRole("button", { name: "Done" });
+    doneButton.focus();
+    expect(doneButton).toHaveFocus();
+
+    await user.tab();
+    expect(doneButton).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(doneButton).toHaveFocus();
+  });
+
+  it("traverses multiple injury modal controls in order and wraps on Tab/Shift+Tab", async () => {
+    const user = userEvent.setup();
+    mockUseTeamData.mockReturnValue({
+      players: [
+        {
+          id: "bench-1",
+          playerNumber: 7,
+          firstName: "Pat",
+          lastName: "One",
+          isActive: true,
+          preferredPositions: "",
+        },
+        {
+          id: "bench-2",
+          playerNumber: 9,
+          firstName: "Sam",
+          lastName: "Two",
+          isActive: true,
+          preferredPositions: "",
+        },
+      ],
+      positions: [],
+    });
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'halftime' },
+      lineup: [],
+    });
+
+    renderComponent();
+
+    await user.click(screen.getByRole("button", { name: "Manage Injuries" }));
+
+    const firstAction = screen.getByRole("button", { name: /mark pat one injured/i });
+    const secondAction = screen.getByRole("button", { name: /mark sam two injured/i });
+    const doneButton = screen.getByRole("button", { name: "Done" });
+
+    firstAction.focus();
+    expect(firstAction).toHaveFocus();
+
+    await user.tab();
+    expect(secondAction).toHaveFocus();
+
+    await user.tab();
+    expect(doneButton).toHaveFocus();
+
+    await user.tab();
+    expect(firstAction).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(doneButton).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(secondAction).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(firstAction).toHaveFocus();
+  });
+
+  it("ignores Escape and backdrop click while injury mutation is pending", async () => {
+    const user = userEvent.setup();
+    let resolveCreate: (() => void) | undefined;
+    mockUseTeamData.mockReturnValue({ players: [makeBenchPlayer()], positions: [] });
+    mockCreatePlayerAvailability.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        resolveCreate = resolve;
+      })
+    );
+
+    renderComponent();
+    await user.click(screen.getByRole("button", { name: "Manage Injuries" }));
+
+    await user.click(screen.getByRole("button", { name: /mark alex bench injured/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Done" })).toBeDisabled();
+    });
+
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole("dialog", { name: "Manage Injuries" })).toBeInTheDocument();
+
+    const dialog = screen.getByRole("dialog", { name: "Manage Injuries" });
+    const overlay = dialog.parentElement;
+    expect(overlay).not.toBeNull();
+    if (overlay) {
+      await user.click(overlay);
+    }
+    expect(screen.getByRole("dialog", { name: "Manage Injuries" })).toBeInTheDocument();
+
+    resolveCreate?.();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Done" })).toBeEnabled();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleQueueSubstitution – batching regression (Issue #20)
 // ---------------------------------------------------------------------------
 describe("GameManagement – handleQueueSubstitution batching", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
     mockCaptures.onQueueSubstitution = undefined;
     mockCaptures.latestSubstitutionQueue = undefined;
     mockUseGameSubscriptions.mockReturnValue({

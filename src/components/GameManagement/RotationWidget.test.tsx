@@ -323,4 +323,22 @@ describe("RotationWidget", () => {
     );
     expect(screen.getByText(/Unable to load rotation data/i)).toBeInTheDocument();
   });
+
+  it("shows all-injured warning when every planned incoming player is injured", () => {
+    mockGetPlayerAvailability.mockImplementation((id: string) =>
+      id === "p2" ? "injured" : "available",
+    );
+
+    render(
+      <RotationWidget
+        {...baseProps}
+        isRotationModalOpen={true}
+        onCloseRotationModal={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText(/No rotation changes available\. Planned players are marked injured\./i),
+    ).toBeInTheDocument();
+  });
 });

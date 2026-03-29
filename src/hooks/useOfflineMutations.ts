@@ -84,6 +84,23 @@ export interface GameNoteCreateFields {
   coaches?: string[] | null;
 }
 
+export interface PlayerAvailabilityCreateFields {
+  gameId: string;
+  playerId: string;
+  status: string;
+  markedAt: string;
+  coaches?: string[] | null;
+  availableUntilMinute?: number | null;
+  notes?: string | null;
+}
+
+export interface PlayerAvailabilityUpdateFields {
+  status?: string | null;
+  availableUntilMinute?: number | null;
+  markedAt?: string | null;
+  notes?: string | null;
+}
+
 export interface GameMutationInput {
   updateGame: (id: string, fields: GameUpdateFields) => Promise<void>;
   createPlayTimeRecord: (fields: PlayTimeRecordCreateFields) => Promise<void>;
@@ -94,6 +111,8 @@ export interface GameMutationInput {
   updateLineupAssignment: (id: string, fields: LineupAssignmentUpdateFields) => Promise<void>;
   createGoal: (fields: GoalCreateFields) => Promise<void>;
   createGameNote: (fields: GameNoteCreateFields) => Promise<void>;
+  createPlayerAvailability: (fields: PlayerAvailabilityCreateFields) => Promise<void>;
+  updatePlayerAvailability: (id: string, fields: PlayerAvailabilityUpdateFields) => Promise<void>;
 }
 
 export interface UseOfflineMutationsResult {
@@ -105,8 +124,18 @@ export interface UseOfflineMutationsResult {
 
 // ── Replay a single queued mutation against the live API ─────────────────────
 
-const ALLOWED_MODELS = new Set(['Game', 'PlayTimeRecord', 'Substitution', 'LineupAssignment', 'Goal', 'GameNote']);
+const ALLOWED_MODELS = new Set(['Game', 'PlayTimeRecord', 'Substitution', 'LineupAssignment', 'Goal', 'GameNote', 'PlayerAvailability']);
 const ALLOWED_OPS = new Set(['create', 'update', 'delete']);
+
+function getSafeErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return 'Unknown error';
+}
 
 async function executeSingleMutation(item: QueuedMutation): Promise<void> {
   if (!ALLOWED_MODELS.has(item.model) || !ALLOWED_OPS.has(item.operation)) {
@@ -172,7 +201,9 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
           await executeSingleMutation(item);
         } catch (err) {
           actuallyFailed.push(item);
-          console.warn('Failed to replay queued mutation:', item.model, item.operation, err);
+          console.warn(
+            `[useOfflineMutations] Failed to replay queued mutation ${item.model}.${item.operation}: ${getSafeErrorMessage(err)}`
+          );
         }
       }
 
@@ -190,7 +221,7 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       const remaining = await getQueuePendingCount();
       setQueuedCount(remaining);
     } catch (err) {
-      console.error('Unexpected error during offline queue drain:', err);
+      console.error(`[useOfflineMutations] Unexpected error during offline queue drain: ${getSafeErrorMessage(err)}`);
     } finally {
       setIsSyncing(false);
     }
@@ -339,6 +370,30 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
     [enqueueOrRun]
   );
 
+  const createPlayerAvailability = useCallback(
+    async (fields: PlayerAvailabilityCreateFields): Promise<void> => {
+      await enqueueOrRun(
+        'PlayerAvailability', 'create',
+        fields as unknown as Record<string, unknown>,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        () => client.models.PlayerAvailability.create(fields as any).then(() => undefined)
+      );
+    },
+    [enqueueOrRun]
+  );
+
+  const updatePlayerAvailability = useCallback(
+    async (id: string, fields: PlayerAvailabilityUpdateFields): Promise<void> => {
+      await enqueueOrRun(
+        'PlayerAvailability', 'update',
+        { id, ...fields } as Record<string, unknown>,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        () => client.models.PlayerAvailability.update({ id, ...fields } as any).then(() => undefined)
+      );
+    },
+    [enqueueOrRun]
+  );
+
   const mutations = useMemo(
     (): GameMutationInput => ({
       updateGame,
@@ -350,11 +405,13 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       updateLineupAssignment,
       createGoal,
       createGameNote,
+      createPlayerAvailability,
+      updatePlayerAvailability,
     }),
     [
       updateGame, createPlayTimeRecord, updatePlayTimeRecord, createSubstitution,
       createLineupAssignment, deleteLineupAssignment, updateLineupAssignment,
-      createGoal, createGameNote,
+      createGoal, createGameNote, createPlayerAvailability, updatePlayerAvailability,
     ]
   );
 
