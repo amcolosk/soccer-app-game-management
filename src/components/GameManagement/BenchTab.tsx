@@ -49,6 +49,16 @@ interface RowMutationFeedback {
   intent: InjuryMutationIntent;
 }
 
+function getSafeErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  return "Unknown error";
+}
+
 function getUrgencyClass(playTimeSeconds: number, halfLengthSeconds: number): string {
   const ratio = halfLengthSeconds > 0 ? playTimeSeconds / halfLengthSeconds : 0;
   if (ratio < 0.2) return "bench-tab__progress-fill--red";
@@ -236,7 +246,7 @@ export function BenchTab({
       }
       trackEvent(AnalyticsEvents.PLAYER_MARKED_INJURED.category, AnalyticsEvents.PLAYER_MARKED_INJURED.action);
     } catch (error) {
-      console.error(error);
+      console.error(`[BenchTab] markPlayerInjured failed: ${getSafeErrorMessage(error)}`);
       setRowFeedback(player.id, { state: "retryable-failure", intent: "injured" });
       setAnnouncement(`Injury update failed for ${player.firstName} ${player.lastName}.`);
       showError("Could not update player status.");
@@ -298,7 +308,7 @@ export function BenchTab({
         AnalyticsEvents.PLAYER_RECOVERED_FROM_INJURY.action,
       );
     } catch (error) {
-      console.error(error);
+      console.error(`[BenchTab] recoverPlayer failed: ${getSafeErrorMessage(error)}`);
       setRowFeedback(player.id, { state: "retryable-failure", intent: "available" });
       setAnnouncement(`Injury update failed for ${player.firstName} ${player.lastName}.`);
       showError("Could not update player status.");

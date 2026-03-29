@@ -397,4 +397,48 @@ describe("BenchTab", () => {
     });
     expect(mockShowError).toHaveBeenCalledWith("Could not update player status.");
   });
+
+  it("retries injury mutation after failure and succeeds for the same player", async () => {
+    const user = userEvent.setup();
+    const players = [makePlayer("p1", 7, "Alice")];
+    let resolveSecondAttempt: (() => void) | undefined;
+    const createPlayerAvailability = vi.fn()
+      .mockRejectedValueOnce(new Error("network failed"))
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => {
+          resolveSecondAttempt = resolve;
+        })
+      );
+
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        mutations={{ ...defaultProps.mutations, createPlayerAvailability } as any}
+      />,
+    );
+
+    const markInjuredButton = screen.getByRole("button", { name: /mark alice test injured/i });
+
+    await user.click(markInjuredButton);
+    await waitFor(() => {
+      expect(screen.getByText(/Retry available\./i)).toBeInTheDocument();
+    });
+
+    // BenchTab debounces repeated taps for 350ms; wait before retrying.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    await user.click(markInjuredButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Saving injury status\.\.\./i)).toBeInTheDocument();
+    });
+    expect(createPlayerAvailability).toHaveBeenCalledTimes(2);
+
+    resolveSecondAttempt?.();
+    await waitFor(() => {
+      expect(screen.getByText(/^Synced$/i)).toBeInTheDocument();
+    });
+    expect(mockShowSuccess).toHaveBeenCalledWith("Player status updated.");
+  });
 });

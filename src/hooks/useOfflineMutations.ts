@@ -127,6 +127,16 @@ export interface UseOfflineMutationsResult {
 const ALLOWED_MODELS = new Set(['Game', 'PlayTimeRecord', 'Substitution', 'LineupAssignment', 'Goal', 'GameNote', 'PlayerAvailability']);
 const ALLOWED_OPS = new Set(['create', 'update', 'delete']);
 
+function getSafeErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return 'Unknown error';
+}
+
 async function executeSingleMutation(item: QueuedMutation): Promise<void> {
   if (!ALLOWED_MODELS.has(item.model) || !ALLOWED_OPS.has(item.operation)) {
     throw new Error(`Disallowed model/operation in offline queue: ${item.model}.${item.operation}`);
@@ -191,7 +201,9 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
           await executeSingleMutation(item);
         } catch (err) {
           actuallyFailed.push(item);
-          console.warn('Failed to replay queued mutation:', item.model, item.operation, err);
+          console.warn(
+            `[useOfflineMutations] Failed to replay queued mutation ${item.model}.${item.operation}: ${getSafeErrorMessage(err)}`
+          );
         }
       }
 
@@ -209,7 +221,7 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       const remaining = await getQueuePendingCount();
       setQueuedCount(remaining);
     } catch (err) {
-      console.error('Unexpected error during offline queue drain:', err);
+      console.error(`[useOfflineMutations] Unexpected error during offline queue drain: ${getSafeErrorMessage(err)}`);
     } finally {
       setIsSyncing(false);
     }
