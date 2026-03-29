@@ -40,12 +40,12 @@ coordinator-agent → implementation-planner → architect-agent → [ui-designe
 - Minor/informational findings are recorded but do not block progress
 
 **Stage 6 — Commit gate**
-- `npm run test:run` — all unit tests must pass
-- `npm run build` — production build must succeed
+- `npm run gate:commit` — local fail-fast commit gate (lint → test:run → build); must pass before committing
 - Only commit after both checks are green
 
 **Communication contract**
 - `coordinator-agent` passes stage, requirements, relevant files, risks, and success criteria into every sub-agent call
+- `coordinator-agent` must reference `npm run gate:commit` as the only local commit-gate command in implementation/review handoffs; do not request separate `npm run lint`, `npm run test:run`, and `npm run build` unless troubleshooting a failing gate step.
 - Every sub-agent response must include: `Status`, `Findings`, `Artifacts`, `Required Next Step`, and `Handoff Prompt`
 - If a sub-agent omits any required section, `coordinator-agent` must request a restated response before continuing
 - If a sub-agent needs more information, it must return `Status: blocked`, `Required Next Step: ask-user`, and the minimum clarification questions needed to unblock the stage
@@ -62,7 +62,7 @@ coordinator-agent → coding-agent → validation-agent → commit gate
 1. `coordinator-agent` gathers scope and routes the fix to `coding-agent`
 2. `validation-agent` reviews the changed files
 3. If Major+ issues are found, fix them and re-run the agent
-4. `npm run test:run` and `npm run build` must both pass before committing
+4. `npm run gate:commit` must pass before committing
 
 > For defect fixes spanning more than two files, or that require architectural changes, use the full New Feature Pipeline instead. Mark issue as fixed using github hash.
 
@@ -92,6 +92,7 @@ npm run test:e2e:setup    # Creates test user/data
 
 ### Code Quality
 ```bash
+npm run gate:commit       # Local fail-fast commit gate (lint -> test:run -> build)
 npm run lint              # Lint TypeScript/TSX files with ESLint
 npm run lint:security     # Run security linting
 npm run knip              # Find unused files, dependencies, and exports
@@ -304,7 +305,7 @@ Three slash commands for triage (run in Claude Code):
 
 ### E2E Tests (Playwright)
 - Located in `e2e/` directory
-- Config: `e2e/playwright.config.ts`
+- Config: `playwright.config.ts`
 - Setup script: `npm run test:e2e:setup` (creates test user/data)
 - Tests cover full user journeys (create team → add players → manage game)
 - Spec files: auth, data-isolation, formation-management, full-workflow, game-planner, issue-tracking, player-management, profile, team-management, team-sharing

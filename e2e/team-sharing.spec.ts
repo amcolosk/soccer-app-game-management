@@ -24,7 +24,9 @@ const TEST_RUN_SUFFIX = `${Date.now().toString(36)}-${Math.random().toString(36)
 const SHARED_TEAM_NAME = `Shared Eagles FC ${TEST_RUN_SUFFIX}`;
 const PLAYER_NAME = { firstName: 'John', lastName: 'Smith' };
 const GAME_OPPONENT = 'Lions FC';
+const GAME_OPPONENT_PRE_INVITE = 'Tigers FC';
 let gameCreatedInTest2 = false;
+let preInviteGameCreated = false;
 
 // Helper to logout
 async function logout(page: Page) {
@@ -65,6 +67,7 @@ test.describe.serial('Team Sharing and Collaboration', () => {
   
   test('User 1 creates team, adds data, and sends invitation to User 2', async ({ page }) => {
     test.setTimeout(TEST_CONFIG.timeout.medium);
+    preInviteGameCreated = false;
     
     console.log('\n=== User 1: Creating Team and Sending Invitation ===');
     
@@ -142,9 +145,63 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     }
     
     console.log('✓ Initial team setup complete');
-    
+
+    // Schedule a game before sending the invitation.
+    // This is the data that User 2 MUST be able to see after accepting.
+    console.log('\n--- Scheduling pre-invite game ---');
+    await page.goto('/');
+    await waitForPageLoad(page);
+
+    await page.getByRole('button', { name: /\+\s*Schedule New Game/i }).first().click();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    const preInviteTeamSelect = page.locator('select').filter({ hasText: /team/i }).or(page.locator('select').first());
+    let preInviteFormVisible = await preInviteTeamSelect.first().isVisible({ timeout: 2500 }).catch(() => false);
+
+    if (!preInviteFormVisible) {
+      console.warn('⚠ Pre-invite schedule form did not open on first try; retrying once');
+      await page.getByRole('button', { name: /\+\s*Schedule New Game/i }).first().click();
+      await page.waitForTimeout(UI_TIMING.STANDARD);
+      preInviteFormVisible = await preInviteTeamSelect.first().isVisible({ timeout: 2500 }).catch(() => false);
+    }
+
+    if (!preInviteFormVisible) {
+      console.warn('⚠ Pre-invite schedule form did not open in time; skipping pre-invite game creation');
+    } else {
+
+      // Wait up to 15s for the shared team to appear in the dropdown
+      let preInviteTeamLoaded = false;
+      for (let i = 0; i < 15 && !preInviteTeamLoaded; i++) {
+        const opts = await preInviteTeamSelect.locator('option').allTextContents();
+        if (opts.some(o => o.includes(SHARED_TEAM_NAME))) {
+          preInviteTeamLoaded = true;
+        } else {
+          await page.waitForTimeout(1000);
+        }
+      }
+
+      if (preInviteTeamLoaded) {
+        await preInviteTeamSelect.selectOption({ label: SHARED_TEAM_NAME });
+        await fillInput(page, 'input[placeholder*="Opponent"]', GAME_OPPONENT_PRE_INVITE);
+        await clickButton(page, 'Create');
+        await waitForPageLoad(page);
+        await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
+
+        const preInviteGameCard = page.locator('.game-card, .item-card').filter({ hasText: GAME_OPPONENT_PRE_INVITE });
+        if (await preInviteGameCard.first().isVisible({ timeout: 5000 }).catch(() => false)) {
+          preInviteGameCreated = true;
+          console.log(`✓ User 1 scheduled pre-invite game vs ${GAME_OPPONENT_PRE_INVITE}`);
+        } else {
+          console.warn(`⚠ Pre-invite game card not confirmed visible; continuing`);
+        }
+      } else {
+        console.warn('⚠ Shared team not found in dropdown for pre-invite game creation; skipping');
+      }
+    }
+
     // Now send invitation to User 2
     console.log('\n--- Sending Invitation ---');
+    await navigateToManagement(page);
     
     await clickManagementTab(page, 'Sharing');
     await page.waitForTimeout(UI_TIMING.STANDARD);
@@ -344,13 +401,30 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     await sharedTeam.first().click();
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
+    // Hard assertion: pre-existing player MUST be visible after coaches backfill.
+    // This is the exact pattern that was silently broken in production.
     const playerInRoster = page.locator('.roster-list, .item-card').filter({ hasText: PLAYER_NAME.firstName });
-    if (await playerInRoster.isVisible({ timeout: 2000 }).catch(() => false)) {
-      console.log(`✓ User 2 can see player in roster: ${PLAYER_NAME.firstName} ${PLAYER_NAME.lastName}`);
-    }
-    
+    await expect(playerInRoster.first()).toBeVisible({ timeout: 10000 });
+    console.log(`✓ User 2 can see player in roster: ${PLAYER_NAME.firstName} ${PLAYER_NAME.lastName}`);
+
     console.log('✓ Shared team data visible to User 2');
-    
+
+    // Verify pre-existing game is visible to User 2 (regression guard for Game backfill)
+    if (preInviteGameCreated) {
+      await page.goto('/');
+      await waitForPageLoad(page);
+      await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+      const preInviteGameCard = page.locator('.game-card, .item-card').filter({ hasText: GAME_OPPONENT_PRE_INVITE });
+      await expect(preInviteGameCard.first()).toBeVisible({ timeout: 10000 });
+      console.log(`✓ User 2 can see pre-existing game (created by User 1 before invite): ${GAME_OPPONENT_PRE_INVITE}`);
+
+      // Navigate back to Management for the remaining permission tests
+      await navigateToManagement(page);
+      await clickManagementTab(page, 'Teams');
+      await page.waitForTimeout(UI_TIMING.STANDARD);
+    }
+
     // Test edit permissions
     console.log('\n--- Testing Edit Permissions ---');
     

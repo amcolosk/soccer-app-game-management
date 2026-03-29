@@ -508,7 +508,7 @@ No migration is required. Existing DynamoDB Issue records are abandoned in place
 11. Update `.claude/commands/` slash commands to use GitHub API
 12. Delete superseded docs (listed in Removals section)
 13. Update `CLAUDE.md` agent section to reference `GITHUB_TOKEN`/`GITHUB_REPO`
-14. Run `npm run build`, `npm run test:run`, `npm run lint` — all green before commit
+14. Run `npm run gate:commit` — local fail-fast gate (lint -> test:run -> build) must be green before commit
 
 ---
 
