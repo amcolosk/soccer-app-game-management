@@ -187,6 +187,101 @@ describe('accept invitation handler', () => {
     }
   });
 
+  it('covers every coaches-gated model in the backfill — coverage matrix', async () => {
+    const EXPECTED_BACKFILL_TABLES = [
+      process.env.TEAM_ROSTER_TABLE!,
+      process.env.PLAYER_TABLE!,
+      process.env.FORMATION_TABLE!,
+      process.env.FORMATION_POSITION_TABLE!,
+      process.env.GAME_TABLE!,
+    ];
+
+    const updatedTables = new Set<string>();
+    let teamUpdated = false;
+
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      if (command.__type === 'GetCommand') {
+        const table = command.input.TableName as string;
+
+        if (table === 'TeamInvitationTable') {
+          return {
+            Item: {
+              id: 'invite-1',
+              teamId: 'team-1',
+              email: 'coach@example.com',
+              status: 'PENDING',
+              expiresAt: '2099-01-01T00:00:00.000Z',
+            },
+          };
+        }
+
+        if (table === 'TeamTable') {
+          return {
+            Item: {
+              id: 'team-1',
+              formationId: 'formation-1',
+              coaches: teamUpdated ? ['owner-a', 'coach-b'] : ['owner-a'],
+            },
+          };
+        }
+
+        if (table === 'FormationTable') {
+          return { Item: { id: 'formation-1', coaches: ['owner-a'] } };
+        }
+
+        if (table === 'PlayerTable') {
+          return { Item: { id: 'player-1', coaches: ['owner-a'] } };
+        }
+      }
+
+      if (command.__type === 'ScanCommand') {
+        const table = command.input.TableName as string;
+
+        if (table === 'TeamRosterTable') {
+          return {
+            Items: [{ id: 'roster-1', playerId: 'player-1', coaches: ['owner-a'] }],
+          };
+        }
+
+        if (table === 'FormationPositionTable') {
+          return {
+            Items: [{ id: 'pos-1', coaches: ['owner-a'] }],
+          };
+        }
+
+        if (table === 'GameTable') {
+          return {
+            Items: [{ id: 'game-1', coaches: ['owner-a'] }],
+          };
+        }
+      }
+
+      if (command.__type === 'UpdateCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamTable') {
+          teamUpdated = true;
+        }
+        updatedTables.add(table);
+        return {};
+      }
+
+      return {};
+    });
+
+    const event = {
+      arguments: { invitationId: 'invite-1' },
+      identity: { sub: 'coach-b', claims: { email: 'coach@example.com' } },
+    };
+    await invokeHandler(event as HandlerEvent);
+
+    for (const table of EXPECTED_BACKFILL_TABLES) {
+      expect(
+        updatedTables,
+        `Table "${table}" was not backfilled — add it to handler.ts backfill logic AND to EXPECTED_BACKFILL_TABLES in this test`
+      ).toContain(table);
+    }
+  });
+
   it('supports idempotent retries for invitations already accepted by the same user', async () => {
     const updateInputs: Array<Record<string, unknown>> = [];
 

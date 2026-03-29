@@ -10,7 +10,7 @@
 - [Backend Architecture](#backend-architecture)
 - [Key Design Decisions](#key-design-decisions)
 - [Technology Stack](#technology-stack)
-
+ 
 ## System Overview
 
 TeamTrack is a Progressive Web App (PWA) for soccer coaches to manage teams, track player participation, and run games from the sideline. The application uses a formation-based architecture with a global player pool, enabling efficient team management and fair play time distribution.

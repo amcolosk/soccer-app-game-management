@@ -644,9 +644,7 @@ Update existing tests to use `Date.now()` mocking rather than `setInterval` tick
 
 ### General
 
-- [ ] `npm run test:run` — all tests pass
-- [ ] `npm run build` — clean TypeScript + Vite build
-- [ ] `npm run lint` — no new lint errors
+- [ ] `npm run gate:commit` — fail-fast local gate (lint -> test:run -> build) passes cleanly
 
 ---
 

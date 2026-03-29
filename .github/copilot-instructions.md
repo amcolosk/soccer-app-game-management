@@ -61,13 +61,12 @@ coordinator-agent → implementation-planner → architect-agent → [ui-designe
 - Minor/informational findings are recorded but do not block progress
 
 **Stage 6 — Commit gate**
-- `npm run test:run` — all unit tests must pass
-- `npm run build` — production build must succeed
-- `npm run lint` — linting must pass
+- `npm run gate:commit` — local fail-fast commit gate (lint → test:run → build); must pass before committing
 - Only commit after all checks are green
 
 **Communication contract**
 - `coordinator-agent` passes stage, requirements, relevant files, risks, and success criteria into every sub-agent call
+- `coordinator-agent` must reference `npm run gate:commit` as the only local commit-gate command in implementation/review handoffs; do not request separate `npm run lint`, `npm run test:run`, and `npm run build` unless troubleshooting a failing gate step.
 - Every sub-agent response must include: `Status`, `Findings`, `Artifacts`, `Required Next Step`, and `Handoff Prompt`
 - If a sub-agent omits any required section, `coordinator-agent` must request a restated response before continuing
 - If a sub-agent needs more information, it must return `Status: blocked`, `Required Next Step: ask-user`, and the minimum clarification questions needed to unblock the stage
@@ -90,6 +89,6 @@ coordinator-agent → coding-agent → validation-agent → commit gate
 1. `coordinator-agent` gathers scope and routes the fix to `coding-agent`
 2. `validation-agent` reviews the changed files
 3. If Major+ issues are found, fix them and re-run the agent
-4. `npm run test:run`, `npm run build`, and `npm run lint` must all pass before committing
+4. `npm run gate:commit` must pass before committing
 
 > For defect fixes spanning more than two files, or that require architectural changes, use the full New Feature Pipeline instead. Mark issue as fixed using github hash.
