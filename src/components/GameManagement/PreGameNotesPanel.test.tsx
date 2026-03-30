@@ -1,7 +1,14 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PreGameNotesPanel } from "./PreGameNotesPanel";
+import { getCurrentUser } from "aws-amplify/auth";
+
+vi.mock("aws-amplify/auth", () => ({
+  getCurrentUser: vi.fn(),
+}));
+
+const mockedGetCurrentUser = vi.mocked(getCurrentUser);
 
 const notes = [
   {
@@ -9,13 +16,20 @@ const notes = [
     noteType: 'coaching-point',
     playerId: 'p1',
     notes: 'Press quickly after turnovers',
-    authorId: 'coach-123',
+    authorId: 'current-user-id',
   },
   {
     id: 'n2',
     noteType: 'coaching-point',
     playerId: null,
     notes: 'Keep shape compact in midfield',
+    authorId: 'coach-abcdefghijk',
+  },
+  {
+    id: 'n3',
+    noteType: 'coaching-point',
+    playerId: null,
+    notes: 'Use voice to organize transitions',
     authorId: null,
   },
 ] as never[];
@@ -38,6 +52,27 @@ function renderPanel(gameStatus: 'scheduled' | 'in-progress' | 'halftime' | 'com
 }
 
 describe('PreGameNotesPanel', () => {
+  beforeEach(() => {
+    mockedGetCurrentUser.mockReset();
+    mockedGetCurrentUser.mockRejectedValue(new Error('Not signed in'));
+  });
+
+  it('renders author attribution for current user, other coaches, and unknown author', async () => {
+    mockedGetCurrentUser.mockResolvedValue({
+      username: 'coach@example.com',
+      userId: 'current-user-id',
+      signInDetails: undefined,
+    });
+
+    renderPanel('scheduled');
+
+    expect(await screen.findByText('Created by: You')).toBeInTheDocument();
+    expect(screen.getByText('Created by: Coach (coach-...ghijk)')).toBeInTheDocument();
+    expect(screen.getByText('Created by: Unknown Author')).toBeInTheDocument();
+    expect(screen.getByText('#10 Ava Lopez')).toBeInTheDocument();
+    expect(screen.getAllByText('General Note')).toHaveLength(2);
+  });
+
   it('renders empty state when no notes exist', () => {
     render(
       <PreGameNotesPanel
@@ -51,15 +86,6 @@ describe('PreGameNotesPanel', () => {
     );
 
     expect(screen.getByText('No coaching points yet.')).toBeInTheDocument();
-  });
-
-  it('renders author attribution and player-specific/general labels', () => {
-    renderPanel('scheduled');
-
-    expect(screen.getByText('Created by: coach-123')).toBeInTheDocument();
-    expect(screen.getByText('Created by: Unknown Author')).toBeInTheDocument();
-    expect(screen.getByText('#10 Ava Lopez')).toBeInTheDocument();
-    expect(screen.getByText('General Note')).toBeInTheDocument();
   });
 
   it('calls add/edit/delete handlers when unlocked', async () => {
