@@ -9,6 +9,8 @@ import { sendInvitationEmail } from './functions/send-invitation-email/resource'
 import { acceptInvitation } from './functions/accept-invitation/resource';
 import { getUserInvitations } from './functions/get-user-invitations/resource';
 import { createGitHubIssue } from './functions/create-github-issue/resource';
+import { createGameNote } from './functions/create-game-note/resource';
+import { updateGameNote } from './functions/update-game-note/resource';
 
 const backend = defineBackend({
   auth,
@@ -18,6 +20,8 @@ const backend = defineBackend({
   acceptInvitation,
   getUserInvitations,
   createGitHubIssue,
+  createGameNote,
+  updateGameNote,
 });
 
 // Add deployment ID to outputs
@@ -139,3 +143,20 @@ const githubRepo = process.env.GITHUB_REPO || '';
 if (githubRepo) {
   backend.createGitHubIssue.addEnvironment('GITHUB_REPO', githubRepo);
 }
+
+// Grant table access for createGameNote Lambda (secure custom mutation)
+const gameNoteTable = backend.data.resources.tables['GameNote'];
+gameNoteTable.grantReadWriteData(backend.createGameNote.resources.lambda);
+gameTable.grantReadData(backend.createGameNote.resources.lambda);
+teamRosterTable.grantReadData(backend.createGameNote.resources.lambda);
+backend.createGameNote.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
+backend.createGameNote.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.createGameNote.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);
+
+// Grant table access for updateGameNote Lambda (secure custom mutation)
+gameNoteTable.grantReadWriteData(backend.updateGameNote.resources.lambda);
+gameTable.grantReadData(backend.updateGameNote.resources.lambda);
+teamRosterTable.grantReadData(backend.updateGameNote.resources.lambda);
+backend.updateGameNote.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
+backend.updateGameNote.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.updateGameNote.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);

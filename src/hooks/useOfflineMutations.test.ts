@@ -7,6 +7,9 @@ import { renderHook, act } from '@testing-library/react';
 const {
   mockGameUpdate,
   mockPlayTimeRecordCreate,
+  mockCreateSecureGameNote,
+  mockUpdateSecureGameNote,
+  mockGameNoteDelete,
   mockPlayerAvailabilityCreate,
   mockPlayerAvailabilityUpdate,
   mockEnqueue,
@@ -21,6 +24,9 @@ const {
 } = vi.hoisted(() => ({
   mockGameUpdate: vi.fn(),
   mockPlayTimeRecordCreate: vi.fn(),
+  mockCreateSecureGameNote: vi.fn(),
+  mockUpdateSecureGameNote: vi.fn(),
+  mockGameNoteDelete: vi.fn(),
   mockPlayerAvailabilityCreate: vi.fn(),
   mockPlayerAvailabilityUpdate: vi.fn(),
   mockEnqueue: vi.fn(),
@@ -49,11 +55,17 @@ vi.mock('aws-amplify/data', () => ({
         update: vi.fn().mockResolvedValue({ data: {} }),
       },
       Goal: { create: vi.fn().mockResolvedValue({ data: {} }) },
-      GameNote: { create: vi.fn().mockResolvedValue({ data: {} }) },
+      GameNote: {
+        delete: mockGameNoteDelete,
+      },
       PlayerAvailability: {
         create: mockPlayerAvailabilityCreate,
         update: mockPlayerAvailabilityUpdate,
       },
+    },
+    mutations: {
+      createSecureGameNote: mockCreateSecureGameNote,
+      updateSecureGameNote: mockUpdateSecureGameNote,
     },
   })),
 }));
@@ -126,6 +138,9 @@ describe('useOfflineMutations', () => {
     setupOnline();
     mockGameUpdate.mockResolvedValue({ data: {} });
     mockPlayTimeRecordCreate.mockResolvedValue({ data: {} });
+    mockCreateSecureGameNote.mockResolvedValue({ data: {} });
+    mockUpdateSecureGameNote.mockResolvedValue({ data: {} });
+    mockGameNoteDelete.mockResolvedValue({ data: {} });
     mockPlayerAvailabilityCreate.mockResolvedValue({ data: {} });
     mockPlayerAvailabilityUpdate.mockResolvedValue({ data: {} });
     mockFetchAuthSession.mockResolvedValue(DEFAULT_SESSION);
@@ -219,6 +234,73 @@ describe('useOfflineMutations', () => {
       });
       expect(mockEnqueue).not.toHaveBeenCalled();
     });
+
+    it('createGameNote uses the secure custom mutation path without forwarding authorId or coaches', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createGameNote({
+          gameId: 'g1',
+          noteType: 'coaching-point',
+          gameSeconds: null,
+          half: null,
+          notes: 'Pre-game focus',
+          coaches: ['coach-1'],
+        });
+      });
+
+      expect(mockCreateSecureGameNote).toHaveBeenCalledWith({
+        gameId: 'g1',
+        noteType: 'coaching-point',
+        gameSeconds: null,
+        half: null,
+        notes: 'Pre-game focus',
+      });
+    });
+
+    it('updateGameNote updates only allowed mutable fields payload', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.updateGameNote('note-1', {
+          noteType: 'coaching-point',
+          playerId: 'p1',
+          notes: 'Updated text',
+        });
+      });
+
+      expect(mockUpdateSecureGameNote).toHaveBeenCalledWith({
+        id: 'note-1',
+        noteType: 'coaching-point',
+        playerId: 'p1',
+        notes: 'Updated text',
+      });
+    });
+
+    it('updateGameNote strips authorId from payload even if supplied at runtime', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        // Cast to bypass TypeScript to simulate a runtime injection attempt.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const injectedPayload: any = { noteType: 'coaching-point', notes: 'Updated text', authorId: 'attacker-id' };
+        await result.current.mutations.updateGameNote('note-1', injectedPayload);
+      });
+
+      expect(mockUpdateSecureGameNote).toHaveBeenCalledWith(
+        expect.not.objectContaining({ authorId: expect.anything() })
+      );
+    });
+
+    it('deleteGameNote calls model delete with id payload', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.deleteGameNote('note-1');
+      });
+
+      expect(mockGameNoteDelete).toHaveBeenCalledWith({ id: 'note-1' });
+    });
   });
 
   // ── Offline path ─────────────────────────────────────────────────────────
@@ -286,6 +368,27 @@ describe('useOfflineMutations', () => {
       expect(mockPlayerAvailabilityCreate).not.toHaveBeenCalled();
     });
 
+    it('queues GameNote update and delete while offline', async () => {
+      setupOffline();
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.updateGameNote('note-2', {
+          notes: 'Offline edit',
+        });
+        await result.current.mutations.deleteGameNote('note-2');
+      });
+
+      expect(mockEnqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'GameNote', operation: 'update' })
+      );
+      expect(mockEnqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'GameNote', operation: 'delete' })
+      );
+      expect(mockUpdateSecureGameNote).not.toHaveBeenCalled();
+      expect(mockGameNoteDelete).not.toHaveBeenCalled();
+    });
+
     it('still enqueues even when fetchAuthSession fails (no ownerSub)', async () => {
       setupOffline();
       mockFetchAuthSession.mockRejectedValue(new Error('Session expired'));
@@ -327,6 +430,59 @@ describe('useOfflineMutations', () => {
       expect(mockDeduplicateGameUpdates).toHaveBeenCalled();
       expect(mockDequeueAll).toHaveBeenCalled();
       expect(mockGameUpdate).toHaveBeenCalledWith({ id: 'g1', elapsedSeconds: 60 });
+    });
+
+    it('replays queued GameNote writes through the secure custom mutations', async () => {
+      mockDequeueAll.mockResolvedValue([
+        {
+          id: 'q1',
+          model: 'GameNote',
+          operation: 'create',
+          payload: {
+            gameId: 'g1',
+            noteType: 'coaching-point',
+            gameSeconds: null,
+            half: null,
+            notes: 'Queued pre-game note',
+            authorId: 'spoofed-author',
+          },
+          enqueuedAt: 1,
+          retryCount: 0,
+          ownerSub: DEFAULT_SUB,
+        },
+        {
+          id: 'q2',
+          model: 'GameNote',
+          operation: 'update',
+          payload: {
+            id: 'note-1',
+            notes: 'Queued update',
+            authorId: 'spoofed-author',
+          },
+          enqueuedAt: 2,
+          retryCount: 0,
+          ownerSub: DEFAULT_SUB,
+        },
+      ]);
+
+      renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        capturedOnReconnect?.();
+      });
+      await flush();
+
+      expect(mockCreateSecureGameNote).toHaveBeenCalledWith({
+        gameId: 'g1',
+        noteType: 'coaching-point',
+        gameSeconds: null,
+        half: null,
+        notes: 'Queued pre-game note',
+      });
+      expect(mockUpdateSecureGameNote).toHaveBeenCalledWith({
+        id: 'note-1',
+        notes: 'Queued update',
+      });
     });
 
     it('replays queued PlayerAvailability updates via the Amplify client', async () => {

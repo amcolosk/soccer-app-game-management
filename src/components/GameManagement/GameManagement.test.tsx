@@ -17,6 +17,9 @@ const {
   mockSubstitutionCreate,
   mockGameUpdate,
   mockPlayTimeCreate,
+  mockCreateGameNote,
+  mockUpdateGameNote,
+  mockDeleteGameNote,
   mockCreatePlayerAvailability,
   mockUpdatePlayerAvailability,
   mockSetHelpContext,
@@ -26,6 +29,9 @@ const {
   mockSubstitutionCreate: vi.fn().mockResolvedValue({ data: {} }),
   mockGameUpdate:        vi.fn().mockResolvedValue({ data: {} }),
   mockPlayTimeCreate:    vi.fn().mockResolvedValue({ data: {} }),
+  mockCreateGameNote:    vi.fn().mockResolvedValue(undefined),
+  mockUpdateGameNote:    vi.fn().mockResolvedValue(undefined),
+  mockDeleteGameNote:    vi.fn().mockResolvedValue(undefined),
   mockCreatePlayerAvailability: vi.fn().mockResolvedValue(undefined),
   mockUpdatePlayerAvailability: vi.fn().mockResolvedValue(undefined),
   mockSetHelpContext:    vi.fn(),
@@ -55,6 +61,7 @@ const mockCaptures: {
   onApplyHalftimeSub?: (sub: PlannedSubstitution) => Promise<void>;
   onQueueSubstitution?: (playerId: string, positionId: string) => void;
   latestSubstitutionQueue?: { playerId: string; positionId: string }[];
+  preGameNotesPanelProps?: any;
 } = {};
 
 vi.mock("./GameTimer", () => ({
@@ -69,6 +76,12 @@ vi.mock("./GameTimer", () => ({
 vi.mock("./GameHeader",       () => ({ GameHeader:       () => <div /> }));
 vi.mock("./GoalTracker",      () => ({ GoalTracker:      () => <div /> }));
 vi.mock("./PlayerNotesPanel", () => ({ PlayerNotesPanel: () => <div /> }));
+vi.mock("./PreGameNotesPanel", () => ({
+  PreGameNotesPanel: vi.fn((props: any) => {
+    mockCaptures.preGameNotesPanelProps = props;
+    return <div data-testid="pre-game-notes-panel" />;
+  }),
+}));
 vi.mock("./RotationWidget", () => ({
   RotationWidget: vi.fn((props: any) => {
     mockCaptures.onQueueSubstitution = props.onQueueSubstitution;
@@ -109,7 +122,9 @@ vi.mock("../../hooks/useOfflineMutations", () => ({
       deleteLineupAssignment: (id: string) => mockLineupDelete({ id }),
       updateLineupAssignment: vi.fn().mockResolvedValue(undefined),
       createGoal:             vi.fn().mockResolvedValue(undefined),
-      createGameNote:         vi.fn().mockResolvedValue(undefined),
+      createGameNote:         (...args: unknown[]) => mockCreateGameNote(...args),
+      updateGameNote:         (...args: unknown[]) => mockUpdateGameNote(...args),
+      deleteGameNote:         (...args: unknown[]) => mockDeleteGameNote(...args),
       createPlayerAvailability: (...args: unknown[]) => mockCreatePlayerAvailability(...args),
       updatePlayerAvailability: (...args: unknown[]) => mockUpdatePlayerAvailability(...args),
     },
@@ -433,6 +448,125 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
     render(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
     expect(mockUseWakeLock).toHaveBeenCalledWith(false);
     expect(mockUseGameNotification).toHaveBeenCalledWith(expect.objectContaining({ isActive: false }));
+  });
+
+  it("passes pre-game notes to PreGameNotesPanel in completed state", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'completed' },
+      gameNotes: [
+        {
+          id: 'n-pre',
+          noteType: 'coaching-point',
+          playerId: null,
+          gameSeconds: null,
+          half: null,
+          notes: 'Win the midfield',
+          timestamp: new Date().toISOString(),
+          authorId: 'coach-a',
+          gameId: 'game-1',
+          coaches: ['coach-1'],
+        },
+        {
+          id: 'n-in',
+          noteType: 'gold-star',
+          playerId: 'p1',
+          gameSeconds: 120,
+          half: 1,
+          notes: 'Great tackle',
+          timestamp: new Date().toISOString(),
+          authorId: 'coach-a',
+          gameId: 'game-1',
+          coaches: ['coach-1'],
+        },
+      ],
+    });
+
+    render(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
+
+    expect(mockCaptures.preGameNotesPanelProps.notes).toHaveLength(1);
+    expect(mockCaptures.preGameNotesPanelProps.notes[0].id).toBe('n-pre');
+    expect(mockCaptures.preGameNotesPanelProps.gameStatus).toBe('completed');
+    expect(mockCaptures.preGameNotesPanelProps.isReadOnly).toBe(false);
+  });
+
+  it("creates a completed-state pre-game note through the real add callback flow", async () => {
+    const user = userEvent.setup();
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'completed' },
+      gameNotes: [],
+    });
+
+    render(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
+
+    act(() => {
+      mockCaptures.preGameNotesPanelProps.onAdd();
+    });
+
+    await user.type(screen.getByLabelText('Coaching note text'), 'Post-game cleanup reminder');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => {
+      expect(mockCreateGameNote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          gameId: 'game-1',
+          noteType: 'coaching-point',
+          notes: 'Post-game cleanup reminder',
+          gameSeconds: null,
+          half: null,
+          coaches: ['coach-1'],
+        })
+      );
+    });
+  });
+
+  it("updates and deletes completed-state pre-game notes through panel callbacks", async () => {
+    const user = userEvent.setup();
+    const noteToEdit = {
+      id: 'n-pre',
+      noteType: 'coaching-point',
+      playerId: null,
+      gameSeconds: null,
+      half: null,
+      notes: 'Initial coaching point',
+      timestamp: new Date().toISOString(),
+      authorId: 'coach-a',
+      gameId: 'game-1',
+      coaches: ['coach-1'],
+    };
+
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'completed' },
+      gameNotes: [noteToEdit],
+    });
+
+    render(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
+
+    act(() => {
+      mockCaptures.preGameNotesPanelProps.onEdit(noteToEdit);
+    });
+
+    const noteInput = screen.getByLabelText('Coaching note text');
+    await user.clear(noteInput);
+    await user.type(noteInput, 'Edited coaching point');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(mockUpdateGameNote).toHaveBeenCalledWith('n-pre', {
+        notes: 'Edited coaching point',
+        playerId: null,
+      });
+    });
+
+    await act(async () => {
+      await mockCaptures.preGameNotesPanelProps.onDelete(noteToEdit);
+    });
+
+    expect(mockDeleteGameNote).toHaveBeenCalledWith('n-pre');
   });
 
   it("passes requestPermissionNow=false when status is 'completed'", () => {

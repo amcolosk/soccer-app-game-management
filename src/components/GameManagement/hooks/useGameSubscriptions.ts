@@ -45,6 +45,24 @@ export function useGameSubscriptions({
     return a.gameSeconds - b.gameSeconds;
   };
 
+  const nullSafeGameNotesSort = (
+    a: { gameSeconds?: number | null; half?: number | null; timestamp?: string | null },
+    b: { gameSeconds?: number | null; half?: number | null; timestamp?: string | null }
+  ) => {
+    const aIsPreGame = a.gameSeconds === null && a.half === null;
+    const bIsPreGame = b.gameSeconds === null && b.half === null;
+
+    if (aIsPreGame && bIsPreGame) {
+      return new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime();
+    }
+    if (aIsPreGame) return 1;
+    if (bIsPreGame) return -1;
+
+    const halfDiff = (a.half || 0) - (b.half || 0);
+    if (halfDiff !== 0) return halfDiff;
+    return (a.gameSeconds || 0) - (b.gameSeconds || 0);
+  };
+
   const { data: goals } = useAmplifyQuery('Goal', {
     filter: { gameId: { eq: game.id } },
     sort: halfThenSeconds,
@@ -52,7 +70,7 @@ export function useGameSubscriptions({
 
   const { data: gameNotes } = useAmplifyQuery('GameNote', {
     filter: { gameId: { eq: game.id } },
-    sort: halfThenSeconds,
+    sort: nullSafeGameNotesSort,
   }, [game.id]);
 
   const { data: playerAvailabilities } = useAmplifyQuery('PlayerAvailability', {

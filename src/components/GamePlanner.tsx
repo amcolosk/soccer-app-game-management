@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import type {
-  Game, Team, FormationPosition, GamePlan, PlannedRotation,
+  Game, Team, FormationPosition, GamePlan, PlannedRotation, GameNote,
   PlayerAvailability, PlayerWithRoster as PlayerWithRosterBase,
 } from "../types/schema";
 import {
@@ -25,6 +25,9 @@ import { useConfirm } from "./ConfirmModal";
 import { UI_CONSTANTS } from "../constants/ui";
 import { useAmplifyQuery } from "../hooks/useAmplifyQuery";
 import { computeLineupAtRotation, computeLineupDiff } from "../utils/gamePlannerUtils";
+import { useOfflineMutations } from "../hooks/useOfflineMutations";
+import { PreGameNotesPanel } from "./GameManagement/PreGameNotesPanel";
+import { CreateEditNoteModal } from "./GameManagement/CreateEditNoteModal";
 
 const client = generateClient<Schema>();
 
@@ -214,8 +217,17 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const [players, setPlayers] = useState<PlayerWithRoster[]>([]);
   const [gamePlan, setGamePlan] = useState<GamePlan | null>(null);
   const [rotations, setRotations] = useState<PlannedRotation[]>([]);
+  const { mutations } = useOfflineMutations();
   const { data: availabilities } = useAmplifyQuery('PlayerAvailability', {
     filter: { gameId: { eq: game.id } },
+  }, [game.id]);
+  const { data: gameNotes } = useAmplifyQuery('GameNote', {
+    filter: { gameId: { eq: game.id } },
+    sort: (a, b) => {
+      const tsA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const tsB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return tsB - tsA;
+    },
   }, [game.id]);
   const [startingLineup, setStartingLineup] = useState<Map<string, string>>(new Map()); // positionId -> playerId
   const [halftimeLineup, setHalftimeLineup] = useState<Map<string, string> | null>(null); // positionId -> playerId for H2; null = not explicitly set (use fallback)
@@ -239,6 +251,8 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [planWarnings, setPlanWarnings] = useState<string[]>([]);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
+  const [editingNote, setEditingNote] = useState<GameNote | null>(null);
   const [swapModalData, setSwapModalData] = useState<{
     rotationNumber: number;
     positionId: string;
@@ -252,6 +266,77 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const prevGamePlanId = useRef<string | null>(null);
 
   const maxPlayersOnField = team.maxPlayersOnField || 11;
+  const preGameNotes = useMemo(
+    () => gameNotes.filter((note) => note.gameSeconds === null && note.half === null),
+    [gameNotes]
+  );
+
+  const handleOpenCreateNote = useCallback(() => {
+    setEditingNote(null);
+    setIsNoteModalOpen(true);
+  }, []);
+
+  const handleOpenEditNote = useCallback((note: GameNote) => {
+    setEditingNote(note);
+    setIsNoteModalOpen(true);
+  }, []);
+
+  const handleCloseNoteModal = useCallback(() => {
+    setIsNoteModalOpen(false);
+    setEditingNote(null);
+  }, []);
+
+  const handleSavePreGameNote = useCallback(
+    async ({ notes, playerId }: { notes: string; playerId: string | null }) => {
+      try {
+        if (editingNote?.id) {
+          await mutations.updateGameNote(editingNote.id, {
+            noteType: 'coaching-point',
+            playerId,
+            notes,
+          });
+          showSuccess('Coaching point updated');
+          return;
+        }
+
+        await mutations.createGameNote({
+          gameId: game.id,
+          noteType: 'coaching-point',
+          playerId,
+          gameSeconds: null,
+          half: null,
+          notes,
+          timestamp: new Date().toISOString(),
+          coaches: team.coaches || [],
+        });
+        showSuccess('Coaching point added');
+      } catch (error) {
+        handleApiError(error, 'Failed to save coaching point');
+        throw error;
+      }
+    },
+    [editingNote?.id, game.id, mutations, team.coaches]
+  );
+
+  const handleDeletePreGameNote = useCallback(
+    async (note: GameNote) => {
+      const confirmed = await confirm({
+        title: 'Delete coaching point?',
+        message: 'This note will be removed for all coaches on this team.',
+        confirmText: 'Delete',
+        variant: 'danger',
+      });
+      if (!confirmed) return;
+
+      try {
+        await mutations.deleteGameNote(note.id);
+        showSuccess('Coaching point deleted');
+      } catch (error) {
+        handleApiError(error, 'Failed to delete coaching point');
+      }
+    },
+    [confirm, mutations]
+  );
 
   // Merge base player data with availability when either changes
   useEffect(() => {
@@ -1872,6 +1957,26 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
             ) : null}
           </div>
         )}
+
+        <div className="planner-tab-panel">
+          <PreGameNotesPanel
+            gameStatus={game.status}
+            notes={preGameNotes}
+            players={players}
+            onAdd={handleOpenCreateNote}
+            onEdit={handleOpenEditNote}
+            onDelete={handleDeletePreGameNote}
+          />
+        </div>
+
+        <CreateEditNoteModal
+          isOpen={isNoteModalOpen}
+          mode={editingNote ? 'edit' : 'create'}
+          players={players}
+          initialNote={editingNote}
+          onClose={handleCloseNoteModal}
+          onSubmit={handleSavePreGameNote}
+        />
 
         {/* Existing modals (unchanged) */}
         {showCopyModal && (

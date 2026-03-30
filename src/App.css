@@ -2459,6 +2459,118 @@
   background: rgba(25, 118, 210, 0.05);
 }
 
+.pre-game-notes-panel {
+  background: var(--card-background);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.pre-game-notes-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.pre-game-notes-header p {
+  margin: 0.35rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.btn-add-coaching-point {
+  background: var(--color-strategy);
+  white-space: nowrap;
+}
+
+.btn-add-coaching-point:hover:not(:disabled) {
+  background: var(--color-strategy);
+  filter: brightness(0.95);
+}
+
+.pre-game-notes-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.note-card.note-type-coaching-point {
+  border-left-color: var(--color-strategy);
+  background: var(--color-strategy-light);
+}
+
+.note-author {
+  margin-top: 0.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.pre-game-note-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.empty-state-coaching-point {
+  border: 1px dashed var(--color-border-subtle);
+  border-radius: 10px;
+  padding: 1rem;
+  background: var(--color-surface-light);
+  color: var(--text-secondary);
+}
+
+.empty-state-coaching-point p {
+  margin: 0;
+}
+
+.empty-state-coaching-point p + p {
+  margin-top: 0.35rem;
+}
+
+.modal-create-note {
+  width: min(640px, 100%);
+}
+
+.modal-create-note textarea,
+.modal-create-note select {
+  width: 100%;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.75rem;
+  font: inherit;
+  background: var(--card-background);
+}
+
+.modal-create-note textarea:focus,
+.modal-create-note select:focus {
+  outline: 2px solid var(--color-strategy);
+  outline-offset: 1px;
+}
+
+.char-counter {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+@media (min-width: 768px) {
+  .pre-game-notes-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .pre-game-notes-panel {
+    padding: 1.25rem;
+  }
+
+  .pre-game-notes-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .note-icon {
   font-size: 1.5em;
   flex-shrink: 0;

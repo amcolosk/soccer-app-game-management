@@ -75,13 +75,21 @@ export interface GoalCreateFields {
 
 export interface GameNoteCreateFields {
   gameId: string;
-  noteType: string;
+  noteType: 'coaching-point' | 'gold-star' | 'yellow-card' | 'red-card' | 'other';
   playerId?: string | null;
-  gameSeconds: number;
+  // authorId is intentionally excluded — always derived from the authenticated session
+  // in createGameNote() so callers cannot inject an arbitrary author identity.
+  gameSeconds?: number | null;
   half?: number | null;
   notes?: string | null;
   timestamp?: string | null;
   coaches?: string[] | null;
+}
+
+export interface GameNoteUpdateFields {
+  noteType?: 'coaching-point' | 'gold-star' | 'yellow-card' | 'red-card' | 'other';
+  playerId?: string | null;
+  notes?: string | null;
 }
 
 export interface PlayerAvailabilityCreateFields {
@@ -111,6 +119,8 @@ export interface GameMutationInput {
   updateLineupAssignment: (id: string, fields: LineupAssignmentUpdateFields) => Promise<void>;
   createGoal: (fields: GoalCreateFields) => Promise<void>;
   createGameNote: (fields: GameNoteCreateFields) => Promise<void>;
+  updateGameNote: (id: string, fields: GameNoteUpdateFields) => Promise<void>;
+  deleteGameNote: (id: string) => Promise<void>;
   createPlayerAvailability: (fields: PlayerAvailabilityCreateFields) => Promise<void>;
   updatePlayerAvailability: (id: string, fields: PlayerAvailabilityUpdateFields) => Promise<void>;
 }
@@ -137,9 +147,75 @@ function getSafeErrorMessage(error: unknown): string {
   return 'Unknown error';
 }
 
+function getGraphQLErrorMessage(result: { errors?: Array<{ message?: string | null }> } | undefined, fallback: string): string {
+  const message = result?.errors?.[0]?.message;
+  return message && message.length > 0 ? message : fallback;
+}
+
+type SecureGameNoteCreatePayload = {
+  gameId: string;
+  noteType: GameNoteCreateFields['noteType'];
+  notes: string;
+  playerId?: string | null;
+  gameSeconds?: number | null;
+  half?: number | null;
+  timestamp?: string;
+};
+
+function sanitizeSecureCreateGameNotePayload(
+  payload: GameNoteCreateFields & { authorId?: unknown }
+): SecureGameNoteCreatePayload {
+  const {
+    authorId: _ignoredAuthorId,
+    coaches: _ignoredCoaches,
+    notes,
+    timestamp,
+    ...safePayload
+  } = payload;
+  void _ignoredAuthorId;
+  void _ignoredCoaches;
+
+  return {
+    ...safePayload,
+    notes: notes ?? '',
+    ...(timestamp != null ? { timestamp } : {}),
+  };
+}
+
+async function executeSecureCreateGameNote(
+  payload: GameNoteCreateFields & { authorId?: unknown }
+): Promise<void> {
+  const safePayload = sanitizeSecureCreateGameNotePayload(payload);
+
+  const result = await client.mutations.createSecureGameNote(safePayload);
+  if (result.errors && result.errors.length > 0) {
+    throw new Error(getGraphQLErrorMessage(result, 'Failed to create game note'));
+  }
+}
+
+async function executeSecureUpdateGameNote(
+  payload: { id: string } & GameNoteUpdateFields & { authorId?: unknown }
+): Promise<void> {
+  const { authorId: _ignoredAuthorId, ...safePayload } = payload;
+  void _ignoredAuthorId;
+
+  const result = await client.mutations.updateSecureGameNote(safePayload);
+  if (result.errors && result.errors.length > 0) {
+    throw new Error(getGraphQLErrorMessage(result, 'Failed to update game note'));
+  }
+}
+
 async function executeSingleMutation(item: QueuedMutation): Promise<void> {
   if (!ALLOWED_MODELS.has(item.model) || !ALLOWED_OPS.has(item.operation)) {
     throw new Error(`Disallowed model/operation in offline queue: ${item.model}.${item.operation}`);
+  }
+  if (item.model === 'GameNote' && item.operation === 'create') {
+    await executeSecureCreateGameNote(item.payload as unknown as GameNoteCreateFields & { authorId?: unknown });
+    return;
+  }
+  if (item.model === 'GameNote' && item.operation === 'update') {
+    await executeSecureUpdateGameNote(item.payload as unknown as { id: string } & GameNoteUpdateFields & { authorId?: unknown });
+    return;
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const m = (client.models as Record<string, any>)[item.model];
@@ -162,7 +238,9 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
 
   // Load initial count from IndexedDB on mount (persists across reloads)
   useEffect(() => {
-    void getQueuePendingCount().then(setQueuedCount);
+    void getQueuePendingCount()
+      .then(setQueuedCount)
+      .catch(() => setQueuedCount(0));
   }, []);
 
   const drainQueue = useCallback(async () => {
@@ -360,11 +438,42 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
 
   const createGameNote = useCallback(
     async (fields: GameNoteCreateFields): Promise<void> => {
+      const { authorId: _strippedAuthorId, coaches: _strippedCoaches, ...safeFields } = fields as GameNoteCreateFields & {
+        authorId?: unknown;
+      };
+      void _strippedAuthorId;
+      void _strippedCoaches;
+
       await enqueueOrRun(
         'GameNote', 'create',
-        fields as unknown as Record<string, unknown>,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        () => client.models.GameNote.create(fields as any).then(() => undefined)
+        safeFields as unknown as Record<string, unknown>,
+        () => executeSecureCreateGameNote(safeFields)
+      );
+    },
+    [enqueueOrRun]
+  );
+
+  const updateGameNote = useCallback(
+    async (id: string, fields: GameNoteUpdateFields): Promise<void> => {
+      // Explicitly strip authorId to prevent mutation of existing attribution,
+      // even if callers somehow supply it via an untyped object at runtime.
+      const { authorId: _stripped, ...safeFields } = fields as GameNoteUpdateFields & { authorId?: unknown };
+      void _stripped; // unused — intentionally discarded
+      await enqueueOrRun(
+        'GameNote', 'update',
+        { id, ...safeFields } as Record<string, unknown>,
+        () => executeSecureUpdateGameNote({ id, ...safeFields })
+      );
+    },
+    [enqueueOrRun]
+  );
+
+  const deleteGameNote = useCallback(
+    async (id: string): Promise<void> => {
+      await enqueueOrRun(
+        'GameNote', 'delete',
+        { id },
+        () => client.models.GameNote.delete({ id }).then(() => undefined)
       );
     },
     [enqueueOrRun]
@@ -405,13 +514,16 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       updateLineupAssignment,
       createGoal,
       createGameNote,
+      updateGameNote,
+      deleteGameNote,
       createPlayerAvailability,
       updatePlayerAvailability,
     }),
     [
       updateGame, createPlayTimeRecord, updatePlayTimeRecord, createSubstitution,
       createLineupAssignment, deleteLineupAssignment, updateLineupAssignment,
-      createGoal, createGameNote, createPlayerAvailability, updatePlayerAvailability,
+      createGoal, createGameNote, updateGameNote, deleteGameNote,
+      createPlayerAvailability, updatePlayerAvailability,
     ]
   );
 
