@@ -162,6 +162,7 @@ export function BenchTab({
 
   const benchPlayers = players
     .filter((p) => !isPlayerInLineup(p.id, lineup))
+    .filter((p) => getPlayerAvailabilityStatus(p.id, playerAvailabilities) !== 'absent')
     .map((p) => ({
       ...p,
       playTimeSeconds: calculatePlayerPlayTime(p.id, playTimeRecords, currentTime),

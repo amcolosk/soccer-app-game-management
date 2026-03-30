@@ -163,7 +163,7 @@ export function LineupPanel({
       <div className="lineup-section">
         <div className="lineup-header">
           <h2>
-            {gameState.status === 'halftime' ? 'Second Half Lineup' : 'Starting Lineup'} ({startersCount}/{team.maxPlayersOnField})
+            {gameState.status === 'halftime' ? 'Second Half Lineup' : gameState.status === 'in-progress' ? 'Current Lineup' : 'Starting Lineup'} ({startersCount}/{team.maxPlayersOnField})
           </h2>
           {gameState.status === 'halftime' && startersCount > 0 && (
             <button onClick={handleClearAllPositions} className="btn-clear-lineup">
