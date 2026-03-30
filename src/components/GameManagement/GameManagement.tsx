@@ -441,6 +441,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       return;
     }
     halftimeInProgressRef.current = true;
+    manuallyPausedRef.current = true; // Prevent observeQuery from auto-resuming during halftime transition (fixes #49)
     setIsRunning(false);
     
     try {
@@ -455,6 +456,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       await mutations.updateGame(game.id, {
         status: 'halftime',
         elapsedSeconds: halftimeSeconds,
+        lastStartTime: null, // Clear so stale observeQuery cannot auto-resume
       });
       
       // Update local state immediately so the UI reflects halftime
@@ -466,6 +468,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     } catch (error) {
       handleApiError(error, 'Failed to set halftime');
       halftimeInProgressRef.current = false; // Reset on error so user can retry
+    } finally {
+      manuallyPausedRef.current = false;
     }
   };
 
@@ -554,6 +558,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       return;
     }
     endGameInProgressRef.current = true;
+    manuallyPausedRef.current = true; // Prevent observeQuery from auto-resuming during end-game transition (fixes #49)
 
     try {
       const endGameTime = currentTime;
@@ -569,6 +574,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       await mutations.updateGame(game.id, {
         status: 'completed',
         elapsedSeconds: endGameTime,
+        lastStartTime: null, // Clear so stale observeQuery cannot auto-resume
       });
       
       // Update local state with the exact end time
@@ -578,6 +584,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     } catch (error) {
       handleApiError(error, 'Failed to end game');
       endGameInProgressRef.current = false; // Reset on error so user can retry
+    } finally {
+      manuallyPausedRef.current = false;
     }
   };
 
