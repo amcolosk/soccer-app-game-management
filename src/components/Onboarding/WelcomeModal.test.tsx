@@ -2,11 +2,11 @@
  * Tests for WelcomeModal.
  *
  * Behaviours covered:
- *  - Renders heading, "How it works" section, "Load a sample team" button, primary CTA, skip link
+ *  - Renders heading, privacy section, primary CTA, and dismiss link
  *  - ✕ close button calls onClose
- *  - "Skip setup" calls onClose and fires WELCOME_MODAL_SKIPPED analytics
- *  - "Let's Go →" calls onOpenQuickStart
- *  - "Load a sample team" calls onLoadDemoData and shows loading state
+ *  - "Maybe later" calls onClose and fires WELCOME_MODAL_SKIPPED analytics
+ *  - "Get Started" calls onGetStarted
+ *  - Backdrop click dismisses
  *  - Escape key calls onClose
  *  - Focus moves to heading on open and is restored to trigger element on close
  *  - focus trap: Tab wraps from last to first focusable element
@@ -40,9 +40,7 @@ import { WelcomeModal } from './WelcomeModal';
 function renderModal(overrides: Partial<React.ComponentProps<typeof WelcomeModal>> = {}) {
   const props = {
     onClose: vi.fn(),
-    onLoadDemoData: vi.fn().mockResolvedValue(undefined),
-    onOpenQuickStart: vi.fn(),
-    isDemoLoading: false,
+    onGetStarted: vi.fn(),
     ...overrides,
   };
   return { ...props, ...render(<WelcomeModal {...props} />) };
@@ -59,24 +57,19 @@ describe('WelcomeModal — rendering', () => {
     expect(screen.getByRole('heading', { name: /welcome to teamtrack/i })).toBeInTheDocument();
   });
 
-  it('renders the "How it works" section heading', () => {
+  it('renders the "Privacy" section heading', () => {
     renderModal();
-    expect(screen.getByText(/how it works/i)).toBeInTheDocument();
+    expect(screen.getByText(/privacy/i)).toBeInTheDocument();
   });
 
-  it('renders the "Load a sample team" button', () => {
+  it('renders the "Get Started" primary button', () => {
     renderModal();
-    expect(screen.getByRole('button', { name: /load a sample team/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /get started/i })).toBeInTheDocument();
   });
 
-  it('renders the "Let\'s Go →" primary button', () => {
+  it('renders the "Maybe later" button', () => {
     renderModal();
-    expect(screen.getByRole('button', { name: /let's go/i })).toBeInTheDocument();
-  });
-
-  it('renders the "Skip setup" button', () => {
-    renderModal();
-    expect(screen.getByRole('button', { name: /skip setup/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /maybe later/i })).toBeInTheDocument();
   });
 
   it('renders with role="dialog" and aria-modal="true"', () => {
@@ -110,18 +103,18 @@ describe('WelcomeModal — close button (✕)', () => {
   });
 });
 
-describe('WelcomeModal — "Skip setup"', () => {
+describe('WelcomeModal — "Maybe later"', () => {
   beforeEach(() => mockTrackEvent.mockClear());
 
-  it('calls onClose when "Skip setup" is clicked', async () => {
+  it('calls onClose when "Maybe later" is clicked', async () => {
     const { onClose } = renderModal();
-    await userEvent.click(screen.getByRole('button', { name: /skip setup/i }));
+    await userEvent.click(screen.getByRole('button', { name: /maybe later/i }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('fires WELCOME_MODAL_SKIPPED analytics when "Skip setup" is clicked', async () => {
+  it('fires WELCOME_MODAL_SKIPPED analytics when "Maybe later" is clicked', async () => {
     renderModal();
-    await userEvent.click(screen.getByRole('button', { name: /skip setup/i }));
+    await userEvent.click(screen.getByRole('button', { name: /maybe later/i }));
     expect(mockTrackEvent).toHaveBeenCalledWith('Onboarding', 'Welcome Modal Skipped');
   });
 
@@ -132,32 +125,19 @@ describe('WelcomeModal — "Skip setup"', () => {
   });
 });
 
-describe('WelcomeModal — "Let\'s Go →"', () => {
-  it('calls onOpenQuickStart when clicked', async () => {
-    const { onOpenQuickStart } = renderModal();
-    await userEvent.click(screen.getByRole('button', { name: /let's go/i }));
-    expect(onOpenQuickStart).toHaveBeenCalledTimes(1);
+describe('WelcomeModal — "Get Started"', () => {
+  it('calls onGetStarted when clicked', async () => {
+    const { onGetStarted } = renderModal();
+    await userEvent.click(screen.getByRole('button', { name: /get started/i }));
+    expect(onGetStarted).toHaveBeenCalledTimes(1);
   });
 });
 
-describe('WelcomeModal — "Load a sample team"', () => {
-  it('calls onLoadDemoData when clicked', async () => {
-    const { onLoadDemoData } = renderModal();
-    await userEvent.click(screen.getByRole('button', { name: /load a sample team/i }));
-    expect(onLoadDemoData).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows "Loading..." text and disables the button when isDemoLoading=true', () => {
-    renderModal({ isDemoLoading: true });
-    const btn = screen.getByRole('button', { name: /loading/i });
-    expect(btn).toBeInTheDocument();
-    expect(btn).toBeDisabled();
-  });
-
-  it('shows "Load a sample team" and is enabled when isDemoLoading=false', () => {
-    renderModal({ isDemoLoading: false });
-    const btn = screen.getByRole('button', { name: /load a sample team/i });
-    expect(btn).not.toBeDisabled();
+describe('WelcomeModal — backdrop dismiss', () => {
+  it('calls onClose when backdrop is clicked', async () => {
+    const { onClose } = renderModal();
+    await userEvent.click(document.querySelector('.welcome-modal-overlay') as HTMLElement);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
 

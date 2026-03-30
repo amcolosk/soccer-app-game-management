@@ -26,7 +26,9 @@
    - [Season Reports](#78-season-reports)
    - [Manage (Teams, Players, Formations)](#79-manage)
    - [Profile](#710-profile)
-   - [Invitation Flow](#711-invitation-flow)
+   - [Pre-Game Notes & Attribution](#711-pre-game-notes--attribution)
+   - [Onboarding](#712-onboarding)
+   - [Invitation Flow](#713-invitation-flow)
 8. [Modal & Overlay Patterns](#8-modal--overlay-patterns)
 9. [Help & Bug Report FAB](#9-help--bug-report-fab)
 10. [z-index Stack](#10-z-index-stack)
@@ -535,19 +537,247 @@ Three numeric steppers inside the setup card, arranged in two rows:
 **Route:** `/profile`
 **File:** `src/components/UserProfile.tsx`
 
-#### Contents
-- Email address (read-only)
-- Account actions: Sign Out
-- App info: version number
+#### Layout
+- App header visible
+- Content area with vertical stack
+
+#### Sections
+
+##### Profile Form
+Coach profile for pre-game note attribution. Names visible only to coaches on the same team.
+
+**Form fields (Phone: single column; Tablet: two-column):**
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| First Name | text | No | Auto-capitalize on input; trim on blur; max 50 chars; normalized to null if blank after trim |
+| Last Name | text | No | Auto-capitalize on input; trim on blur; max 50 chars; normalized to null if blank after trim |
+| Share last name with team coaches | toggle / checkbox | Yes | Default: on (true); when off, only first name shown in pre-game notes |
+
+**Phone layout (< 768px):**
+- Full-width single column
+- Each field stacked vertically
+- Input width: 100% with 16px padding
+- Toggle sits below last name field
+- Button row: Save Profile button (full-width primary) + Cancel button (full-width secondary, stacked below Save)
+- Cancel button prompts "Discard changes?" confirmation if form is dirty (any field differs from saved state); confirm clears unsaved edits and returns to profile view
+
+**Tablet layout (≥ 768px):**
+- Two-column grid for first name + last name (side-by-side)
+- Privacy toggle below, full-width
+- Button row: Save (primary) + Cancel (secondary), side-by-side
+- Form max-width: 500px, centered or left-aligned
+
+**Input styling:**
+- Border: `1px solid --border-color`
+- Focus: border `--primary-green`, box-shadow `0 0 0 3px rgba(26, 71, 42, 0.1)`
+- Font: inherit from body
+- Touch target minimum: `44 × 44px` (including labels)
+- Labels: `--text-primary`, `0.9em`, bold, `margin-bottom: 0.5em`
+
+**Toggle styling (for privacy checkbox):**
+- Style as checkbox with custom styling or toggle switch
+- Touch target minimum: `44 × 44px`
+- Checked state: `--primary-green` background or checkmark
+- Label text: Share my last name with coaches (gray hint below if space available on phone)
+
+**Normalization feedback:**
+- When user leaves first/last name field: non-visible trim operation occurs
+- If all whitespace was entered: field clears silently (normalized to null)
+- No inline validation error (graceful normalization)
+- Optional: subtle caption Names are trimmed on save
+
+**Validation rules:**
+- Save button is **disabled** when normalized `firstName` (after trim + blank-to-null) is empty or null
+- Show inline caption below First Name field: "First name required" (`--text-secondary`, `0.85em`)
+- Caption is cleared as soon as first name has non-whitespace text
+- Last name and privacy toggle have no validation; both optional
+
+**States and responses:**
+
+| State | Display |
+|-------|----------|
+| **Idle/loaded** | Form fields prepopulated with current profile data (if exists); Save button enabled if firstName is non-blank, otherwise disabled |
+| **Editing** | Fields accept input; Save button enabled/disabled based on firstName; no change persisted until Submit |
+| **Loading (on Save)** | Save button disabled, shows spinner or Saving... text |
+| **Success** | Toast notification Profile updated (success green, 2.5s) OR inline success message below form; focus remains on form |
+| **Error** | Toast or inline error: Could not save profile. Please try again. (red, 4s); Save button re-enabled |
+| **Conflict (concurrent edit)** | **Persistent inline alert** (not auto-dismiss) positioned above form: Your profile was updated elsewhere. + **Retry** button + **Discard** button. Editing remains enabled while conflict is shown. After successful Retry, alert clears and focus returns to First Name input. Discard button clears the conflict alert without refetching. |
+
+**Accessibility:**
+- Each input has associated `<label>` with `for` attribute
+- Toggle has `aria-label` or associated label
+- Submit button keyboard accessible (Enter to submit)
+- Form has `role="form"` or standard `<form>` element
+- Focus management: focus returns to Save button after successful submission
+- Error/success messages announced via `aria-live="polite"`
+
+##### Account & App Info
+- Email address (read-only, gray label + value)
+- Sign Out button (secondary style, `--text-secondary` text)
+- App version (caption text, bottom of page)
 
 #### Bug Report Access
-Bug reporting is accessed via the global Help FAB (§9) visible on all authenticated screens. The Profile page no longer contains a dedicated bug-report button.
+Bug reporting is accessed via the global Help FAB (§9) visible on all authenticated screens.
 
-> **Migration note:** The previous inline "Report Issue" card in the Manage tab and the "Report a Bug" button in the Game Planner header are both replaced by the Help FAB.
+#### Empty States
+| Condition | Display |
+|-----------|---------|
+| First time (no profile) | Form fields empty; Save button prompts user to enter at least a first name for team attribution |
+| Profile already exists | Form prepopulated with current values |
 
 ---
 
-### 7.11 Invitation Flow
+### 7.11 Pre-Game Notes & Attribution
+
+**Component:** `src/components/GameManagement/PreGameNotesPanel.tsx`
+**Used in:** Game Management — In Progress state, Notes tab
+
+#### Attribution Display Rules and Rendering Matrix
+
+Each pre-game note shows an author attribution label in the note footer. The label is determined by the note's `authorId` and current team coach profiles:
+
+| Author Scenario | Attribution Label | Font & Styling | Context |
+|-----------------|-------------------|-----------------|------------|
+| `authorId === null` | `Unknown Author` | 0.9em, `--text-secondary` italic | Legacy notes with missing author |
+| `authorId === currentUserId` | `You` | 0.9em, `--primary-green` bold | Current coach's own notes—**render only label text, no Coach N suffix** |
+| Author in team coaches but no profile | `Coach` | 0.9em, `--text-secondary` normal | Profile not yet created |
+| Author in team coaches with profile (privacy on) | `FirstName LastInitial.` | 0.9em, `--text-primary` normal | Example: Alice M. |
+| Author in team coaches with profile (privacy off) | `FirstName` | 0.9em, `--text-primary` normal | Example: Alice |
+| Author formerly on team (removed from Team.coaches) | `Former Coach` | 0.9em, `--text-secondary` italic | Historical note, author no longer on team; same styling as Coach fallback |
+| Duplicate display names within team | `DisplayName (Coach 1)`, `DisplayName (Coach 2)`, etc. | base label in 0.9em `--text-primary` normal; ordinal suffix `(Coach N)` in `--text-secondary` normal | Deterministic ordinal suffix to disambiguate; ordinal suffix is not applied to You label |
+
+**Placement and formatting:**
+- Attribution label sits as a footer caption line below note text and above action buttons
+- Format: `Created by: [label]`
+- Line spacing: `0.5em` margin-top from note text, `0.5em` margin-bottom from action row
+- No raw Cognito IDs exposed in UI
+
+#### Duplicate Disambiguation Algorithm
+
+When multiple coaches have the same normalized first name (and same last initial if privacy allows), the UI appends a team-scoped ordinal:
+
+1. Group coaches by base display name (after privacy filtering)
+2. For each collision group, sort by coach ID lexicographically
+3. Assign 1-based ordinal within group
+4. Render as: `DisplayName (Coach 1)`, `DisplayName (Coach 2)`, etc.
+
+Example: Two coaches both named Alex on same team rendered as Alex (Coach 1) and Alex (Coach 2) (deterministic, stable across sessions).
+
+#### Attribution Data Flow and Refresh Behavior
+
+1. When Notes tab is active, `GameManagement.tsx` fetches team coach profiles via `useTeamCoachProfiles` hook (60-second freshness target)
+2. Pass profile map to `PreGameNotesPanel` component
+3. Component resolves each note's `authorId` to display-ready label using attribution matrix above
+4. **Refresh runs silently every 60 seconds with no staleness badge or indicator displayed to user**
+5. No manual refresh button; data auto-updates in background if profile changes are detected
+6. Immediate refetch triggers: team change, notes tab focus entry, window focus regain
+
+---
+
+### 7.12 Onboarding
+
+**Components:** `src/components/Onboarding/QuickStartChecklist.tsx`, `src/components/Onboarding/WelcomeModal.tsx`
+**Shown on:** Home tab for first-time coaches
+
+#### Quick Start Checklist
+
+**Purpose:** Guide new coaches through seven sequential setup steps required to run a live game.
+
+**Display:**
+- Sticky card-style checklist on Home tab, above game list (if not dismissed)
+- Can be collapsed to a small resume banner; expands on tap
+- Auto-dismisses when all steps complete (shows completion state for 4 seconds)
+
+**Steps (in order):**
+
+| # | Title | Completion Signal | Direction Text | Screen |
+|---|-------|-------------------|-----------------|--------|
+| 1 | Create your team | Team created | Go to Manage ⚙️ → Teams | /manage (Teams section) |
+| 2 | Complete your profile | First name filled (non-null after trim) | Go to Profile 👤 | /profile (Profile form) |
+| 3 | Add players to your roster | >= 1 player added to team | Go to Manage ⚙️ → Players | /manage (Players section) |
+| 4 | Set your formation | Formation assigned to team | Go to Manage ⚙️ → Teams and assign a formation | /manage (Teams section) |
+| 5 | Schedule a game | >= 1 game created | Tap + Schedule New Game above | /home (inline create form) |
+| 6 | Plan your rotations | >= 1 game plan created | Tap 📋 Plan Game on your game card | /game/:id/plan |
+| 7 | Manage a live game | >= 1 game with status `in-progress` or `completed` | On game day, tap Start Game | /game/:id |
+
+**Layout:**
+- Card background: `--card-background` with `1px solid --border-color`
+- Title: h2, `--primary-green`
+- Progress bar: width = `(completed / 7) * 100%`, `--accent-green` background
+- Each step: checkbox (checked/unchecked) + step title + direction text
+- Font: step number in circle (optional), title bold, direction gray caption
+- Actions: Expand/Collapse button (if collapsed) + Dismiss button (X icon)
+
+**Persistence and visibility:**
+- Checklist visibility state is stored in localStorage (key: `quickStartChecklistDismissed`, boolean)
+- Checklist is **auto-hidden (dismissed) when all 7 steps are complete**; shows completion state for 4 seconds then auto-dismisses
+- After auto-dismiss, checklist remains hidden for the session and hides on subsequent visits unless explicitly reset
+- **Reset conditions:** Checklist reappears if (a) a step is unchecked (e.g., team deleted), or (b) user manually re-opens it via a pin/expand button, or (c) localStorage is cleared
+- Checklist state persists across sign-out/sign-in
+
+**States:**
+- **Not started** — all steps unchecked; checklist visible
+- **In progress** — mix of checked and unchecked; checklist visible
+- **Complete** — all 7 steps checked; shows brief "All set!" message, auto-dismisses after 4 seconds, then hides until reset condition is met
+
+#### Welcome Modal
+
+**Purpose:** First-time greeting modal on app load; introduces profile concept and privacy assurance.
+
+**Display:**
+- Modal overlay on home page load (only shown once per user; dismissed state persisted in localStorage)
+- Centered card with white background
+- z-index: `1000` (standard modal)
+
+**Content:**
+
+```
+[Optional icon: Handshake or Welcome emoji]  27px
+
+Hey there, Coach! 👋
+
+Welcome to TeamTrack. Before you dive in, take a moment to complete 
+your profile on the Profile tab (👤). Your first name helps teammates 
+identify your notes during games.
+
+[Privacy callout box, light green background:]
+  🔒 Your profile is shared only with coaches on your teams.
+  You control what others see (first name only, or with last initial).
+
+[Buttons:]
+  Get Started (primary button)
+  [Optional: Learn more link (secondary)]
+```
+
+**Mobile layout (< 768px):**
+- Modal takes 90vw width, max 320px
+- Single column
+- Buttons stacked vertically or side-by-side if space
+
+**Tablet layout (≥ 768px):**
+- Modal takes 400px width
+- Same layout, buttons may be side-by-side
+
+**Persistence and dismissal:**
+- Shown on first app load; dismissed state is persisted in localStorage (key: `welcomeModalDismissed`)
+- **Welcome dismissal persists across sign-out and sign-in** (based on localStorage, not per-user backend state)
+- New app install or cleared localStorage resets dismissal and shows modal again on next login
+
+**Interactions:**
+- Get Started button dismisses modal AND navigates to `/profile` tab
+- Learn more link (future): opens help for profile completion
+- Backdrop tap dismisses modal and returns to Home tab (no navigation)
+
+**Accessibility:**
+- Modal has `role="alertdialog"` or `role="dialog"`
+- Focus trapped inside modal while open
+- Escape key dismisses
+- Heading uses `<h2>` or `<h1>` inside modal
+
+---
+
+### 7.13 Invitation Flow
 
 **Route:** `/invite/:invitationId`
 **Full-screen, outside AppLayout**

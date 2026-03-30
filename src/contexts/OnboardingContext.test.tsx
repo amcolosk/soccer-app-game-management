@@ -3,10 +3,11 @@
  *
  * Behaviours covered:
  *  - Initial state reads from localStorage on mount
- *  - markWelcomed() sets welcomed=true and writes 'onboarding:welcomed'='1'
+ *  - markWelcomed() sets welcomed=true and writes 'welcomeModalDismissed'='1'
  *  - collapse() sets collapsed=true and writes 'onboarding:collapsed'='1'
  *  - expand() sets collapsed=false and removes 'onboarding:collapsed'
- *  - dismiss() sets dismissed=true, clears collapsed, writes 'onboarding:dismissed'='1'
+ *  - dismiss() sets dismissed=true, clears collapsed, writes 'quickStartChecklistDismissed'='1'
+ *  - clearDismissed() clears only dismissed flag from state/localStorage
  *  - resetOnboarding() clears all three flags from state and localStorage
  *  - useOnboarding() throws when used outside the provider
  */
@@ -20,7 +21,7 @@ import { OnboardingProvider, useOnboarding } from './OnboardingContext';
 // Test harness component — exposes all context actions as buttons
 // ---------------------------------------------------------------------------
 function Harness() {
-  const { welcomed, collapsed, dismissed, markWelcomed, collapse, expand, dismiss, resetOnboarding } = useOnboarding();
+  const { welcomed, collapsed, dismissed, markWelcomed, collapse, expand, dismiss, clearDismissed, resetOnboarding } = useOnboarding();
   return (
     <div>
       <span data-testid="welcomed">{String(welcomed)}</span>
@@ -30,6 +31,7 @@ function Harness() {
       <button onClick={collapse}>collapse</button>
       <button onClick={expand}>expand</button>
       <button onClick={dismiss}>dismiss</button>
+      <button onClick={clearDismissed}>clearDismissed</button>
       <button onClick={resetOnboarding}>reset</button>
     </div>
   );
@@ -63,8 +65,8 @@ describe('OnboardingContext — initial state from localStorage', () => {
     expect(dismissed()).toBe('false');
   });
 
-  it('reads welcomed=true when onboarding:welcomed=1 is already set', () => {
-    localStorage.setItem('onboarding:welcomed', '1');
+  it('reads welcomed=true when welcomeModalDismissed=1 is already set', () => {
+    localStorage.setItem('welcomeModalDismissed', '1');
     renderWithProvider();
     expect(welcomed()).toBe('true');
   });
@@ -75,8 +77,8 @@ describe('OnboardingContext — initial state from localStorage', () => {
     expect(collapsed()).toBe('true');
   });
 
-  it('reads dismissed=true when onboarding:dismissed=1 is already set', () => {
-    localStorage.setItem('onboarding:dismissed', '1');
+  it('reads dismissed=true when quickStartChecklistDismissed=1 is already set', () => {
+    localStorage.setItem('quickStartChecklistDismissed', '1');
     renderWithProvider();
     expect(dismissed()).toBe('true');
   });
@@ -91,10 +93,10 @@ describe('OnboardingContext — markWelcomed()', () => {
     expect(welcomed()).toBe('true');
   });
 
-  it("writes '1' to localStorage key 'onboarding:welcomed'", async () => {
+  it("writes '1' to localStorage key 'welcomeModalDismissed'", async () => {
     renderWithProvider();
     await userEvent.click(screen.getByText('markWelcomed'));
-    expect(localStorage.getItem('onboarding:welcomed')).toBe('1');
+    expect(localStorage.getItem('welcomeModalDismissed')).toBe('1');
   });
 });
 
@@ -154,19 +156,19 @@ describe('OnboardingContext — dismiss()', () => {
     expect(collapsed()).toBe('false');
   });
 
-  it("writes '1' to 'onboarding:dismissed' and removes 'onboarding:collapsed'", async () => {
+  it("writes '1' to 'quickStartChecklistDismissed' and removes 'onboarding:collapsed'", async () => {
     renderWithProvider();
     await userEvent.click(screen.getByText('dismiss'));
-    expect(localStorage.getItem('onboarding:dismissed')).toBe('1');
+    expect(localStorage.getItem('quickStartChecklistDismissed')).toBe('1');
     expect(localStorage.getItem('onboarding:collapsed')).toBeNull();
   });
 });
 
 describe('OnboardingContext — resetOnboarding()', () => {
   beforeEach(() => {
-    localStorage.setItem('onboarding:welcomed', '1');
+    localStorage.setItem('welcomeModalDismissed', '1');
     localStorage.setItem('onboarding:collapsed', '1');
-    localStorage.setItem('onboarding:dismissed', '1');
+    localStorage.setItem('quickStartChecklistDismissed', '1');
   });
 
   it('clears all three state flags', async () => {
@@ -180,8 +182,36 @@ describe('OnboardingContext — resetOnboarding()', () => {
   it('removes all three localStorage keys', async () => {
     renderWithProvider();
     await userEvent.click(screen.getByText('reset'));
-    expect(localStorage.getItem('onboarding:welcomed')).toBeNull();
+    expect(localStorage.getItem('welcomeModalDismissed')).toBeNull();
     expect(localStorage.getItem('onboarding:collapsed')).toBeNull();
+    expect(localStorage.getItem('quickStartChecklistDismissed')).toBeNull();
+  });
+});
+
+describe('OnboardingContext — clearDismissed()', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('quickStartChecklistDismissed', '1');
+    localStorage.setItem('onboarding:dismissed', '1');
+  });
+
+  it('clears dismissed state only', async () => {
+    renderWithProvider();
+    expect(dismissed()).toBe('true');
+
+    await userEvent.click(screen.getByText('clearDismissed'));
+
+    expect(dismissed()).toBe('false');
+    expect(welcomed()).toBe('false');
+    expect(collapsed()).toBe('false');
+  });
+
+  it('removes dismissal keys from localStorage', async () => {
+    renderWithProvider();
+
+    await userEvent.click(screen.getByText('clearDismissed'));
+
+    expect(localStorage.getItem('quickStartChecklistDismissed')).toBeNull();
     expect(localStorage.getItem('onboarding:dismissed')).toBeNull();
   });
 });

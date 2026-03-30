@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuthenticator } from '@aws-amplify/ui-react';
 import { useOutletContext } from 'react-router-dom';
 import { updatePassword, deleteUser, fetchUserAttributes } from 'aws-amplify/auth';
+import { getCurrentUser } from 'aws-amplify/auth';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import type { Team } from '../types/schema';
@@ -18,6 +19,13 @@ import type { UserProfileDebugContext } from '../types/debug';
 
 const client = generateClient<Schema>();
 
+type CoachProfile = Schema['CoachProfile']['type'];
+
+function normalizeName(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 export function UserProfile() {
   const confirm = useConfirm();
   const { user } = useAuthenticator();
@@ -30,6 +38,18 @@ export function UserProfile() {
     setHelpContext('profile');
     return () => setHelpContext(null);
   }, [setHelpContext]);
+  const firstNameInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Coach profile state
+  const [coachProfile, setCoachProfile] = useState<CoachProfile | null>(null);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [shareLastName, setShareLastName] = useState(true);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileMessage, setProfileMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [conflictError, setConflictError] = useState<string | null>(null);
+
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -43,6 +63,20 @@ export function UserProfile() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [loadingInvitations, setLoadingInvitations] = useState(false);
   const [userEmail, setUserEmail] = useState('');
+
+  const normalizedFirstName = useMemo(() => normalizeName(firstName), [firstName]);
+  const saveDisabled = isSavingProfile || !normalizedFirstName;
+  const isDirty = useMemo(() => {
+    if (!coachProfile) {
+      return firstName.trim().length > 0 || lastName.trim().length > 0 || shareLastName !== true;
+    }
+
+    return (
+      (coachProfile.firstName ?? '') !== firstName ||
+      (coachProfile.lastName ?? '') !== lastName ||
+      (coachProfile.shareLastNameWithCoaches ?? true) !== shareLastName
+    );
+  }, [coachProfile, firstName, lastName, shareLastName]);
 
   const userProfileDebugContext = useMemo((): UserProfileDebugContext => {
     const atIndex = userEmail.indexOf('@');
@@ -69,7 +103,103 @@ export function UserProfile() {
   useEffect(() => {
     void loadPendingInvitations();
     void loadUserAttributes();
+    void loadCoachProfile();
   }, []);
+
+  async function loadCoachProfile(): Promise<boolean> {
+    setIsLoadingProfile(true);
+    try {
+      const user = await getCurrentUser();
+      const result = await client.models.CoachProfile.get({ id: user.userId });
+      const profile = result.data;
+
+      setCoachProfile(profile ?? null);
+      setFirstName(profile?.firstName ?? '');
+      setLastName(profile?.lastName ?? '');
+      setShareLastName(profile?.shareLastNameWithCoaches ?? true);
+      return true;
+    } catch (error) {
+      console.error('Error loading coach profile:', error);
+      setProfileMessage({ type: 'error', text: 'Could not load profile. Please try again.' });
+      return false;
+    } finally {
+      setIsLoadingProfile(false);
+    }
+  }
+
+  const handleDiscardChanges = async () => {
+    if (isDirty) {
+      const confirmed = await confirm({
+        title: 'Discard changes?',
+        message: 'You have unsaved profile changes. Discard them?',
+        confirmText: 'Discard',
+        variant: 'warning',
+      });
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setConflictError(null);
+    setProfileMessage(null);
+    setFirstName(coachProfile?.firstName ?? '');
+    setLastName(coachProfile?.lastName ?? '');
+    setShareLastName(coachProfile?.shareLastNameWithCoaches ?? true);
+  };
+
+  const handleRetryConflict = async () => {
+    const isReloaded = await loadCoachProfile();
+    if (isReloaded) {
+      setConflictError(null);
+      firstNameInputRef.current?.focus();
+    }
+  };
+
+  const handleSaveCoachProfile = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!normalizedFirstName) {
+      return;
+    }
+
+    setIsSavingProfile(true);
+    setProfileMessage(null);
+
+    try {
+      const result = await client.mutations.upsertMyCoachProfile({
+        firstName: normalizeName(firstName),
+        lastName: normalizeName(lastName),
+        shareLastNameWithCoaches: shareLastName,
+        expectedUpdatedAt: coachProfile?.updatedAt,
+      });
+
+      if (result.errors && result.errors.length > 0) {
+        const message = result.errors[0].message ?? 'Could not save profile. Please try again.';
+        if (message.includes('CONFLICT_PROFILE_UPDATED_ELSEWHERE')) {
+          setConflictError('Your profile was updated elsewhere.');
+          return;
+        }
+        throw new Error(message);
+      }
+
+      const updated = result.data;
+      if (!updated) {
+        throw new Error('Could not save profile. Please try again.');
+      }
+
+      setCoachProfile(updated);
+      setFirstName(updated.firstName ?? '');
+      setLastName(updated.lastName ?? '');
+      setShareLastName(updated.shareLastNameWithCoaches ?? true);
+      setConflictError(null);
+      setProfileMessage({ type: 'success', text: 'Profile updated.' });
+    } catch (error) {
+      console.error('Error saving coach profile:', error);
+      setProfileMessage({ type: 'error', text: 'Could not save profile. Please try again.' });
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   async function loadUserAttributes() {
     try {
@@ -211,6 +341,92 @@ export function UserProfile() {
           {message.text}
         </div>
       )}
+
+      <div className="profile-section">
+        <h3>Coach Profile</h3>
+        <p className="section-hint">Names are visible only to coaches on your teams.</p>
+
+        {conflictError && (
+          <div className="message message-error profile-conflict" role="alert">
+            <span>{conflictError}</span>
+            <div className="profile-conflict-actions">
+              <button type="button" className="btn-secondary" onClick={() => { void handleRetryConflict(); }}>
+                Retry
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => setConflictError(null)}>
+                Discard
+              </button>
+            </div>
+          </div>
+        )}
+
+        {profileMessage && (
+          <div className={`message message-${profileMessage.type}`} aria-live="polite">
+            {profileMessage.text}
+          </div>
+        )}
+
+        <form className="password-form profile-form" onSubmit={handleSaveCoachProfile}>
+          <div className="profile-name-grid">
+            <div className="form-group">
+              <label htmlFor="coachFirstName">First Name</label>
+              <input
+                id="coachFirstName"
+                ref={firstNameInputRef}
+                type="text"
+                maxLength={50}
+                value={firstName}
+                disabled={isLoadingProfile || isSavingProfile}
+                onBlur={(e) => setFirstName(e.target.value.trim())}
+                onChange={(e) => setFirstName(e.target.value)}
+                autoCapitalize="words"
+              />
+              {!normalizedFirstName && (
+                <small className="profile-validation">First name required</small>
+              )}
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="coachLastName">Last Name</label>
+              <input
+                id="coachLastName"
+                type="text"
+                maxLength={50}
+                value={lastName}
+                disabled={isLoadingProfile || isSavingProfile}
+                onBlur={(e) => setLastName(e.target.value.trim())}
+                onChange={(e) => setLastName(e.target.value)}
+                autoCapitalize="words"
+              />
+            </div>
+          </div>
+
+          <label className="checkbox-label profile-checkbox-label" htmlFor="shareLastNameWithCoaches">
+            <input
+              id="shareLastNameWithCoaches"
+              type="checkbox"
+              checked={shareLastName}
+              disabled={isLoadingProfile || isSavingProfile}
+              onChange={(e) => setShareLastName(e.target.checked)}
+            />
+            Share my last name with coaches
+          </label>
+
+          <div className="profile-form-actions">
+            <button type="submit" className="btn-primary" disabled={saveDisabled}>
+              {isSavingProfile ? 'Saving...' : 'Save Profile'}
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={isSavingProfile || isLoadingProfile}
+              onClick={() => { void handleDiscardChanges(); }}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
 
       {/* Pending Invitations Section */}
       {pendingInvitations.teamInvitations.length > 0 && (

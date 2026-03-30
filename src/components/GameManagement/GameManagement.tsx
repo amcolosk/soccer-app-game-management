@@ -10,6 +10,7 @@ import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, type PlannedSubstitution } from "../../services/rotationPlannerService";
 import { useTeamData } from "../../hooks/useTeamData";
 import { useOfflineMutations } from "../../hooks/useOfflineMutations";
+import { useTeamCoachProfiles } from "../../hooks/useTeamCoachProfiles";
 import { useGameSubscriptions } from "./hooks/useGameSubscriptions";
 import { useGameTimer } from "./hooks/useGameTimer";
 import { CommandBand } from "./CommandBand";
@@ -47,6 +48,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const confirm = useConfirm();
   // Load team roster and formation positions with real-time updates
   const { players, positions } = useTeamData(team.id, team.formationId);
+  const { profileMap, refetch: refetchCoachProfiles } = useTeamCoachProfiles({
+    teamId: team.id,
+    onFocusRefetch: true,
+  });
+
 
   const [currentTime, setCurrentTime] = useState(game.elapsedSeconds || 0);
   const [isRunning, setIsRunning] = useState(false);
@@ -602,6 +608,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }
   }, [gameState.status]);
 
+  useEffect(() => {
+    if (gameState.status === 'in-progress' && activeTab === 'notes') {
+      void refetchCoachProfiles();
+    }
+  }, [gameState.status, activeTab, refetchCoachProfiles]);
+
   const handleSubstitute = (position: FormationPosition) => {
     setSubstitutionRequest(position);
   };
@@ -1093,6 +1105,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               onEdit={openEditPreGameNote}
               onDelete={handleDeletePreGameNote}
               isReadOnly={false}
+              profileMap={profileMap}
             />
             <GoalTracker {...sharedGoalTrackerProps} />
             <PlayerNotesPanel {...sharedNotesPanelProps} />

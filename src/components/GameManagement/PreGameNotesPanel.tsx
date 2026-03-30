@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { getCurrentUser } from "aws-amplify/auth";
 import type { Game, GameNote, PlayerWithRoster } from "./types";
+import type { TeamCoachProfileDTO } from "../../services/coachDisplayNameService";
+import { resolveAttributionLabel, formatAttributionLine, getAttributionLabelClassName } from "../../services/coachDisplayNameService";
 
 interface PreGameNotesPanelProps {
   gameStatus: Game['status'];
@@ -10,6 +12,7 @@ interface PreGameNotesPanelProps {
   onEdit: (note: GameNote) => void;
   onDelete: (note: GameNote) => void;
   isReadOnly?: boolean;
+  profileMap?: Map<string, TeamCoachProfileDTO>;
 }
 
 function getPlayerLabel(playerId: string | null | undefined, players: PlayerWithRoster[]): string {
@@ -19,7 +22,16 @@ function getPlayerLabel(playerId: string | null | undefined, players: PlayerWith
   return `#${player.playerNumber} ${player.firstName} ${player.lastName}`;
 }
 
-export function PreGameNotesPanel({ gameStatus, notes, players, onAdd, onEdit, onDelete, isReadOnly = false }: PreGameNotesPanelProps) {
+export function PreGameNotesPanel({
+  gameStatus,
+  notes,
+  players,
+  onAdd,
+  onEdit,
+  onDelete,
+  isReadOnly = false,
+  profileMap = new Map(),
+}: PreGameNotesPanelProps) {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const isSoftLocked = isReadOnly || gameStatus === 'in-progress' || gameStatus === 'halftime';
 
@@ -41,12 +53,6 @@ export function PreGameNotesPanel({ gameStatus, notes, players, onAdd, onEdit, o
     };
   }, []);
 
-  function formatAuthorLabel(authorId: string | null | undefined): string {
-    if (!authorId) return 'Unknown Author';
-    if (authorId === currentUserId) return 'You';
-    if (authorId.length <= 11) return `Coach (${authorId})`;
-    return `Coach (${authorId.slice(0, 6)}...${authorId.slice(-5)})`;
-  }
 
   return (
     <section className="pre-game-notes-panel" aria-label="Pre-game coaching notes">
@@ -84,7 +90,9 @@ export function PreGameNotesPanel({ gameStatus, notes, players, onAdd, onEdit, o
                 </div>
                 <div className="note-player">{getPlayerLabel(note.playerId, players)}</div>
                 {note.notes && <div className="note-text">{note.notes}</div>}
-                <div className="note-author">Created by: {formatAuthorLabel(note.authorId)}</div>
+                <div className={`note-author ${getAttributionLabelClassName(note.authorId, currentUserId || undefined, profileMap)}`}>
+                  {formatAttributionLine(resolveAttributionLabel(note.authorId, currentUserId || undefined, profileMap))}
+                </div>
                 {!isReadOnly && (
                   <div className="pre-game-note-actions">
                     <button

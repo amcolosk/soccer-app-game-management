@@ -11,6 +11,8 @@ import { getUserInvitations } from './functions/get-user-invitations/resource';
 import { createGitHubIssue } from './functions/create-github-issue/resource';
 import { createGameNote } from './functions/create-game-note/resource';
 import { updateGameNote } from './functions/update-game-note/resource';
+import { upsertCoachProfile } from './functions/upsert-coach-profile/resource';
+import { getTeamCoachProfiles } from './functions/get-team-coach-profiles/resource';
 
 const backend = defineBackend({
   auth,
@@ -22,6 +24,8 @@ const backend = defineBackend({
   createGitHubIssue,
   createGameNote,
   updateGameNote,
+  upsertCoachProfile,
+  getTeamCoachProfiles,
 });
 
 // Add deployment ID to outputs
@@ -160,3 +164,29 @@ teamRosterTable.grantReadData(backend.updateGameNote.resources.lambda);
 backend.updateGameNote.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
 backend.updateGameNote.addEnvironment('GAME_TABLE', gameTable.tableName);
 backend.updateGameNote.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);
+
+// Grant table access for upsertCoachProfile Lambda (least-privilege: CoachProfile only)
+const coachProfileTable = backend.data.resources.tables['CoachProfile'];
+backend.upsertCoachProfile.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem'],
+    resources: [coachProfileTable.tableArn],
+  })
+);
+backend.upsertCoachProfile.addEnvironment('COACH_PROFILE_TABLE', coachProfileTable.tableName);
+
+// Grant table access for getTeamCoachProfiles Lambda (read-only: Team + CoachProfile)
+backend.getTeamCoachProfiles.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem'],
+    resources: [teamTable.tableArn],
+  })
+);
+backend.getTeamCoachProfiles.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem', 'dynamodb:BatchGetItem'],
+    resources: [coachProfileTable.tableArn],
+  })
+);
+backend.getTeamCoachProfiles.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.getTeamCoachProfiles.addEnvironment('COACH_PROFILE_TABLE', coachProfileTable.tableName);

@@ -23,6 +23,7 @@ const {
   mockCreatePlayerAvailability,
   mockUpdatePlayerAvailability,
   mockSetHelpContext,
+  mockRefetchCoachProfiles,
 } = vi.hoisted(() => ({
   mockLineupDelete:      vi.fn().mockResolvedValue({}),
   mockLineupCreate:      vi.fn().mockResolvedValue({ data: { id: "la-new" } }),
@@ -35,6 +36,7 @@ const {
   mockCreatePlayerAvailability: vi.fn().mockResolvedValue(undefined),
   mockUpdatePlayerAvailability: vi.fn().mockResolvedValue(undefined),
   mockSetHelpContext:    vi.fn(),
+  mockRefetchCoachProfiles: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("aws-amplify/data", () => ({
@@ -135,6 +137,12 @@ vi.mock("../../hooks/useOfflineMutations", () => ({
 }));
 vi.mock("../../hooks/useTeamData", () => ({
   useTeamData: mockUseTeamData,
+}));
+vi.mock("../../hooks/useTeamCoachProfiles", () => ({
+  useTeamCoachProfiles: vi.fn(() => ({
+    profileMap: new Map(),
+    refetch: mockRefetchCoachProfiles,
+  })),
 }));
 vi.mock("../../hooks/useWakeLock", () => ({ useWakeLock: vi.fn() }));
 vi.mock("../../hooks/useGameNotification", () => ({ useGameNotification: vi.fn() }));
@@ -393,6 +401,23 @@ describe("GameManagement – help context wiring", () => {
     render(<GameManagement game={{ ...mockGame, status: 'unknown-status' as any }} team={mockTeam} onBack={vi.fn()} />);
     // setHelpContext should NOT be called with any game key for unknown status
     expect(mockSetHelpContext).not.toHaveBeenCalledWith(expect.stringMatching(/^game-/));
+  });
+
+  it("refetches coach profiles when entering the Notes tab", async () => {
+    const user = userEvent.setup();
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+    });
+
+    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    const baselineCalls = mockRefetchCoachProfiles.mock.calls.length;
+    await user.click(screen.getByRole('tab', { name: /notes/i }));
+
+    await waitFor(() => {
+      expect(mockRefetchCoachProfiles.mock.calls.length).toBeGreaterThan(baselineCalls);
+    });
   });
 });
 
