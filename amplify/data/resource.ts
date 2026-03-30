@@ -390,7 +390,6 @@ const schema = a.schema({
   
   CoachProfile: a
     .model({
-      id: a.string().required(), // Cognito sub (identity key)
       firstName: a.string(),
       lastName: a.string(),
       shareLastNameWithCoaches: a.boolean().default(true),
