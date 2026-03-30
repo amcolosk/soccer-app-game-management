@@ -20,7 +20,9 @@ vi.mock('@aws-sdk/lib-dynamodb', () => ({
 import { handler } from './handler';
 
 type HandlerEvent = Parameters<typeof handler>[0];
-const invoke = (event: HandlerEvent) => handler(event, {} as any, (() => {}) as any);
+type HandlerContext = Parameters<typeof handler>[1];
+type HandlerCallback = Parameters<typeof handler>[2];
+const invoke = (event: HandlerEvent) => handler(event, {} as HandlerContext, (() => {}) as HandlerCallback);
 
 function createEvent(overrides: Partial<HandlerEvent['arguments']> = {}): HandlerEvent {
   return {
