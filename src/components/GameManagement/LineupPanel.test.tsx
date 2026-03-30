@@ -193,9 +193,9 @@ describe('LineupPanel', () => {
     expect(screen.getByRole('heading', { name: /starting lineup/i })).toBeInTheDocument();
   });
 
-  it('shows "Starting Lineup" header for in-progress status', () => {
+  it('shows "Current Lineup" header for in-progress status', () => {
     render(<LineupPanel {...defaultProps} />);
-    expect(screen.getByRole('heading', { name: /starting lineup/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /current lineup/i })).toBeInTheDocument();
   });
 
   it('shows "Second Half Lineup" header for halftime status', () => {

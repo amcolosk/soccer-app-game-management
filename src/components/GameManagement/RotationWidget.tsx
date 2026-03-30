@@ -98,6 +98,7 @@ export function RotationWidget({
           onQueueSubstitution(sub.playerInId, sub.positionId);
         }
       });
+      setShowRotationModal(false);
     } catch { /* ignore parse errors */ }
   };
 

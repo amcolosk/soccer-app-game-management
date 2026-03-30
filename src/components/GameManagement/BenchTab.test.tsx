@@ -341,6 +341,23 @@ describe("BenchTab", () => {
     expect(mockShowSuccess).toHaveBeenCalledWith("Player status updated.");
   });
 
+  // ── Absent player filtering ──────────────────────────────────────────────
+  it("does not show absent players on the bench", () => {
+    const players = [
+      makePlayer("p1", 7, "Alice"),  // available
+      makePlayer("p2", 5, "Bob"),    // absent — should be hidden
+    ];
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        playerAvailabilities={[{ id: "pa-2", playerId: "p2", status: "absent" }] as any}
+      />
+    );
+    expect(screen.getByText(/Alice/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Bob/i)).not.toBeInTheDocument();
+  });
+
   it("does not trigger substitution selection when injury action is clicked", async () => {
     const user = userEvent.setup();
     const onSelectPlayer = vi.fn();

@@ -310,6 +310,30 @@ describe("RotationWidget", () => {
     expect(screen.getByRole("button", { name: /Queue All/i })).toBeDisabled();
   });
 
+  it("Queue All closes the rotation modal overlay after queueing substitutions", async () => {
+    const user = userEvent.setup();
+    mockGetPlayerAvailability.mockReturnValue("available");
+
+    // Use uncontrolled mode: no isRotationModalOpen prop so internal state governs visibility
+    render(
+      <RotationWidget
+        {...baseProps}
+        onQueueSubstitution={vi.fn()}
+      />
+    );
+
+    // Open the modal via the "View Plan" button
+    await user.click(screen.getByRole("button", { name: /View Plan/i }));
+    expect(screen.getByRole("heading", { name: /Planned Rotation/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Queue All/i }));
+
+    // Modal should no longer be visible after Queue All
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: /Planned Rotation/i })).not.toBeInTheDocument()
+    );
+  });
+
   // ── Malformed JSON graceful fallback ─────────────────────────────────────
   it("shows a fallback message when plannedSubstitutions contains malformed JSON", () => {
     const malformedRotation = { ...makeRotation(20), plannedSubstitutions: "not-valid-json" };
