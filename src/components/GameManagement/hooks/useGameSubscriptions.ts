@@ -18,6 +18,7 @@ interface UseGameSubscriptionsParams {
   isRunning: boolean;
   setCurrentTime: React.Dispatch<React.SetStateAction<number>>;
   setIsRunning: React.Dispatch<React.SetStateAction<boolean>>;
+  notesRefreshKey?: number;
 }
 
 export function useGameSubscriptions({
@@ -26,6 +27,7 @@ export function useGameSubscriptions({
   isRunning,
   setCurrentTime,
   setIsRunning,
+  notesRefreshKey = 0,
 }: UseGameSubscriptionsParams) {
   const [gameState, setGameState] = useState(game);
   const [gamePlan, setGamePlan] = useState<GamePlan | null>(null);
@@ -71,7 +73,7 @@ export function useGameSubscriptions({
   const { data: gameNotes } = useAmplifyQuery('GameNote', {
     filter: { gameId: { eq: game.id } },
     sort: nullSafeGameNotesSort,
-  }, [game.id]);
+  }, [game.id, notesRefreshKey]);
 
   const { data: playerAvailabilities } = useAmplifyQuery('PlayerAvailability', {
     filter: { gameId: { eq: game.id } },

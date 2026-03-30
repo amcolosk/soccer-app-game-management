@@ -142,6 +142,7 @@ export const handler: Handler = async (event) => {
   // Build update expression — authorId is NEVER updated regardless of what was supplied.
   // Any caller-supplied authorId argument value in args is ignored here.
   const expressionParts: string[] = ['#updatedAt = :updatedAt'];
+  const removeParts: string[] = [];
   const expressionNames: Record<string, string> = { '#updatedAt': 'updatedAt' };
   const expressionValues: Record<string, unknown> = { ':updatedAt': new Date().toISOString() };
 
@@ -152,9 +153,15 @@ export const handler: Handler = async (event) => {
   }
 
   if (args.playerId !== undefined) {
-    expressionParts.push('#playerId = :playerId');
-    expressionNames['#playerId'] = 'playerId';
-    expressionValues[':playerId'] = args.playerId ?? null;
+    if (args.playerId) {
+      expressionParts.push('#playerId = :playerId');
+      expressionNames['#playerId'] = 'playerId';
+      expressionValues[':playerId'] = args.playerId;
+    } else {
+      // null/empty: REMOVE attribute so the GSI key is never set to NULL
+      removeParts.push('#playerId');
+      expressionNames['#playerId'] = 'playerId';
+    }
   }
 
   if (args.notes !== undefined) {
@@ -163,10 +170,13 @@ export const handler: Handler = async (event) => {
     expressionValues[':notes'] = args.notes ?? null;
   }
 
+  const setClause = `SET ${expressionParts.join(', ')}`;
+  const removeClause = removeParts.length > 0 ? ` REMOVE ${removeParts.join(', ')}` : '';
+
   const updateResponse = await docClient.send(new UpdateCommand({
     TableName: gameNoteTable,
     Key: { id: args.id },
-    UpdateExpression: `SET ${expressionParts.join(', ')}`,
+    UpdateExpression: setClause + removeClause,
     ExpressionAttributeNames: expressionNames,
     ExpressionAttributeValues: expressionValues,
     ReturnValues: 'ALL_NEW',

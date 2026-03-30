@@ -265,7 +265,7 @@ const schema = a.schema({
       // - noteType === 'coaching-point' => gameSeconds === null AND half === null
       // - noteType in ['gold-star', 'yellow-card', 'red-card', 'other'] => gameSeconds !== null AND half !== null
       // NOTE: a.enum() in Amplify Gen2 does not support .required() \u2014 enforced by TypeScript type system and Lambda handler instead.
-      noteType: a.enum(['coaching-point', 'gold-star', 'yellow-card', 'red-card', 'other']),
+      noteType: a.string().required(),
       playerId: a.id(), // Optional - can be associated with a player
       player: a.belongsTo('Player', 'playerId'),
       authorId: a.string(), // Cognito user id of coach that created the note
@@ -291,7 +291,7 @@ const schema = a.schema({
     .mutation()
     .arguments({
       gameId: a.string().required(),
-      noteType: a.enum(['coaching-point', 'gold-star', 'yellow-card', 'red-card', 'other']), // required — validated in Lambda
+      noteType: a.string().required(), // required — validated in Lambda
       playerId: a.string(),
       // Optional argument accepted for backward compatibility; ignored server-side.
       authorId: a.string(),
@@ -309,7 +309,7 @@ const schema = a.schema({
     .mutation()
     .arguments({
       id: a.string().required(),
-      noteType: a.enum(['coaching-point', 'gold-star', 'yellow-card', 'red-card', 'other']),
+      noteType: a.string(),
       playerId: a.string(),
       notes: a.string(),
       // Any supplied value is rejected by the handler.

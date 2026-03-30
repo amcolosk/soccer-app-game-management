@@ -218,6 +218,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const [gamePlan, setGamePlan] = useState<GamePlan | null>(null);
   const [rotations, setRotations] = useState<PlannedRotation[]>([]);
   const { mutations } = useOfflineMutations();
+  const [notesRefreshKey, setNotesRefreshKey] = useState(0);
   const { data: availabilities } = useAmplifyQuery('PlayerAvailability', {
     filter: { gameId: { eq: game.id } },
   }, [game.id]);
@@ -228,7 +229,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       const tsB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
       return tsB - tsA;
     },
-  }, [game.id]);
+  }, [game.id, notesRefreshKey]);
   const [startingLineup, setStartingLineup] = useState<Map<string, string>>(new Map()); // positionId -> playerId
   const [halftimeLineup, setHalftimeLineup] = useState<Map<string, string> | null>(null); // positionId -> playerId for H2; null = not explicitly set (use fallback)
   const [rotationIntervalMinutes, setRotationIntervalMinutes] = useState(10);
@@ -295,6 +296,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
             playerId,
             notes,
           });
+          setNotesRefreshKey(k => k + 1);
           showSuccess('Coaching point updated');
           return;
         }
@@ -309,13 +311,14 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           timestamp: new Date().toISOString(),
           coaches: team.coaches || [],
         });
+        setNotesRefreshKey(k => k + 1);
         showSuccess('Coaching point added');
       } catch (error) {
         handleApiError(error, 'Failed to save coaching point');
         throw error;
       }
     },
-    [editingNote?.id, game.id, mutations, team.coaches]
+    [editingNote?.id, game.id, mutations, team.coaches, setNotesRefreshKey]
   );
 
   const handleDeletePreGameNote = useCallback(

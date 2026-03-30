@@ -20,6 +20,7 @@ vi.mock('@aws-sdk/lib-dynamodb', () => ({
 import { handler } from './handler';
 
 type HandlerEvent = Parameters<typeof handler>[0];
+const invoke = (event: HandlerEvent) => handler(event, {} as any, (() => {}) as any);
 
 function createEvent(overrides: Partial<HandlerEvent['arguments']> = {}): HandlerEvent {
   return {
@@ -69,7 +70,7 @@ describe('create-game-note handler', () => {
   });
 
   it('ignores spoofed authorId and writes the authenticated user as authorId', async () => {
-    await handler(createEvent());
+    await invoke(createEvent());
 
     const putCall = mockSend.mock.calls.find(([command]) => command.__type === 'PutCommand');
     const item = putCall?.[0].input.Item as { authorId?: string };
@@ -77,25 +78,25 @@ describe('create-game-note handler', () => {
   });
 
   it('rejects coaching-point notes with non-null timing', async () => {
-    await expect(handler(createEvent({ gameSeconds: 15, half: 1 }))).rejects.toThrow(
+    await expect(invoke(createEvent({ gameSeconds: 15, half: 1 }))).rejects.toThrow(
       'coaching-point notes must have null gameSeconds and half'
     );
   });
 
   it('rejects non-coaching notes without both timing fields', async () => {
-    await expect(handler(createEvent({ noteType: 'gold-star', gameSeconds: 15, half: null }))).rejects.toThrow(
+    await expect(invoke(createEvent({ noteType: 'gold-star', gameSeconds: 15, half: null }))).rejects.toThrow(
       'non-coaching notes must include both gameSeconds and half'
     );
   });
 
   it('rejects non-coaching notes with negative gameSeconds', async () => {
-    await expect(handler(createEvent({ noteType: 'gold-star', gameSeconds: -1, half: 1 }))).rejects.toThrow(
+    await expect(invoke(createEvent({ noteType: 'gold-star', gameSeconds: -1, half: 1 }))).rejects.toThrow(
       'non-coaching notes must include a non-negative integer gameSeconds and half of 1 or 2'
     );
   });
 
   it('rejects non-coaching notes with an invalid half', async () => {
-    await expect(handler(createEvent({ noteType: 'gold-star', gameSeconds: 15, half: 3 }))).rejects.toThrow(
+    await expect(invoke(createEvent({ noteType: 'gold-star', gameSeconds: 15, half: 3 }))).rejects.toThrow(
       'non-coaching notes must include a non-negative integer gameSeconds and half of 1 or 2'
     );
   });
@@ -119,8 +120,24 @@ describe('create-game-note handler', () => {
       return {};
     });
 
-    await expect(handler(createEvent({ noteType: 'gold-star', gameSeconds: 15, half: 1, playerId: 'player-404' }))).rejects.toThrow(
+    await expect(invoke(createEvent({ noteType: 'gold-star', gameSeconds: 15, half: 1, playerId: 'player-404' }))).rejects.toThrow(
       'playerId must belong to the game team roster'
     );
+  });
+
+  it('does not write playerId attribute to DynamoDB when playerId is absent', async () => {
+    await invoke(createEvent({ playerId: undefined }));
+
+    const putCall = mockSend.mock.calls.find(([command]) => command.__type === 'PutCommand');
+    const item = putCall?.[0].input.Item as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(item, 'playerId')).toBe(false);
+  });
+
+  it('does not write playerId attribute to DynamoDB when playerId is null', async () => {
+    await invoke(createEvent({ playerId: null }));
+
+    const putCall = mockSend.mock.calls.find(([command]) => command.__type === 'PutCommand');
+    const item = putCall?.[0].input.Item as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(item, 'playerId')).toBe(false);
   });
 });

@@ -61,6 +61,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [isPreGameNoteModalOpen, setIsPreGameNoteModalOpen] = useState(false);
   const [preGameNoteMode, setPreGameNoteMode] = useState<'create' | 'edit'>('create');
   const [preGameNoteDraft, setPreGameNoteDraft] = useState<{ id?: string; notes?: string | null; playerId?: string | null } | null>(null);
+  const [notesRefreshKey, setNotesRefreshKey] = useState(0);
 
   // Game planner integration
   const [isRecalculating, setIsRecalculating] = useState(false);
@@ -93,6 +94,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     isRunning,
     setCurrentTime,
     setIsRunning,
+    notesRefreshKey,
   });
 
   // Use per-game half length override when set; fall back to team default.
@@ -661,6 +663,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           notes: payload.notes,
           playerId: payload.playerId,
         });
+        setNotesRefreshKey(k => k + 1);
         return;
       }
 
@@ -674,6 +677,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         timestamp: new Date().toISOString(),
         coaches: team.coaches,
       });
+      setNotesRefreshKey(k => k + 1);
     } catch (error) {
       handleApiError(error, preGameNoteMode === 'edit' ? 'Failed to update pre-game note' : 'Failed to create pre-game note');
       throw error;

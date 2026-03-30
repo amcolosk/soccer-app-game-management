@@ -130,7 +130,7 @@ export const handler: Handler = async (event) => {
     __typename: 'GameNote',
     gameId: args.gameId,
     noteType,
-    playerId: args.playerId ?? null,
+    ...(args.playerId ? { playerId: args.playerId } : {}),
     authorId,
     gameSeconds: args.gameSeconds ?? null,
     half: args.half ?? null,

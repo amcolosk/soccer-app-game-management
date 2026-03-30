@@ -20,6 +20,7 @@ vi.mock('@aws-sdk/lib-dynamodb', () => ({
 import { handler } from './handler';
 
 type HandlerEvent = Parameters<typeof handler>[0];
+const invoke = (event: HandlerEvent) => handler(event, {} as any, (() => {}) as any);
 
 function createEvent(overrides: Partial<HandlerEvent['arguments']> = {}): HandlerEvent {
   return {
@@ -96,7 +97,7 @@ describe('update-game-note handler', () => {
   });
 
   it('rejects spoofed authorId updates', async () => {
-    await expect(handler(createEvent({ authorId: 'attacker-id' }))).rejects.toThrow('authorId cannot be updated');
+    await expect(invoke(createEvent({ authorId: 'attacker-id' }))).rejects.toThrow('authorId cannot be updated');
   });
 
   it('rejects changing a timed note into a coaching-point note', async () => {
@@ -122,7 +123,7 @@ describe('update-game-note handler', () => {
       return {};
     });
 
-    await expect(handler(createEvent({ noteType: 'coaching-point' }))).rejects.toThrow(
+    await expect(invoke(createEvent({ noteType: 'coaching-point' }))).rejects.toThrow(
       'coaching-point notes must retain null gameSeconds and half'
     );
   });
@@ -150,7 +151,7 @@ describe('update-game-note handler', () => {
       return {};
     });
 
-    await expect(handler(createEvent({ noteType: 'gold-star' }))).rejects.toThrow(
+    await expect(invoke(createEvent({ noteType: 'gold-star' }))).rejects.toThrow(
       'non-coaching notes must retain both gameSeconds and half'
     );
   });
@@ -191,7 +192,7 @@ describe('update-game-note handler', () => {
       return {};
     });
 
-    await expect(handler(createEvent({ noteType: 'gold-star', playerId: 'player-404' }))).rejects.toThrow(
+    await expect(invoke(createEvent({ noteType: 'gold-star', playerId: 'player-404' }))).rejects.toThrow(
       'playerId must belong to the game team roster'
     );
   });
@@ -236,8 +237,17 @@ describe('update-game-note handler', () => {
       return {};
     });
 
-    await expect(handler(createEvent({ noteType: 'gold-star', playerId: 'player-cross-team' }))).rejects.toThrow(
+    await expect(invoke(createEvent({ noteType: 'gold-star', playerId: 'player-cross-team' }))).rejects.toThrow(
       'playerId must belong to the game team roster'
     );
+  });
+
+  it('uses REMOVE expression for playerId when playerId is set to null', async () => {
+    await invoke(createEvent({ playerId: null }));
+
+    const updateCall = mockSend.mock.calls.find(([command]) => command.__type === 'UpdateCommand');
+    const updateExpression = updateCall?.[0].input.UpdateExpression as string;
+    expect(updateExpression).toContain('REMOVE #playerId');
+    expect(updateExpression).not.toMatch(/SET[^R]*#playerId/);
   });
 });
