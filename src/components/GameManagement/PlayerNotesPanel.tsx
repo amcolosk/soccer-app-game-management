@@ -28,6 +28,14 @@ export function PlayerNotesPanel({
   const [noteType, setNoteType] = useState<'gold-star' | 'yellow-card' | 'red-card' | 'other'>('other');
   const [notePlayerId, setNotePlayerId] = useState("");
   const [noteText, setNoteText] = useState("");
+  const inGameNotes = gameNotes.filter(
+    (note): note is GameNote & { gameSeconds: number; half: number } => (
+      note.gameSeconds !== null
+      && note.gameSeconds !== undefined
+      && note.half !== null
+      && note.half !== undefined
+    )
+  );
 
   const getCurrentGameTime = () => currentTime;
 
@@ -112,18 +120,19 @@ export function PlayerNotesPanel({
       )}
 
       {/* Game Notes List */}
-      {gameNotes.length > 0 && (
+      {inGameNotes.length > 0 && (
         <div className="notes-section">
           <h3>Game Notes</h3>
           <div className="notes-list">
-            {gameNotes.map((note) => {
+            {inGameNotes.map((note) => {
+              const noteTypeValue = note.noteType ?? 'other';
               const notePlayer = note.playerId ? players.find(p => p.id === note.playerId) : null;
               return (
-                <div key={note.id} className={`note-card note-${note.noteType}`}>
-                  <div className="note-icon">{getNoteIcon(note.noteType)}</div>
+                <div key={note.id} className={`note-card note-${noteTypeValue}`}>
+                  <div className="note-icon">{getNoteIcon(noteTypeValue)}</div>
                   <div className="note-info">
                     <div className="note-header">
-                      <span className="note-type">{getNoteLabel(note.noteType)}</span>
+                      <span className="note-type">{getNoteLabel(noteTypeValue)}</span>
                       <span className="note-time">{Math.floor(note.gameSeconds / 60)}' ({note.half === 1 ? '1st' : '2nd'} Half)</span>
                     </div>
                     {notePlayer && (

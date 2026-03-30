@@ -577,6 +577,32 @@ async function testCopyFromPrevious(page: Page) {
   }
 }
 
+async function managePreGameCoachingNotes(page: Page) {
+  console.log('Managing pre-game coaching notes...');
+
+  await page.getByRole('button', { name: 'Add coaching point' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+
+  await page.fill('#pre-game-note-text', 'Pre-game: keep compact shape when out of possession');
+  await page.getByRole('button', { name: 'Create' }).click();
+
+  await expect(page.getByText('Pre-game: keep compact shape when out of possession')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Edit coaching point' }).first().click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+
+  await page.fill('#pre-game-note-text', 'Updated pre-game note: communicate first five minutes');
+  await page.getByRole('button', { name: 'Save' }).click();
+
+  await expect(page.getByText('Updated pre-game note: communicate first five minutes')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Delete coaching point' }).first().click();
+  await page.getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByText('No coaching points yet.')).toBeVisible();
+
+  console.log('✓ Pre-game coaching notes CRUD verified');
+}
+
 test.describe('Game Planner with Timeline', () => {
   test.beforeEach(async ({ page }) => {
     page.on('console', msg => {
@@ -677,5 +703,23 @@ test.describe('Game Planner with Timeline', () => {
     console.log('');
     
     console.log('=== Game Planner E2E Test Completed Successfully ===\n');
+  });
+
+  test('Pre-game coaching notes CRUD workflow', async ({ page }) => {
+    test.setTimeout(240000);
+
+    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+    await cleanupTestData(page);
+
+    const formationLabel = `${TEST_DATA.formation.name} (${TEST_DATA.formation.playerCount} players)`;
+    await createFormation(page, TEST_DATA.formation);
+    await createTeam(page, TEST_DATA.team, formationLabel);
+    await createPlayers(page);
+    await addPlayersToRoster(page);
+    await createGame(page);
+    await setupLineup(page);
+    await openGamePlanner(page);
+
+    await managePreGameCoachingNotes(page);
   });
 });

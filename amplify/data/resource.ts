@@ -2,6 +2,8 @@ import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
 import { acceptInvitation } from "../functions/accept-invitation/resource";
 import { getUserInvitations } from "../functions/get-user-invitations/resource";
 import { createGitHubIssue } from "../functions/create-github-issue/resource";
+import { createGameNote } from "../functions/create-game-note/resource";
+import { updateGameNote } from "../functions/update-game-note/resource";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -259,18 +261,63 @@ const schema = a.schema({
     .model({
       gameId: a.id().required(),
       game: a.belongsTo('Game', 'gameId'),
-      noteType: a.string().required(), // 'gold-star', 'yellow-card', 'red-card', 'other'
+      // Validation rule (enforced at resolver/service layer):
+      // - noteType === 'coaching-point' => gameSeconds === null AND half === null
+      // - noteType in ['gold-star', 'yellow-card', 'red-card', 'other'] => gameSeconds !== null AND half !== null
+      // NOTE: a.enum() in Amplify Gen2 does not support .required() \u2014 enforced by TypeScript type system and Lambda handler instead.
+      noteType: a.string().required(),
       playerId: a.id(), // Optional - can be associated with a player
       player: a.belongsTo('Player', 'playerId'),
-      gameSeconds: a.integer().required(), // Game time in seconds when note was created
-      half: a.integer().required(), // 1 or 2
-      notes: a.string(), // The actual note text
+      authorId: a.string(), // Cognito user id of coach that created the note
+      gameSeconds: a.integer(), // null for pre-game notes; required for in-game notes
+      half: a.integer(), // null for pre-game notes; required for in-game notes
+      // NOTE: Amplify Gen2 schema DSL does not support maxLength on a.string().
+      // The 500-character limit is enforced at two layers:
+      //   1. UI: CreateEditNoteModal.tsx validates before submission.
+      //   2. Server: createSecureGameNote / updateSecureGameNote Lambda handlers
+      //      reject payloads where notes.length > 500.
+      notes: a.string(), // The actual note text (max 500 chars — see comment above)
       timestamp: a.datetime().required(), // Real-world timestamp when note was created
       coaches: a.string().array(), // Team coaches who can access this note
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'), // Only team coaches can access game notes
+      // Create/update are routed through custom Lambda-backed mutations so
+      // author and payload integrity are enforced server-side.
+      allow.ownersDefinedIn('coaches').to(['read', 'delete']),
     ]),
+
+  // Secure custom mutation for creating game notes with server-side validation.
+  createSecureGameNote: a
+    .mutation()
+    .arguments({
+      gameId: a.string().required(),
+      noteType: a.string().required(), // required — validated in Lambda
+      playerId: a.string(),
+      // Optional argument accepted for backward compatibility; ignored server-side.
+      authorId: a.string(),
+      gameSeconds: a.integer(),
+      half: a.integer(),
+      notes: a.string().required(),
+      timestamp: a.datetime(),
+    })
+    .returns(a.ref('GameNote'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(createGameNote)),
+
+  // Secure custom mutation for updating game notes with immutable authorId.
+  updateSecureGameNote: a
+    .mutation()
+    .arguments({
+      id: a.string().required(),
+      noteType: a.string(),
+      playerId: a.string(),
+      notes: a.string(),
+      // Any supplied value is rejected by the handler.
+      authorId: a.string(),
+    })
+    .returns(a.ref('GameNote'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(updateGameNote)),
 
   TeamInvitation: a
     .model({

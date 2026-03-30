@@ -182,5 +182,25 @@ describe("PlayerNotesPanel", () => {
       render(<PlayerNotesPanel {...defaultProps} gameNotes={[]} />);
       expect(screen.queryByText("Game Notes")).not.toBeInTheDocument();
     });
+
+    it("filters out pre-game notes with null timing fields", () => {
+      render(
+        <PlayerNotesPanel
+          {...defaultProps}
+          gameNotes={[
+            {
+              id: 'pre-1',
+              noteType: 'coaching-point',
+              gameSeconds: null,
+              half: null,
+              notes: 'Pregame strategy',
+            },
+          ] as any[]}
+        />
+      );
+
+      expect(screen.queryByText('Game Notes')).not.toBeInTheDocument();
+      expect(screen.queryByText('Pregame strategy')).not.toBeInTheDocument();
+    });
   });
 });

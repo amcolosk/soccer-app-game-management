@@ -18,6 +18,8 @@ import { BenchTab } from "./BenchTab";
 import { GameTimer } from "./GameTimer";
 import { GoalTracker } from "./GoalTracker";
 import { PlayerNotesPanel } from "./PlayerNotesPanel";
+import { PreGameNotesPanel } from "./PreGameNotesPanel";
+import { CreateEditNoteModal } from "./CreateEditNoteModal";
 import { RotationWidget } from "./RotationWidget";
 import { SubstitutionPanel } from "./SubstitutionPanel";
 import { LineupPanel } from "./LineupPanel";
@@ -56,6 +58,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [rotationModalOpen, setRotationModalOpen] = useState(false);
   const [injuryModalOpen, setInjuryModalOpen] = useState(false);
   const [isInjuryMutationPending, setIsInjuryMutationPending] = useState(false);
+  const [isPreGameNoteModalOpen, setIsPreGameNoteModalOpen] = useState(false);
+  const [preGameNoteMode, setPreGameNoteMode] = useState<'create' | 'edit'>('create');
+  const [preGameNoteDraft, setPreGameNoteDraft] = useState<{ id?: string; notes?: string | null; playerId?: string | null } | null>(null);
+  const [notesRefreshKey, setNotesRefreshKey] = useState(0);
 
   // Game planner integration
   const [isRecalculating, setIsRecalculating] = useState(false);
@@ -88,6 +94,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     isRunning,
     setCurrentTime,
     setIsRunning,
+    notesRefreshKey,
   });
 
   // Use per-game half length override when set; fall back to team default.
@@ -633,6 +640,71 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     resetAnchor(newTime);
   };
 
+  const openCreatePreGameNote = () => {
+    setPreGameNoteMode('create');
+    setPreGameNoteDraft(null);
+    setIsPreGameNoteModalOpen(true);
+  };
+
+  const openEditPreGameNote = (note: { id?: string; notes?: string | null; playerId?: string | null }) => {
+    setPreGameNoteMode('edit');
+    setPreGameNoteDraft(note);
+    setIsPreGameNoteModalOpen(true);
+  };
+
+  const closePreGameNoteModal = () => {
+    setIsPreGameNoteModalOpen(false);
+  };
+
+  const handleSubmitPreGameNote = async (payload: { notes: string; playerId: string | null }) => {
+    try {
+      if (preGameNoteMode === 'edit' && preGameNoteDraft?.id) {
+        await mutations.updateGameNote(preGameNoteDraft.id, {
+          notes: payload.notes,
+          playerId: payload.playerId,
+        });
+        setNotesRefreshKey(k => k + 1);
+        return;
+      }
+
+      await mutations.createGameNote({
+        gameId: game.id,
+        noteType: 'coaching-point',
+        playerId: payload.playerId,
+        gameSeconds: null,
+        half: null,
+        notes: payload.notes,
+        timestamp: new Date().toISOString(),
+        coaches: team.coaches,
+      });
+      setNotesRefreshKey(k => k + 1);
+    } catch (error) {
+      handleApiError(error, preGameNoteMode === 'edit' ? 'Failed to update pre-game note' : 'Failed to create pre-game note');
+      throw error;
+    }
+  };
+
+  const handleDeletePreGameNote = async (note: { id?: string }) => {
+    if (!note.id) {
+      showWarning('Unable to delete note: missing note id.');
+      return;
+    }
+
+    const confirmed = await confirm({
+      title: 'Delete Coaching Point',
+      message: 'Delete this coaching point? This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
+    try {
+      await mutations.deleteGameNote(note.id);
+    } catch (error) {
+      handleApiError(error, 'Failed to delete pre-game note');
+    }
+  };
+
   const closeInjuryModal = useCallback(() => {
     if (isInjuryMutationPending) {
       return;
@@ -765,6 +837,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     currentTime,
     mutations,
   };
+
+  const preGameNotes = gameNotes.filter(
+    (note) => note.gameSeconds == null && note.half == null
+  );
 
   return (
     <AvailabilityProvider availabilities={playerAvailabilities}>
@@ -1009,6 +1085,15 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         {/* ── COMPLETED ────────────────────────────────────────────── */}
         {gameState.status === 'completed' && (
           <div className="completed-layout">
+            <PreGameNotesPanel
+              gameStatus={gameState.status}
+              notes={preGameNotes}
+              players={players}
+              onAdd={openCreatePreGameNote}
+              onEdit={openEditPreGameNote}
+              onDelete={handleDeletePreGameNote}
+              isReadOnly={false}
+            />
             <GoalTracker {...sharedGoalTrackerProps} />
             <PlayerNotesPanel {...sharedNotesPanelProps} />
             {deleteGameButton}
@@ -1055,6 +1140,20 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             </div>
           </div>
         )}
+
+        <CreateEditNoteModal
+          isOpen={isPreGameNoteModalOpen}
+          mode={preGameNoteMode}
+          players={players}
+          initialNote={preGameNoteMode === 'edit' && preGameNoteDraft?.id
+            ? {
+                playerId: preGameNoteDraft.playerId ?? null,
+                notes: preGameNoteDraft.notes ?? '',
+              }
+            : null}
+          onClose={closePreGameNoteModal}
+          onSubmit={handleSubmitPreGameNote}
+        />
 
       </div>
     </AvailabilityProvider>
