@@ -842,6 +842,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     players,
     goals,
     currentTime,
+    playTimeRecords,
+    lineup,
     onScoreUpdate: (ourScore: number, opponentScore: number) => {
       setGameState({ ...gameState, ourScore, opponentScore });
     },

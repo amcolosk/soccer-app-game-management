@@ -44,6 +44,8 @@ const defaultProps = {
   goals: [] as any[],
   currentTime: 600,
   onScoreUpdate: vi.fn(),
+  playTimeRecords: [] as any[],
+  lineup: [] as any[],
 };
 
 describe("GoalTracker", () => {
