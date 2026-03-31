@@ -520,6 +520,48 @@ export async function clickConfirmModalCancel(page: Page) {
 }
 
 /**
+ * Add a player to a team's roster.
+ * Assumes the caller is already on the Teams tab and the team card is visible.
+ * @param page - Playwright page object
+ * @param teamName - Name of the team to expand
+ * @param playerFullName - "FirstName LastName" as it appears in the dropdown
+ * @param playerNumber - Jersey number (1-99)
+ */
+export async function addPlayerToRoster(
+  page: Page,
+  teamName: string,
+  playerFullName: string,
+  playerNumber: string,
+) {
+  console.log(`Adding ${playerFullName} (#${playerNumber}) to ${teamName} roster...`);
+
+  // Expand the team card to show roster section
+  const teamCard = page.locator('.item-card').filter({ hasText: teamName });
+  const expandButton = teamCard.locator('button[aria-label*="roster"]').first();
+  await expandButton.click();
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+
+  // Click Add Player to Roster
+  await page.getByRole('button', { name: '+ Add Player to Roster' }).click();
+  await page.waitForTimeout(UI_TIMING.STANDARD);
+
+  // Select the player from the dropdown
+  await page.selectOption('select', { label: playerFullName });
+  await page.waitForTimeout(UI_TIMING.QUICK);
+
+  // Enter jersey number
+  await page.fill('input[placeholder*="Player Number"]', playerNumber);
+  await page.waitForTimeout(UI_TIMING.QUICK);
+
+  // Submit
+  const addButton = page.locator('.form-actions button.btn-primary', { hasText: 'Add' });
+  await addButton.click();
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+  console.log(`✓ Added ${playerFullName} to ${teamName} roster`);
+}
+
+/**
  * Swipe an item to reveal the delete button and click it
  * This simulates the swipe-to-delete interaction for teams, players, and formations
  * @param page - Playwright page object
