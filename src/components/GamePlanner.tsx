@@ -678,7 +678,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const handleHalfLengthChange = async (newHalf: number) => {
     const clamped = Math.max(1, Math.min(newHalf, 99));
     setHalfLengthMinutes(clamped);
-    const newInterval = Math.max(1, Math.round(clamped / (rotationsPerHalfInput + 1)));
+    const newInterval = Math.max(1, Math.floor(clamped / (rotationsPerHalfInput + 1)));
     setRotationIntervalMinutes(newInterval);
     setRotationsPerHalfInput(Math.max(0, Math.floor(clamped / newInterval) - 1));
     try {
@@ -690,7 +690,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
   const handleResetHalfLength = async () => {
     setHalfLengthMinutes(teamDefaultHalfLength);
-    const newInterval = Math.max(1, Math.round(teamDefaultHalfLength / (rotationsPerHalfInput + 1)));
+    const newInterval = Math.max(1, Math.floor(teamDefaultHalfLength / (rotationsPerHalfInput + 1)));
     setRotationIntervalMinutes(newInterval);
     setRotationsPerHalfInput(Math.max(0, Math.floor(teamDefaultHalfLength / newInterval) - 1));
     try {
@@ -706,7 +706,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     const maxRotations = Math.floor(halfLengthMinutes / 2);
     const clamped = Math.max(0, Math.min(rotations, maxRotations));
     setRotationsPerHalfInput(clamped);
-    const interval = Math.round(halfLengthMinutes / (clamped + 1));
+    const interval = Math.floor(halfLengthMinutes / (clamped + 1));
     setRotationIntervalMinutes(Math.max(1, interval));
   };
 

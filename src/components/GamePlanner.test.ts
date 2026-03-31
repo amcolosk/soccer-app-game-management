@@ -1640,7 +1640,7 @@ describe("copyGamePlan null halftimeLineup propagation", () => {
 
 function deriveIntervalFromRotations(halfLengthMinutes: number, rotationsPerHalf: number): number {
   const clamped = Math.max(0, Math.min(rotationsPerHalf, Math.floor(halfLengthMinutes / 2)));
-  return Math.max(1, Math.round(halfLengthMinutes / (clamped + 1)));
+  return Math.max(1, Math.floor(halfLengthMinutes / (clamped + 1)));
 }
 
 function deriveRotationsFromInterval(halfLengthMinutes: number, intervalMinutes: number): number {
@@ -1659,7 +1659,7 @@ describe('coupled rotation stepper inputs', () => {
     it('30-min half, 1 rotation → interval 15', () => {
       expect(deriveIntervalFromRotations(30, 1)).toBe(15);
     });
-    it('TC-RS-6: 25-min half, 3 rotations → interval 6 (round(25/4))', () => {
+    it('TC-RS-6: 25-min half, 3 rotations → interval 6 (floor(25/4))', () => {
       expect(deriveIntervalFromRotations(25, 3)).toBe(6);
     });
     it('40-min half, 3 rotations → interval 10', () => {
@@ -1704,14 +1704,20 @@ describe('coupled rotation stepper inputs', () => {
       const interval = deriveIntervalFromRotations(30, 5); // 5
       expect(deriveRotationsFromInterval(30, interval)).toBe(5);
     });
-    it('30-min half: typing 3 rotations → interval 8 → back to 2 rotations (non-divisible drift, acceptable)', () => {
-      const interval = deriveIntervalFromRotations(30, 3); // round(30/4) = 8
-      // floor(30/8)-1 = 2 — one-step drift is acceptable per spec §3.4
-      expect(deriveRotationsFromInterval(30, interval)).toBe(2);
+    it('30-min half: typing 3 rotations → interval 7 → back to 3 rotations (clean round-trip with floor)', () => {
+      const interval = deriveIntervalFromRotations(30, 3); // floor(30/4) = 7
+      // floor(30/7)-1 = 3 — clean round-trip (no drift) because floor is used
+      expect(deriveRotationsFromInterval(30, interval)).toBe(3);
     });
     it('25-min half: typing 3 rotations → interval 6 → back to 3 rotations', () => {
-      const interval = deriveIntervalFromRotations(25, 3); // round(25/4) = 6
+      const interval = deriveIntervalFromRotations(25, 3); // floor(25/4) = 6
       expect(deriveRotationsFromInterval(25, interval)).toBe(3);
+    });
+    it('20-min half: typing 2 rotations → interval 6 → back to 2 rotations (regression: was broken with Math.round)', () => {
+      // Math.round(20/3)=7 produced only 1 rotation; Math.floor(20/3)=6 gives 2
+      const interval = deriveIntervalFromRotations(20, 2); // floor(20/3) = 6
+      expect(interval).toBe(6);
+      expect(deriveRotationsFromInterval(20, interval)).toBe(2);
     });
   });
 });
