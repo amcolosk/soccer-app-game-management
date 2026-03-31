@@ -4,8 +4,10 @@ import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
 import { handleApiError } from "../../utils/errorHandler";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { PlayerSelect } from "../PlayerSelect";
+import { isPlayerCurrentlyPlaying } from "../../utils/playTimeCalculations";
+import { isPlayerInLineup } from "../../utils/lineupUtils";
 import type { GameMutationInput } from "../../hooks/useOfflineMutations";
-import type { Game, Team, PlayerWithRoster, Goal } from "./types";
+import type { Game, Team, PlayerWithRoster, Goal, PlayTimeRecord, LineupAssignment } from "./types";
 
 interface GoalTrackerProps {
   gameState: Game;
@@ -16,6 +18,8 @@ interface GoalTrackerProps {
   currentTime: number;
   onScoreUpdate: (ourScore: number, opponentScore: number) => void;
   mutations: GameMutationInput;
+  playTimeRecords: PlayTimeRecord[];
+  lineup: LineupAssignment[];
 }
 
 export function GoalTracker({
@@ -27,12 +31,21 @@ export function GoalTracker({
   currentTime,
   onScoreUpdate,
   mutations,
+  playTimeRecords,
+  lineup,
 }: GoalTrackerProps) {
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [goalScoredByUs, setGoalScoredByUs] = useState(true);
   const [goalScorerId, setGoalScorerId] = useState("");
   const [goalAssistId, setGoalAssistId] = useState("");
   const [goalNotes, setGoalNotes] = useState("");
+
+  const onFieldPlayerIds = players
+    .filter(p =>
+      isPlayerCurrentlyPlaying(p.id, playTimeRecords) ||
+      isPlayerInLineup(p.id, lineup)
+    )
+    .map(p => p.id);
 
   const getCurrentGameTime = () => currentTime;
 
@@ -154,6 +167,7 @@ export function GoalTracker({
                     onChange={setGoalScorerId}
                     placeholder="Select player..."
                     className="w-full"
+                    onFieldPlayerIds={onFieldPlayerIds}
                   />
                 </div>
 
@@ -167,6 +181,7 @@ export function GoalTracker({
                     excludeId={goalScorerId}
                     placeholder="No assist / Select player..."
                     className="w-full"
+                    onFieldPlayerIds={onFieldPlayerIds}
                   />
                 </div>
 
