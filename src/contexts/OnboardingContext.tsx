@@ -8,6 +8,7 @@ interface OnboardingContextValue {
   collapse: () => void;
   expand: () => void;
   dismiss: () => void;
+  clearDismissed: () => void;
   resetOnboarding: () => void;
 }
 
@@ -18,19 +19,32 @@ interface OnboardingProviderProps {
 }
 
 export function OnboardingProvider({ children }: OnboardingProviderProps) {
+  const readFlag = (primaryKey: string, legacyKey?: string): boolean => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    if (localStorage.getItem(primaryKey) === '1') {
+      return true;
+    }
+
+    return legacyKey ? localStorage.getItem(legacyKey) === '1' : false;
+  };
+
   // SSR-safe initialization — read from localStorage only on mount
-  const [welcomed, setWelcomed] = useState(() => 
-    typeof window !== 'undefined' ? localStorage.getItem('onboarding:welcomed') === '1' : false
+  const [welcomed, setWelcomed] = useState(() =>
+    readFlag('welcomeModalDismissed', 'onboarding:welcomed')
   );
   const [collapsed, setCollapsed] = useState(() => 
     typeof window !== 'undefined' ? localStorage.getItem('onboarding:collapsed') === '1' : false
   );
-  const [dismissed, setDismissed] = useState(() => 
-    typeof window !== 'undefined' ? localStorage.getItem('onboarding:dismissed') === '1' : false
+  const [dismissed, setDismissed] = useState(() =>
+    readFlag('quickStartChecklistDismissed', 'onboarding:dismissed')
   );
 
   const markWelcomed = useCallback(() => {
     setWelcomed(true);
+    localStorage.setItem('welcomeModalDismissed', '1');
     localStorage.setItem('onboarding:welcomed', '1');
   }, []);
 
@@ -47,22 +61,33 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
   const dismiss = useCallback(() => {
     setDismissed(true);
     setCollapsed(false);
+    localStorage.setItem('quickStartChecklistDismissed', '1');
     localStorage.setItem('onboarding:dismissed', '1');
     localStorage.removeItem('onboarding:collapsed');
+  }, []);
+
+  const clearDismissed = useCallback(() => {
+    setDismissed(false);
+    localStorage.removeItem('quickStartChecklistDismissed');
+    localStorage.removeItem('onboarding:dismissed');
+    localStorage.removeItem('onboarding:lastCompletedSteps');
   }, []);
 
   const resetOnboarding = useCallback(() => {
     setWelcomed(false);
     setCollapsed(false);
     setDismissed(false);
+    localStorage.removeItem('welcomeModalDismissed');
+    localStorage.removeItem('quickStartChecklistDismissed');
     localStorage.removeItem('onboarding:welcomed');
     localStorage.removeItem('onboarding:collapsed');
     localStorage.removeItem('onboarding:dismissed');
+    localStorage.removeItem('onboarding:lastCompletedSteps');
   }, []);
 
   const value = useMemo(
-    () => ({ welcomed, collapsed, dismissed, markWelcomed, collapse, expand, dismiss, resetOnboarding }),
-    [welcomed, collapsed, dismissed, markWelcomed, collapse, expand, dismiss, resetOnboarding]
+    () => ({ welcomed, collapsed, dismissed, markWelcomed, collapse, expand, dismiss, clearDismissed, resetOnboarding }),
+    [welcomed, collapsed, dismissed, markWelcomed, collapse, expand, dismiss, clearDismissed, resetOnboarding]
   );
 
   return <OnboardingContext.Provider value={value}>{children}</OnboardingContext.Provider>;

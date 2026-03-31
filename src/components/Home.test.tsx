@@ -22,18 +22,22 @@ import React from 'react';
 // ---------------------------------------------------------------------------
 const {
   mockMarkWelcomed,
+  mockClearDismissed,
   mockSetHelpContext,
   mockSetDebugContext,
   mockNavigate,
   mockGameCreate,
   mockGetCurrentUser,
+  mockCoachProfileGet,
 } = vi.hoisted(() => ({
   mockMarkWelcomed: vi.fn(),
+  mockClearDismissed: vi.fn(),
   mockSetHelpContext: vi.fn(),
   mockSetDebugContext: vi.fn(),
   mockNavigate: vi.fn(),
   mockGameCreate: vi.fn(),
   mockGetCurrentUser: vi.fn(),
+  mockCoachProfileGet: vi.fn(),
 }));
 
 // Mutable query results — tests mutate these before rendering
@@ -66,6 +70,7 @@ vi.mock('../contexts/OnboardingContext', () => ({
   useOnboarding: () => ({
     ...onboardingState,
     markWelcomed: mockMarkWelcomed,
+    clearDismissed: mockClearDismissed,
     expand: vi.fn(),
     dismiss: vi.fn(),
     collapse: vi.fn(),
@@ -95,6 +100,7 @@ vi.mock('aws-amplify/data', () => ({
   generateClient: () => ({
     models: {
       Game: { create: mockGameCreate },
+      CoachProfile: { get: mockCoachProfileGet },
     },
   }),
 }));
@@ -146,9 +152,12 @@ import { Home } from './Home';
 // ---------------------------------------------------------------------------
 function resetState() {
   mockMarkWelcomed.mockClear();
+  mockClearDismissed.mockClear();
   mockGameCreate.mockReset();
   mockGetCurrentUser.mockReset();
   mockGetCurrentUser.mockResolvedValue({ userId: 'test-user-id' });
+  mockCoachProfileGet.mockReset();
+  mockCoachProfileGet.mockResolvedValue({ data: { firstName: '' } });
   teamQueryResult.data = [];
   teamQueryResult.isSynced = false;
   onboardingState.welcomed = false;
@@ -285,6 +294,106 @@ describe('Home — auto-welcome for existing users (issue #22)', () => {
     });
 
     resolveUser?.({ userId: 'late-user-id' });
+  });
+
+  it('clears dismissed checklist flag when a previously completed step regresses', async () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = true;
+    teamQueryResult.isSynced = true;
+    teamQueryResult.data = [];
+    localStorage.setItem('onboarding:lastCompletedSteps', JSON.stringify([true, true, true, true, true, true, true]));
+
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(mockClearDismissed).toHaveBeenCalledTimes(1);
+    });
+    expect(localStorage.getItem('onboarding:lastCompletedSteps')).toBeNull();
+  });
+
+  it('keeps checklist dismissed when no completed step regresses', async () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = true;
+    teamQueryResult.isSynced = true;
+    teamQueryResult.data = [{ id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], formationId: 'f-1' }];
+    localStorage.setItem('onboarding:lastCompletedSteps', JSON.stringify([true, false, false, true, false, false, false]));
+
+    render(<Home />);
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(mockClearDismissed).not.toHaveBeenCalled();
+  });
+
+  it('does not clear dismissed state while profile completion is still loading', async () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = true;
+    teamQueryResult.isSynced = true;
+    teamQueryResult.data = [{ id: 'team-1', name: 'Eagles', coaches: ['test-user-id'] }];
+    localStorage.setItem('onboarding:lastCompletedSteps', JSON.stringify([true, true, false, false, false, false, false]));
+
+    let resolveProfileGet: ((value: { data: { firstName: string } }) => void) | undefined;
+    mockCoachProfileGet.mockImplementation(
+      () => new Promise<{ data: { firstName: string } }>((resolve) => {
+        resolveProfileGet = resolve;
+      })
+    );
+
+    render(<Home />);
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(mockClearDismissed).not.toHaveBeenCalled();
+
+    resolveProfileGet?.({ data: { firstName: 'Coach' } });
+
+    await waitFor(() => {
+      expect(mockClearDismissed).not.toHaveBeenCalled();
+    });
+  });
+
+  it('reopens dismissed checklist only after loaded profile data confirms regression', async () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = true;
+    teamQueryResult.isSynced = true;
+    teamQueryResult.data = [{ id: 'team-1', name: 'Eagles', coaches: ['test-user-id'] }];
+    localStorage.setItem('onboarding:lastCompletedSteps', JSON.stringify([true, true, false, false, false, false, false]));
+
+    let resolveProfileGet: ((value: { data: { firstName: string } }) => void) | undefined;
+    mockCoachProfileGet.mockImplementation(
+      () => new Promise<{ data: { firstName: string } }>((resolve) => {
+        resolveProfileGet = resolve;
+      })
+    );
+
+    render(<Home />);
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(mockClearDismissed).not.toHaveBeenCalled();
+
+    resolveProfileGet?.({ data: { firstName: '' } });
+
+    await waitFor(() => {
+      expect(mockClearDismissed).toHaveBeenCalledTimes(1);
+    });
+    expect(localStorage.getItem('onboarding:lastCompletedSteps')).toBeNull();
+  });
+
+  it('keeps dismissed checklist state when profile fetch fails and profile state is unresolved', async () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = true;
+    teamQueryResult.isSynced = true;
+    teamQueryResult.data = [{ id: 'team-1', name: 'Eagles', coaches: ['test-user-id'] }];
+    localStorage.setItem('onboarding:lastCompletedSteps', JSON.stringify([true, true, false, false, false, false, false]));
+
+    mockCoachProfileGet.mockRejectedValueOnce(new Error('network failure'));
+
+    render(<Home />);
+
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(mockClearDismissed).not.toHaveBeenCalled();
+    expect(localStorage.getItem('onboarding:lastCompletedSteps')).toBe(
+      JSON.stringify([true, true, false, false, false, false, false])
+    );
   });
 });
 

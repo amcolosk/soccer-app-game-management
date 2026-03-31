@@ -4,6 +4,8 @@ import { getUserInvitations } from "../functions/get-user-invitations/resource";
 import { createGitHubIssue } from "../functions/create-github-issue/resource";
 import { createGameNote } from "../functions/create-game-note/resource";
 import { updateGameNote } from "../functions/update-game-note/resource";
+import { upsertCoachProfile } from "../functions/upsert-coach-profile/resource";
+import { getTeamCoachProfiles } from "../functions/get-team-coach-profiles/resource";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -385,6 +387,42 @@ const schema = a.schema({
     .returns(a.json())
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(createGitHubIssue)),
+  
+  CoachProfile: a
+    .model({
+      firstName: a.string(),
+      lastName: a.string(),
+      shareLastNameWithCoaches: a.boolean().default(true),
+      displayNameFull: a.string(), // Optional optimization: precomputed "FirstName LastInitial"
+      displayNamePrivacy: a.string(), // Optional optimization: precomputed "FirstName only" form
+    })
+    .authorization((allow) => [
+      // Owners (self) can do full CRUDL
+      allow.ownersDefinedIn('id').to(['create', 'read', 'update', 'delete']),
+    ]),
+
+  // Custom mutation for upserting coach profile with normalization and concurrency handling
+  upsertMyCoachProfile: a
+    .mutation()
+    .arguments({
+      firstName: a.string(),
+      lastName: a.string(),
+      shareLastNameWithCoaches: a.boolean(),
+      expectedUpdatedAt: a.string(), // ISO timestamp for optimistic concurrency
+    })
+    .returns(a.ref('CoachProfile'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(upsertCoachProfile)),
+
+  // Custom query for fetching team coach profiles with membership check and no-scan guarantee
+  getTeamCoachProfiles: a
+    .query()
+    .arguments({
+      teamId: a.string().required(),
+    })
+    .returns(a.json())
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(getTeamCoachProfiles)),
 });
 
 export type Schema = ClientSchema<typeof schema>;

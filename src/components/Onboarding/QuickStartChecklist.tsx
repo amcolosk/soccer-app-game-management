@@ -13,6 +13,7 @@ interface QuickStartChecklistProps {
   onExpand: () => void;
   onNavigate: (stepId: number) => void;
   onRemoveDemoData?: () => Promise<void>;
+  profileComplete?: boolean;
 }
 
 interface OnboardingStep {
@@ -25,7 +26,7 @@ interface OnboardingStep {
 /**
  * QuickStartChecklist
  * 
- * Persistent card on the Home tab that guides users through 6 setup steps.
+ * Persistent card on the Home tab that guides users through 7 setup steps.
  * Auto-dismisses when all steps are complete (shows completion state for 4 seconds first).
  * Can be collapsed/expanded; shows a resume banner when collapsed.
  */
@@ -40,6 +41,7 @@ export function QuickStartChecklist({
   onExpand,
   onNavigate,
   onRemoveDemoData,
+  profileComplete = false,
 }: QuickStartChecklistProps) {
   const [isComplete, setIsComplete] = useState(false);
   const [isRemovingDemo, setIsRemovingDemo] = useState(false);
@@ -49,15 +51,16 @@ export function QuickStartChecklist({
 
   // Derive step completion
   const step1Complete = teams.length >= 1;
-  const step2Complete = (teamRosters as { teamId: string }[]).some(r => 
+  const step2Complete = profileComplete;
+  const step3Complete = (teamRosters as { teamId: string }[]).some(r => 
     (teams as { id: string }[]).some(t => t.id === r.teamId)
   );
-  const step3Complete = (teams as { id: string; formationId?: string | null }[]).some(
+  const step4Complete = (teams as { id: string; formationId?: string | null }[]).some(
     t => t.formationId != null && t.formationId !== ''
   );
-  const step4Complete = games.length >= 1;
-  const step5Complete = gamePlans.length >= 1;
-  const step6Complete = (games as { status?: string }[]).some(
+  const step5Complete = games.length >= 1;
+  const step6Complete = gamePlans.length >= 1;
+  const step7Complete = (games as { status?: string }[]).some(
     g => g.status === 'in-progress' || g.status === 'completed'
   );
 
@@ -70,32 +73,38 @@ export function QuickStartChecklist({
     },
     {
       id: 2,
-      title: 'Add players to your roster',
+      title: 'Complete your profile',
       completed: step2Complete,
-      directionText: 'Go to Manage ⚙️ → Players',
+      directionText: 'Go to Profile 👤',
     },
     {
       id: 3,
-      title: 'Set your formation',
+      title: 'Add players to your roster',
       completed: step3Complete,
-      directionText: 'Go to Manage ⚙️ → Teams and assign a formation',
+      directionText: 'Go to Manage ⚙️ → Players',
     },
     {
       id: 4,
-      title: 'Schedule a game',
+      title: 'Set your formation',
       completed: step4Complete,
-      directionText: 'Tap + Schedule New Game above',
+      directionText: 'Go to Manage ⚙️ → Teams and assign a formation',
     },
     {
       id: 5,
-      title: 'Plan your rotations',
+      title: 'Schedule a game',
       completed: step5Complete,
-      directionText: 'Tap 📋 Plan Game on your game card',
+      directionText: 'Tap + Schedule New Game above',
     },
     {
       id: 6,
-      title: 'Manage a live game',
+      title: 'Plan your rotations',
       completed: step6Complete,
+      directionText: 'Tap 📋 Plan Game on your game card',
+    },
+    {
+      id: 7,
+      title: 'Manage a live game',
+      completed: step7Complete,
       directionText: 'On game day, tap Start Game',
     },
   ];
@@ -122,7 +131,7 @@ export function QuickStartChecklist({
     }
 
     prevStepsRef.current = currentStates;
-  }, [step1Complete, step2Complete, step3Complete, step4Complete, step5Complete, step6Complete]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step1Complete, step2Complete, step3Complete, step4Complete, step5Complete, step6Complete, step7Complete]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-dismiss on completion (after 4 seconds).
   // Uses a ref (not state) to guard against double-firing so that changing the
@@ -139,6 +148,13 @@ export function QuickStartChecklist({
       return () => clearTimeout(timer);
     }
   }, [allComplete, onDismiss]);
+
+  useEffect(() => {
+    if (!allComplete) {
+      autoCloseStartedRef.current = false;
+      setIsComplete(false);
+    }
+  }, [allComplete]);
 
   // Track analytics when checklist expands from collapsed
   const prevCollapsedRef = useRef(collapsed);
@@ -160,7 +176,7 @@ export function QuickStartChecklist({
       <div className="quick-start-resume-banner" onClick={onExpand}>
         <span className="quick-start-resume-icon" aria-hidden="true">📋</span>
         <span className="quick-start-resume-text">
-          Setup: {completedCount} of 6 complete — Resume →
+          Setup: {completedCount} of 7 complete — Resume →
         </span>
       </div>
     );
@@ -238,16 +254,16 @@ export function QuickStartChecklist({
             className="quick-start-progress-bar"
             role="progressbar"
             aria-valuenow={completedCount}
-            aria-valuemax={6}
+            aria-valuemax={7}
             aria-label="Onboarding progress"
           >
             <div
               className="quick-start-progress-fill"
-              style={{ '--progress': `${(completedCount / 6) * 100}%` } as React.CSSProperties}
+              style={{ '--progress': `${(completedCount / 7) * 100}%` } as React.CSSProperties}
             />
           </div>
           <p className="quick-start-progress-label">
-            {completedCount} of 6 steps complete
+            {completedCount} of 7 steps complete
           </p>
         </div>
         {demoTeamId && (

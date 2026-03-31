@@ -1,0 +1,14 @@
+{
+  "name": "get-team-coach-profiles",
+  "version": "1.0.0",
+  "description": "Lambda function for fetching team coach profiles with team membership verification and no-scan guarantee",
+  "type": "module",
+  "main": "handler.ts",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.138"
+  }
+}

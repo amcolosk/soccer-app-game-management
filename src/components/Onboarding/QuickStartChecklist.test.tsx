@@ -4,14 +4,15 @@
  * Behaviours covered:
  *  Step completion logic (the core business rules):
  *    - step 1: teams.length >= 1
- *    - step 2: at least one TeamRoster whose teamId matches a team in the teams list
- *    - step 3: at least one team with a non-null, non-empty formationId
- *    - step 4: games.length >= 1
- *    - step 5: gamePlans.length >= 1
- *    - step 6: at least one game with status 'in-progress' or 'completed'
+ *    - step 2: profileComplete=true
+ *    - step 3: at least one TeamRoster whose teamId matches a team in the teams list
+ *    - step 4: at least one team with a non-null, non-empty formationId
+ *    - step 5: games.length >= 1
+ *    - step 6: gamePlans.length >= 1
+ *    - step 7: at least one game with status 'in-progress' or 'completed'
  *
  *  Progress bar & label
- *    - shows correct "N of 6 steps complete" count
+ *    - shows correct "N of 7 steps complete" count
  *    - progressbar aria-valuenow reflects completion count
  *
  *  Collapsed state
@@ -30,7 +31,7 @@
  *    - "🧪 Using demo data" indicator shown only when demoTeamId is non-null
  *
  *  Completion state
- *    - renders completion card (🎉) when all 6 steps are complete
+ *    - renders completion card (🎉) when all 7 steps are complete
  *    - auto-dismiss timer fires onDismiss after 4 seconds
  *    - "Done — remove demo data" shown when demoTeamId set + onRemoveDemoData provided
  *    - clicking "Done — remove demo data" calls onRemoveDemoData then onDismiss
@@ -88,6 +89,7 @@ const defaultProps: React_.ComponentProps<typeof QuickStartChecklist> = {
   onExpand: vi.fn(),
   onNavigate: vi.fn(),
   onRemoveDemoData: undefined,
+  profileComplete: false,
 };
 
 function renderChecklist(overrides: Partial<typeof defaultProps> = {}) {
@@ -114,82 +116,96 @@ describe('QuickStartChecklist — step 1: Create your team', () => {
   });
 });
 
-describe('QuickStartChecklist — step 2: Add players to your roster', () => {
-  it('shows step 2 as incomplete when no roster entries match a team', () => {
+describe('QuickStartChecklist — step 2: Complete your profile', () => {
+  it('shows step 2 as incomplete when profileComplete=false', () => {
+    renderChecklist({ profileComplete: false });
+    const step = screen.getByText('Complete your profile').closest('button');
+    expect(step).toHaveAttribute('data-state', 'active');
+  });
+
+  it('shows step 2 as complete when profileComplete=true', () => {
+    renderChecklist({ profileComplete: true });
+    const step = screen.getByText('Complete your profile').closest('button');
+    expect(step).toHaveAttribute('data-state', 'completed');
+  });
+});
+
+describe('QuickStartChecklist — step 3: Add players to your roster', () => {
+  it('shows step 3 as incomplete when no roster entries match a team', () => {
     renderChecklist({ teams: [team1], teamRosters: [{ teamId: 'other-team' }] });
     const step = screen.getByText('Add players to your roster').closest('button');
     expect(step).toHaveAttribute('data-state', 'active');
   });
 
-  it('shows step 2 as complete when a roster entry matches a team id', () => {
+  it('shows step 3 as complete when a roster entry matches a team id', () => {
     renderChecklist({ teams: [team1], teamRosters: [roster1] });
     const step = screen.getByText('Add players to your roster').closest('button');
     expect(step).toHaveAttribute('data-state', 'completed');
   });
 });
 
-describe('QuickStartChecklist — step 3: Set your formation', () => {
-  it('shows step 3 as incomplete when no team has a formationId', () => {
+describe('QuickStartChecklist — step 4: Set your formation', () => {
+  it('shows step 4 as incomplete when no team has a formationId', () => {
     renderChecklist({ teams: [team1] });
     const step = screen.getByText('Set your formation').closest('button');
     expect(step).toHaveAttribute('data-state', 'active');
   });
 
-  it('shows step 3 as incomplete when formationId is empty string', () => {
+  it('shows step 4 as incomplete when formationId is empty string', () => {
     renderChecklist({ teams: [{ id: 'team-1', formationId: '' }] });
     const step = screen.getByText('Set your formation').closest('button');
     expect(step).toHaveAttribute('data-state', 'active');
   });
 
-  it('shows step 3 as complete when at least one team has a non-empty formationId', () => {
+  it('shows step 4 as complete when at least one team has a non-empty formationId', () => {
     renderChecklist({ teams: [team1WithFormation] });
     const step = screen.getByText('Set your formation').closest('button');
     expect(step).toHaveAttribute('data-state', 'completed');
   });
 });
 
-describe('QuickStartChecklist — step 4: Schedule a game', () => {
-  it('shows step 4 as incomplete when games=[]', () => {
+describe('QuickStartChecklist — step 5: Schedule a game', () => {
+  it('shows step 5 as incomplete when games=[]', () => {
     renderChecklist({ games: [] });
     const step = screen.getByText('Schedule a game').closest('button');
     expect(step).toHaveAttribute('data-state', 'active');
   });
 
-  it('shows step 4 as complete when games has 1 entry', () => {
+  it('shows step 5 as complete when games has 1 entry', () => {
     renderChecklist({ games: [scheduledGame] });
     const step = screen.getByText('Schedule a game').closest('button');
     expect(step).toHaveAttribute('data-state', 'completed');
   });
 });
 
-describe('QuickStartChecklist — step 5: Plan your rotations', () => {
-  it('shows step 5 as incomplete when gamePlans=[]', () => {
+describe('QuickStartChecklist — step 6: Plan your rotations', () => {
+  it('shows step 6 as incomplete when gamePlans=[]', () => {
     renderChecklist({ gamePlans: [] });
     const step = screen.getByText('Plan your rotations').closest('button');
     expect(step).toHaveAttribute('data-state', 'active');
   });
 
-  it('shows step 5 as complete when gamePlans has 1 entry', () => {
+  it('shows step 6 as complete when gamePlans has 1 entry', () => {
     renderChecklist({ gamePlans: [gamePlan1] });
     const step = screen.getByText('Plan your rotations').closest('button');
     expect(step).toHaveAttribute('data-state', 'completed');
   });
 });
 
-describe('QuickStartChecklist — step 6: Manage a live game', () => {
-  it('shows step 6 as incomplete when no game is in-progress or completed', () => {
+describe('QuickStartChecklist — step 7: Manage a live game', () => {
+  it('shows step 7 as incomplete when no game is in-progress or completed', () => {
     renderChecklist({ games: [scheduledGame] });
     const step = screen.getByText('Manage a live game').closest('button');
     expect(step).toHaveAttribute('data-state', 'active');
   });
 
-  it('shows step 6 as complete when a game has status=in-progress', () => {
+  it('shows step 7 as complete when a game has status=in-progress', () => {
     renderChecklist({ games: [inProgressGame] });
     const step = screen.getByText('Manage a live game').closest('button');
     expect(step).toHaveAttribute('data-state', 'completed');
   });
 
-  it('shows step 6 as complete when a game has status=completed', () => {
+  it('shows step 7 as complete when a game has status=completed', () => {
     renderChecklist({ games: [completedGame] });
     const step = screen.getByText('Manage a live game').closest('button');
     expect(step).toHaveAttribute('data-state', 'completed');
@@ -200,17 +216,18 @@ describe('QuickStartChecklist — step 6: Manage a live game', () => {
 // Progress bar & label
 // ---------------------------------------------------------------------------
 describe('QuickStartChecklist — progress', () => {
-  it('shows "0 of 6 steps complete" when no steps are done', () => {
+  it('shows "0 of 7 steps complete" when no steps are done', () => {
     renderChecklist();
-    expect(screen.getByText('0 of 6 steps complete')).toBeInTheDocument();
+    expect(screen.getByText('0 of 7 steps complete')).toBeInTheDocument();
   });
 
-  it('shows "3 of 6 steps complete" when 3 steps are complete', () => {
+  it('shows "4 of 7 steps complete" when 4 steps are complete', () => {
     renderChecklist({
       teams: [team1WithFormation],  // steps 1 + 3
+      profileComplete: true,        // step 2
       games: [scheduledGame],        // step 4
     });
-    expect(screen.getByText('3 of 6 steps complete')).toBeInTheDocument();
+    expect(screen.getByText('4 of 7 steps complete')).toBeInTheDocument();
   });
 
   it('progressbar aria-valuenow reflects the correct count', () => {
@@ -225,7 +242,7 @@ describe('QuickStartChecklist — progress', () => {
 describe('QuickStartChecklist — collapsed / resume banner', () => {
   it('shows the resume banner when collapsed=true and not all steps complete', () => {
     renderChecklist({ collapsed: true });
-    expect(screen.getByText(/setup:.*of 6 complete/i)).toBeInTheDocument();
+    expect(screen.getByText(/setup:.*of 7 complete/i)).toBeInTheDocument();
   });
 
   it('does NOT render the full checklist card when collapsed', () => {
@@ -235,12 +252,12 @@ describe('QuickStartChecklist — collapsed / resume banner', () => {
 
   it('resume banner shows the correct completed count', () => {
     renderChecklist({ collapsed: true, teams: [team1] }); // 1 step done
-    expect(screen.getByText(/1 of 6 complete/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 of 7 complete/i)).toBeInTheDocument();
   });
 
   it('clicking the resume banner calls onExpand', async () => {
     const { onExpand } = renderChecklist({ collapsed: true });
-    await userEvent.click(screen.getByText(/setup:.*of 6 complete/i).closest('div')!);
+    await userEvent.click(screen.getByText(/setup:.*of 7 complete/i).closest('div')!);
     expect(onExpand).toHaveBeenCalledTimes(1);
   });
 });
@@ -277,7 +294,7 @@ describe('QuickStartChecklist — step navigation', () => {
   it('calls onNavigate(6) when step 6 is clicked', async () => {
     const { onNavigate } = renderChecklist();
     await userEvent.click(screen.getByText('Manage a live game').closest('button')!);
-    expect(onNavigate).toHaveBeenCalledWith(6);
+    expect(onNavigate).toHaveBeenCalledWith(7);
   });
 });
 
@@ -301,6 +318,7 @@ describe('QuickStartChecklist — demo data indicator', () => {
 // ---------------------------------------------------------------------------
 const allCompleteProps = {
   teams: [team1WithFormation],
+  profileComplete: true,
   teamRosters: [roster1],
   games: [completedGame],
   gamePlans: [gamePlan1],
@@ -313,7 +331,7 @@ describe('QuickStartChecklist — completion state', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('renders the completion card (🎉 "You\'re ready!") when all 6 steps complete', () => {
+  it('renders the completion card (🎉 "You\'re ready!") when all 7 steps complete', () => {
     renderChecklist(allCompleteProps);
     expect(screen.getByText("You're ready!")).toBeInTheDocument();
   });
@@ -328,6 +346,32 @@ describe('QuickStartChecklist — completion state', () => {
   it('does NOT auto-dismiss before 4 seconds', () => {
     const { onDismiss } = renderChecklist(allCompleteProps);
     act(() => vi.advanceTimersByTime(3999));
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it('returns to checklist state if completion regresses before auto-dismiss', () => {
+    const { rerender, onDismiss } = renderChecklist(allCompleteProps);
+
+    expect(screen.getByText("You're ready!")).toBeInTheDocument();
+
+    rerender(
+      <QuickStartChecklist
+        {...defaultProps}
+        onDismiss={onDismiss}
+        onExpand={vi.fn()}
+        onNavigate={vi.fn()}
+        teams={[team1WithFormation]}
+        profileComplete={true}
+        teamRosters={[roster1]}
+        games={[completedGame]}
+        gamePlans={[]}
+      />
+    );
+
+    expect(screen.queryByText("You're ready!")).not.toBeInTheDocument();
+    expect(screen.getByText('6 of 7 steps complete')).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(4000));
     expect(onDismiss).not.toHaveBeenCalled();
   });
 

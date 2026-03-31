@@ -584,6 +584,52 @@
   font-size: 0.8rem;
 }
 
+.profile-form {
+  gap: 0.75rem;
+}
+
+.profile-name-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.profile-checkbox-label {
+  margin-top: 0.25rem;
+}
+
+.profile-form-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.profile-validation {
+  color: var(--text-secondary);
+  font-size: 0.85em;
+}
+
+.profile-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.profile-conflict-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+@media (min-width: 768px) {
+  .profile-name-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile-form-actions {
+    flex-direction: row;
+  }
+}
+
 .message {
   padding: 1rem;
   border-radius: 6px;
@@ -2503,8 +2549,24 @@
 
 .note-author {
   margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
   color: var(--color-text-muted);
-  font-size: 0.85rem;
+  font-size: 0.9em;
+}
+
+.note-author.attribution-you {
+  color: var(--primary-green);
+  font-weight: 700;
+}
+
+.note-author.attribution-removed,
+.note-author.attribution-unknown {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.note-author.attribution-fallback {
+  color: var(--text-secondary);
 }
 
 .pre-game-note-actions {

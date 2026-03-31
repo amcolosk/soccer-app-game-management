@@ -1,11 +1,11 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthenticator } from '@aws-amplify/ui-react';
 import { getCurrentUser } from 'aws-amplify/auth';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import type { Game } from '../types/schema';
-import { showError, showWarning, showSuccess } from '../utils/toast';
+import { showError, showWarning } from '../utils/toast';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { handleApiError } from '../utils/errorHandler';
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
@@ -13,7 +13,7 @@ import { useHelpFab } from '../contexts/HelpFabContext';
 import { buildFlatDebugSnapshot } from '../utils/debugUtils';
 import type { HomeDebugContext } from '../types/debug';
 import { useOnboarding } from '../contexts/OnboardingContext';
-import { createDemoTeam, removeDemoData } from '../services/demoDataService';
+import { removeDemoData } from '../services/demoDataService';
 import { WelcomeModal } from './Onboarding/WelcomeModal';
 import { QuickStartChecklist } from './Onboarding/QuickStartChecklist';
 
@@ -23,7 +23,7 @@ export function Home() {
   const navigate = useNavigate();
   const { authStatus } = useAuthenticator((context) => [context.authStatus]);
   const { setHelpContext, setDebugContext } = useHelpFab();
-  const { welcomed, dismissed, collapsed, markWelcomed, expand, dismiss } = useOnboarding();
+  const { welcomed, dismissed, collapsed, markWelcomed, expand, dismiss, clearDismissed } = useOnboarding();
 
   // Register 'home' help context while this screen is mounted
   useEffect(() => {
@@ -36,8 +36,9 @@ export function Home() {
   const [opponent, setOpponent] = useState('');
   const [gameDate, setGameDate] = useState('');
   const [isHome, setIsHome] = useState(true);
-  const [isDemoLoading, setIsDemoLoading] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | undefined>();
+  const [profileComplete, setProfileComplete] = useState(false);
+  const [isProfileCompletionResolved, setIsProfileCompletionResolved] = useState(false);
 
   const scheduleGameButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -51,20 +52,6 @@ export function Home() {
 
   // Subscribe to teams, roster, and gamePlans for onboarding progress
   const { data: teams, isSynced: isTeamsSynced } = useAmplifyQuery('Team');
-
-  // Auto-welcome users who already had teams before the onboarding feature launched.
-  // Once teams have fully synced and the user has at least one team, skip the WelcomeModal.
-  // This prevents existing coaches from accidentally loading unwanted demo data.
-  useEffect(() => {
-    if (!welcomed && isTeamsSynced && teams.length > 0) {
-      markWelcomed();
-    }
-  }, [welcomed, isTeamsSynced, teams.length, markWelcomed]);
-
-  const { data: teamRosters } = useAmplifyQuery('TeamRoster');
-  // Only subscribe to GamePlan if onboarding is not dismissed (optimization)
-  const { data: gamePlans } = useAmplifyQuery('GamePlan', {}, [dismissed ? 'skip' : '']);
-
   const { data: games } = useAmplifyQuery('Game', {
     sort: (a, b) => {
       const statusA = a.status || 'scheduled';
@@ -99,6 +86,92 @@ export function Home() {
     },
   });
 
+  // Auto-welcome users who already had teams before the onboarding feature launched.
+  // Once teams have fully synced and the user has at least one team, skip the WelcomeModal.
+  // This prevents existing coaches from accidentally loading unwanted demo data.
+  useEffect(() => {
+    if (!welcomed && isTeamsSynced && teams.length > 0) {
+      markWelcomed();
+    }
+  }, [welcomed, isTeamsSynced, teams.length, markWelcomed]);
+
+  const { data: teamRosters } = useAmplifyQuery('TeamRoster');
+  const { data: gamePlans } = useAmplifyQuery('GamePlan');
+
+  const checklistStepCompletion = useMemo(
+    () => [
+      teams.length >= 1,
+      profileComplete,
+      (teamRosters as { teamId: string }[]).some((r) =>
+        (teams as { id: string }[]).some((t) => t.id === r.teamId)
+      ),
+      (teams as { id: string; formationId?: string | null }[]).some(
+        (t) => t.formationId != null && t.formationId !== ''
+      ),
+      games.length >= 1,
+      gamePlans.length >= 1,
+      (games as { status?: string }[]).some(
+        (g) => g.status === 'in-progress' || g.status === 'completed'
+      ),
+    ],
+    [teams, profileComplete, teamRosters, games, gamePlans]
+  );
+
+  const allChecklistStepsComplete = checklistStepCompletion.every(Boolean);
+
+  const readDismissedStepSnapshot = useCallback((): boolean[] | null => {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    const raw = localStorage.getItem('onboarding:lastCompletedSteps');
+    if (!raw) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed) || parsed.length !== checklistStepCompletion.length) {
+        return null;
+      }
+      if (!parsed.every((value) => typeof value === 'boolean')) {
+        return null;
+      }
+      return parsed as boolean[];
+    } catch {
+      return null;
+    }
+  }, [checklistStepCompletion.length]);
+
+  const handleChecklistDismiss = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('onboarding:lastCompletedSteps', JSON.stringify(checklistStepCompletion));
+    }
+    dismiss();
+  }, [checklistStepCompletion, dismiss]);
+
+  useEffect(() => {
+    if (!dismissed) {
+      return;
+    }
+
+    if (!isProfileCompletionResolved) {
+      return;
+    }
+
+    const previousSteps = readDismissedStepSnapshot();
+    const hasRegression = previousSteps
+      ? previousSteps.some((wasComplete, index) => wasComplete && !checklistStepCompletion[index])
+      : !allChecklistStepsComplete;
+
+    if (hasRegression) {
+      clearDismissed();
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('onboarding:lastCompletedSteps');
+      }
+    }
+  }, [dismissed, isProfileCompletionResolved, readDismissedStepSnapshot, checklistStepCompletion, allChecklistStepsComplete, clearDismissed]);
+
   const homeDebugContext = useMemo((): HomeDebugContext => ({
     teamCount: teams.length,
     gameCount: games.length,
@@ -121,27 +194,6 @@ export function Home() {
   // Read demo team ID from localStorage
   const demoTeamId = typeof window !== 'undefined' ? localStorage.getItem('onboarding:demoTeamId') : null;
 
-  // Handle demo data loading
-  const handleLoadDemoData = async () => {
-    if (!currentUserId) return;
-    if (!navigator.onLine) {
-      showError('Demo data requires an internet connection');
-      return;
-    }
-
-    setIsDemoLoading(true);
-    try {
-      await createDemoTeam(currentUserId);
-      showSuccess('Demo team created!');
-      markWelcomed();
-      expand();
-    } catch (error) {
-      handleApiError(error, 'Failed to create demo team');
-    } finally {
-      setIsDemoLoading(false);
-    }
-  };
-
   const handleRemoveDemoData = async () => {
     if (!demoTeamId) return;
     try {
@@ -159,17 +211,20 @@ export function Home() {
         void navigate('/manage?section=teams');
         break;
       case 2:
-        void navigate('/manage?section=players');
+        void navigate('/profile');
         break;
       case 3:
-        void navigate('/manage?section=teams');
+        void navigate('/manage?section=players');
         break;
       case 4:
+        void navigate('/manage?section=teams');
+        break;
+      case 5:
         // Scroll to Schedule Game button
         scheduleGameButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         scheduleGameButtonRef.current?.focus();
         break;
-      case 5: {
+      case 6: {
         // Navigate to first scheduled game's plan
         const firstScheduledGame = games.find(g => (g.status || 'scheduled') === 'scheduled');
         if (firstScheduledGame) {
@@ -177,7 +232,7 @@ export function Home() {
         }
         break;
       }
-      case 6: {
+      case 7: {
         // Navigate to first in-progress or scheduled game
         const firstGame = games.find(g => g.status === 'in-progress' || g.status === 'halftime') ||
                           games.find(g => (g.status || 'scheduled') === 'scheduled');
@@ -195,8 +250,46 @@ export function Home() {
 
   const handleOpenQuickStart = () => {
     markWelcomed();
-    expand();
+    void navigate('/profile');
   };
+
+  useEffect(() => {
+    if (!currentUserId || authStatus !== 'authenticated') {
+      setProfileComplete(false);
+      setIsProfileCompletionResolved(authStatus !== 'authenticated');
+      return;
+    }
+
+    const coachProfileModel = client.models.CoachProfile;
+    if (!coachProfileModel?.get) {
+      setProfileComplete(false);
+      setIsProfileCompletionResolved(false);
+      return;
+    }
+
+    let isMounted = true;
+    setIsProfileCompletionResolved(false);
+    void coachProfileModel.get({ id: currentUserId })
+      .then((result) => {
+        if (!isMounted) {
+          return;
+        }
+
+        const normalizedFirstName = result.data?.firstName?.trim() ?? '';
+        setProfileComplete(normalizedFirstName.length > 0);
+        setIsProfileCompletionResolved(true);
+      })
+      .catch(() => {
+        if (isMounted) {
+          // Fetch failures are unresolved profile state; do not treat as confirmed regression.
+          setIsProfileCompletionResolved(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authStatus, currentUserId]);
 
   const getTeam = (teamId: string) => {
     return teams.find(t => t.id === teamId);
@@ -327,9 +420,7 @@ export function Home() {
       {!welcomed && isTeamsSynced && (
         <WelcomeModal
           onClose={markWelcomed}
-          onLoadDemoData={handleLoadDemoData}
-          onOpenQuickStart={handleOpenQuickStart}
-          isDemoLoading={isDemoLoading}
+          onGetStarted={handleOpenQuickStart}
         />
       )}
 
@@ -342,10 +433,11 @@ export function Home() {
           gamePlans={gamePlans}
           collapsed={collapsed}
           demoTeamId={demoTeamId}
-          onDismiss={dismiss}
+          onDismiss={handleChecklistDismiss}
           onExpand={expand}
           onNavigate={handleNavigateFromChecklist}
           onRemoveDemoData={demoTeamId ? handleRemoveDemoData : undefined}
+                  profileComplete={profileComplete}
         />
       )}
 

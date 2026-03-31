@@ -4,9 +4,7 @@ import './WelcomeModal.css';
 
 interface WelcomeModalProps {
   onClose: () => void;
-  onLoadDemoData: () => Promise<void>;
-  onOpenQuickStart: () => void;
-  isDemoLoading?: boolean;
+  onGetStarted: () => void;
 }
 
 /**
@@ -19,7 +17,7 @@ interface WelcomeModalProps {
  * 
  * Focus trap pattern copied from HelpModal.tsx.
  */
-export function WelcomeModal({ onClose, onLoadDemoData, onOpenQuickStart, isDemoLoading }: WelcomeModalProps) {
+export function WelcomeModal({ onClose, onGetStarted }: WelcomeModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
@@ -98,8 +96,12 @@ export function WelcomeModal({ onClose, onLoadDemoData, onOpenQuickStart, isDemo
     onClose();
   };
 
+  const handleGetStarted = () => {
+    onGetStarted();
+  };
+
   return (
-    <div className="welcome-modal-overlay">
+    <div className="welcome-modal-overlay" onClick={onClose}>
       <div
         ref={modalRef}
         className="welcome-modal-card"
@@ -132,58 +134,21 @@ export function WelcomeModal({ onClose, onLoadDemoData, onOpenQuickStart, isDemo
         <div className="welcome-modal-body">
           {/* Hero section */}
           <div className="welcome-hero">
-            <div className="welcome-hero-icon" aria-hidden="true">⚽</div>
-            <h3 className="welcome-hero-title">Your game-day command center</h3>
+            <div className="welcome-hero-icon" aria-hidden="true">🤝</div>
+            <h3 className="welcome-hero-title">Hey there, Coach! 👋</h3>
             <p className="welcome-hero-tagline">
-              Plan fair rotations, manage live games, and ensure every player gets their time on the field.
+              Before you dive in, take a moment to complete your profile on the Profile tab.
+              Your first name helps teammates identify your notes during games.
             </p>
           </div>
 
-          {/* How it works */}
           <section className="welcome-section">
-            <h4 className="welcome-section-heading">How it works</h4>
-            <div className="welcome-how-it-works">
-              <div className="welcome-how-it-works-item">
-                <span className="welcome-how-it-works-icon" aria-hidden="true">⚙️</span>
-                <span className="welcome-how-it-works-text">
-                  Set up your team & formation
-                </span>
-              </div>
-              <div className="welcome-how-it-works-item">
-                <span className="welcome-how-it-works-icon" aria-hidden="true">📋</span>
-                <span className="welcome-how-it-works-text">
-                  Plan fair rotations before kickoff
-                </span>
-              </div>
-              <div className="welcome-how-it-works-item">
-                <span className="welcome-how-it-works-icon" aria-hidden="true">⚽</span>
-                <span className="welcome-how-it-works-text">
-                  Run the game live — subs, scores, notes
-                </span>
-              </div>
-            </div>
-          </section>
-
-          {/* Your first step */}
-          <section className="welcome-section">
-            <h4 className="welcome-section-heading">Your first step</h4>
+            <h4 className="welcome-section-heading">Privacy</h4>
             <div className="welcome-callout">
               <p className="welcome-callout-text">
-                Tap the <strong>Manage</strong> tab ⚙️ to create your team and add your players first. 
-                Without a team, the Games tab will stay empty.
+                🔒 Your profile is shared only with coaches on your teams. You control what others see:
+                first name only, or first name with last initial.
               </p>
-            </div>
-
-            <div className="welcome-demo-section">
-              <p className="welcome-demo-label">Want to explore first?</p>
-              <button
-                className="welcome-demo-button"
-                onClick={onLoadDemoData}
-                disabled={isDemoLoading}
-                type="button"
-              >
-                {isDemoLoading ? 'Loading...' : 'Load a sample team'}
-              </button>
             </div>
           </section>
         </div>
@@ -195,14 +160,14 @@ export function WelcomeModal({ onClose, onLoadDemoData, onOpenQuickStart, isDemo
             onClick={handleSkip}
             type="button"
           >
-            Skip setup
+            Maybe later
           </button>
           <button
             className="welcome-primary-button"
-            onClick={onOpenQuickStart}
+            onClick={handleGetStarted}
             type="button"
           >
-            Let's Go →
+            Get Started
           </button>
         </div>
       </div>

@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PreGameNotesPanel } from "./PreGameNotesPanel";
 import { getCurrentUser } from "aws-amplify/auth";
+import type { TeamCoachProfileDTO } from "../../services/coachDisplayNameService";
 
 vi.mock("aws-amplify/auth", () => ({
   getCurrentUser: vi.fn(),
@@ -23,7 +24,28 @@ const notes = [
     noteType: 'coaching-point',
     playerId: null,
     notes: 'Keep shape compact in midfield',
-    authorId: 'coach-abcdefghijk',
+    authorId: 'coach-2',
+  },
+  {
+    id: 'n4',
+    noteType: 'coaching-point',
+    playerId: null,
+    notes: 'Duplicate name disambiguation check',
+    authorId: 'coach-3',
+  },
+  {
+    id: 'n5',
+    noteType: 'coaching-point',
+    playerId: null,
+    notes: 'Missing profile display check',
+    authorId: 'coach-4',
+  },
+  {
+    id: 'n6',
+    noteType: 'coaching-point',
+    playerId: null,
+    notes: 'Removed coach label check',
+    authorId: 'coach-removed',
   },
   {
     id: 'n3',
@@ -38,7 +60,39 @@ const players = [
   { id: 'p1', playerNumber: 10, firstName: 'Ava', lastName: 'Lopez' },
 ] as never[];
 
-function renderPanel(gameStatus: 'scheduled' | 'in-progress' | 'halftime' | 'completed' = 'scheduled') {
+const profileMap = new Map<string, TeamCoachProfileDTO>([
+  [
+    'coach-2',
+    {
+      coachId: 'coach-2',
+      displayName: 'Alex P. (Coach 1)',
+      isFallback: false,
+      disambiguationGroupKey: 'alex p.',
+    },
+  ],
+  [
+    'coach-3',
+    {
+      coachId: 'coach-3',
+      displayName: 'Alex P. (Coach 2)',
+      isFallback: false,
+      disambiguationGroupKey: 'alex p.',
+    },
+  ],
+  [
+    'coach-4',
+    {
+      coachId: 'coach-4',
+      displayName: null,
+      isFallback: true,
+      disambiguationGroupKey: null,
+    },
+  ],
+]);
+
+function renderPanel(
+  gameStatus: 'scheduled' | 'in-progress' | 'halftime' | 'completed' = 'scheduled',
+) {
   return render(
     <PreGameNotesPanel
       gameStatus={gameStatus}
@@ -47,6 +101,7 @@ function renderPanel(gameStatus: 'scheduled' | 'in-progress' | 'halftime' | 'com
       onAdd={vi.fn()}
       onEdit={vi.fn()}
       onDelete={vi.fn()}
+      profileMap={profileMap}
     />,
   );
 }
@@ -57,7 +112,7 @@ describe('PreGameNotesPanel', () => {
     mockedGetCurrentUser.mockRejectedValue(new Error('Not signed in'));
   });
 
-  it('renders author attribution for current user, other coaches, and unknown author', async () => {
+  it('renders attribution matrix labels for You, named coach, duplicate name, Coach fallback, Former Coach, and Unknown Author', async () => {
     mockedGetCurrentUser.mockResolvedValue({
       username: 'coach@example.com',
       userId: 'current-user-id',
@@ -67,10 +122,13 @@ describe('PreGameNotesPanel', () => {
     renderPanel('scheduled');
 
     expect(await screen.findByText('Created by: You')).toBeInTheDocument();
-    expect(screen.getByText('Created by: Coach (coach-...ghijk)')).toBeInTheDocument();
+    expect(screen.getByText('Created by: Alex P. (Coach 1)')).toBeInTheDocument();
+    expect(screen.getByText('Created by: Alex P. (Coach 2)')).toBeInTheDocument();
+    expect(screen.getByText('Created by: Coach')).toBeInTheDocument();
+    expect(screen.getByText('Created by: Former Coach')).toBeInTheDocument();
     expect(screen.getByText('Created by: Unknown Author')).toBeInTheDocument();
     expect(screen.getByText('#10 Ava Lopez')).toBeInTheDocument();
-    expect(screen.getAllByText('General Note')).toHaveLength(2);
+    expect(screen.getAllByText('General Note')).toHaveLength(5);
   });
 
   it('renders empty state when no notes exist', () => {

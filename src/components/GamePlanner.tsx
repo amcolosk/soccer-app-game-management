@@ -24,6 +24,7 @@ import { trackEvent, AnalyticsEvents } from "../utils/analytics";
 import { useConfirm } from "./ConfirmModal";
 import { UI_CONSTANTS } from "../constants/ui";
 import { useAmplifyQuery } from "../hooks/useAmplifyQuery";
+import { useTeamCoachProfiles } from "../hooks/useTeamCoachProfiles";
 import { computeLineupAtRotation, computeLineupDiff } from "../utils/gamePlannerUtils";
 import { useOfflineMutations } from "../hooks/useOfflineMutations";
 import { PreGameNotesPanel } from "./GameManagement/PreGameNotesPanel";
@@ -218,6 +219,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const [gamePlan, setGamePlan] = useState<GamePlan | null>(null);
   const [rotations, setRotations] = useState<PlannedRotation[]>([]);
   const { mutations } = useOfflineMutations();
+  const { profileMap } = useTeamCoachProfiles({ teamId: team.id, onFocusRefetch: true });
   const [notesRefreshKey, setNotesRefreshKey] = useState(0);
   const { data: availabilities } = useAmplifyQuery('PlayerAvailability', {
     filter: { gameId: { eq: game.id } },
@@ -1969,6 +1971,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
             onAdd={handleOpenCreateNote}
             onEdit={handleOpenEditNote}
             onDelete={handleDeletePreGameNote}
+            profileMap={profileMap}
           />
         </div>
 
