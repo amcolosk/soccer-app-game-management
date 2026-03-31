@@ -5,6 +5,7 @@ import {
   deleteTeamCascade,
   deletePlayerCascade,
   deleteFormationCascade,
+  getPlayerImpact,
 } from './cascadeDeleteService';
 
 // ---------------------------------------------------------------------------
@@ -493,5 +494,53 @@ describe('edge cases', () => {
     await expect(deleteTeamCascade('team-1')).resolves.not.toThrow();
     await expect(deletePlayerCascade('player-1')).resolves.not.toThrow();
     await expect(deleteFormationCascade('form-1')).resolves.not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getPlayerImpact
+// ---------------------------------------------------------------------------
+
+describe('getPlayerImpact', () => {
+  it('returns zero counts when player has no associated records', async () => {
+    mockList.mockResolvedValue({ data: [], nextToken: null });
+
+    const result = await getPlayerImpact('player-1');
+
+    expect(result).toEqual({ playTimeCount: 0, goalCount: 0, noteCount: 0 });
+  });
+
+  it('returns correct playTimeCount', async () => {
+    setupListResponses(
+      new Map([['player-1', [{ id: 'pt-1' }, { id: 'pt-2' }]]]),
+    );
+
+    const result = await getPlayerImpact('player-1');
+
+    expect(result.playTimeCount).toBe(2);
+  });
+
+  it('returns correct goalCount', async () => {
+    setupListResponses(new Map([['player-1', [{ id: 'goal-1' }]]]));
+
+    const result = await getPlayerImpact('player-1');
+
+    expect(result.goalCount).toBe(1);
+  });
+
+  it('returns correct noteCount', async () => {
+    setupListResponses(new Map([['player-1', [{ id: 'note-1' }, { id: 'note-2' }, { id: 'note-3' }]]]));
+
+    const result = await getPlayerImpact('player-1');
+
+    expect(result.noteCount).toBe(3);
+  });
+
+  it('returned shape contains exactly playTimeCount, goalCount, and noteCount', async () => {
+    mockList.mockResolvedValue({ data: [], nextToken: null });
+
+    const result = await getPlayerImpact('player-1');
+
+    expect(Object.keys(result).sort()).toEqual(['goalCount', 'noteCount', 'playTimeCount']);
   });
 });

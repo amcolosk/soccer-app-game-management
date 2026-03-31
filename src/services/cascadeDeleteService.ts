@@ -269,3 +269,42 @@ export async function deleteFormationCascade(formationId: string): Promise<void>
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Impact Queries (used to warn users before destructive deletes)
+// ---------------------------------------------------------------------------
+
+/**
+ * Counts of game-related records that will be destroyed when a player is deleted.
+ * `rosterCount` is intentionally excluded — it is derived from the component's
+ * already-loaded `teamRosters` subscription state to avoid a redundant DB round-trip.
+ *
+ * Note: PlayerAvailability records are excluded from the impact summary because
+ * they are low-meaning historical scheduling data (absent/available markers) that
+ * the user is unlikely to care about preserving. They are still deleted by
+ * `deletePlayerCascade` but omitted from the warning to keep the message focused
+ * on meaningful game data (play time, goals, notes).
+ */
+export interface PlayerImpact {
+  playTimeCount: number;
+  goalCount: number;
+  noteCount: number;
+}
+
+/**
+ * Returns counts of game-related records that will be destroyed when a player is
+ * deleted. Used to build an informed-consent warning before `deletePlayerCascade`.
+ */
+export async function getPlayerImpact(playerId: string): Promise<PlayerImpact> {
+  const [playTimeRecords, goalsAsScorer, gameNotes] = await Promise.all([
+    listAll(client.models.PlayTimeRecord as any, { playerId: { eq: playerId } }),
+    listAll(client.models.Goal as any, { scorerId: { eq: playerId } }),
+    listAll(client.models.GameNote as any, { playerId: { eq: playerId } }),
+  ]);
+
+  return {
+    playTimeCount: playTimeRecords.length,
+    goalCount: goalsAsScorer.length,
+    noteCount: gameNotes.length,
+  };
+}
