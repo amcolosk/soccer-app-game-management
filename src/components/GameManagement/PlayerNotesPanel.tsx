@@ -1,9 +1,21 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { handleApiError } from "../../utils/errorHandler";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
+import { showWarning } from "../../utils/toast";
 import { PlayerSelect } from "../PlayerSelect";
 import type { GameMutationInput } from "../../hooks/useOfflineMutations";
 import type { Game, Team, PlayerWithRoster, GameNote } from "./types";
+import { useSpeechToText, type StopReason } from "./hooks/useSpeechToText";
+
+const MAX_NOTE_LENGTH = 500;
+
+export type LiveNoteType = "gold-star" | "yellow-card" | "red-card" | "other";
+export type LiveNoteSource = "notes-tab" | "command-band" | "halftime-action";
+
+export interface OpenLiveNoteIntent {
+  source: LiveNoteSource;
+  defaultType: LiveNoteType;
+}
 
 interface PlayerNotesPanelProps {
   gameState: Game;
@@ -13,6 +25,12 @@ interface PlayerNotesPanelProps {
   gameNotes: GameNote[];
   currentTime: number;
   mutations: GameMutationInput;
+  showPanelContent?: boolean;
+  isNoteModalOpen?: boolean;
+  noteModalRequestId?: number;
+  noteModalIntent?: OpenLiveNoteIntent | null;
+  onRequestOpenNote?: (intent: OpenLiveNoteIntent, trigger: HTMLElement | null) => void;
+  onRequestCloseNote?: () => void;
 }
 
 export function PlayerNotesPanel({
@@ -23,11 +41,87 @@ export function PlayerNotesPanel({
   gameNotes,
   currentTime,
   mutations,
+  showPanelContent = true,
+  isNoteModalOpen,
+  noteModalRequestId,
+  noteModalIntent,
+  onRequestOpenNote,
+  onRequestCloseNote,
 }: PlayerNotesPanelProps) {
-  const [showNoteModal, setShowNoteModal] = useState(false);
-  const [noteType, setNoteType] = useState<'gold-star' | 'yellow-card' | 'red-card' | 'other'>('other');
+  const isExternallyControlled =
+    typeof isNoteModalOpen === "boolean" &&
+    typeof onRequestOpenNote === "function" &&
+    typeof onRequestCloseNote === "function";
+
+  const [internalModalOpen, setInternalModalOpen] = useState(false);
+  const [noteType, setNoteType] = useState<LiveNoteType>("other");
   const [notePlayerId, setNotePlayerId] = useState("");
   const [noteText, setNoteText] = useState("");
+  const [truncatedByDictation, setTruncatedByDictation] = useState(false);
+  const [showEndCue, setShowEndCue] = useState(false);
+  const [politeMessage, setPoliteMessage] = useState("");
+  const [assertiveMessage, setAssertiveMessage] = useState("");
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [lastStopReason, setLastStopReason] = useState<StopReason | null>(null);
+  const [lastErrorCode, setLastErrorCode] = useState<string | null>(null);
+
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const modalTextRef = useRef<HTMLTextAreaElement | null>(null);
+  const modalTitleRef = useRef<HTMLHeadingElement | null>(null);
+  const prevOpenRef = useRef(false);
+
+  const showNoteModal = isExternallyControlled ? Boolean(isNoteModalOpen) : internalModalOpen;
+
+  const activeIntent = noteModalIntent ?? { source: "notes-tab" as const, defaultType: noteType };
+
+  const clampToLimit = useCallback((text: string): string => {
+    if (text.length <= MAX_NOTE_LENGTH) return text;
+    return text.slice(0, MAX_NOTE_LENGTH);
+  }, []);
+
+  const mergeDictationText = useCallback((incoming: string, confidence: number | null) => {
+    void confidence;
+    if (!incoming) return;
+
+    setNoteText((previousText) => {
+      const merged = previousText.trim().length > 0
+        ? `${previousText.trim()} ${incoming}`
+        : incoming;
+      const clamped = clampToLimit(merged);
+      if (clamped.length < merged.length) {
+        setTruncatedByDictation(true);
+      }
+      return clamped;
+    });
+  }, [clampToLimit]);
+
+  const handleSessionEnd = useCallback((reason: StopReason, errorCode: string | null) => {
+    setLastStopReason(reason);
+    setLastErrorCode(errorCode);
+    setShowEndCue(true);
+    setIsFinalizing(true);
+    window.setTimeout(() => setIsFinalizing(false), 300);
+    window.setTimeout(() => setShowEndCue(false), 1800);
+
+    if (navigator.vibrate) {
+      navigator.vibrate(120);
+    }
+  }, []);
+
+  const {
+    isSupported,
+    status,
+    isListening,
+    interimTranscript,
+    errorCode,
+    lowConfidenceDetected,
+    start,
+    stop,
+  } = useSpeechToText({
+    isModalOpen: showNoteModal,
+    onFinalTranscript: mergeDictationText,
+    onSessionEnd: handleSessionEnd,
+  });
   const inGameNotes = gameNotes.filter(
     (note): note is GameNote & { gameSeconds: number; half: number } => (
       note.gameSeconds !== null
@@ -39,11 +133,37 @@ export function PlayerNotesPanel({
 
   const getCurrentGameTime = () => currentTime;
 
-  const handleOpenNoteModal = (type: 'gold-star' | 'yellow-card' | 'red-card' | 'other') => {
-    setNoteType(type);
+  const isTransientVoiceState = status === "starting" || status === "stopping" || isFinalizing;
+
+  const openNoteModal = (intent: OpenLiveNoteIntent, trigger: HTMLElement | null) => {
+    returnFocusRef.current = trigger;
+    if (isExternallyControlled && onRequestOpenNote) {
+      onRequestOpenNote(intent, trigger);
+      return;
+    }
+
+    setNoteType(intent.defaultType);
     setNotePlayerId("");
     setNoteText("");
-    setShowNoteModal(true);
+    setTruncatedByDictation(false);
+    setShowEndCue(false);
+    setInternalModalOpen(true);
+  };
+
+  const closeNoteModal = () => {
+    if (isExternallyControlled && onRequestCloseNote) {
+      onRequestCloseNote();
+    } else {
+      setInternalModalOpen(false);
+    }
+  };
+
+  const handleOpenNoteModal = (
+    type: LiveNoteType,
+    trigger: HTMLElement | null,
+    source: LiveNoteSource = "notes-tab"
+  ) => {
+    openNoteModal({ source, defaultType: type }, trigger);
   };
 
   const handleSaveNote = async () => {
@@ -57,16 +177,105 @@ export function PlayerNotesPanel({
         playerId: notePlayerId || undefined,
         gameSeconds: timeInSeconds,
         half: gameState.currentHalf || 2,
-        notes: noteText || undefined,
+        notes: clampToLimit(noteText.trim()) || undefined,
         timestamp: new Date().toISOString(),
         coaches: team.coaches,
       });
 
-      setShowNoteModal(false);
+      closeNoteModal();
     } catch (error) {
       handleApiError(error, 'Failed to save note');
     }
   };
+
+  useEffect(() => {
+    const openedNow = showNoteModal && !prevOpenRef.current;
+    if (!openedNow) {
+      if (!showNoteModal && prevOpenRef.current) {
+        returnFocusRef.current?.focus({ preventScroll: true });
+      }
+      prevOpenRef.current = showNoteModal;
+      return;
+    }
+
+    setNoteType(activeIntent.defaultType);
+    setNotePlayerId("");
+    setNoteText("");
+    setTruncatedByDictation(false);
+    setShowEndCue(false);
+    setPoliteMessage("");
+    setAssertiveMessage("");
+    setLastStopReason(null);
+    setLastErrorCode(null);
+
+    window.setTimeout(() => {
+      modalTitleRef.current?.focus();
+    }, 0);
+
+    prevOpenRef.current = showNoteModal;
+  }, [activeIntent.defaultType, showNoteModal]);
+
+  useEffect(() => {
+    if (!noteModalRequestId || !showNoteModal) return;
+    setNoteType(activeIntent.defaultType);
+  }, [activeIntent.defaultType, noteModalRequestId, showNoteModal]);
+
+  useEffect(() => {
+    if (!showNoteModal) return;
+
+    if (status === "starting") {
+      setPoliteMessage("Starting microphone...");
+      return;
+    }
+
+    if (status === "listening") {
+      setPoliteMessage("Recording started.");
+      return;
+    }
+
+    if (status === "stopping") {
+      setPoliteMessage("Stopping microphone...");
+      return;
+    }
+
+    if (lastStopReason) {
+      setPoliteMessage("Recording stopped.");
+    }
+  }, [lastStopReason, showNoteModal, status]);
+
+  useEffect(() => {
+    if (!showNoteModal || !interimTranscript) return;
+    setPoliteMessage(`Listening: ${interimTranscript}`);
+  }, [interimTranscript, showNoteModal]);
+
+  useEffect(() => {
+    if (!showNoteModal) return;
+    const code = errorCode ?? lastErrorCode;
+    if (!code) return;
+
+    if (code === "not-allowed") {
+      setAssertiveMessage("Microphone permission denied. Type your note manually or use keyboard dictation.");
+      showWarning("Microphone permission denied.");
+      return;
+    }
+
+    if (code === "no-speech") {
+      setAssertiveMessage("No speech detected. Try again or type note manually.");
+      showWarning("No speech detected. Try again.");
+      return;
+    }
+
+    if (code === "network") {
+      setAssertiveMessage("Speech recognition network error. You can continue by typing your note.");
+      showWarning("Speech recognition network error.");
+      return;
+    }
+
+    if (code === "start-failed") {
+      setAssertiveMessage("Unable to start dictation on this device. Type your note manually.");
+      return;
+    }
+  }, [errorCode, lastErrorCode, showNoteModal]);
 
   const getNoteIcon = (type: string) => {
     switch (type) {
@@ -86,32 +295,54 @@ export function PlayerNotesPanel({
     }
   };
 
+  const saveDisabled = noteText.trim().length === 0 || isTransientVoiceState;
+
+  const dictationUnavailableText = "Voice capture is not supported in this browser. Type your note manually, or use iPhone keyboard dictation (tap the microphone key on the keyboard).";
+
   return (
     <>
       {/* Note Buttons */}
-      {gameState.status !== 'scheduled' && (
+      {showPanelContent && gameState.status !== 'scheduled' && (
         <div className="note-buttons">
           {gameState.status === 'completed' ? (
             <>
-              <button onClick={() => handleOpenNoteModal('gold-star')} className="btn-note btn-note-gold">
+              <button
+                onClick={(event) => handleOpenNoteModal('gold-star', event.currentTarget)}
+                className="btn-note btn-note-gold"
+              >
                 ⭐ Gold Star
               </button>
-              <button onClick={() => handleOpenNoteModal('other')} className="btn-note btn-note-other">
+              <button
+                onClick={(event) => handleOpenNoteModal('other', event.currentTarget)}
+                className="btn-note btn-note-other"
+              >
                 📝 Note
               </button>
             </>
           ) : (
             <>
-              <button onClick={() => handleOpenNoteModal('gold-star')} className="btn-note btn-note-gold">
+              <button
+                onClick={(event) => handleOpenNoteModal('gold-star', event.currentTarget)}
+                className="btn-note btn-note-gold"
+              >
                 ⭐ Gold Star
               </button>
-              <button onClick={() => handleOpenNoteModal('yellow-card')} className="btn-note btn-note-yellow">
+              <button
+                onClick={(event) => handleOpenNoteModal('yellow-card', event.currentTarget)}
+                className="btn-note btn-note-yellow"
+              >
                 🟨 Yellow Card
               </button>
-              <button onClick={() => handleOpenNoteModal('red-card')} className="btn-note btn-note-red">
+              <button
+                onClick={(event) => handleOpenNoteModal('red-card', event.currentTarget)}
+                className="btn-note btn-note-red"
+              >
                 🟥 Red Card
               </button>
-              <button onClick={() => handleOpenNoteModal('other')} className="btn-note btn-note-other">
+              <button
+                onClick={(event) => handleOpenNoteModal('other', event.currentTarget)}
+                className="btn-note btn-note-other"
+              >
                 📝 Note
               </button>
             </>
@@ -151,9 +382,11 @@ export function PlayerNotesPanel({
 
       {/* Note Modal */}
       {showNoteModal && (
-        <div className="modal-overlay" onClick={() => setShowNoteModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>{getNoteIcon(noteType)} {getNoteLabel(noteType)}</h2>
+        <div className="modal-overlay" onClick={closeNoteModal}>
+          <div className="modal-content note-modal note-modal--live" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="live-note-modal-title">
+            <h2 id="live-note-modal-title" ref={modalTitleRef} tabIndex={-1}>{getNoteIcon(noteType)} {getNoteLabel(noteType)}</h2>
+            <div className="sr-only" aria-live="polite">{politeMessage}</div>
+            <div className="sr-only" aria-live="assertive">{assertiveMessage}</div>
             {gameState.status === 'completed' ? (
               <p className="modal-subtitle">
                 Post-Game Note
@@ -163,6 +396,64 @@ export function PlayerNotesPanel({
                 {formatGameTimeDisplay(getCurrentGameTime(), gameState.currentHalf || 1)}
               </p>
             )}
+
+            <div className="note-modal__type-row">
+              <button type="button" className={`note-modal__type-chip ${noteType === "gold-star" ? "active" : ""}`} onClick={() => setNoteType("gold-star")} disabled={isTransientVoiceState}>
+                ⭐ Gold Star
+              </button>
+              <button type="button" className={`note-modal__type-chip ${noteType === "yellow-card" ? "active" : ""}`} onClick={() => setNoteType("yellow-card")} disabled={isTransientVoiceState}>
+                🟨 Yellow Card
+              </button>
+              {gameState.status !== "completed" && (
+                <button type="button" className={`note-modal__type-chip ${noteType === "red-card" ? "active" : ""}`} onClick={() => setNoteType("red-card")} disabled={isTransientVoiceState}>
+                  🟥 Red Card
+                </button>
+              )}
+              <button type="button" className={`note-modal__type-chip ${noteType === "other" ? "active" : ""}`} onClick={() => setNoteType("other")} disabled={isTransientVoiceState}>
+                📝 Note
+              </button>
+            </div>
+
+            <div className="note-modal__voice-rail">
+              {isSupported ? (
+                <>
+                  <button
+                    type="button"
+                    className={`note-modal__dictation-btn ${isListening ? "is-listening" : ""}`}
+                    aria-label={isListening ? "Stop dictation" : "Start English dictation"}
+                    onClick={() => {
+                      if (isListening) {
+                        stop("manual-stop");
+                        return;
+                      }
+                      start();
+                    }}
+                    disabled={status === "starting" || status === "stopping"}
+                  >
+                    {isListening ? "Stop Dictation" : "Start Dictation"}
+                  </button>
+                  <span className="note-modal__voice-hint">English dictation is supported in this release.</span>
+                </>
+              ) : (
+                <p className="note-modal__voice-fallback">{dictationUnavailableText}</p>
+              )}
+            </div>
+
+            {interimTranscript && (
+              <p className="note-modal__interim">Listening: {interimTranscript}</p>
+            )}
+
+            {showEndCue && <p className="note-modal__end-cue">Dictation ended.</p>}
+
+            {lowConfidenceDetected && (
+              <p className="note-modal__low-confidence" role="status">
+                Transcription may be inaccurate. Please review before saving.
+              </p>
+            )}
+
+            {status === "starting" && <p className="note-modal__helper-copy">Starting microphone...</p>}
+            {status === "stopping" && <p className="note-modal__helper-copy">Stopping microphone...</p>}
+            {isFinalizing && <p className="note-modal__helper-copy">Finalizing transcript...</p>}
 
             <div className="form-group">
               <label htmlFor="notePlayer">Player (optional)</label>
@@ -180,19 +471,28 @@ export function PlayerNotesPanel({
               <label htmlFor="noteText">Note</label>
               <textarea
                 id="noteText"
+                ref={modalTextRef}
                 value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
+                maxLength={MAX_NOTE_LENGTH}
+                onChange={(e) => {
+                  setNoteText(clampToLimit(e.target.value));
+                  setTruncatedByDictation(false);
+                }}
                 placeholder="Add your note here..."
                 rows={4}
                 style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', resize: 'vertical' }}
               />
+              <div className="char-counter">{noteText.length} / {MAX_NOTE_LENGTH}</div>
+              {truncatedByDictation && (
+                <p className="note-modal__truncation-warning">Dictation was truncated at 500 characters.</p>
+              )}
             </div>
 
-            <div className="form-actions">
-              <button onClick={handleSaveNote} className="btn-primary">
+            <div className="form-actions note-modal__footer-actions">
+              <button onClick={handleSaveNote} className="btn-primary" disabled={saveDisabled}>
                 Save Note
               </button>
-              <button onClick={() => setShowNoteModal(false)} className="btn-secondary">
+              <button onClick={closeNoteModal} className="btn-secondary" disabled={isFinalizing}>
                 Cancel
               </button>
             </div>

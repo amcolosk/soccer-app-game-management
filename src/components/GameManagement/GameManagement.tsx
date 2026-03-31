@@ -18,7 +18,7 @@ import { TabNav, type GameTab } from "./TabNav";
 import { BenchTab } from "./BenchTab";
 import { GameTimer } from "./GameTimer";
 import { GoalTracker } from "./GoalTracker";
-import { PlayerNotesPanel } from "./PlayerNotesPanel";
+import { PlayerNotesPanel, type OpenLiveNoteIntent } from "./PlayerNotesPanel";
 import { PreGameNotesPanel } from "./PreGameNotesPanel";
 import { CreateEditNoteModal } from "./CreateEditNoteModal";
 import { RotationWidget } from "./RotationWidget";
@@ -68,6 +68,15 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [preGameNoteMode, setPreGameNoteMode] = useState<'create' | 'edit'>('create');
   const [preGameNoteDraft, setPreGameNoteDraft] = useState<{ id?: string; notes?: string | null; playerId?: string | null } | null>(null);
   const [notesRefreshKey, setNotesRefreshKey] = useState(0);
+  const [liveNoteModalState, setLiveNoteModalState] = useState<{
+    isOpen: boolean;
+    requestId: number;
+    intent: OpenLiveNoteIntent | null;
+  }>({
+    isOpen: false,
+    requestId: 0,
+    intent: null,
+  });
 
   // Game planner integration
   const [isRecalculating, setIsRecalculating] = useState(false);
@@ -81,6 +90,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const injuryModalRef = useRef<HTMLDivElement | null>(null);
   const injuryModalHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const injuryModalReturnFocusRef = useRef<HTMLElement | null>(null);
+  const liveNoteModalReturnFocusRef = useRef<HTMLElement | null>(null);
 
   // Subscriptions hook - manages game observation, data subscriptions, and lineup sync
   const {
@@ -646,6 +656,25 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     });
   };
 
+  const openLiveNoteModal = useCallback((intent: OpenLiveNoteIntent, trigger: HTMLElement | null) => {
+    liveNoteModalReturnFocusRef.current = trigger;
+    setLiveNoteModalState((previous) => ({
+      isOpen: true,
+      requestId: previous.requestId + 1,
+      intent,
+    }));
+  }, []);
+
+  const closeLiveNoteModal = useCallback(() => {
+    setLiveNoteModalState((previous) => ({
+      ...previous,
+      isOpen: false,
+    }));
+    window.setTimeout(() => {
+      liveNoteModalReturnFocusRef.current?.focus({ preventScroll: true });
+    }, 0);
+  }, []);
+
   const handleAddTestTime = (minutes: number) => {
     const newTime = currentTime + minutes * 60;
     setCurrentTime(newTime);
@@ -870,6 +899,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           onPauseTimer={handlePauseTimer}
           onResumeTimer={handleResumeTimer}
           onShowRotationModal={() => { setRotationModalOpen(true); trackEvent(AnalyticsEvents.ROTATION_WIDGET_OPENED.category, AnalyticsEvents.ROTATION_WIDGET_OPENED.action); }}
+          onAddNote={(trigger) => openLiveNoteModal({ source: 'command-band', defaultType: 'other' }, trigger)}
         />
 
         {/* Rotation and late-arrival modals (always mounted for in-progress) */}
@@ -1037,9 +1067,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               <GoalTracker {...sharedGoalTrackerProps} />
             )}
 
-            {activeTab === 'notes' && (
-              <PlayerNotesPanel {...sharedNotesPanelProps} />
-            )}
           </>
         )}
 
@@ -1085,6 +1112,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               >
                 Manage Injuries
               </button>
+              <button
+                onClick={(event) => openLiveNoteModal({ source: 'halftime-action', defaultType: 'other' }, event.currentTarget)}
+                className="btn-secondary"
+              >
+                Add note
+              </button>
             </div>
             <div className="halftime-start-cta">
               <button onClick={handleStartSecondHalf} className="btn-primary btn-large">
@@ -1108,10 +1141,22 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               profileMap={profileMap}
             />
             <GoalTracker {...sharedGoalTrackerProps} />
-            <PlayerNotesPanel {...sharedNotesPanelProps} />
             {deleteGameButton}
           </div>
         )}
+
+        <PlayerNotesPanel
+          {...sharedNotesPanelProps}
+          showPanelContent={
+            (gameState.status === 'in-progress' && activeTab === 'notes')
+            || gameState.status === 'completed'
+          }
+          isNoteModalOpen={liveNoteModalState.isOpen}
+          noteModalRequestId={liveNoteModalState.requestId}
+          noteModalIntent={liveNoteModalState.intent}
+          onRequestOpenNote={openLiveNoteModal}
+          onRequestCloseNote={closeLiveNoteModal}
+        />
 
         {injuryModalOpen && gameState.status === 'halftime' && (
           <div className="modal-overlay" onClick={closeInjuryModal}>

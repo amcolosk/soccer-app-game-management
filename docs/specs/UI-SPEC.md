@@ -355,6 +355,14 @@ Active game cards: left-border accent treatment.
 - Goal buttons: `+ Home Goal` / `+ Away Goal`
 - Game clock (counting up)
 - Rotation countdown: "Next rotation in X:XX"
+- Direct note trigger: `Add note`
+
+#### Direct Note Trigger (In Progress)
+- The in-progress CommandBand includes an `Add note` action that opens the shared live-note modal without switching tabs.
+- Narrow iPhone widths (375/390/430) use icon-only presentation for the note trigger.
+- Direct-entry default note type is always `other` (display label: `Note`).
+- Rotation badge and note trigger must coexist in the right cell with both hit targets staying at least `44 x 44px`.
+- Collapse behavior at narrow widths: note label hides first, then rotation helper text hides; icon button and rotation count remain visible.
 
 #### Tabs (TabNav)
 
@@ -396,6 +404,8 @@ Active game cards: left-border accent treatment.
 #### Notes
 - Halftime is the window for deliberate lineup changes
 - Timer is explicitly paused; coach taps "Start 2nd Half" to resume
+- Halftime direct note entry surface-of-truth is the halftime action-row `Add note` control (not CommandBand).
+- Halftime `Add note` opens the same shared live-note modal/editor/save path used by Notes tab and in-progress direct entry.
 
 ---
 
@@ -800,6 +810,25 @@ All modals share:
 - Modal card: white, `border-radius: 12px`, centered (or slide-up on phone)
 - Dismiss: tap backdrop or explicit close button
 - No scroll lock required (modals are small; page behind doesn't scroll)
+
+### Live Note Modal (Shared Controller)
+- One always-mounted shared live-note modal controller is owned by `GameManagement`.
+- Entry paths: Notes tab note actions, in-progress CommandBand `Add note`, and halftime action-row `Add note`.
+- All entry paths use one canonical editor and one canonical save path through `useOfflineMutations` secure note mutations.
+
+#### Voice Behavior (iPhone Safari/Chrome focus)
+- Dictation support target: iPhone Safari and iPhone Chrome.
+- Explicit save only: no speech lifecycle event may persist notes.
+- Low-confidence advisory appears when average final confidence is below `70%`.
+- Silence auto-stop timeout is `10 seconds`.
+- End cue includes visual confirmation plus short vibration when `navigator.vibrate` is available.
+
+#### Keyboard + Accessibility Contract
+- On open, initial focus lands on the modal title (h2) for screen reader context announcement; subsequent Tab reaches note type and dictation controls. Software keyboard may open on touch devices.
+- `Stop` (while listening) and `Save` remain visible and tappable with keyboard open; modal body scrolls while footer actions stay sticky.
+- Focus returns to the opening control when modal closes.
+- Dictation controls provide stable accessible names: `Start English dictation` and `Stop dictation`.
+- Message routing uses polite live updates for status and assertive announcements for blocking/error recovery guidance.
 
 ### Rotation Widget
 - Slide-up sheet on phone

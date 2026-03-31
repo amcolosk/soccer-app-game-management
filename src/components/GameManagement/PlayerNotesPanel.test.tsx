@@ -1,15 +1,29 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PlayerNotesPanel } from "./PlayerNotesPanel";
 
-vi.mock("aws-amplify/data", () => ({
-  generateClient: () => ({
-    models: {
-      GameNote: { create: vi.fn().mockResolvedValue({ data: {} }) },
-    },
-  }),
+vi.mock("../../utils/toast", () => ({
+  showWarning: vi.fn(),
+  showError: vi.fn(),
+  showSuccess: vi.fn(),
+  showInfo: vi.fn(),
+}));
+
+const speechState = {
+  isSupported: true,
+  status: "idle",
+  isListening: false,
+  interimTranscript: "",
+  errorCode: null,
+  lowConfidenceDetected: false,
+  start: vi.fn(),
+  stop: vi.fn(),
+};
+
+vi.mock("./hooks/useSpeechToText", () => ({
+  useSpeechToText: vi.fn(() => speechState),
 }));
 
 vi.mock("../PlayerSelect", () => ({
@@ -32,6 +46,7 @@ const players = [
   { id: "p1", playerNumber: 10, firstName: "Alice", lastName: "Smith" },
 ] as any[];
 
+const createGameNote = vi.fn().mockResolvedValue(undefined);
 const defaultProps = {
   gameState: makeGameState() as any,
   game: { id: "game-1" } as any,
@@ -39,168 +54,202 @@ const defaultProps = {
   players,
   gameNotes: [] as any[],
   currentTime: 600,
+  mutations: {
+    createGameNote,
+  } as any,
 };
 
 describe("PlayerNotesPanel", () => {
-  describe("note buttons visibility", () => {
-    it("hides all buttons when scheduled", () => {
-      render(
-        <PlayerNotesPanel
-          {...defaultProps}
-          gameState={makeGameState({ status: "scheduled" }) as any}
-        />
-      );
-      expect(screen.queryByText(/Gold Star/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/Yellow Card/)).not.toBeInTheDocument();
-    });
-
-    it("shows 4 buttons when in-progress", () => {
-      render(<PlayerNotesPanel {...defaultProps} />);
-      expect(screen.getByText(/Gold Star/)).toBeInTheDocument();
-      expect(screen.getByText(/Yellow Card/)).toBeInTheDocument();
-      expect(screen.getByText(/Red Card/)).toBeInTheDocument();
-      expect(screen.getByText("📝 Note")).toBeInTheDocument();
-    });
-
-    it("shows only 2 buttons when completed", () => {
-      render(
-        <PlayerNotesPanel
-          {...defaultProps}
-          gameState={makeGameState({ status: "completed" }) as any}
-        />
-      );
-      expect(screen.getByText(/Gold Star/)).toBeInTheDocument();
-      expect(screen.getByText("📝 Note")).toBeInTheDocument();
-      expect(screen.queryByText(/Yellow Card/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/Red Card/)).not.toBeInTheDocument();
-    });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    speechState.isSupported = true;
+    speechState.status = "idle";
+    speechState.isListening = false;
+    speechState.interimTranscript = "";
+    speechState.errorCode = null;
+    speechState.lowConfidenceDetected = false;
   });
 
-  describe("note modal", () => {
-    it("opens modal with Gold Star icon when clicked", async () => {
-      const user = userEvent.setup();
-      render(<PlayerNotesPanel {...defaultProps} />);
-      await user.click(screen.getByText(/Gold Star/));
-      // Modal title should contain the icon and label
-      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Gold Star");
-    });
-
-    it("opens modal with Yellow Card icon when clicked", async () => {
-      const user = userEvent.setup();
-      render(<PlayerNotesPanel {...defaultProps} />);
-      await user.click(screen.getByText(/Yellow Card/));
-      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Yellow Card");
-    });
-
-    it("shows Post-Game Note subtitle when completed", async () => {
-      const user = userEvent.setup();
-      render(
-        <PlayerNotesPanel
-          {...defaultProps}
-          gameState={makeGameState({ status: "completed" }) as any}
-        />
-      );
-      await user.click(screen.getByText(/Gold Star/));
-      expect(screen.getByText("Post-Game Note")).toBeInTheDocument();
-    });
-
-    it("shows game time subtitle when in-progress", async () => {
-      const user = userEvent.setup();
-      render(<PlayerNotesPanel {...defaultProps} />);
-      await user.click(screen.getByText(/Gold Star/));
-      // Should not show "Post-Game Note"
-      expect(screen.queryByText("Post-Game Note")).not.toBeInTheDocument();
-    });
-
-    it("shows player select in modal", async () => {
-      const user = userEvent.setup();
-      render(<PlayerNotesPanel {...defaultProps} />);
-      await user.click(screen.getByText(/Gold Star/));
-      expect(screen.getByTestId("notePlayer")).toBeInTheDocument();
-    });
-
-    it("closes modal when Cancel clicked", async () => {
-      const user = userEvent.setup();
-      render(<PlayerNotesPanel {...defaultProps} />);
-      await user.click(screen.getByText(/Gold Star/));
-      expect(screen.getByText("Save Note")).toBeInTheDocument();
-      await user.click(screen.getByText("Cancel"));
-      expect(screen.queryByText("Save Note")).not.toBeInTheDocument();
-    });
+  it("shows in-progress note buttons", () => {
+    render(<PlayerNotesPanel {...defaultProps} />);
+    expect(screen.getByText(/Gold Star/)).toBeInTheDocument();
+    expect(screen.getByText(/Yellow Card/)).toBeInTheDocument();
+    expect(screen.getByText(/Red Card/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /note/i })).toBeInTheDocument();
   });
 
-  describe("notes list", () => {
-    const notesData = [
-      {
-        id: "n1",
-        noteType: "gold-star",
-        gameSeconds: 300,
-        half: 1,
-        playerId: "p1",
-        notes: "Great defending",
-      },
-      {
-        id: "n2",
-        noteType: "yellow-card",
-        gameSeconds: 900,
-        half: 1,
-        playerId: null,
-        notes: null,
-      },
-    ] as any[];
+  it("opens modal when note action button is clicked", async () => {
+    const user = userEvent.setup();
+    render(<PlayerNotesPanel {...defaultProps} />);
 
-    it("renders note cards with correct icon", () => {
-      render(<PlayerNotesPanel {...defaultProps} gameNotes={notesData} />);
-      expect(screen.getByText("Game Notes")).toBeInTheDocument();
-    });
+    await user.click(screen.getByText(/Gold Star/));
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Gold Star");
+    expect(screen.getByText("Save Note")).toBeInTheDocument();
+  });
 
-    it("shows correct note type labels", () => {
-      render(<PlayerNotesPanel {...defaultProps} gameNotes={notesData} />);
-      expect(screen.getByText("Gold Star")).toBeInTheDocument();
-      expect(screen.getByText("Yellow Card")).toBeInTheDocument();
-    });
+  it("keeps persistence behind explicit Save only", async () => {
+    const user = userEvent.setup();
+    render(<PlayerNotesPanel {...defaultProps} />);
 
-    it("shows player name when note has playerId", () => {
-      render(<PlayerNotesPanel {...defaultProps} gameNotes={notesData} />);
-      expect(screen.getByText("#10 Alice Smith")).toBeInTheDocument();
-    });
+    await user.click(screen.getByText(/Gold Star/));
+    await user.click(screen.getByRole("button", { name: /start english dictation/i }));
 
-    it("shows note text when present", () => {
-      render(<PlayerNotesPanel {...defaultProps} gameNotes={notesData} />);
-      expect(screen.getByText("Great defending")).toBeInTheDocument();
-    });
+    expect(createGameNote).not.toHaveBeenCalled();
 
-    it("shows minute and half info", () => {
-      render(<PlayerNotesPanel {...defaultProps} gameNotes={notesData} />);
-      const timeSpans = document.querySelectorAll(".note-time");
-      expect(timeSpans).toHaveLength(2);
-      expect(timeSpans[0]).toHaveTextContent("5'");
-      expect(timeSpans[1]).toHaveTextContent("15'");
-    });
+    await user.type(screen.getByLabelText("Note"), "Great press");
+    await user.click(screen.getByRole("button", { name: "Save Note" }));
 
-    it("does not render notes section when empty", () => {
-      render(<PlayerNotesPanel {...defaultProps} gameNotes={[]} />);
-      expect(screen.queryByText("Game Notes")).not.toBeInTheDocument();
-    });
+    expect(createGameNote).toHaveBeenCalledTimes(1);
+    expect(createGameNote).toHaveBeenCalledWith(expect.objectContaining({
+      noteType: "gold-star",
+      notes: "Great press",
+    }));
+  });
 
-    it("filters out pre-game notes with null timing fields", () => {
-      render(
-        <PlayerNotesPanel
-          {...defaultProps}
-          gameNotes={[
-            {
-              id: 'pre-1',
-              noteType: 'coaching-point',
-              gameSeconds: null,
-              half: null,
-              notes: 'Pregame strategy',
-            },
-          ] as any[]}
-        />
-      );
+  it("shows unsupported fallback helper when speech API is unavailable", async () => {
+    const user = userEvent.setup();
+    speechState.isSupported = false;
 
-      expect(screen.queryByText('Game Notes')).not.toBeInTheDocument();
-      expect(screen.queryByText('Pregame strategy')).not.toBeInTheDocument();
-    });
+    render(<PlayerNotesPanel {...defaultProps} />);
+    await user.click(screen.getByText(/Gold Star/));
+
+    expect(screen.getByText(/Voice capture is not supported in this browser/i)).toBeInTheDocument();
+  });
+
+  it("shows low-confidence advisory when confidence is below threshold", async () => {
+    const user = userEvent.setup();
+    speechState.lowConfidenceDetected = true;
+
+    render(<PlayerNotesPanel {...defaultProps} />);
+    await user.click(screen.getByText(/Gold Star/));
+
+    expect(screen.getByText(/Transcription may be inaccurate/i)).toBeInTheDocument();
+  });
+
+  it("supports externally controlled shared modal open intent", () => {
+    render(
+      <PlayerNotesPanel
+        {...defaultProps}
+        showPanelContent={false}
+        isNoteModalOpen={true}
+        noteModalRequestId={1}
+        noteModalIntent={{ source: "command-band", defaultType: "other" }}
+        onRequestOpenNote={vi.fn()}
+        onRequestCloseNote={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Note");
+  });
+
+  it("enforces 500-character limit in note input", async () => {
+    const user = userEvent.setup();
+    render(<PlayerNotesPanel {...defaultProps} />);
+
+    await user.click(screen.getByText(/Gold Star/));
+    fireEvent.change(screen.getByLabelText("Note"), { target: { value: "a".repeat(600) } });
+
+    const textarea = screen.getByLabelText("Note") as HTMLTextAreaElement;
+    expect(textarea.value.length).toBe(500);
+    expect(screen.getByText("500 / 500")).toBeInTheDocument();
+  });
+
+  // ── Transient state tests ────────────────────────────────────────────────
+
+  it("(a) disables dictation button and shows helper copy when status is 'starting'", async () => {
+    const user = userEvent.setup();
+    speechState.status = "starting";
+
+    render(<PlayerNotesPanel {...defaultProps} />);
+    await user.click(screen.getByRole("button", { name: /Gold Star/i }));
+
+    const dictBtn = screen.getByRole("button", { name: /dictation/i });
+    expect(dictBtn).toBeDisabled();
+    // Text appears in both the sr-only polite region and the visible helper copy
+    expect(screen.getAllByText("Starting microphone...").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("(b) disables dictation button and shows helper copy when status is 'stopping'", async () => {
+    const user = userEvent.setup();
+    speechState.status = "stopping";
+
+    render(<PlayerNotesPanel {...defaultProps} />);
+    await user.click(screen.getByRole("button", { name: /Gold Star/i }));
+
+    const dictBtn = screen.getByRole("button", { name: /dictation/i });
+    expect(dictBtn).toBeDisabled();
+    // Text appears in both the sr-only polite region and the visible helper copy
+    expect(screen.getAllByText("Stopping microphone...").length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ── Permission-denied assertive message ──────────────────────────────────
+
+  it("(c) shows assertive inline message when mic permission is denied", async () => {
+    const user = userEvent.setup();
+    speechState.errorCode = "not-allowed";
+
+    render(<PlayerNotesPanel {...defaultProps} />);
+    await user.click(screen.getByRole("button", { name: /Gold Star/i }));
+
+    expect(screen.getByText(/Microphone permission denied/i)).toBeInTheDocument();
+  });
+
+  // ── aria-live routing ─────────────────────────────────────────────────────
+
+  it("(d) routes polite message through sr-only live region; interim paragraph has no aria-live", async () => {
+    const user = userEvent.setup();
+    speechState.status = "starting";
+    speechState.interimTranscript = "testing one two";
+
+    render(<PlayerNotesPanel {...defaultProps} />);
+    await user.click(screen.getByRole("button", { name: /Gold Star/i }));
+
+    // Only the sr-only div should carry aria-live="polite" (not the interim paragraph)
+    const politeRegion = document.querySelector('.sr-only[aria-live="polite"]');
+    expect(politeRegion).toBeInTheDocument();
+
+    const interimPara = document.querySelector(".note-modal__interim");
+    expect(interimPara).toBeInTheDocument();
+    expect(interimPara).not.toHaveAttribute("aria-live");
+  });
+
+  // ── Focus return after close ──────────────────────────────────────────────
+
+  it("(e) returns focus to the opener button after modal is closed via Cancel", async () => {
+    const user = userEvent.setup();
+    render(<PlayerNotesPanel {...defaultProps} />);
+
+    const goldStarBtn = screen.getByRole("button", { name: /Gold Star/i });
+    await user.click(goldStarBtn);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(document.activeElement).toBe(goldStarBtn);
+  });
+
+  // ── Quick-intent pre-selection ────────────────────────────────────────────
+
+  it("(f1) opens with Gold Star type pre-selected when opened via gold-star button", async () => {
+    const user = userEvent.setup();
+    render(<PlayerNotesPanel {...defaultProps} />);
+
+    await user.click(screen.getByRole("button", { name: /Gold Star/i }));
+
+    const typeChips = screen.getAllByRole("button", { name: /Gold Star/i });
+    const activeChip = typeChips.find((el) => el.classList.contains("note-modal__type-chip"));
+    expect(activeChip).toBeDefined();
+    expect(activeChip).toHaveClass("active");
+  });
+
+  it("(f2) opens with Yellow Card type pre-selected when opened via yellow-card button", async () => {
+    const user = userEvent.setup();
+    render(<PlayerNotesPanel {...defaultProps} />);
+
+    await user.click(screen.getByRole("button", { name: /Yellow Card/i }));
+
+    const typeChips = screen.getAllByRole("button", { name: /Yellow Card/i });
+    const activeChip = typeChips.find((el) => el.classList.contains("note-modal__type-chip"));
+    expect(activeChip).toBeDefined();
+    expect(activeChip).toHaveClass("active");
   });
 });

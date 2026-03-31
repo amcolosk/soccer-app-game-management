@@ -26,6 +26,7 @@ const baseProps = {
   onPauseTimer: vi.fn(),
   onResumeTimer: vi.fn(),
   onShowRotationModal: vi.fn(),
+  onAddNote: vi.fn(),
 };
 
 const makeRotation = (gameMinute: number) => ({
@@ -145,6 +146,20 @@ describe("CommandBand", () => {
     expect(screen.getByText(/● Live/)).toBeInTheDocument();
   });
 
+  it("shows Add note trigger in-progress", () => {
+    render(<CommandBand {...baseProps} gamePlan={null} />);
+    expect(screen.getByRole("button", { name: /add note/i })).toBeInTheDocument();
+  });
+
+  it("calls onAddNote when Add note trigger is clicked", async () => {
+    const user = userEvent.setup();
+    const onAddNote = vi.fn();
+    render(<CommandBand {...baseProps} onAddNote={onAddNote} gamePlan={null} />);
+
+    await user.click(screen.getByRole("button", { name: /add note/i }));
+    expect(onAddNote).toHaveBeenCalled();
+  });
+
   it("shows Pre-Game badge when status is scheduled", () => {
     render(
       <CommandBand
@@ -187,6 +202,7 @@ describe("CommandBand", () => {
     );
     expect(screen.queryByText(/● Live/)).not.toBeInTheDocument();
     expect(screen.getByText(/Rot @ 25'/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /add note/i })).toBeInTheDocument();
   });
 
   it("calls onShowRotationModal when the rotation badge is tapped", async () => {
