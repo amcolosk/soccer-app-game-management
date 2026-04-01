@@ -61,6 +61,9 @@ async function sendInvitationEmail(invitation: Record<string, unknown>) {
   
   // Determine if this is a season or team invitation based on the presence of seasonId or teamId
   const invitationType = invitation.seasonId ? 'season' : 'team';
+  const teamName = invitation.teamName as string | undefined;
+  const invitationTarget = invitationType === 'team' && teamName ? teamName : `a ${invitationType}`;
+  const invitationTargetHtml = invitationType === 'team' && teamName ? `<strong>${teamName}</strong>` : `a ${invitationType}`;
   const acceptUrl = `${APP_URL}?invitationId=${invitation.id}`;
   
   const roleDisplay = invitation.role === 'PARENT' 
@@ -126,7 +129,7 @@ async function sendInvitationEmail(invitation: Record<string, unknown>) {
       <div class="content">
         <p>Hello!</p>
         
-        <p>You've been invited to join a ${invitationType} as a <span class="role-badge">${roleDisplay}</span>.</p>
+        <p>You've been invited to join ${invitationTargetHtml} as a <span class="role-badge">${roleDisplay}</span>.</p>
         
         ${invitationType === 'season' 
           ? '<p>By accepting this invitation, you\'ll be able to see and manage all teams in this season.</p>'
@@ -158,7 +161,7 @@ async function sendInvitationEmail(invitation: Record<string, unknown>) {
     },
     Message: {
       Subject: {
-        Data: `You've been invited to join a ${invitationType}!`,
+        Data: `You've been invited to join ${invitationTarget}!`,
         Charset: 'UTF-8'
       },
       Body: {
@@ -168,7 +171,7 @@ async function sendInvitationEmail(invitation: Record<string, unknown>) {
         },
         Text: {
           Data: `
-You've been invited to join a ${invitationType} as a ${roleDisplay}.
+You've been invited to join ${invitationTarget} as a ${roleDisplay}.
 
 ${invitationType === 'season' 
   ? 'By accepting this invitation, you\'ll be able to see and manage all teams in this season.'
