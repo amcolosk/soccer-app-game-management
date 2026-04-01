@@ -13,6 +13,10 @@ import { createGameNote } from './functions/create-game-note/resource';
 import { updateGameNote } from './functions/update-game-note/resource';
 import { upsertCoachProfile } from './functions/upsert-coach-profile/resource';
 import { getTeamCoachProfiles } from './functions/get-team-coach-profiles/resource';
+import { deleteFormationSafe } from './functions/delete-formation-safe/resource';
+import { deleteGameSafe } from './functions/delete-game-safe/resource';
+import { deleteTeamSafe } from './functions/delete-team-safe/resource';
+import { deletePlayerSafe } from './functions/delete-player-safe/resource';
 
 const backend = defineBackend({
   auth,
@@ -26,6 +30,10 @@ const backend = defineBackend({
   updateGameNote,
   upsertCoachProfile,
   getTeamCoachProfiles,
+  deleteFormationSafe,
+  deleteGameSafe,
+  deleteTeamSafe,
+  deletePlayerSafe,
 });
 
 // Add deployment ID to outputs
@@ -81,6 +89,13 @@ const formationTable = backend.data.resources.tables['Formation'];
 const formationPositionTable = backend.data.resources.tables['FormationPosition'];
 const teamRosterTable = backend.data.resources.tables['TeamRoster'];
 const gameTable = backend.data.resources.tables['Game'];
+const playTimeRecordTable = backend.data.resources.tables['PlayTimeRecord'];
+const goalTable = backend.data.resources.tables['Goal'];
+const substitutionTable = backend.data.resources.tables['Substitution'];
+const lineupAssignmentTable = backend.data.resources.tables['LineupAssignment'];
+const playerAvailabilityTable = backend.data.resources.tables['PlayerAvailability'];
+const gamePlanTable = backend.data.resources.tables['GamePlan'];
+const plannedRotationTable = backend.data.resources.tables['PlannedRotation'];
 teamTable.grantReadWriteData(backend.acceptInvitation.resources.lambda);
 teamInvitationTable.grantReadWriteData(backend.acceptInvitation.resources.lambda);
 playerTable.grantReadWriteData(backend.acceptInvitation.resources.lambda);
@@ -190,3 +205,71 @@ backend.getTeamCoachProfiles.resources.lambda.addToRolePolicy(
 );
 backend.getTeamCoachProfiles.addEnvironment('TEAM_TABLE', teamTable.tableName);
 backend.getTeamCoachProfiles.addEnvironment('COACH_PROFILE_TABLE', coachProfileTable.tableName);
+
+// Grant table access for deleteFormationSafe Lambda (authoritative deletion guard)
+formationTable.grantReadWriteData(backend.deleteFormationSafe.resources.lambda);
+formationPositionTable.grantReadWriteData(backend.deleteFormationSafe.resources.lambda);
+teamTable.grantReadData(backend.deleteFormationSafe.resources.lambda);
+backend.deleteFormationSafe.addEnvironment('FORMATION_TABLE', formationTable.tableName);
+backend.deleteFormationSafe.addEnvironment('FORMATION_POSITION_TABLE', formationPositionTable.tableName);
+backend.deleteFormationSafe.addEnvironment('TEAM_TABLE', teamTable.tableName);
+
+// Grant table access for deleteGameSafe Lambda (authoritative game delete with rollback)
+gameTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+playTimeRecordTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+goalTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+gameNoteTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+substitutionTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+lineupAssignmentTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+playerAvailabilityTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+gamePlanTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+plannedRotationTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+backend.deleteGameSafe.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.deleteGameSafe.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
+backend.deleteGameSafe.addEnvironment('GOAL_TABLE', goalTable.tableName);
+backend.deleteGameSafe.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
+backend.deleteGameSafe.addEnvironment('SUBSTITUTION_TABLE', substitutionTable.tableName);
+backend.deleteGameSafe.addEnvironment('LINEUP_ASSIGNMENT_TABLE', lineupAssignmentTable.tableName);
+backend.deleteGameSafe.addEnvironment('PLAYER_AVAILABILITY_TABLE', playerAvailabilityTable.tableName);
+backend.deleteGameSafe.addEnvironment('GAME_PLAN_TABLE', gamePlanTable.tableName);
+backend.deleteGameSafe.addEnvironment('PLANNED_ROTATION_TABLE', plannedRotationTable.tableName);
+
+// Grant table access for deleteTeamSafe Lambda (authoritative team delete with rollback)
+teamTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+gameTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+teamRosterTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+teamInvitationTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+playTimeRecordTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+goalTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+gameNoteTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+substitutionTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+lineupAssignmentTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+playerAvailabilityTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+gamePlanTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+plannedRotationTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+backend.deleteTeamSafe.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.deleteTeamSafe.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.deleteTeamSafe.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);
+backend.deleteTeamSafe.addEnvironment('TEAM_INVITATION_TABLE', teamInvitationTable.tableName);
+backend.deleteTeamSafe.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
+backend.deleteTeamSafe.addEnvironment('GOAL_TABLE', goalTable.tableName);
+backend.deleteTeamSafe.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
+backend.deleteTeamSafe.addEnvironment('SUBSTITUTION_TABLE', substitutionTable.tableName);
+backend.deleteTeamSafe.addEnvironment('LINEUP_ASSIGNMENT_TABLE', lineupAssignmentTable.tableName);
+backend.deleteTeamSafe.addEnvironment('PLAYER_AVAILABILITY_TABLE', playerAvailabilityTable.tableName);
+backend.deleteTeamSafe.addEnvironment('GAME_PLAN_TABLE', gamePlanTable.tableName);
+backend.deleteTeamSafe.addEnvironment('PLANNED_ROTATION_TABLE', plannedRotationTable.tableName);
+
+// Grant table access for deletePlayerSafe Lambda (authoritative player delete with rollback)
+playerTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
+teamRosterTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
+playTimeRecordTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
+goalTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
+gameNoteTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
+playerAvailabilityTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
+backend.deletePlayerSafe.addEnvironment('PLAYER_TABLE', playerTable.tableName);
+backend.deletePlayerSafe.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);
+backend.deletePlayerSafe.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
+backend.deletePlayerSafe.addEnvironment('GOAL_TABLE', goalTable.tableName);
+backend.deletePlayerSafe.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
+backend.deletePlayerSafe.addEnvironment('PLAYER_AVAILABILITY_TABLE', playerAvailabilityTable.tableName);

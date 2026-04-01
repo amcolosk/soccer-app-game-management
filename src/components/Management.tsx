@@ -696,13 +696,22 @@ export function Management() {
       );
       return;
     }
-
-    await confirmAndDelete(confirm, {
+    const confirmed = await confirm({
       title: 'Delete Formation',
       message: 'Are you sure you want to delete this formation? This will also delete all positions in the formation.',
-      deleteFn: async () => { await deleteFormationCascade(id); trackEvent(AnalyticsEvents.FORMATION_DELETED.category, AnalyticsEvents.FORMATION_DELETED.action); },
-      entityName: 'formation',
+      confirmText: 'Delete',
+      variant: 'danger',
     });
+
+    if (!confirmed) return;
+
+    try {
+      await deleteFormationCascade(id);
+      trackEvent(AnalyticsEvents.FORMATION_DELETED.category, AnalyticsEvents.FORMATION_DELETED.action);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete formation';
+      showError(message);
+    }
   };
 
   const handleRemoveDemoData = async () => {

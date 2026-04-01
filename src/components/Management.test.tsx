@@ -381,6 +381,40 @@ describe('Management', () => {
       await waitFor(() => {
         expect(mockShowError).not.toHaveBeenCalled();
       });
+      expect(mockDeleteFormationCascade).toHaveBeenCalledWith('form-2');
+    });
+
+    it('shows authoritative guard error when backend detects hidden team references', async () => {
+      const formation = { id: 'form-3', name: '4-4-2', playerCount: 7, sport: 'Soccer', coaches: ['test-user-id'] };
+      mockDeleteFormationCascade.mockRejectedValueOnce(
+        new Error('Cannot delete formation: referenced by 1 team(s): Hidden Team. Reassign teams before deleting.'),
+      );
+
+      mockUseAmplifyQuery.mockImplementation((modelName: string) => {
+        if (modelName === 'Team') return { data: [] };
+        if (modelName === 'Formation') return { data: [formation] };
+        return { data: [] };
+      });
+
+      vi.mocked(useSwipeDelete).mockReturnValue({
+        getSwipeProps: vi.fn().mockReturnValue({}),
+        getSwipeStyle: vi.fn().mockReturnValue({}),
+        close: vi.fn(),
+        swipedItemId: 'form-3',
+      });
+
+      const user = userEvent.setup();
+      render(<Management />);
+      await user.click(screen.getByRole('button', { name: /formations/i }));
+
+      const deleteBtn = await screen.findByRole('button', { name: /delete formation/i });
+      await user.click(deleteBtn);
+
+      await waitFor(() => {
+        expect(mockShowError).toHaveBeenCalledWith(
+          expect.stringContaining('referenced by 1 team'),
+        );
+      });
     });
   });
 

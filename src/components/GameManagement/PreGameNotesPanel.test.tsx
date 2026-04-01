@@ -1,6 +1,7 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import "@testing-library/jest-dom/vitest";
 import { PreGameNotesPanel } from "./PreGameNotesPanel";
 import { getCurrentUser } from "aws-amplify/auth";
 import type { TeamCoachProfileDTO } from "../../services/coachDisplayNameService";
