@@ -64,6 +64,7 @@ const mockCaptures: {
   onQueueSubstitution?: (playerId: string, positionId: string) => void;
   latestSubstitutionQueue?: { playerId: string; positionId: string }[];
   preGameNotesPanelProps?: any;
+  playerNotesPanelProps?: any;
 } = {};
 
 vi.mock("./GameTimer", () => ({
@@ -77,7 +78,12 @@ vi.mock("./GameTimer", () => ({
 // real implementations of its dependents.
 vi.mock("./GameHeader",       () => ({ GameHeader:       () => <div /> }));
 vi.mock("./GoalTracker",      () => ({ GoalTracker:      () => <div /> }));
-vi.mock("./PlayerNotesPanel", () => ({ PlayerNotesPanel: () => <div /> }));
+vi.mock("./PlayerNotesPanel", () => ({
+  PlayerNotesPanel: vi.fn((props: any) => {
+    mockCaptures.playerNotesPanelProps = props;
+    return <div data-testid="player-notes-panel" />;
+  }),
+}));
 vi.mock("./PreGameNotesPanel", () => ({
   PreGameNotesPanel: vi.fn((props: any) => {
     mockCaptures.preGameNotesPanelProps = props;
@@ -253,6 +259,7 @@ describe("GameManagement – handleApplyHalftimeSub", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCaptures.onApplyHalftimeSub = undefined;
+    mockCaptures.playerNotesPanelProps = undefined;
     mockUseTeamData.mockReturnValue({ players: [], positions: [] });
     mockUseGameSubscriptions.mockReturnValue(defaultSubscription);
   });
@@ -346,6 +353,52 @@ describe("GameManagement – handleApplyHalftimeSub", () => {
       expect.any(Error),
       expect.stringMatching(/halftime/i)
     );
+  });
+});
+
+describe("GameManagement – direct live note entry", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCaptures.playerNotesPanelProps = undefined;
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+  });
+
+  it("opens the shared note modal from CommandBand while staying on the field tab", async () => {
+    const user = userEvent.setup();
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "in-progress" },
+    });
+
+    render(<GameManagement game={{ ...mockGame, status: "in-progress" }} team={mockTeam} onBack={vi.fn()} />);
+
+    expect(mockCaptures.playerNotesPanelProps?.isNoteModalOpen).toBe(false);
+    await user.click(screen.getByRole("button", { name: /add note/i }));
+
+    expect(screen.getByRole("tab", { name: /field/i })).toHaveAttribute("aria-selected", "true");
+    expect(mockCaptures.playerNotesPanelProps?.isNoteModalOpen).toBe(true);
+    expect(mockCaptures.playerNotesPanelProps?.noteModalIntent).toMatchObject({
+      source: "command-band",
+      defaultType: "other",
+    });
+  });
+
+  it("opens the shared note modal from halftime Add note action", async () => {
+    const user = userEvent.setup();
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "halftime" },
+    });
+
+    render(<GameManagement game={{ ...mockGame, status: "halftime" }} team={mockTeam} onBack={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Add note" }));
+
+    expect(mockCaptures.playerNotesPanelProps?.isNoteModalOpen).toBe(true);
+    expect(mockCaptures.playerNotesPanelProps?.noteModalIntent).toMatchObject({
+      source: "halftime-action",
+      defaultType: "other",
+    });
   });
 });
 

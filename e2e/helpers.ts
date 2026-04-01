@@ -24,7 +24,8 @@ export async function fillInput(page: Page, selector: string, value: string) {
  * Click button and wait for action to complete
  */
 export async function clickButton(page: Page, text: string) {
-  const button = page.getByRole('button', { name: text });
+  await closeWelcomeModal(page);
+  const button = page.getByRole('button', { name: text, exact: true }).first();
   
   // Scroll into view if needed, with center alignment to avoid bottom nav
   await button.scrollIntoViewIfNeeded();
@@ -111,6 +112,36 @@ export async function closePWAPrompt(page: Page) {
 }
 
 /**
+ * Close first-run welcome modal if it appears
+ */
+export async function closeWelcomeModal(page: Page) {
+  try {
+    const overlay = page.locator('.welcome-modal-overlay');
+    if (!(await overlay.isVisible({ timeout: 1500 }).catch(() => false))) {
+      return;
+    }
+
+    const maybeLater = overlay.locator('text=Maybe later');
+    const closeButton = overlay.locator('.welcome-modal-close');
+    const getStarted = overlay.locator('text=Get Started');
+
+    if (await maybeLater.isVisible().catch(() => false)) {
+      await maybeLater.click();
+    } else if (await closeButton.isVisible().catch(() => false)) {
+      await closeButton.click();
+    } else if (await getStarted.isVisible().catch(() => false)) {
+      await getStarted.click();
+    } else {
+      await overlay.click({ position: { x: 4, y: 4 } });
+    }
+
+    await expect(overlay).not.toBeVisible({ timeout: 5000 });
+  } catch {
+    // Modal may not appear in this session
+  }
+}
+
+/**
  * Login user with email and password
  */
 export async function loginUser(page: Page, email: string, password: string) {
@@ -164,6 +195,7 @@ export async function loginUser(page: Page, email: string, password: string) {
   
   // Close PWA update/offline prompt if it appears
   await closePWAPrompt(page);
+  await closeWelcomeModal(page);
 }
 
 /**
@@ -173,12 +205,14 @@ export async function loginUser(page: Page, email: string, password: string) {
 export async function cleanupTestData(page: Page) {
   console.log('Cleaning up test data...');
   
-  // Close PWA prompt if it's showing
+  // Close overlays that can intercept bottom-nav clicks.
   await closePWAPrompt(page);
+  await closeWelcomeModal(page);
   
   // Make sure we're on Management page
   const manageTab = page.locator('a.nav-item', { hasText: 'Manage' });
   if (await manageTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await closeWelcomeModal(page);
     await manageTab.click();
     await page.waitForTimeout(500);
   }
@@ -266,6 +300,7 @@ export async function cleanupTestData(page: Page) {
 export async function navigateToManagement(page: Page) {
   // Close PWA prompt if it's still showing
   await closePWAPrompt(page);
+  await closeWelcomeModal(page);
   
   // Wait for any loading state to disappear
   const loadingIndicator = page.getByText('Loading...', { exact: true });

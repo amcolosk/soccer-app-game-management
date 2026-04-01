@@ -1933,6 +1933,17 @@
   overflow-x: hidden;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
 .modal-content h2 {
   margin-bottom: 1.5rem;
 }
@@ -4641,8 +4652,44 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.4rem;
+  gap: 0.5rem;
   min-width: 0;
+}
+
+.command-band__note-trigger {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.16);
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.command-band__note-trigger:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.command-band__note-trigger:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+.command-band__note-icon {
+  line-height: 1;
+  font-size: 1rem;
+}
+
+.command-band__note-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .command-band__btn-back {
@@ -4743,6 +4790,8 @@
   text-align: right;
   color: white;
   line-height: 1.3;
+  max-width: 124px;
+  overflow: hidden;
 }
 
 .command-band__rotation-badge:hover {
@@ -4756,6 +4805,9 @@
 .command-band__rotation-at {
   font-weight: 400;
   opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .command-band__status-badge {
@@ -4785,6 +4837,38 @@
 
 .command-band__status-pregame {
   background: rgba(255, 255, 255, 0.1);
+}
+
+@media (max-width: 430px) {
+  .command-band__right {
+    max-width: 136px;
+    gap: 0.5rem;
+  }
+
+  .command-band__note-label {
+    display: none;
+  }
+}
+
+@media (max-width: 390px) {
+  .command-band__right {
+    max-width: 124px;
+  }
+
+  .command-band__rotation-at {
+    display: none;
+  }
+}
+
+@media (max-width: 375px) {
+  .command-band__right {
+    max-width: 124px;
+    gap: 0.45rem;
+  }
+
+  .command-band__rotation-badge {
+    padding: 0.3rem 0.4rem;
+  }
 }
 
 /* ── Tab Navigation ── */
@@ -4996,6 +5080,116 @@
 .halftime-actions {
   display: flex;
   gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.halftime-actions button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.note-modal.note-modal--live {
+  width: min(760px, 100%);
+}
+
+@media (max-width: 768px) {
+  .note-modal.note-modal--live {
+    width: 100%;
+    max-width: none;
+    max-height: 100dvh;
+    margin-top: auto;
+    border-radius: 16px 16px 0 0;
+    padding-bottom: calc(0.9rem + env(safe-area-inset-bottom));
+  }
+}
+
+.note-modal__type-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.note-modal__type-chip {
+  min-height: 44px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  background: white;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.note-modal__type-chip.active {
+  background: var(--primary-green);
+  color: white;
+  border-color: var(--primary-green);
+}
+
+.note-modal__voice-rail {
+  position: sticky;
+  top: 0;
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.65rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  z-index: 2;
+}
+
+.note-modal__dictation-btn {
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary-green);
+  color: white;
+  font-weight: 600;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+}
+
+.note-modal__dictation-btn.is-listening {
+  background: var(--danger-red);
+}
+
+.note-modal__voice-hint,
+.note-modal__voice-fallback,
+.note-modal__helper-copy,
+.note-modal__interim,
+.note-modal__end-cue,
+.note-modal__truncation-warning,
+.note-modal__low-confidence {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.note-modal__voice-hint {
+  color: var(--text-secondary);
+}
+
+.note-modal__voice-fallback,
+.note-modal__truncation-warning,
+.note-modal__low-confidence {
+  color: #8a5b00;
+}
+
+.note-modal__end-cue {
+  color: var(--accent-green);
+  font-weight: 600;
+}
+
+.note-modal__footer-actions {
+  position: sticky;
+  bottom: 0;
+  background: var(--card-background);
+  padding-top: 0.6rem;
+  padding-bottom: calc(0.45rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border-color);
 }
 
 .halftime-injury-modal {
