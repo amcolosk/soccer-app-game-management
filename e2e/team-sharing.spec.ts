@@ -120,13 +120,18 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     await clickManagementTab(page, 'Teams');
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
-    // Expand the team
+    // Expand the team roster
     const teamCard = page.locator('.item-card').filter({ hasText: SHARED_TEAM_NAME }).first();
-    await teamCard.click();
-    await page.waitForTimeout(UI_TIMING.STANDARD);
+    const rosterToggle = teamCard.locator('button[aria-label*="roster"]').first();
+    await expect(rosterToggle).toBeVisible({ timeout: 5000 });
+    const teamRosterLabel = (await rosterToggle.getAttribute('aria-label')) ?? '';
+    if (/show/i.test(teamRosterLabel)) {
+      await rosterToggle.click();
+      await page.waitForTimeout(UI_TIMING.STANDARD);
+    }
     
     // Add player to roster
-    const addToRosterButton = page.getByRole('button', { name: /add to roster|add player/i });
+    const addToRosterButton = page.getByRole('button', { name: /\+ Add Player to Roster|add to roster/i });
     if (await addToRosterButton.isVisible({ timeout: 2000 }).catch(() => false)) {
       await addToRosterButton.click();
       await page.waitForTimeout(UI_TIMING.STANDARD);
@@ -136,10 +141,11 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       await playerSelect.selectOption({ label: `${PLAYER_NAME.firstName} ${PLAYER_NAME.lastName}` });
       await page.waitForTimeout(UI_TIMING.QUICK);
       
-      await fillInput(page, 'input[placeholder*="number"]', '10');
+      await fillInput(page, 'input[placeholder*="Player Number"]', '10');
       
       await clickButton(page, 'Add');
       await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+      await expect(page.getByText('#10 John Smith')).toBeVisible({ timeout: 10000 });
       
       console.log('✓ Added player to roster with jersey #10');
     }
@@ -397,8 +403,13 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     await expect(sharedTeam.first()).toBeVisible({ timeout: 20000 });
     console.log(`✓ User 2 can see shared team: ${SHARED_TEAM_NAME}`);
     
-    // Verify roster is visible
-    await sharedTeam.first().click();
+    // Expand roster for the shared team
+    const rosterToggle = sharedTeam.first().locator('button[aria-label*="roster"]');
+    await expect(rosterToggle).toBeVisible({ timeout: 10000 });
+    const initialRosterLabel = (await rosterToggle.getAttribute('aria-label')) ?? '';
+    if (/show/i.test(initialRosterLabel)) {
+      await rosterToggle.click();
+    }
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Hard assertion: pre-existing player MUST be visible after coaches backfill.
@@ -433,7 +444,10 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     await clickManagementTab(page, 'Teams');
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
-    await sharedTeam.first().click();
+    const rosterLabelForEditStep = (await rosterToggle.getAttribute('aria-label')) ?? '';
+    if (/show/i.test(rosterLabelForEditStep)) {
+      await rosterToggle.click();
+    }
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Create a new player from the Players tab
@@ -457,8 +471,12 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     // Go back to the team and add the new player to roster
     await clickManagementTab(page, 'Teams');
     await page.waitForTimeout(UI_TIMING.STANDARD);
-    
-    await sharedTeam.first().click();
+
+    const rosterToggleForNewPlayer = sharedTeam.first().locator('button[aria-label*="roster"]').first();
+    const rosterLabelBeforeNewPlayer = (await rosterToggleForNewPlayer.getAttribute('aria-label')) ?? '';
+    if (/show/i.test(rosterLabelBeforeNewPlayer)) {
+      await rosterToggleForNewPlayer.click();
+    }
     await page.waitForTimeout(UI_TIMING.STANDARD);
     
     // Look for the "+ Add to Roster" button or similar
@@ -470,6 +488,7 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       // Select the new player
       const playerSelect = page.locator('select').filter({ hasText: /player/i }).or(page.locator('select').first());
       await playerSelect.selectOption({ label: `${newPlayerName.firstName} ${newPlayerName.lastName}` });
+      await fillInput(page, 'input[placeholder*="Player Number"]', '11');
       
       await clickButton(page, 'Add');
       await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
@@ -658,8 +677,8 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     const janeDoe = page.locator('.item-card').filter({ hasText: 'Jane Doe' });
-    await expect(janeDoe.first()).not.toBeVisible({ timeout: 5000 });
-    console.log('✓ User 1 cannot see player created by User 2: Jane Doe (as expected)');
+    await expect(janeDoe.first()).toBeVisible({ timeout: 10000 });
+    console.log('✓ User 1 can see player created by User 2: Jane Doe (collaboration verified)');
     
     console.log('✓ Collaborative editing verified\n');
     

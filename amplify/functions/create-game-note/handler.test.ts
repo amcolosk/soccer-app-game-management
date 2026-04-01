@@ -127,6 +127,45 @@ describe('create-game-note handler', () => {
     );
   });
 
+  it('accepts playerId when roster membership appears on a later scan page', async () => {
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      if (command.__type === 'GetCommand') {
+        return {
+          Item: {
+            id: 'game-1',
+            teamId: 'team-1',
+            coaches: ['coach-1'],
+          },
+        };
+      }
+
+      if (command.__type === 'ScanCommand') {
+        if (!command.input.ExclusiveStartKey) {
+          return {
+            Items: [],
+            LastEvaluatedKey: { id: 'page-1' },
+          };
+        }
+
+        return {
+          Items: [{ id: 'roster-2' }],
+          LastEvaluatedKey: undefined,
+        };
+      }
+
+      if (command.__type === 'PutCommand') {
+        return {};
+      }
+
+      return {};
+    });
+
+    await expect(invoke(createEvent({ noteType: 'gold-star', gameSeconds: 15, half: 1, playerId: 'player-1' }))).resolves.toBeTruthy();
+
+    const putCall = mockSend.mock.calls.find(([command]) => command.__type === 'PutCommand');
+    expect(putCall).toBeDefined();
+  });
+
   it('does not write playerId attribute to DynamoDB when playerId is absent', async () => {
     await invoke(createEvent({ playerId: undefined }));
 

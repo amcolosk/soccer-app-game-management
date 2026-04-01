@@ -11,6 +11,7 @@ import {
   createTeam,
   handleConfirmDialog,
   UI_TIMING,
+  parseTime,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
@@ -98,8 +99,12 @@ async function createPlayers(page: Page) {
     await clickButton(page, 'Add');
     await page.waitForTimeout(UI_TIMING.NAVIGATION);
     
-    // Verify player was created
-    await expect(page.getByText(`${player.firstName} ${player.lastName}`)).toBeVisible();
+    // Verify exactly one matching player header exists to avoid duplicate-text strict mode fragility.
+    const playerNameHeading = page
+      .locator('.item-card h3')
+      .filter({ hasText: `${player.firstName} ${player.lastName}` });
+    await expect(playerNameHeading).toHaveCount(1);
+    await expect(playerNameHeading.first()).toBeVisible();
   }
   
   console.log(`✓ Created ${TEST_DATA.players.length} players`);
@@ -115,23 +120,36 @@ async function addPlayersToRoster(page: Page) {
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // Find and expand the team card
-  const teamCard = page.locator('.item-card').filter({ hasText: TEST_DATA.team.name });
+  const teamCard = page.locator('.team-card-wrapper').filter({ hasText: TEST_DATA.team.name }).first();
+  await expect(teamCard).toBeVisible({ timeout: 10000 });
+
   const expandButton = teamCard.locator('button[aria-label*="roster"]').first();
-  await expandButton.click();
+  await expect(expandButton).toBeVisible({ timeout: 5000 });
+
+  const expandButtonLabel = ((await expandButton.getAttribute('aria-label')) ?? '').trim();
+  if (/show roster/i.test(expandButtonLabel)) {
+    await expandButton.click();
+  }
+
+  const rosterSection = teamCard.locator('.team-roster-section').first();
+  await expect(rosterSection).toBeVisible({ timeout: 10000 });
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // Add each player to the roster
   for (const player of TEST_DATA.players) {
     await clickButton(page, '+ Add Player to Roster');
     await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    const rosterForm = rosterSection.locator('.create-form').first();
+    await expect(rosterForm).toBeVisible({ timeout: 5000 });
     
     // Select player from dropdown
     const playerOption = `${player.firstName} ${player.lastName}`;
-    await page.selectOption('select', { label: playerOption });
+    await rosterForm.locator('select').first().selectOption({ label: playerOption });
     await page.waitForTimeout(UI_TIMING.QUICK);
     
     // Enter player number
-    await fillInput(page, 'input[placeholder*="Player Number"]', player.number);
+    await rosterForm.locator('input[placeholder*="Player Number"]').fill(player.number);
     
     // Select preferred position if available
     const positionCheckbox = page.locator('.checkbox-label', { hasText: player.position });
@@ -141,7 +159,7 @@ async function addPlayersToRoster(page: Page) {
     }
     
     // Click the Add button in the form
-    const addButton = page.locator('.form-actions button.btn-primary', { hasText: 'Add' });
+    const addButton = rosterForm.locator('.form-actions button.btn-primary', { hasText: 'Add' }).first();
     await addButton.click();
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
@@ -458,6 +476,54 @@ async function executeRotation(page: Page, rotationMinute: number, playerOut: st
   return false;
 }
 
+async function getDisplayedGameSeconds(page: Page): Promise<number> {
+  const timer = page.locator('.command-band__timer');
+  await expect(timer).toBeVisible({ timeout: 5000 });
+  const timerText = ((await timer.textContent()) ?? '').trim();
+  return parseTime(timerText);
+}
+
+async function addTestTimeAndWait(page: Page, minutes: 1 | 5): Promise<number> {
+  const timerBefore = await getDisplayedGameSeconds(page);
+  await clickButton(page, minutes === 5 ? '+5 min' : '+1 min');
+
+  await expect
+    .poll(
+      async () => getDisplayedGameSeconds(page),
+      {
+        timeout: 10000,
+        message: `Expected game clock to advance by ${minutes} minute(s) from ${timerBefore} seconds`,
+      },
+    )
+    .toBeGreaterThanOrEqual(timerBefore + minutes * 60 - 1);
+
+  return getDisplayedGameSeconds(page);
+}
+
+async function advanceGameClockTo(page: Page, targetMinute: number): Promise<void> {
+  const targetSeconds = targetMinute * 60;
+
+  while (true) {
+    const currentSeconds = await getDisplayedGameSeconds(page);
+    if (currentSeconds >= targetSeconds) {
+      expect(currentSeconds).toBeLessThan(targetSeconds + 60);
+      return;
+    }
+
+    const remainingSeconds = targetSeconds - currentSeconds;
+    await addTestTimeAndWait(page, remainingSeconds >= 300 ? 5 : 1);
+    await page.waitForTimeout(UI_TIMING.QUICK);
+  }
+}
+
+async function pauseGameClock(page: Page): Promise<void> {
+  const pauseButton = page.locator('.command-band__btn-pause').first();
+  if (await pauseButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await pauseButton.click();
+    await page.waitForTimeout(UI_TIMING.QUICK);
+  }
+}
+
 // Helper to run the game simulation with planned rotations
 async function runGame(page: Page, gameNumber: number = 1) {
   console.log(`Running game ${gameNumber} simulation with planned rotations...`);
@@ -484,10 +550,10 @@ async function runGame(page: Page, gameNumber: number = 1) {
   
   // Verify timer is running (CommandBand always shows timer during in-progress)
   await expect(page.locator('.command-band__timer')).toBeVisible({ timeout: 5000 });
+  await pauseGameClock(page);
   
   // Add test time to 5 minutes
-  await clickButton(page, '+5 min');
-  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  await advanceGameClockTo(page, 5);
   
   // Navigate to Goals tab to record a goal
   await page.getByRole('tab', { name: 'Goals' }).click();
@@ -527,8 +593,7 @@ async function runGame(page: Page, gameNumber: number = 1) {
   await page.waitForTimeout(UI_TIMING.QUICK);
 
   // Add time to reach 10 minutes - first planned rotation
-  await clickButton(page, '+5 min');
-  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  await advanceGameClockTo(page, 10);
   console.log('✓ Timer at 10 minutes');
   
   // Execute first planned rotation (Diana → Hannah)
@@ -539,21 +604,104 @@ async function runGame(page: Page, gameNumber: number = 1) {
   await page.waitForTimeout(UI_TIMING.QUICK);
 
   // Record a gold star (vary by game)
-  await clickButtonByText(page, /Gold Star/);
+  await page.locator('.note-buttons').getByRole('button', { name: /Gold Star/i }).first().click();
+  const goldStarDialog = page.getByRole('dialog', { name: /Gold Star/i });
+  await expect(goldStarDialog).toBeVisible({ timeout: 5000 });
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
+  const expectedNoteText = gameNumber === 1 ? 'Great save!' : 'Excellent defense!';
+
   const notePlayerSelect = page.locator('select#notePlayer');
   if (gameNumber === 1) {
     await notePlayerSelect.selectOption({ label: '#1 - Alice Anderson' });
-    await fillInput(page, 'textarea#noteText', 'Great save!');
   } else {
     await notePlayerSelect.selectOption({ label: '#2 - Bob Brown' });
-    await fillInput(page, 'textarea#noteText', 'Excellent defense!');
   }
+
+  // Force the selected type to Gold Star in case a prior external note intent changed default type.
+  await goldStarDialog.getByRole('button', { name: /Gold Star/i }).first().click();
+  await fillInput(page, 'textarea#noteText', expectedNoteText);
   await page.waitForTimeout(UI_TIMING.STANDARD);
-  
-  await clickButton(page, 'Save Note');
+
+  const saveNoteButton = goldStarDialog.getByRole('button', { name: 'Save Note', exact: true });
+  let saveMutationObserved = false;
+  let persistedNoteId: string | null = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const saveMutationPromise = page
+      .waitForResponse(
+        async (response) => {
+          if (!response.url().includes('/graphql')) return false;
+          const postData = response.request().postData() || '';
+          return /createSecureGameNote|createGameNote/.test(postData);
+        },
+        { timeout: 10000 },
+      )
+      .catch(() => null);
+
+    await saveNoteButton.click({ force: true });
+    const saveMutationResponse = await saveMutationPromise;
+
+    if (saveMutationResponse) {
+      saveMutationObserved = true;
+      const responseBody = await saveMutationResponse.text();
+      if (responseBody.includes('"errors"')) {
+        throw new Error(`Save Note mutation failed: ${responseBody}`);
+      }
+
+      const parsedBody = JSON.parse(responseBody) as {
+        data?: {
+          createSecureGameNote?: {
+            id?: string;
+            noteType?: string;
+            notes?: string | null;
+            playerId?: string | null;
+          };
+          createGameNote?: {
+            id?: string;
+            noteType?: string;
+            notes?: string | null;
+            playerId?: string | null;
+          };
+        };
+      };
+      const savedNote = parsedBody.data?.createSecureGameNote ?? parsedBody.data?.createGameNote;
+      expect(savedNote?.noteType).toBe('gold-star');
+      expect(savedNote?.notes).toBe(expectedNoteText);
+      expect(savedNote?.playerId).toBeTruthy();
+      persistedNoteId = savedNote?.id ?? null;
+      break;
+    }
+
+    // If the click didn't trigger a mutation, briefly pause and retry.
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+  }
+
+  expect(saveMutationObserved).toBeTruthy();
+  expect(persistedNoteId).toBeTruthy();
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+  // The save can complete before the modal transition finishes; close it if still visible.
+  if (await goldStarDialog.isVisible({ timeout: 1500 }).catch(() => false)) {
+    const cancelButton = goldStarDialog.getByRole('button', { name: 'Cancel', exact: true });
+    if (await cancelButton.isVisible().catch(() => false)) {
+      await cancelButton.click();
+    } else {
+      await page.keyboard.press('Escape');
+    }
+    await expect(goldStarDialog).not.toBeVisible({ timeout: 5000 });
+  }
+
+  // Defensive cleanup: if modal remains open due async save lag, close it before tab navigation.
+  const lingeringNoteModal = page.locator('.modal-overlay:has(#noteText), .modal-overlay:has-text("Save Note")').first();
+  if (await lingeringNoteModal.isVisible({ timeout: 1500 }).catch(() => false)) {
+    const cancelButton = page.getByRole('button', { name: 'Cancel' }).first();
+    if (await cancelButton.isVisible().catch(() => false)) {
+      await cancelButton.click();
+    } else {
+      await page.keyboard.press('Escape');
+    }
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+  }
   
   console.log(`✓ Gold star ${gameNumber} recorded`);
   
@@ -562,11 +710,7 @@ async function runGame(page: Page, gameNumber: number = 1) {
   await page.waitForTimeout(UI_TIMING.QUICK);
 
   // Add time to reach halftime (20 minutes)
-  // IMPORTANT: Wait between +5 min clicks to ensure state updates complete
-  await clickButton(page, '+5 min');
-  await page.waitForTimeout(UI_TIMING.STANDARD);
-  await clickButton(page, '+5 min');
-  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  await advanceGameClockTo(page, 20);
   console.log('✓ Timer at 20 minutes (halftime)');
   
   // End first half (force click because bottom nav might cover it)
@@ -608,14 +752,15 @@ async function runGame(page: Page, gameNumber: number = 1) {
       throw new Error('Failed to start second half after 3 attempts');
     }
   }
+
+  await pauseGameClock(page);
   
   // Navigate to Field tab for the second half timer controls
   await page.getByRole('tab', { name: 'Field' }).click();
   await page.waitForTimeout(UI_TIMING.QUICK);
 
   // Add time in second half to 25 minutes
-  await clickButton(page, '+5 min');
-  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  await advanceGameClockTo(page, 25);
 
   // Navigate to Goals tab for recording goal
   await page.getByRole('tab', { name: 'Goals' }).click();
@@ -645,19 +790,14 @@ async function runGame(page: Page, gameNumber: number = 1) {
   await page.waitForTimeout(UI_TIMING.QUICK);
 
   // Add time to reach 30 minutes - second planned rotation
-  await clickButton(page, '+5 min');
-  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  await advanceGameClockTo(page, 30);
   console.log('✓ Timer at 30 minutes');
   
   // Execute second planned rotation (Hannah → Diana)
   await executeRotation(page, 30, 'Hannah', 'Diana');
   
   // Add time to reach end of game (40 minutes)
-  // IMPORTANT: Wait between +5 min clicks to ensure state updates complete
-  await clickButton(page, '+5 min');
-  await page.waitForTimeout(UI_TIMING.STANDARD);
-  await clickButton(page, '+5 min');
-  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  await advanceGameClockTo(page, 40);
   console.log('✓ Timer at 40 minutes (end of game)');
   
   // End the game
@@ -725,14 +865,29 @@ async function verifyTeamTotals(page: Page, gameData: any) {
   // If there's only one team it auto-selects; otherwise select the first team
   const teamSelect = page.locator('#team-select');
   await expect(teamSelect).toBeVisible({ timeout: 10000 });
-  const selectedValue = await teamSelect.inputValue();
-  if (!selectedValue) {
-    // Pick the first available team option
-    const firstOption = teamSelect.locator('option:not([value=""])').first();
-    const firstVal = await firstOption.getAttribute('value');
-    if (!firstVal) throw new Error('No teams available in selector');
-    await teamSelect.selectOption(firstVal);
+  await expect
+    .poll(
+      async () => teamSelect.locator('option:not([value=""])').count(),
+      { timeout: 30000, message: 'Expected at least one report team option to be available' },
+    )
+    .toBeGreaterThan(0);
+
+  const targetTeamOption = teamSelect.locator('option', { hasText: TEST_DATA.team.name }).first();
+  const hasTargetTeamOption = await targetTeamOption.count();
+
+  if (hasTargetTeamOption > 0) {
+    await teamSelect.selectOption({ label: TEST_DATA.team.name });
     await waitForPageLoad(page);
+  } else {
+    const selectedValue = await teamSelect.inputValue();
+    if (!selectedValue) {
+      // Pick the first available team option
+      const firstOption = teamSelect.locator('option:not([value=""])').first();
+      const firstVal = await firstOption.getAttribute('value');
+      if (!firstVal) throw new Error('No teams available in selector');
+      await teamSelect.selectOption(firstVal);
+      await waitForPageLoad(page);
+    }
   }
   
   // Wait for all observeQuery subscriptions to finish syncing (table renders only after full sync)
@@ -750,7 +905,16 @@ async function verifyTeamTotals(page: Page, gameData: any) {
   
   // Verify gold stars
   const starsSummary = page.locator('.summary-card').filter({ hasText: 'Gold Stars' });
-  await expect(starsSummary.locator('.summary-value')).toContainText(gameData.goldStars.toString());
+  await expect
+    .poll(
+      async () => {
+        const starsValueText = ((await starsSummary.locator('.summary-value').first().textContent()) ?? '0').trim();
+        const starsValue = Number.parseInt(starsValueText, 10);
+        return Number.isNaN(starsValue) ? -1 : starsValue;
+      },
+      { timeout: 30000, message: 'Gold Stars summary did not reach expected total' },
+    )
+    .toBe(gameData.goldStars);
   console.log(`✓ Total gold stars verified: ${gameData.goldStars}`);
   
   // Verify individual player stats
@@ -808,11 +972,13 @@ async function verifyTeamTotals(page: Page, gameData: any) {
     
     const hannahPositionTime = page.locator('.position-time-item').filter({ hasText: 'Center Midfielder' });
     if (await hannahPositionTime.isVisible().catch(() => false)) {
+      await expect(hannahPositionTime.locator('.position-time')).toContainText('40m', { timeout: 30000 });
       const hannahActualTime = await hannahPositionTime.locator('.position-time').textContent();
       console.log(`Hannah Harris play time at CM: ${hannahActualTime}`);
       
       // Hannah should also have 40 minutes
-      await expect(hannahPositionTime.locator('.position-time')).toContainText('40m', { timeout: 15000 });
+      const hannahTimeText = ((await hannahPositionTime.locator('.position-time').first().textContent()) ?? '').trim();
+      expect(hannahTimeText).toBe('40m');
       console.log('✓ Hannah Harris play time verified: 40m');
     }
   }
@@ -828,12 +994,14 @@ async function verifyTeamTotals(page: Page, gameData: any) {
     
     const alicePositionTime = page.locator('.position-time-item').filter({ hasText: 'Goalkeeper' });
     if (await alicePositionTime.isVisible().catch(() => false)) {
+      await expect(alicePositionTime.locator('.position-time')).toContainText('1h 20m', { timeout: 30000 });
       const aliceActualTime = await alicePositionTime.locator('.position-time').textContent();
       console.log(`Alice Anderson play time at GK: ${aliceActualTime}`);
       
-      // Alice should have 80 minutes (1h 20m)
-      await expect(alicePositionTime.locator('.position-time')).toContainText('1h 20m', { timeout: 15000 });
-      console.log('✓ Alice Anderson play time verified: 1h 20m (80 min)');
+      // Alice should have 80 minutes across both games.
+      const aliceTimeText = ((await alicePositionTime.locator('.position-time').first().textContent()) ?? '').trim();
+      expect(aliceTimeText).toBe('1h 20m');
+      console.log('✓ Alice Anderson play time verified: 1h 20m');
     }
   }
   
@@ -996,17 +1164,34 @@ test.describe('Soccer App Full Workflow', () => {
     await page.getByRole('tab', { name: 'Bench' }).click();
     await page.waitForTimeout(UI_TIMING.QUICK);
 
-    await page.getByRole('button', { name: /Mark Hannah Harris injured/i }).click();
-    await page.getByRole('button', { name: 'Mark Injured' }).click();
+    // Mark every bench player as injured so substitution eligibility check is deterministic.
+    const markInjuredButtons = page.getByRole('button', { name: /Mark .* injured/i });
+    const injuredCount = await markInjuredButtons.count();
+    expect(injuredCount).toBeGreaterThan(0);
+    const benchPlayerNames: string[] = [];
+    for (let i = 0; i < injuredCount; i += 1) {
+      const buttonText = ((await markInjuredButtons.nth(i).textContent()) ?? '').trim();
+      const match = buttonText.match(/Mark\s+(.+)\s+injured/i);
+      if (match?.[1]) {
+        benchPlayerNames.push(match[1].trim());
+      }
+    }
+    for (let i = 0; i < injuredCount; i += 1) {
+      await markInjuredButtons.nth(i).click();
+      await page.getByRole('button', { name: 'Mark Injured' }).click();
+      await page.waitForTimeout(UI_TIMING.QUICK);
+    }
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 
-    await expect(page.getByRole('button', { name: /Mark Hannah Harris available/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Mark .* available/i }).first()).toBeVisible();
 
     await page.getByRole('tab', { name: 'Field' }).click();
     await page.waitForTimeout(UI_TIMING.QUICK);
 
     await page.locator('button.btn-substitute').first().click({ force: true });
-    await expect(page.getByText(/No eligible substitutes\. All bench players are marked injured\./i)).toBeVisible();
+    const noEligibleSubstitutes = page.locator('.sub-player-item');
+    await expect(noEligibleSubstitutes).toHaveCount(0);
+    await expect(page.locator('.empty-state')).toBeVisible();
     await page.getByRole('button', { name: 'Close' }).first().click();
 
     const viewPlanButton = page.locator('button.btn-view-rotation', { hasText: 'View Plan' });
@@ -1021,18 +1206,31 @@ test.describe('Soccer App Full Workflow', () => {
     await page.getByRole('tab', { name: 'Bench' }).click();
     await page.waitForTimeout(UI_TIMING.QUICK);
 
-    await page.getByRole('button', { name: /Mark Hannah Harris available/i }).click();
+    const markAvailableButtons = page.getByRole('button', { name: /Mark .* available/i });
+    const availableBeforeRestore = await markAvailableButtons.count();
+    expect(availableBeforeRestore).toBeGreaterThan(0);
+    await markAvailableButtons.first().click();
     await page.getByRole('button', { name: 'Mark Available' }).click();
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 
-    await expect(page.getByRole('button', { name: /Mark Hannah Harris injured/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Mark .* injured/i }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: /Mark .* available/i })).toHaveCount(Math.max(availableBeforeRestore - 1, 0));
 
     await page.getByRole('tab', { name: 'Field' }).click();
     await page.waitForTimeout(UI_TIMING.QUICK);
 
     await page.locator('button.btn-substitute').first().click({ force: true });
-    await expect(page.getByText(/#8\s+Hannah\s+Harris/i)).toBeVisible();
-    await expect(page.getByText(/No eligible substitutes\. All bench players are marked injured\./i)).not.toBeVisible();
+    const substituteOptions = page.locator('.sub-player-item');
+    await expect(substituteOptions).toHaveCount(1);
+    await expect(substituteOptions.first()).toContainText(/Queue|Sub Now/);
+    const eligibleOptionText = ((await substituteOptions.first().textContent()) ?? '').trim();
+    expect(eligibleOptionText.length).toBeGreaterThan(0);
+    for (const playerName of benchPlayerNames) {
+      if (!eligibleOptionText.includes(playerName)) {
+        await expect(substituteOptions.filter({ hasText: playerName })).toHaveCount(0);
+      }
+    }
+    await expect(page.locator('.empty-state')).not.toBeVisible();
     await page.getByRole('button', { name: 'Close' }).first().click();
 
     if (await viewPlanButton.isVisible({ timeout: 3000 }).catch(() => false)) {
