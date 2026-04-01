@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "sh -lc 'cat >/dev/null; printf \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PreToolUse\\\",\\\"permissionDecision\\\":\\\"ask\\\",\\\"permissionDecisionReason\\\":\\\"Non-Windows default requests approval\\\"}}\"'",
+        "windows": {
+          "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/pretooluse-readonly-approval.ps1"
+        },
+        "timeout": 15
+      }
+    ]
+  }
+}
