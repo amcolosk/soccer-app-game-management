@@ -83,4 +83,100 @@ describe("PlayerSelect", () => {
     expect(select).toHaveAttribute("id", "my-select");
     expect(select).toHaveClass("custom-class");
   });
+
+  describe("onFieldPlayerIds grouped rendering", () => {
+    it("renders two optgroups when onFieldPlayerIds is provided", () => {
+      const players = makePlayers();
+      render(
+        <PlayerSelect
+          players={players}
+          value=""
+          onChange={() => {}}
+          onFieldPlayerIds={["p1", "p2"]}
+        />
+      );
+      expect(screen.getByRole("group", { name: /On Field/ })).toBeInTheDocument();
+      expect(screen.getByRole("group", { name: /Bench/ })).toBeInTheDocument();
+    });
+
+    it("on-field players appear before bench players in the correct groups", () => {
+      const players = makePlayers();
+      render(
+        <PlayerSelect
+          players={players}
+          value=""
+          onChange={() => {}}
+          onFieldPlayerIds={["p1", "p2"]}
+        />
+      );
+      const onFieldGroup = screen.getByRole("group", { name: /On Field/ });
+      const benchGroup = screen.getByRole("group", { name: /Bench/ });
+
+      // p1 (#10 Alice) and p2 (#3 Bob) are on field; p3 (#7 Charlie) is on bench
+      expect(onFieldGroup).toHaveTextContent("Alice");
+      expect(onFieldGroup).toHaveTextContent("Bob");
+      expect(benchGroup).toHaveTextContent("Charlie");
+      expect(onFieldGroup).not.toHaveTextContent("Charlie");
+      expect(benchGroup).not.toHaveTextContent("Alice");
+    });
+
+    it("suppresses empty Bench optgroup when all players are on field", () => {
+      const players = makePlayers();
+      render(
+        <PlayerSelect
+          players={players}
+          value=""
+          onChange={() => {}}
+          onFieldPlayerIds={["p1", "p2", "p3"]}
+        />
+      );
+      expect(screen.getByRole("group", { name: /On Field/ })).toBeInTheDocument();
+      expect(screen.queryByRole("group", { name: /Bench/ })).not.toBeInTheDocument();
+    });
+
+    it("suppresses empty On Field optgroup when no players are on field", () => {
+      const players = makePlayers();
+      render(
+        <PlayerSelect
+          players={players}
+          value=""
+          onChange={() => {}}
+          onFieldPlayerIds={[]}
+        />
+      );
+      expect(screen.queryByRole("group", { name: /On Field/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("group", { name: /Bench/ })).toBeInTheDocument();
+    });
+
+    it("excludeId removes player from their group", () => {
+      const players = makePlayers();
+      // p1 and p2 are on field; p3 is bench; exclude p1
+      render(
+        <PlayerSelect
+          players={players}
+          value=""
+          onChange={() => {}}
+          onFieldPlayerIds={["p1", "p2"]}
+          excludeId="p1"
+        />
+      );
+      const onFieldGroup = screen.getByRole("group", { name: /On Field/ });
+      const benchGroup = screen.getByRole("group", { name: /Bench/ });
+
+      expect(onFieldGroup).toHaveTextContent("Bob");
+      expect(onFieldGroup).not.toHaveTextContent("Alice");
+      expect(benchGroup).toHaveTextContent("Charlie");
+    });
+
+    it("flat behavior is unchanged when onFieldPlayerIds is not provided", () => {
+      render(<PlayerSelect players={makePlayers()} value="" onChange={() => {}} />);
+      expect(screen.queryByRole("group")).not.toBeInTheDocument();
+      const options = screen.getAllByRole("option");
+      // placeholder + 3 players sorted by number
+      expect(options).toHaveLength(4);
+      expect(options[1]).toHaveTextContent("#3 - Bob Jones");
+      expect(options[2]).toHaveTextContent("#7 - Charlie Brown");
+      expect(options[3]).toHaveTextContent("#10 - Alice Smith");
+    });
+  });
 });
