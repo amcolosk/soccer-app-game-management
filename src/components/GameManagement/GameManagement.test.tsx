@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, act, waitFor, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { GameManagement } from "./GameManagement";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
@@ -103,6 +105,15 @@ vi.mock("./LineupPanel", () => ({
     return <div />;
   }),
 }));
+
+vi.mock("./CompletedPlayTimeSummary", () => ({
+  CompletedPlayTimeSummary: () => <div data-testid="completed-play-time-summary" />,
+}));
+
+// ---------------------------------------------------------------------------
+// Router wrapper helper
+// ---------------------------------------------------------------------------
+const renderWithRouter = (ui: ReactElement) => render(ui, { wrapper: MemoryRouter });
 
 // ---------------------------------------------------------------------------
 // Hook mocks
@@ -241,7 +252,7 @@ const defaultSubscription = {
 };
 
 const renderComponent = () =>
-  render(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+  renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
 
 const makeBenchPlayer = (id = "bench-1") => ({
   id,
@@ -370,7 +381,7 @@ describe("GameManagement – direct live note entry", () => {
       gameState: { ...defaultSubscription.gameState, status: "in-progress" },
     });
 
-    render(<GameManagement game={{ ...mockGame, status: "in-progress" }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: "in-progress" }} team={mockTeam} onBack={vi.fn()} />);
 
     expect(mockCaptures.playerNotesPanelProps?.isNoteModalOpen).toBe(false);
     await user.click(screen.getByRole("button", { name: /add note/i }));
@@ -390,7 +401,7 @@ describe("GameManagement – direct live note entry", () => {
       gameState: { ...defaultSubscription.gameState, status: "halftime" },
     });
 
-    render(<GameManagement game={{ ...mockGame, status: "halftime" }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: "halftime" }} team={mockTeam} onBack={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "Add note" }));
 
@@ -424,7 +435,7 @@ describe("GameManagement – help context wiring", () => {
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
     });
-    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
     expect(mockSetHelpContext).toHaveBeenCalledWith('game-in-progress');
   });
 
@@ -433,7 +444,7 @@ describe("GameManagement – help context wiring", () => {
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'scheduled' },
     });
-    render(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
     expect(mockSetHelpContext).toHaveBeenCalledWith('game-scheduled');
   });
 
@@ -442,7 +453,7 @@ describe("GameManagement – help context wiring", () => {
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'completed' },
     });
-    render(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
     expect(mockSetHelpContext).toHaveBeenCalledWith('game-completed');
   });
 
@@ -451,7 +462,7 @@ describe("GameManagement – help context wiring", () => {
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'unknown-status' },
     });
-    render(<GameManagement game={{ ...mockGame, status: 'unknown-status' as any }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'unknown-status' as any }} team={mockTeam} onBack={vi.fn()} />);
     // setHelpContext should NOT be called with any game key for unknown status
     expect(mockSetHelpContext).not.toHaveBeenCalledWith(expect.stringMatching(/^game-/));
   });
@@ -463,7 +474,7 @@ describe("GameManagement – help context wiring", () => {
       gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
     });
 
-    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
 
     const baselineCalls = mockRefetchCoachProfiles.mock.calls.length;
     await user.click(screen.getByRole('tab', { name: /notes/i }));
@@ -493,7 +504,7 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
     });
-    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
     expect(mockUseWakeLock).toHaveBeenCalledWith(true);
     expect(mockUseGameNotification).toHaveBeenCalledWith(expect.objectContaining({ isActive: true }));
   });
@@ -503,7 +514,7 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'halftime' },
     });
-    render(<GameManagement game={{ ...mockGame, status: 'halftime' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'halftime' }} team={mockTeam} onBack={vi.fn()} />);
     expect(mockUseWakeLock).toHaveBeenCalledWith(true);
     expect(mockUseGameNotification).toHaveBeenCalledWith(expect.objectContaining({ isActive: true }));
   });
@@ -513,7 +524,7 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'scheduled' },
     });
-    render(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
     expect(mockUseWakeLock).toHaveBeenCalledWith(false);
     expect(mockUseGameNotification).toHaveBeenCalledWith(expect.objectContaining({ isActive: false }));
   });
@@ -523,7 +534,7 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'completed' },
     });
-    render(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
     expect(mockUseWakeLock).toHaveBeenCalledWith(false);
     expect(mockUseGameNotification).toHaveBeenCalledWith(expect.objectContaining({ isActive: false }));
   });
@@ -560,7 +571,7 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
       ],
     });
 
-    render(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
 
     expect(mockCaptures.preGameNotesPanelProps.notes).toHaveLength(1);
     expect(mockCaptures.preGameNotesPanelProps.notes[0].id).toBe('n-pre');
@@ -577,7 +588,7 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
       gameNotes: [],
     });
 
-    render(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
 
     act(() => {
       mockCaptures.preGameNotesPanelProps.onAdd();
@@ -622,7 +633,7 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
       gameNotes: [noteToEdit],
     });
 
-    render(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
 
     act(() => {
       mockCaptures.preGameNotesPanelProps.onEdit(noteToEdit);
@@ -652,7 +663,7 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'completed' },
     });
-    render(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
     expect(mockUseGameNotification).toHaveBeenCalledWith(
       expect.objectContaining({ requestPermissionNow: false })
     );
@@ -663,7 +674,7 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
     });
-    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
     expect(mockUseGameNotification).toHaveBeenCalledWith(
       expect.objectContaining({ requestPermissionNow: true })
     );
@@ -675,7 +686,7 @@ describe("GameManagement – useWakeLock and useGameNotification", () => {
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'in-progress', opponent: 'Lions', ourScore: 2, opponentScore: 1 },
     });
-    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={teamWithName} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={teamWithName} onBack={vi.fn()} />);
     expect(mockUseGameNotification).toHaveBeenCalledWith(
       expect.objectContaining({ teamName: 'Eagles', opponent: 'Lions', ourScore: 2, opponentScore: 1 })
     );
@@ -877,7 +888,7 @@ describe("GameManagement – handleQueueSubstitution batching", () => {
   });
 
   it("wires onQueueSubstitution into RotationWidget props", () => {
-    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
     expect(typeof mockCaptures.onQueueSubstitution).toBe("function");
   });
 
@@ -887,7 +898,7 @@ describe("GameManagement – handleQueueSubstitution batching", () => {
     // stale empty array for all batched calls, so only the last item ended up in the queue.
     // The fix uses a functional updater (prev => [...prev, item]) so each call sees the
     // latest state and all items accumulate correctly.
-    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
     expect(typeof mockCaptures.onQueueSubstitution).toBe("function");
 
     // Simulate Queue All: three synchronous calls (as handleQueueAll does via forEach)
@@ -907,7 +918,7 @@ describe("GameManagement – handleQueueSubstitution batching", () => {
   });
 
   it("does not add a duplicate entry when the same player+position is queued again", async () => {
-    render(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
 
     act(() => {
       mockCaptures.onQueueSubstitution!("player-1", "pos-1");
@@ -919,5 +930,45 @@ describe("GameManagement – handleQueueSubstitution batching", () => {
     });
     // Queue should still be length 1 — no duplicate added
     await waitFor(() => expect(mockCaptures.latestSubstitutionQueue).toHaveLength(1));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Completed state: play time summary and season report link
+// ---------------------------------------------------------------------------
+describe("completed state play time summary", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'completed' },
+    });
+  });
+
+  it("renders CompletedPlayTimeSummary when gameState.status is 'completed'", () => {
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />);
+    expect(screen.getByTestId("completed-play-time-summary")).toBeInTheDocument();
+  });
+
+  it("does NOT render CompletedPlayTimeSummary when game is in-progress", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+    });
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    expect(screen.queryByTestId("completed-play-time-summary")).not.toBeInTheDocument();
+  });
+
+  it("renders 'View Full Season Report' link when game is completed and points to correct URL", () => {
+    const teamWithId = { ...mockTeam, id: 'team-abc' };
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'completed' },
+    });
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'completed' }} team={teamWithId} onBack={vi.fn()} />);
+    const link = screen.getByRole("link", { name: /view full season report/i });
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "/reports/team-abc");
   });
 });
