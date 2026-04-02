@@ -10,6 +10,7 @@ import {
   createTeam,
   UI_TIMING,
   closePWAPrompt,
+  closeWelcomeModal,
 } from './helpers';
 import { TEST_USERS } from '../test-config';
 
@@ -129,18 +130,35 @@ async function createGame(page: Page) {
   console.log('Creating game...');
   
   // Navigate to home page first
-  await page.click('a.nav-item:has-text("Games")');
-  await page.waitForTimeout(500);
+  await page.goto('/');
+  await waitForPageLoad(page);
+
+  await closePWAPrompt(page);
+  await closeWelcomeModal(page);
   
   // Schedule a new game from home
-  await clickButton(page, '+ Schedule New Game');
-  await page.waitForTimeout(500);
-  
-  // Wait for form to load
-  await expect(page.locator('select').first()).toBeVisible({ timeout: 5000 });
+  const scheduleButton = page.getByRole('button', { name: /\+\s*Schedule New Game/i }).first();
+  const scheduleButtonFallback = page.getByRole('button', { name: /Schedule New Game/i }).first();
+  const teamSelect = page.locator('select').first();
+
+  await expect(scheduleButton).toBeVisible({ timeout: 10000 });
+
+  await closeWelcomeModal(page);
+  await scheduleButton.click({ force: true });
+  await page.waitForTimeout(UI_TIMING.STANDARD);
+
+  let isFormVisible = await teamSelect.isVisible({ timeout: 2500 }).catch(() => false);
+  if (!isFormVisible) {
+    await closeWelcomeModal(page);
+    await scheduleButtonFallback.click({ force: true });
+    await scheduleButtonFallback.dispatchEvent('click');
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+  }
+
+  // Final hard assertion that the schedule form is open
+  await expect(teamSelect).toBeVisible({ timeout: 5000 });
   
   // Select team from dropdown
-  const teamSelect = page.locator('select').first();
   await teamSelect.selectOption({ label: TEST_DATA.team.name });
   await page.waitForTimeout(300);
   
@@ -597,7 +615,7 @@ async function managePreGameCoachingNotes(page: Page) {
   await expect(page.getByText('Updated pre-game note: communicate first five minutes')).toBeVisible();
 
   await page.getByRole('button', { name: 'Delete coaching point' }).first().click();
-  await page.getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(page.getByText('No coaching points yet.')).toBeVisible();
 
   console.log('✓ Pre-game coaching notes CRUD verified');

@@ -4,6 +4,7 @@ import {
   fillInput,
   clickButton,
   loginUser,
+  closeWelcomeModal,
   UI_TIMING,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
@@ -17,6 +18,8 @@ async function navigateToProfile(page: Page) {
   } catch {
     // Prompt not present
   }
+
+  await closeWelcomeModal(page);
   
   // Click Profile tab in bottom navigation
   await page.getByRole('link', { name: /profile/i }).click();
