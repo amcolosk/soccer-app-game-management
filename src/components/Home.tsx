@@ -162,7 +162,7 @@ export function Home() {
     const previousSteps = readDismissedStepSnapshot();
     const hasRegression = previousSteps
       ? previousSteps.some((wasComplete, index) => wasComplete && !checklistStepCompletion[index])
-      : !allChecklistStepsComplete;
+      : false;
 
     if (hasRegression) {
       clearDismissed();

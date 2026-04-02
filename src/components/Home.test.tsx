@@ -395,5 +395,31 @@ describe('Home — auto-welcome for existing users (issue #22)', () => {
       JSON.stringify([true, true, false, false, false, false, false])
     );
   });
+
+  it('does not clear dismissed state when no localStorage snapshot exists and all steps are complete', async () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = true;
+    teamQueryResult.isSynced = true;
+    teamQueryResult.data = [{ id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], formationId: 'f-1' }];
+    // No localStorage snapshot (previousSteps === null)
+
+    render(<Home />);
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(mockClearDismissed).not.toHaveBeenCalled();
+  });
+
+  it('does not clear dismissed state when no localStorage snapshot exists and some steps are incomplete', async () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = true;
+    teamQueryResult.isSynced = true;
+    teamQueryResult.data = [];
+    // No localStorage snapshot (previousSteps === null)
+
+    render(<Home />);
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(mockClearDismissed).not.toHaveBeenCalled();
+  });
 });
 
