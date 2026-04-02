@@ -56,11 +56,22 @@ function assertMutationSuccess(result: SafeDeleteMutationResult, fallbackMessage
     throw new Error(result.errors[0]?.message ?? fallbackMessage);
   }
 
+  // Amplify Gen 2 mutations with a.json() return type deliver result.data as a
+  // JSON-encoded string (AWSJSON scalar).  Parse it the same way BugReport.tsx does.
+  let parsedData: unknown = result.data;
+  while (typeof parsedData === 'string') {
+    try {
+      parsedData = JSON.parse(parsedData);
+    } catch {
+      break;
+    }
+  }
+
   const success =
-    typeof result.data === 'object' &&
-    result.data !== null &&
-    'success' in result.data &&
-    (result.data as { success?: unknown }).success === true;
+    typeof parsedData === 'object' &&
+    parsedData !== null &&
+    'success' in parsedData &&
+    (parsedData as { success?: unknown }).success === true;
 
   if (!success) {
     throw new Error(fallbackMessage);

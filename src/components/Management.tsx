@@ -118,11 +118,14 @@ async function createFormationPositions(
 export function Management() {
   const confirm = useConfirm();
   const [searchParams] = useSearchParams();
-  const { data: teams } = useAmplifyQuery('Team');
-  const { data: players } = useAmplifyQuery('Player');
-  const { data: teamRosters } = useAmplifyQuery('TeamRoster');
-  const { data: formations } = useAmplifyQuery('Formation');
-  const { data: formationPositions } = useAmplifyQuery('FormationPosition');
+  const [teamRefreshKey, setTeamRefreshKey] = useState(0);
+  const [playerRefreshKey, setPlayerRefreshKey] = useState(0);
+  const [formationRefreshKey, setFormationRefreshKey] = useState(0);
+  const { data: teams } = useAmplifyQuery('Team', undefined, [teamRefreshKey]);
+  const { data: players } = useAmplifyQuery('Player', undefined, [playerRefreshKey]);
+  const { data: teamRosters } = useAmplifyQuery('TeamRoster', undefined, [teamRefreshKey]);
+  const { data: formations } = useAmplifyQuery('Formation', undefined, [formationRefreshKey]);
+  const { data: formationPositions } = useAmplifyQuery('FormationPosition', undefined, [formationRefreshKey]);
   
   // Initialize activeSection from query param (read-only, one-way entry point)
   const [activeSection, setActiveSection] = useState<'teams' | 'formations' | 'players' | 'sharing' | 'app'>(() => {
@@ -269,7 +272,14 @@ export function Management() {
   const handleDeleteTeam = (id: string) => confirmAndDelete(confirm, {
     title: 'Delete Team',
     message: 'Are you sure you want to delete this team? This will also delete all players, positions, and games.',
-    deleteFn: async () => { await deleteTeamCascade(id); trackEvent(AnalyticsEvents.TEAM_DELETED.category, AnalyticsEvents.TEAM_DELETED.action); },
+    deleteFn: async () => {
+      try {
+        await deleteTeamCascade(id);
+        trackEvent(AnalyticsEvents.TEAM_DELETED.category, AnalyticsEvents.TEAM_DELETED.action);
+      } finally {
+        setTeamRefreshKey(k => k + 1);
+      }
+    },
     entityName: 'team',
   });
 
@@ -467,7 +477,14 @@ export function Management() {
       message,
       confirmText: totalImpact > 0 ? 'Delete Anyway' : 'Delete',
       variant: totalImpact > 0 ? 'warning' : 'danger',
-      deleteFn: async () => { await deletePlayerCascade(id); trackEvent(AnalyticsEvents.PLAYER_DELETED.category, AnalyticsEvents.PLAYER_DELETED.action); },
+      deleteFn: async () => {
+        try {
+          await deletePlayerCascade(id);
+          trackEvent(AnalyticsEvents.PLAYER_DELETED.category, AnalyticsEvents.PLAYER_DELETED.action);
+        } finally {
+          setPlayerRefreshKey(k => k + 1);
+        }
+      },
       entityName: 'player',
     });
   };
@@ -711,6 +728,8 @@ export function Management() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to delete formation';
       showError(message);
+    } finally {
+      setFormationRefreshKey(k => k + 1);
     }
   };
 

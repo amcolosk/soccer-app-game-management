@@ -233,6 +233,14 @@ export async function cleanupTestData(page: Page) {
     console.log('✓ Players deleted');
   }
   
+  // Use page.goto to force a full SPA route change to /manage, remounting the
+  // Management component and resetting all Amplify observeQuery subscription caches.
+  // This avoids nav-link click issues with overlays (e.g. welcome-modal-overlay).
+  console.log('Remounting Management component to reset subscription state...');
+  await page.goto('/manage');
+  await page.waitForSelector('.management', { timeout: 10000 });
+  await page.waitForTimeout(1000);
+
   // Clean up formations
   await clickManagementTab(page, 'Formations');
   await page.waitForTimeout(500);
@@ -245,13 +253,21 @@ export async function cleanupTestData(page: Page) {
     
     const cleanupFormationDialog = handleConfirmDialog(page, false);
     
+    let stuckCount = 0;
     while (formationCount > 0) {
       await swipeToDelete(page, '.item-card');
       await page.waitForTimeout(1000);
       formationCards = page.locator('.item-card'); // Re-query to get updated list
       const newCount = await formationCards.count();
-      if (newCount === formationCount) break;
-      formationCount = newCount;
+      if (newCount === formationCount) {
+        stuckCount++;
+        if (stuckCount >= 3) break;
+        console.log(`  Formation delete stuck, retrying... (attempt ${stuckCount}/3)`);
+        await page.waitForTimeout(2000);
+      } else {
+        stuckCount = 0;
+        formationCount = newCount;
+      }
     }
     
     cleanupFormationDialog();
@@ -570,6 +586,7 @@ export async function addPlayerToRoster(
 export async function swipeToDelete(page: Page, itemSelector: string) {
   // Locate the swipeable container (use .first() if selector matches multiple elements)
   const itemCard = page.locator(itemSelector).first();
+  await itemCard.scrollIntoViewIfNeeded();
   
   // Get the bounding box to calculate swipe coordinates
   const box = await itemCard.boundingBox();
