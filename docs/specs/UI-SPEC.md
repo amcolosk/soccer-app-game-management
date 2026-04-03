@@ -692,7 +692,7 @@ Example: Two coaches both named Alex on same team rendered as Alex (Coach 1) and
 
 #### Quick Start Checklist
 
-**Purpose:** Guide new coaches through seven sequential setup steps required to run a live game.
+**Purpose:** Guide new coaches through a seven-step setup model required to run a live game.
 
 **Display:**
 - Sticky card-style checklist on Home tab, above game list (if not dismissed)
@@ -720,23 +720,27 @@ Example: Two coaches both named Alex on same team rendered as Alex (Coach 1) and
 - Actions: Expand/Collapse button (if collapsed) + Dismiss button (X icon)
 
 **Persistence and visibility:**
-- Checklist visibility state is stored in localStorage (key: `quickStartChecklistDismissed`, boolean)
+- Checklist dismissal flag uses active key `quickStartChecklistDismissed` with compatibility key `onboarding:dismissed`
+- Snapshot key `onboarding:lastCompletedSteps` stores a boolean[7] completion snapshot captured at dismiss time
 - Checklist is **auto-hidden (dismissed) when all 7 steps are complete**; shows completion state for 4 seconds then auto-dismisses
-- After auto-dismiss, checklist remains hidden for the session and hides on subsequent visits unless explicitly reset
-- **Reset conditions:** Checklist reappears if (a) a step is unchecked (e.g., team deleted), or (b) user manually re-opens it via a pin/expand button, or (c) localStorage is cleared
+- After auto-dismiss, checklist remains hidden on subsequent visits unless a valid snapshot regression is detected
+- **Reopen conditions (snapshot-only):** Reopen only when dismissed is true, profile state is resolved, checklist source data is synced, snapshot is valid, and at least one previously true step regresses to false
+- No fallback reopen path exists when the snapshot is missing or invalid
+- Missing, malformed, or invalid snapshots (wrong length or non-boolean entries) do not reopen the checklist
+- `onboarding:lastCompletedSteps` is removed only when a valid regression reopen occurs
 - Checklist state persists across sign-out/sign-in
 
 **States:**
 - **Not started** — all steps unchecked; checklist visible
 - **In progress** — mix of checked and unchecked; checklist visible
-- **Complete** — all 7 steps checked; shows brief "All set!" message, auto-dismisses after 4 seconds, then hides until reset condition is met
+- **Complete** — all 7 steps checked; shows brief "All set!" message, auto-dismisses after 4 seconds, then hides until valid regression reopen conditions are met
 
 #### Welcome Modal
 
 **Purpose:** First-time greeting modal on app load; introduces profile concept and privacy assurance.
 
 **Display:**
-- Modal overlay on home page load (only shown once per user; dismissed state persisted in localStorage)
+- Modal overlay on home page load (only shown once per browser profile; dismissed state persisted in localStorage)
 - Centered card with white background
 - z-index: `1000` (standard modal)
 
@@ -770,7 +774,7 @@ identify your notes during games.
 - Same layout, buttons may be side-by-side
 
 **Persistence and dismissal:**
-- Shown on first app load; dismissed state is persisted in localStorage (key: `welcomeModalDismissed`)
+- Shown on first app load; dismissed state is persisted in localStorage (active key `welcomeModalDismissed`, compatibility key `onboarding:welcomed`)
 - **Welcome dismissal persists across sign-out and sign-in** (based on localStorage, not per-user backend state)
 - New app install or cleared localStorage resets dismissal and shows modal again on next login
 

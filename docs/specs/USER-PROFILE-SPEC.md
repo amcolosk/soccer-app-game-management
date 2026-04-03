@@ -151,7 +151,7 @@ Algorithm:
 
 ## 7. Onboarding Integration
 
-Profile completion is a required step in the QuickStartChecklist (Step #2) for first-time coaches.
+Profile completion is a required step in the seven-step QuickStartChecklist model (Step #2) for first-time coaches.
 
 **Completion signal:** First name is non-null after trim normalization (empty last name is allowed).
 
@@ -196,16 +196,23 @@ Enforcement:
 
 ## 9.1. Quick Start Checklist Persistence
 
-**localStorage key:** `quickStartChecklistDismissed` (boolean)
+**localStorage keys:**
+- Active: `quickStartChecklistDismissed`
+- Compatibility: `onboarding:dismissed`
+- Snapshot: `onboarding:lastCompletedSteps` (boolean[7])
 
 **Behavior:**
 - Checklist auto-hides when all 7 steps complete; shows completion state for 4 seconds then dismisses
-- Remains hidden on subsequent visits unless reset (step unchecked, manual reopen, or localStorage cleared)
+- Reopens only on valid regression path: dismissed is true, profile state resolved, checklist source data synced, valid snapshot exists, and a previously true step regresses to false
+- Missing, malformed, or invalid snapshots (wrong length or non-boolean entries) do not trigger reopen; there is no fallback reopen path
+- `onboarding:lastCompletedSteps` is removed only on valid regression reopen
 - Persists across sign-out/sign-in
 
 ## 9.2. Welcome Modal Persistence
 
-**localStorage key:** `welcomeModalDismissed` (boolean)
+**localStorage keys:**
+- Active: `welcomeModalDismissed`
+- Compatibility: `onboarding:welcomed`
 
 **Behavior:**
 - Shown on first app load only

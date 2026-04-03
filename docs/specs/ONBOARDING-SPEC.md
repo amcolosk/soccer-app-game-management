@@ -26,9 +26,9 @@ Welcome Modal (3 slides, one-time)
       │
       ▼
 Quick Start Checklist (persistent card on Home tab)
-  │  6 auto-tracking steps
+  │  7 auto-tracking steps
   │  Each step navigates user to the right screen
-  └─ Complete all 6 → Completion state → Dismissed forever
+  └─ Complete all 7 → Completion state → Dismissed forever
 ```
 
 Re-entry at any time via **Help FAB → 📋 Quick Start Guide**.
@@ -39,7 +39,8 @@ Re-entry at any time via **Help FAB → 📋 Quick Start Guide**.
 
 ### Trigger
 - Shown once, immediately after first authenticated load.
-- Controlled by `localStorage.setItem('onboarding:welcomed', '1')`.
+- Controlled by `localStorage.setItem('welcomeModalDismissed', '1')`.
+- Compatibility key also written/read: `onboarding:welcomed`.
 - Never shown again once set.
 
 ### Structure
@@ -145,9 +146,10 @@ Home (Games tab)
 ├─ [+ Schedule New Game]          ← existing
 ├─ ┌── Quick Start ───────────┐   ← new card
 │  │  Get ready for game day  │
-│  │  ███████░░░░  3 of 6     │
+│  │  ███████░░░░  3 of 7     │
 │  │                          │
 │  │  ✓ Create your team      │
+│  │  ✓ Complete profile      │
 │  │  ✓ Add players           │
 │  │  ○ Set your formation  → │
 │  │  ○ Schedule a game     → │
@@ -162,20 +164,21 @@ Home (Games tab)
 ### Header
 
 - Title: **"Get ready for game day"**
-- Progress bar: thin bar + label `"N of 6 steps complete"`
+- Progress bar: thin bar + label `"N of 7 steps complete"`
 - Collapse/expand: tapping the header row (or chevron) collapses the step list; summary label remains visible
 - ✕ dismiss button: top-right — hides the card to a collapsed re-entry state (see §4.4)
 
-### The 6 Steps
+### The 7 Steps
 
 | # | Step title | Direction copy | Auto-complete condition |
 |---|-----------|----------------|------------------------|
 | 1 | Create your team | "Go to **Manage → Teams**" | `teams.length >= 1` |
-| 2 | Add players to your roster | "Go to **Manage → Players**" | any team has `roster.length >= 1` |
-| 3 | Set your formation | "Go to **Manage → Teams** and assign a formation" | any team has a non-null `formationId` |
-| 4 | Schedule a game | "Tap **+ Schedule New Game** above" | `games.length >= 1` |
-| 5 | Plan your rotations | "Tap **📋 Plan Game** on your game card" | any `GamePlan` record exists |
-| 6 | Manage a live game | "On game day, tap **Start Game** to go live" | any game has status `in-progress` or `completed` |
+| 2 | Complete your profile | "Go to **Profile**" | normalized coach `firstName` is non-empty |
+| 3 | Add players to your roster | "Go to **Manage → Players**" | any roster entry links to a current team |
+| 4 | Set your formation | "Go to **Manage → Teams** and assign a formation" | any team has a non-null `formationId` |
+| 5 | Schedule a game | "Tap **+ Schedule New Game** above" | `games.length >= 1` |
+| 6 | Plan your rotations | "Tap **📋 Plan Game** on your game card" | any `GamePlan` record exists |
+| 7 | Manage a live game | "On game day, tap **Start Game** to go live" | any game has status `in-progress` or `completed` |
 
 Steps 1–3 must be sequentially completed before 4–6 become actionable. Steps that are blocked show a muted lock icon instead of an arrow and display: *"Complete step N first."*
 
@@ -195,18 +198,19 @@ Steps 1–3 must be sequentially completed before 4–6 become actionable. Steps
 
 | Step | Action on tap |
 |------|--------------|
-| 1 | `navigate('/manage')` + set Management sub-view to Teams |
-| 2 | `navigate('/manage')` + set sub-view to Players |
-| 3 | `navigate('/manage')` + set sub-view to Teams |
-| 4 | Scroll to `+ Schedule New Game` button, animate highlight |
-| 5 | If a scheduled game exists: navigate to `/game/:firstScheduledGameId/plan`. Else: no-op (shouldn't be reachable unlocked). |
-| 6 | Navigate to `/game/:firstNonCompletedGameId`. If none: highlight step 4 instead. |
+| 1 | `navigate('/manage?section=teams')` |
+| 2 | `navigate('/profile')` |
+| 3 | `navigate('/manage?section=players')` |
+| 4 | `navigate('/manage?section=teams')` |
+| 5 | Scroll to `+ Schedule New Game` button and focus it |
+| 6 | If a scheduled game exists: `navigate('/game/:firstScheduledGameId/plan')` |
+| 7 | Navigate to first `in-progress`/`halftime` game; fallback to first scheduled game |
 
 > For steps 1–3, `Management.tsx` needs to accept a query param (e.g., `?section=teams`) so the checklist can deep-link to the right sub-view.
 
 ### Completion State
 
-Once all 6 steps are checked, the card transitions:
+Once all 7 steps are checked, the card transitions:
 
 ```
 ┌──────────────────────────────┐
@@ -218,13 +222,14 @@ Once all 6 steps are checked, the card transitions:
 ```
 
 - Auto-dismisses after 4 seconds or on "Got it" tap  
-- Sets `localStorage.setItem('onboarding:dismissed', '1')` — checklist never shown again  
+- Sets `localStorage.setItem('quickStartChecklistDismissed', '1')` — checklist never shown again  
+- Compatibility key also written/read: `onboarding:dismissed`.
 - The "Quick Start Guide" option in the Help FAB sheet changes to: `"📋 Quick Start — complete ✓"` (disabled/grayed)
 
 ### 4.4 — Re-Entry After Dismiss (Before Completion)
 
 If the user taps ✕ before completing all steps:
-- The checklist card collapses to a compact **resume banner** at the top of Home: `"📋 Setup: 3 of 6 complete — Resume →"`
+- The checklist card collapses to a compact **resume banner** at the top of Home: `"📋 Setup: 3 of 7 complete — Resume →"`
 - Tapping the banner re-expands the card
 - Alternatively accessible via **Help FAB → 📋 Quick Start Guide** (see §6)
 
@@ -232,11 +237,24 @@ If the user taps ✕ before completing all steps:
 
 | Key | Value | Meaning |
 |-----|-------|---------|
-| `onboarding:welcomed` | `'1'` | Welcome modal already shown — never show again |
-| `onboarding:dismissed` | `'1'` | Checklist permanently dismissed (all done or explicitly closed after completion) |
+| `welcomeModalDismissed` (active) / `onboarding:welcomed` (compat) | `'1'` | Welcome modal already shown — never show again |
+| `quickStartChecklistDismissed` (active) / `onboarding:dismissed` (compat) | `'1'` | Checklist dismissed state |
 | `onboarding:collapsed` | `'1'` | Card is collapsed but not dismissed — show resume banner |
+| `onboarding:lastCompletedSteps` | JSON boolean[7] | Snapshot captured at dismiss time for regression reopen checks |
 
 Step completion is derived **live from real data** (no stored state). The checklist re-evaluates on every render of the Home tab using the same `teams[]` and `games[]` already loaded.
+
+### Dismissed Reopen Rule
+
+Checklist reopen is snapshot-only and runs only when all of the following are true:
+- dismissed is true
+- profile completion state is resolved
+- onboarding source data is fully synced (teams, rosters, games, plans)
+- valid `onboarding:lastCompletedSteps` snapshot exists (length must be 7 and all entries boolean)
+- at least one previously true snapshot step is now false
+
+No reopen occurs when snapshot is missing, malformed JSON, wrong length, or has non-boolean entries.
+`onboarding:lastCompletedSteps` is removed only on the valid regression reopen path.
 
 ---
 
@@ -297,19 +315,22 @@ Full copy for each step's direction text:
 **Step 1 — Create your team**
 > Go to **Manage ⚙️ → Teams**. Tap "Add Team", give it a name, and choose how many players are on the field.
 
-**Step 2 — Add players**
+**Step 2 — Complete your profile**
+> Go to **Profile 👤**. Add your first name so teammates can identify your notes.
+
+**Step 3 — Add players**
 > Go to **Manage ⚙️ → Players**. Tap "Add Player" to build your roster. You'll need at least as many players as your formation has positions.
 
-**Step 3 — Set your formation**
+**Step 4 — Set your formation**
 > Go to **Manage ⚙️ → Teams**, open your team, and assign a formation. Formations define how many players are in each line.
 
-**Step 4 — Schedule a game**
+**Step 5 — Schedule a game**
 > Tap **+ Schedule New Game** (top of this screen). Pick your team, opponent, and date.
 
-**Step 5 — Plan your rotations**
+**Step 6 — Plan your rotations**
 > Tap **📋 Plan Game** on your game card below. TeamTrack will auto-generate a fair rotation so every player gets equal time.
 
-**Step 6 — Manage a live game**
+**Step 7 — Manage a live game**
 > On game day, open your game and tap **Start Game**. Use the Lineup tab for substitutions, the score tracker at the top, and Notes to flag standout plays or cards.
 
 ---
@@ -318,7 +339,7 @@ Full copy for each step's direction text:
 
 - The checklist card must be fully keyboard-navigable and announced by screen readers
 - Step rows use `role="button"` with `aria-label="Go to [step title]"` and `aria-disabled` for locked steps
-- Progress bar: `role="progressbar" aria-valuenow={completed} aria-valuemax={6} aria-label="Onboarding progress"`
+- Progress bar: `role="progressbar" aria-valuenow={completed} aria-valuemax={7} aria-label="Onboarding progress"`
 - Welcome modal uses the same focus-trap pattern as `HelpModal.tsx` (focus on h2 on open, restored on close)
 - On narrow phones (≤ 375px), step rows stack the direction text below the title (already the default flow layout)
 - The checklist card does not cover the bottom nav — it is in-scroll, not fixed
@@ -362,34 +383,36 @@ The checklist is not a screen — it does not register a `helpContext`. The Help
 
 ## 11. Plan Amendments (from Architect Review)
 
-### C1 � useOnboardingProgress step 2: use flat 	eamRosters list
+### C1 � useOnboardingProgress step 2: use flat 	eamRosters list
 	.roster?.length does not work with Amplify Gen2 lazy-loading. Pass 	eamRosters: TeamRoster[] as a 4th parameter:
 - Step 2: 	eamRosters.some(r => teams.some(t => t.id === r.teamId))
 - In Home.tsx: add useAmplifyQuery('TeamRoster') and pass to hook
 
-### M1 � removeDemoData must delete orphaned Players
+### M1 � removeDemoData must delete orphaned Players
 cascadeDeleteService.deleteTeamCascade does not delete underlying Player records. demoDataService.removeDemoData must:
 1. Fetch all TeamRoster entries for the demo team
 2. Extract playerId values  
 3. Call deletePlayerCascade(playerId) for each
 4. Then call deleteTeamCascade(teamId)
-Rename emoveDemoTeam ? emoveDemoData.
+Rename 
+emoveDemoTeam ? 
+emoveDemoData.
 
-### M2 � Demo data: skip Formation creation entirely
+### M2 � Demo data: skip Formation creation entirely
 Do not create a Formation in createDemoTeam. Set ormationId: null on the demo Team.
-Step 3 ("Set your formation") becomes a genuine user task � better UX.
-This removes 7�8 extra FormationPosition create calls from the demo flow.
+Step 3 ("Set your formation") becomes a genuine user task � better UX.
+This removes 7�8 extra FormationPosition create calls from the demo flow.
 
-### M3 � coaches array is mandatory on EVERY create in demoDataService
+### M3 � coaches array is mandatory on EVERY create in demoDataService
 Every client.models.X.create() call MUST include coaches: [currentUserId].
-Affected: Team, 12� Player, 12� TeamRoster, Game. (49 total field values across 26 creates.)
+Affected: Team, 12� Player, 12� TeamRoster, Game. (49 total field values across 26 creates.)
 
-### M4 � Management ?section= is read-only; no useEffect to write back URL
+### M4 � Management ?section= is read-only; no useEffect to write back URL
 Read the param once in useState(() => searchParams.get('section') ?? 'teams').
-Do NOT add a useEffect that calls setSearchParams on every tab change � breaks back-button.
+Do NOT add a useEffect that calls setSearchParams on every tab change � breaks back-button.
 The query param is a one-way entry point for checklist navigation only.
 
-### M5 � Switch Home.tsx teams loading to subscription-based useAmplifyQuery
+### M5 � Switch Home.tsx teams loading to subscription-based useAmplifyQuery
 Replace imperative client.models.Team.list() + useState<Team[]> with useAmplifyQuery('Team').
 This ensures steps 1, 2, 3 mark complete in real-time after team creation without a page reload.
 loadTeams() function and its useState can be removed.
@@ -398,4 +421,4 @@ loadTeams() function and its useState can be removed.
 - Min3: All isDemo checks use 	eam.isDemo === true (not !team.isDemo) to handle null on existing records
 - Min4: Check 
 avigator.onLine before createDemoTeam; show error toast if offline
-- Min5: Remove step locking concept � all 6 steps show evaluated completion state; no locked UI state
+- Min5: Remove step locking concept; all 7 steps show evaluated completion state; no locked UI state

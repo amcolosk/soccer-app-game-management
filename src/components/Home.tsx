@@ -52,7 +52,7 @@ export function Home() {
 
   // Subscribe to teams, roster, and gamePlans for onboarding progress
   const { data: teams, isSynced: isTeamsSynced } = useAmplifyQuery('Team');
-  const { data: games } = useAmplifyQuery('Game', {
+  const { data: games, isSynced: isGamesSynced } = useAmplifyQuery('Game', {
     sort: (a, b) => {
       const statusA = a.status || 'scheduled';
       const statusB = b.status || 'scheduled';
@@ -95,8 +95,14 @@ export function Home() {
     }
   }, [welcomed, isTeamsSynced, teams.length, markWelcomed]);
 
-  const { data: teamRosters } = useAmplifyQuery('TeamRoster');
-  const { data: gamePlans } = useAmplifyQuery('GamePlan');
+  const { data: teamRosters, isSynced: isTeamRostersSynced } = useAmplifyQuery('TeamRoster');
+  const { data: gamePlans, isSynced: isGamePlansSynced } = useAmplifyQuery('GamePlan');
+
+  const isChecklistSourceDataReady =
+    isTeamsSynced && isGamesSynced && isTeamRostersSynced && isGamePlansSynced;
+
+  const canEvaluateDismissedReopen =
+    dismissed && isProfileCompletionResolved && isChecklistSourceDataReady;
 
   const checklistStepCompletion = useMemo(
     () => [
@@ -116,8 +122,6 @@ export function Home() {
     ],
     [teams, profileComplete, teamRosters, games, gamePlans]
   );
-
-  const allChecklistStepsComplete = checklistStepCompletion.every(Boolean);
 
   const readDismissedStepSnapshot = useCallback((): boolean[] | null => {
     if (typeof window === 'undefined') {
@@ -151,18 +155,18 @@ export function Home() {
   }, [checklistStepCompletion, dismiss]);
 
   useEffect(() => {
-    if (!dismissed) {
-      return;
-    }
-
-    if (!isProfileCompletionResolved) {
+    if (!canEvaluateDismissedReopen) {
       return;
     }
 
     const previousSteps = readDismissedStepSnapshot();
-    const hasRegression = previousSteps
-      ? previousSteps.some((wasComplete, index) => wasComplete && !checklistStepCompletion[index])
-      : !allChecklistStepsComplete;
+    if (!previousSteps) {
+      return;
+    }
+
+    const hasRegression = previousSteps.some(
+      (wasComplete, index) => wasComplete && !checklistStepCompletion[index]
+    );
 
     if (hasRegression) {
       clearDismissed();
@@ -170,7 +174,12 @@ export function Home() {
         localStorage.removeItem('onboarding:lastCompletedSteps');
       }
     }
-  }, [dismissed, isProfileCompletionResolved, readDismissedStepSnapshot, checklistStepCompletion, allChecklistStepsComplete, clearDismissed]);
+  }, [
+    canEvaluateDismissedReopen,
+    readDismissedStepSnapshot,
+    checklistStepCompletion,
+    clearDismissed,
+  ]);
 
   const homeDebugContext = useMemo((): HomeDebugContext => ({
     teamCount: teams.length,

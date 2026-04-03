@@ -70,7 +70,6 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
     setDismissed(false);
     localStorage.removeItem('quickStartChecklistDismissed');
     localStorage.removeItem('onboarding:dismissed');
-    localStorage.removeItem('onboarding:lastCompletedSteps');
   }, []);
 
   const resetOnboarding = useCallback(() => {
