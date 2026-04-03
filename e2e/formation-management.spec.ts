@@ -91,6 +91,11 @@ test.describe('Formation Management CRUD', () => {
     console.log('Step 3: Clean up existing data');
     await cleanupTestData(page);
     console.log('');
+
+    // Some environments include non-deletable built-in template formations.
+    // Capture baseline count so CRUD assertions remain deterministic.
+    await clickManagementTab(page, 'Formations');
+    const baselineFormationCount = await page.locator('.item-card').count();
     
     // ===== VALIDATION: Test form validation =====
     console.log('Step 4: VALIDATION - Test empty form submission');
@@ -139,16 +144,22 @@ test.describe('Formation Management CRUD', () => {
     
     // Verify no formations were created during validation
     const cardsAfterValidation = await page.locator('.item-card').count();
-    expect(cardsAfterValidation).toBe(0);
+    expect(cardsAfterValidation).toBe(baselineFormationCount);
     console.log('  ✓ No formations created during validation\n');
     
     // ===== CREATE: Create first formation =====
     console.log('Step 7: CREATE - Create first formation');
     
-    // Verify empty state
-    await expect(page.locator('.empty-message')).toBeVisible();
-    await expect(page.locator('.empty-message')).toContainText('No formations yet');
-    console.log('  ✓ Empty state visible');
+    // Verify baseline state consistently for both clean and template-seeded environments.
+    if (baselineFormationCount === 0) {
+      await expect(page.locator('.empty-message')).toBeVisible();
+      await expect(page.locator('.empty-message')).toContainText('No formations yet');
+      console.log('  ✓ Empty state visible for clean baseline');
+    } else {
+      await expect(page.locator('.empty-message')).not.toBeVisible();
+      await expect(page.locator('.item-card')).toHaveCount(baselineFormationCount);
+      console.log(`  ✓ Existing baseline retained (${baselineFormationCount} formation(s))`);
+    }
     
     // Click Create Formation button
     await clickButton(page, '+ Create Formation');
@@ -211,7 +222,7 @@ test.describe('Formation Management CRUD', () => {
     console.log('Step 9: READ - Verify formations list');
     const formationCards = page.locator('.item-card');
     const formationCount = await formationCards.count();
-    expect(formationCount).toBe(2);
+    expect(formationCount).toBe(baselineFormationCount + 2);
     console.log(`  ✓ Found ${formationCount} formations`);
     
     // Verify first formation details
@@ -269,7 +280,7 @@ test.describe('Formation Management CRUD', () => {
     
     // Verify count is now 1
     const remainingFormations = await page.locator('.item-card').count();
-    expect(remainingFormations).toBe(1);
+    expect(remainingFormations).toBe(baselineFormationCount + 1);
     console.log(`  ✓ Formation count: ${remainingFormations}\n`);
     
     // ===== DELETE: Delete first formation =====
@@ -289,10 +300,10 @@ test.describe('Formation Management CRUD', () => {
     await expect(page.locator('.item-card').filter({ hasText: TEST_DATA.formation1.name })).not.toBeVisible();
     console.log('  ✓ Formation 1 deleted');
     
-    // Verify empty state returns
-    await expect(page.locator('.empty-message')).toBeVisible();
-    await expect(page.locator('.empty-message')).toContainText('No formations yet');
-    console.log('  ✓ Empty state visible again');
+    // Verify we return to pre-test baseline count.
+    const finalFormationCount = await page.locator('.item-card').count();
+    expect(finalFormationCount).toBe(baselineFormationCount);
+    console.log('  ✓ Formation list returned to baseline state');
     
     console.log('\n=== Formation Validation & CRUD Test Completed Successfully ===\n');
   });

@@ -92,14 +92,17 @@ async function addPlayersToRoster(page: Page) {
   for (const player of TEST_DATA.players) {
     await clickButton(page, '+ Add Player to Roster');
     await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    const rosterForm = page.locator('.team-roster-section .create-form').first();
+    await expect(rosterForm).toBeVisible({ timeout: 5000 });
     
     // Select player from dropdown
     const playerOption = `${player.firstName} ${player.lastName}`;
-    await page.selectOption('select', { label: playerOption });
+    await rosterForm.locator('select').first().selectOption({ label: playerOption });
     await page.waitForTimeout(UI_TIMING.QUICK);
     
     // Enter player number
-    await fillInput(page, 'input[placeholder*="Player Number"]', player.number);
+    await rosterForm.locator('input[placeholder*="Player Number"]').fill(player.number);
     
     // Select preferred position if available
     // Note: The UI might use full names like "Goalkeeper" or abbreviations like "GK"
@@ -111,7 +114,7 @@ async function addPlayersToRoster(page: Page) {
     }
     
     // Click the Add button in the form
-    const addButton = page.locator('.form-actions button.btn-primary', { hasText: 'Add' });
+    const addButton = rosterForm.locator('.form-actions button.btn-primary', { hasText: 'Add' }).first();
     await addButton.click();
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     

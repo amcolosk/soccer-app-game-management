@@ -12,6 +12,7 @@ interface CommandBandProps {
   onPauseTimer: () => void;
   onResumeTimer: () => void;
   onShowRotationModal: () => void;
+  onAddNote?: (trigger: HTMLElement | null) => void;
 }
 
 export function CommandBand({
@@ -25,6 +26,7 @@ export function CommandBand({
   onPauseTimer,
   onResumeTimer,
   onShowRotationModal,
+  onAddNote,
 }: CommandBandProps) {
   const getNextRotation = (): PlannedRotation | null => {
     if (!gamePlan || plannedRotations.length === 0) return null;
@@ -44,28 +46,46 @@ export function CommandBand({
 
   const renderRightCell = () => {
     if (gameState.status === "in-progress") {
+      const noteButton = (
+        <button
+          className="command-band__note-trigger"
+          onClick={(event) => onAddNote?.(event.currentTarget)}
+          aria-label="Add note"
+          title="Add note"
+        >
+          <span className="command-band__note-icon" aria-hidden="true">📝</span>
+          <span className="command-band__note-label">Note</span>
+        </button>
+      );
+
       if (gamePlan && nextRotation) {
         return (
-          <button
-            className="command-band__rotation-badge"
-            onClick={onShowRotationModal}
-            title="View rotation plan"
-          >
-            <div className="command-band__rotation-countdown">
-              {minutesUntilRotation !== null && minutesUntilRotation <= 0
-                ? "Sub now!"
-                : `${minutesUntilRotation}' to sub`}
-            </div>
-            <div className="command-band__rotation-at">
-              Rot @ {nextRotation.gameMinute}'
-            </div>
-          </button>
+          <>
+            {noteButton}
+            <button
+              className="command-band__rotation-badge"
+              onClick={onShowRotationModal}
+              title="View rotation plan"
+            >
+              <div className="command-band__rotation-countdown">
+                {minutesUntilRotation !== null && minutesUntilRotation <= 0
+                  ? "Sub now!"
+                  : `${minutesUntilRotation}' to sub`}
+              </div>
+              <div className="command-band__rotation-at">
+                Rot @ {nextRotation.gameMinute}'
+              </div>
+            </button>
+          </>
         );
       }
       return (
-        <span className="command-band__status-badge command-band__status-live">
-          ● Live
-        </span>
+        <>
+          {noteButton}
+          <span className="command-band__status-badge command-band__status-live">
+            ● Live
+          </span>
+        </>
       );
     }
     if (gameState.status === "halftime") {

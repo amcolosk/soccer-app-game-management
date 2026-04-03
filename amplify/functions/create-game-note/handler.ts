@@ -29,6 +29,31 @@ function hasValidInGameTiming(gameSeconds: number | null | undefined, half: numb
   return Number.isInteger(gameSeconds) && (gameSeconds as number) >= 0 && (half === 1 || half === 2);
 }
 
+async function isPlayerOnTeamRoster(teamRosterTable: string, teamId: string, playerId: string): Promise<boolean> {
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+
+  do {
+    const rosterResponse = await docClient.send(new ScanCommand({
+      TableName: teamRosterTable,
+      FilterExpression: 'teamId = :teamId AND playerId = :playerId',
+      ExpressionAttributeValues: {
+        ':teamId': teamId,
+        ':playerId': playerId,
+      },
+      ProjectionExpression: 'id',
+      ...(exclusiveStartKey ? { ExclusiveStartKey: exclusiveStartKey } : {}),
+    }));
+
+    if (rosterResponse.Items && rosterResponse.Items.length > 0) {
+      return true;
+    }
+
+    exclusiveStartKey = rosterResponse.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (exclusiveStartKey);
+
+  return false;
+}
+
 type Handler = Schema['createSecureGameNote']['functionHandler'];
 
 export const handler: Handler = async (event) => {
@@ -106,18 +131,8 @@ export const handler: Handler = async (event) => {
 
     // TeamRoster has no teamId+playerId index in the current schema, so a filtered scan
     // is the narrowest server-side membership check currently available.
-    const rosterResponse = await docClient.send(new ScanCommand({
-      TableName: teamRosterTable,
-      FilterExpression: 'teamId = :teamId AND playerId = :playerId',
-      ExpressionAttributeValues: {
-        ':teamId': game.teamId,
-        ':playerId': args.playerId,
-      },
-      ProjectionExpression: 'id',
-      Limit: 1,
-    }));
-
-    if (!rosterResponse.Items || rosterResponse.Items.length === 0) {
+    const playerOnRoster = await isPlayerOnTeamRoster(teamRosterTable, game.teamId, args.playerId);
+    if (!playerOnRoster) {
       throw new Error('playerId must belong to the game team roster');
     }
   }

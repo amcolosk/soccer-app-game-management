@@ -207,6 +207,7 @@ export async function loginUser(page: Page, email: string, password: string) {
   
   // Close PWA update/offline prompt if it appears
   await closePWAPrompt(page);
+  await closeWelcomeModal(page);
 }
 
 /**
@@ -216,8 +217,9 @@ export async function loginUser(page: Page, email: string, password: string) {
 export async function cleanupTestData(page: Page) {
   console.log('Cleaning up test data...');
   
-  // Close PWA prompt if it's showing
+  // Close overlays that can intercept bottom-nav clicks.
   await closePWAPrompt(page);
+  await closeWelcomeModal(page);
   
   // Use direct route navigation to avoid overlay interception on nav clicks.
   await page.goto('/manage');
@@ -323,6 +325,7 @@ export async function cleanupTestData(page: Page) {
 export async function navigateToManagement(page: Page) {
   // Close PWA prompt if it's still showing
   await closePWAPrompt(page);
+  await closeWelcomeModal(page);
   
   // Wait for any loading state to disappear
   const loadingIndicator = page.getByText('Loading...', { exact: true });

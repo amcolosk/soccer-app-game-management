@@ -10,6 +10,8 @@ import {
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 
 async function navigateToProfile(page: Page) {
+  await closeWelcomeModal(page);
+
   // Close PWA prompt if it's still showing
   try {
     const okButton = page.locator('.update-prompt button:has-text("OK")');
@@ -22,7 +24,13 @@ async function navigateToProfile(page: Page) {
   await closeWelcomeModal(page);
   
   // Click Profile tab in bottom navigation
-  await page.getByRole('link', { name: /profile/i }).click();
+  const profileTab = page.getByRole('link', { name: /profile/i });
+  try {
+    await profileTab.click({ timeout: 3000 });
+  } catch {
+    await closeWelcomeModal(page);
+    await profileTab.click();
+  }
   await waitForPageLoad(page);
   
   // Verify we're on the profile page
