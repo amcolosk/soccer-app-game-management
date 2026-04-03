@@ -147,7 +147,7 @@ async function createGame(page: Page) {
   await scheduleButton.click({ force: true });
   await page.waitForTimeout(UI_TIMING.STANDARD);
 
-  let isFormVisible = await teamSelect.isVisible({ timeout: 2500 }).catch(() => false);
+  const isFormVisible = await teamSelect.isVisible({ timeout: 2500 }).catch(() => false);
   if (!isFormVisible) {
     await closeWelcomeModal(page);
     await scheduleButtonFallback.click({ force: true });

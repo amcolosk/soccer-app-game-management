@@ -139,58 +139,42 @@ test.describe.serial('Team Sharing and Collaboration', () => {
 
     // Add player to roster
     const addToRosterButton = teamCard.locator('button:visible', { hasText: /Add Player to Roster/i }).first();
-    const rosterForm = teamCard.locator('.create-form:visible').first();
 
-    const rosterReadyStart = Date.now();
-    const rosterReadyTimeoutMs = 20000;
-    let rosterReady = false;
-    while (Date.now() - rosterReadyStart < rosterReadyTimeoutMs) {
-      const loopTeamCard = page.locator('.item-card').filter({ hasText: SHARED_TEAM_NAME }).first();
-      const loopPrimaryToggleButton = loopTeamCard.locator('button').first();
-      const loopAddToRosterButton = loopTeamCard.locator('button:visible', { hasText: /Add Player to Roster/i }).first();
-      const loopRosterForm = loopTeamCard.locator('.create-form:visible').first();
+    await teamCard.click();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
 
-      await expect(loopTeamCard).toBeVisible({ timeout: 2000 });
-
-      const addButtonVisible = await loopAddToRosterButton.isVisible({ timeout: 800 }).catch(() => false);
-      const formVisible = await loopRosterForm.isVisible({ timeout: 800 }).catch(() => false);
-      if (addButtonVisible || formVisible) {
-        rosterReady = true;
-        break;
-      }
-
-      await loopPrimaryToggleButton.scrollIntoViewIfNeeded();
-      await loopPrimaryToggleButton.click({ force: true });
-      await page.waitForTimeout(300);
-
-      const addButtonVisibleAfterExpand = await loopAddToRosterButton.isVisible({ timeout: 800 }).catch(() => false);
-      const formVisibleAfterExpand = await loopRosterForm.isVisible({ timeout: 800 }).catch(() => false);
-      if (addButtonVisibleAfterExpand || formVisibleAfterExpand) {
-        rosterReady = true;
-        break;
-      }
-
-      await page.waitForTimeout(300);
-    }
-
-    if (!rosterReady) {
-      throw new Error(`Timed out waiting for roster controls for team "${SHARED_TEAM_NAME}" after ${rosterReadyTimeoutMs}ms`);
-    }
-
-    if (await addToRosterButton.isVisible({ timeout: 800 }).catch(() => false)) {
-      await addToRosterButton.click();
+    if (!await addToRosterButton.isVisible({ timeout: 1200 }).catch(() => false)) {
+      await teamExpandButton.scrollIntoViewIfNeeded();
+      await teamExpandButton.click({ force: true });
       await page.waitForTimeout(UI_TIMING.STANDARD);
     }
+
+    if (await addToRosterButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await addToRosterButton.click();
+    } else {
+      const fallbackAddToRosterButton = page.getByRole('button', { name: /Add Player to Roster/i }).first();
+      await expect(fallbackAddToRosterButton).toBeVisible({ timeout: 10000 });
+      await fallbackAddToRosterButton.click();
+    }
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+    
+    // Wait for form fields to fully render
+    await page.waitForSelector('.create-form select', { timeout: 10000 });
     
     // Select the player and assign jersey number
-    const playerSelect = teamCard.locator('.create-form:visible select').first();
+    const playerSelect = page.locator('.create-form select').first();
     await playerSelect.selectOption({ label: `${PLAYER_NAME.firstName} ${PLAYER_NAME.lastName}` });
     await page.waitForTimeout(UI_TIMING.QUICK);
     
-    const jerseyInput = teamCard.locator('.create-form:visible input[placeholder*="number"]').first();
+    // Wait for jersey input to render
+    await page.waitForSelector('.create-form input[type="number"], .create-form input[placeholder*="jersey"], .create-form input[placeholder*="number"]', { timeout: 10000 });
+    
+    const jerseyInput = page.locator('.create-form input[placeholder*="number"], .create-form input[type="number"]').first();
     await jerseyInput.fill('10');
 
-    await teamCard.locator('.create-form:visible .form-actions .btn-primary', { hasText: 'Add' }).first().click();
+    const addButton = page.locator('.create-form button').filter({ hasText: 'Add' }).first();
+    await addButton.scrollIntoViewIfNeeded();
+    await addButton.click();
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 
     await expect(page.getByText(`#10 ${PLAYER_NAME.firstName} ${PLAYER_NAME.lastName}`)).toBeVisible();
