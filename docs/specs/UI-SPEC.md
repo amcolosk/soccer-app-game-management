@@ -434,6 +434,8 @@ Active game cards: left-border accent treatment.
 #### Purpose
 Pre-game rotation planning. Coach marks availability then generates or manually edits a rotation schedule.
 
+Primary editing flow is rotations-first: lineup editing is anchored to selected timeline pills (Start, HT, and rotations) rather than a separate lineup tab.
+
 #### Layout
 - App header visible
 - Full-page vertical stack
@@ -443,10 +445,69 @@ Pre-game rotation planning. Coach marks availability then generates or manually 
 
 1. **Player Availability** — same grid as scheduled state; changes here sync back to game
 2. **Rotation Settings** — two coupled numeric steppers in the setup card (see §7.7.1 below)
-3. **Lineup Builder** — drag-and-drop player-to-position assignment for starting lineup
-4. **Planned Rotations** — timeline of rotations with players in/out per interval
+3. **Rotation Timeline (single-select pills)** — always includes Start + HT, plus interval rotations when available
+4. **Selected Details Panel** — only selected pill panel is mounted; contains the active lineup editor/summary for that pill
 5. **Auto-Generate button** — runs fair rotation algorithm
 6. **Save Plan button** — persists `GamePlan` + `PlannedRotation` records
+
+#### Timeline-first editing model
+
+- Start pill details contain the editable starting lineup builder.
+- HT pill details contain the editable halftime lineup builder first, then substitutions/continuing-player summary.
+- Rotation pill details contain per-rotation substitution details.
+- Lineup editing does not require switching to a dedicated lineup tab.
+- Default selection is Start on first load; one pill is always selected.
+
+#### Selection and reconciliation contract
+
+- Stable identity keys:
+  - Start: `starting`
+  - Halftime: `halftime`
+  - Rotation: persisted rotation id (or deterministic synthetic key in pre-plan mode)
+- Deterministic reconciliation after timeline recalculation:
+  1. Keep current selection if key still exists.
+  2. Else select Start.
+  3. Else select first pill.
+
+#### Pre-plan halftime draft lifecycle
+
+- Before plan creation, halftime edits are local draft state.
+- Halftime draft becomes dirty on first edit.
+- Schedule changes that invalidate halftime baseline must present a warning with explicit keep/reset options.
+- Keep retains draft and reconciles selection; reset clears dirty draft and regenerates fallback halftime lineup.
+- On create plan, dirty halftime draft is persisted into `GamePlan.halftimeLineup`, and halftime diff semantics remain unchanged.
+
+#### Accessibility and input behavior
+
+- Timeline pills use single-select semantics (`tablist/tab` preferred, or equivalent radiogroup semantics).
+- Keyboard behavior: Arrow keys move focus/selection, Home/End jump to bounds, Enter/Space select.
+- Selected state is announced (`aria-selected=true`) and visually clear.
+- Details region references selected pill via `aria-labelledby`.
+
+#### Focus and scroll behavior
+
+- Keyboard selection keeps focus on selected pill.
+- Pointer/touch selection does not auto-shift focus into detail editors.
+- On overflow timelines, selected pill scrolls into view.
+- Selection changes avoid abrupt full-page jumps.
+
+#### Mobile labels and fallback copy
+
+Pill labels (narrow viewports):
+- Start: `Start` (or `Start Lineup` when space permits)
+- Halftime: `HT`
+- Rotations: `R1`, `R2`, ...
+
+Details heading labels:
+- Start: `Starting Lineup`
+- Halftime: `Halftime Lineup`
+- Rotation: `Rotation N`
+
+Fallback copy matrix:
+- No players available: `Mark players as available above to generate a rotation plan.`
+- Pre-plan guidance: `Set your lineup and schedule, then create your plan.`
+- Halftime fallback guidance: `Halftime lineup is using the current projected lineup. Edit to customize before saving.`
+- Timeline transient loading: `Loading timeline...`
 
 #### 7.7.1 Rotation Settings Control
 

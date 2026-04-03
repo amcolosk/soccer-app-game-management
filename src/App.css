@@ -5534,6 +5534,10 @@
   background: var(--primary-green);
   color: white;
 }
+.planner-timeline-pill:focus-visible {
+  outline: 3px solid rgba(26, 71, 42, 0.35);
+  outline-offset: 2px;
+}
 .planner-timeline-pill--halftime {
   border-color: #ff9800;
 }
@@ -5756,6 +5760,11 @@
   color: var(--text-secondary);
   font-size: 0.95rem;
   font-style: italic;
+}
+.planner-empty-hint {
+  margin: 0 0 0.75rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
 }
 
 
