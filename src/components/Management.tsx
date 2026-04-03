@@ -18,7 +18,7 @@ import {
   validateFormationFormData,
 } from '../utils/validation';
 import { useConfirm } from './ConfirmModal';
-import { deleteTeamCascade, deletePlayerCascade, deleteFormationCascade } from '../services/cascadeDeleteService';
+import { deleteTeamCascade, deletePlayerCascade, deleteFormationCascade, getPlayerImpact } from '../services/cascadeDeleteService';
 import { removeDemoData } from '../services/demoDataService';
 import { computeFormationPositionDiff, scrubDeletedPositionPreferences } from '../utils/formationUtils';
 import { useSwipeDelete } from '../hooks/useSwipeDelete';
@@ -39,13 +39,13 @@ const client = generateClient<Schema>();
 
 async function confirmAndDelete(
   confirmFn: ReturnType<typeof useConfirm>,
-  opts: { title: string; message: string; confirmText?: string; deleteFn: () => Promise<unknown>; entityName: string },
+  opts: { title: string; message: string; confirmText?: string; deleteFn: () => Promise<unknown>; entityName: string; variant?: 'danger' | 'warning' | 'default' },
 ) {
   const confirmed = await confirmFn({
     title: opts.title,
     message: opts.message,
     confirmText: opts.confirmText || 'Delete',
-    variant: 'danger',
+    variant: opts.variant ?? 'danger',
   });
   if (!confirmed) return;
   try {
@@ -118,11 +118,14 @@ async function createFormationPositions(
 export function Management() {
   const confirm = useConfirm();
   const [searchParams] = useSearchParams();
-  const { data: teams } = useAmplifyQuery('Team');
-  const { data: players } = useAmplifyQuery('Player');
-  const { data: teamRosters } = useAmplifyQuery('TeamRoster');
-  const { data: formations } = useAmplifyQuery('Formation');
-  const { data: formationPositions } = useAmplifyQuery('FormationPosition');
+  const [teamRefreshKey, setTeamRefreshKey] = useState(0);
+  const [playerRefreshKey, setPlayerRefreshKey] = useState(0);
+  const [formationRefreshKey, setFormationRefreshKey] = useState(0);
+  const { data: teams } = useAmplifyQuery('Team', undefined, [teamRefreshKey]);
+  const { data: players } = useAmplifyQuery('Player', undefined, [playerRefreshKey]);
+  const { data: teamRosters } = useAmplifyQuery('TeamRoster', undefined, [teamRefreshKey]);
+  const { data: formations } = useAmplifyQuery('Formation', undefined, [formationRefreshKey]);
+  const { data: formationPositions } = useAmplifyQuery('FormationPosition', undefined, [formationRefreshKey]);
   
   // Initialize activeSection from query param (read-only, one-way entry point)
   const [activeSection, setActiveSection] = useState<'teams' | 'formations' | 'players' | 'sharing' | 'app'>(() => {
@@ -269,7 +272,14 @@ export function Management() {
   const handleDeleteTeam = (id: string) => confirmAndDelete(confirm, {
     title: 'Delete Team',
     message: 'Are you sure you want to delete this team? This will also delete all players, positions, and games.',
-    deleteFn: async () => { await deleteTeamCascade(id); trackEvent(AnalyticsEvents.TEAM_DELETED.category, AnalyticsEvents.TEAM_DELETED.action); },
+    deleteFn: async () => {
+      try {
+        await deleteTeamCascade(id);
+        trackEvent(AnalyticsEvents.TEAM_DELETED.category, AnalyticsEvents.TEAM_DELETED.action);
+      } finally {
+        setTeamRefreshKey(k => k + 1);
+      }
+    },
     entityName: 'team',
   });
 
@@ -438,12 +448,46 @@ export function Management() {
     setBirthYearFilters([]);
   };
 
-  const handleDeletePlayer = (id: string) => confirmAndDelete(confirm, {
-    title: 'Delete Player',
-    message: 'Are you sure you want to delete this player? This will remove them from all team rosters.',
-    deleteFn: async () => { await deletePlayerCascade(id); trackEvent(AnalyticsEvents.PLAYER_DELETED.category, AnalyticsEvents.PLAYER_DELETED.action); },
-    entityName: 'player',
-  });
+  const handleDeletePlayer = async (id: string) => {
+    // Derive roster count from already-loaded subscription state (avoids extra DB round-trip)
+    const rosterCount = teamRosters.filter((r) => r.playerId === id).length;
+
+    let impact;
+    try {
+      impact = await getPlayerImpact(id);
+    } catch {
+      showError('Could not check player impact. Please try again.');
+      return;
+    }
+
+    const totalImpact = rosterCount + impact.playTimeCount + impact.goalCount + impact.noteCount;
+
+    let message = 'Are you sure you want to delete this player?';
+    if (totalImpact > 0) {
+      const parts: string[] = [];
+      if (rosterCount > 0) parts.push(`${rosterCount} team roster${rosterCount !== 1 ? 's' : ''}`);
+      if (impact.playTimeCount > 0) parts.push(`${impact.playTimeCount} play-time record${impact.playTimeCount !== 1 ? 's' : ''}`);
+      if (impact.goalCount > 0) parts.push(`${impact.goalCount} goal${impact.goalCount !== 1 ? 's' : ''}`);
+      if (impact.noteCount > 0) parts.push(`${impact.noteCount} game note${impact.noteCount !== 1 ? 's' : ''}`);
+      message = `Deleting this player will also remove: ${parts.join(', ')}. This action cannot be undone.`;
+    }
+
+    await confirmAndDelete(confirm, {
+      title: 'Delete Player',
+      message,
+      confirmText: totalImpact > 0 ? 'Delete Anyway' : 'Delete',
+      variant: totalImpact > 0 ? 'warning' : 'danger',
+      deleteFn: async () => {
+        try {
+          await deletePlayerCascade(id);
+          trackEvent(AnalyticsEvents.PLAYER_DELETED.category, AnalyticsEvents.PLAYER_DELETED.action);
+        } finally {
+          setPlayerRefreshKey(k => k + 1);
+        }
+      },
+      entityName: 'player',
+    });
+  };
 
   const handleTogglePlayerPosition = async (rosterId: string, positionId: string, add: boolean) => {
     const roster = teamRosters.find(r => r.id === rosterId);
@@ -656,12 +700,38 @@ export function Management() {
     formationDispatch({ type: 'RESET' });
   };
 
-  const handleDeleteFormation = (id: string) => confirmAndDelete(confirm, {
-    title: 'Delete Formation',
-    message: 'Are you sure you want to delete this formation? This will also delete all positions in the formation.',
-    deleteFn: async () => { await deleteFormationCascade(id); trackEvent(AnalyticsEvents.FORMATION_DELETED.category, AnalyticsEvents.FORMATION_DELETED.action); },
-    entityName: 'formation',
-  });
+  const handleDeleteFormation = async (id: string) => {
+    // Guard: block deletion if any teams are using this formation.
+    // Note: this check covers only teams visible to the current user via their
+    // Amplify subscription. Co-coach teams referencing the same formation are
+    // not checked; those would produce a dangling formationId reference.
+    const usingTeams = teams.filter((t) => t.formationId === id);
+    if (usingTeams.length > 0) {
+      const teamNames = usingTeams.map((t) => t.name).join(', ');
+      showError(
+        `This formation is used by ${usingTeams.length === 1 ? '1 team' : `${usingTeams.length} teams`}: ${teamNames}. Remove or reassign the formation from those teams before deleting.`,
+      );
+      return;
+    }
+    const confirmed = await confirm({
+      title: 'Delete Formation',
+      message: 'Are you sure you want to delete this formation? This will also delete all positions in the formation.',
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+
+    if (!confirmed) return;
+
+    try {
+      await deleteFormationCascade(id);
+      trackEvent(AnalyticsEvents.FORMATION_DELETED.category, AnalyticsEvents.FORMATION_DELETED.action);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete formation';
+      showError(message);
+    } finally {
+      setFormationRefreshKey(k => k + 1);
+    }
+  };
 
   const handleRemoveDemoData = async () => {
     if (!demoTeamId) return;
