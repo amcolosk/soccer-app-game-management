@@ -322,6 +322,63 @@ describe('Home — auto-welcome for existing users (issue #22)', () => {
 
     await new Promise(r => setTimeout(r, 50));
     expect(mockClearDismissed).not.toHaveBeenCalled();
+    expect(localStorage.getItem('onboarding:lastCompletedSteps')).toBe(
+      JSON.stringify([true, false, false, true, false, false, false])
+    );
+  });
+
+  it('does not clear dismissed state when snapshot is missing and checklist is incomplete', async () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = true;
+    teamQueryResult.isSynced = true;
+    teamQueryResult.data = [];
+
+    render(<Home />);
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(mockClearDismissed).not.toHaveBeenCalled();
+    expect(localStorage.getItem('onboarding:lastCompletedSteps')).toBeNull();
+  });
+
+  it('does not clear dismissed state when snapshot is malformed JSON', async () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = true;
+    teamQueryResult.isSynced = true;
+    teamQueryResult.data = [];
+    localStorage.setItem('onboarding:lastCompletedSteps', '{not-json');
+
+    render(<Home />);
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(mockClearDismissed).not.toHaveBeenCalled();
+    expect(localStorage.getItem('onboarding:lastCompletedSteps')).toBe('{not-json');
+  });
+
+  it('does not clear dismissed state when snapshot has invalid length or non-boolean entries', async () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = true;
+    teamQueryResult.isSynced = true;
+    teamQueryResult.data = [];
+
+    localStorage.setItem('onboarding:lastCompletedSteps', JSON.stringify([true, true]));
+    const firstRender = render(<Home />);
+    await new Promise(r => setTimeout(r, 50));
+    expect(mockClearDismissed).not.toHaveBeenCalled();
+    expect(localStorage.getItem('onboarding:lastCompletedSteps')).toBe(JSON.stringify([true, true]));
+    firstRender.unmount();
+
+    mockClearDismissed.mockClear();
+
+    localStorage.setItem(
+      'onboarding:lastCompletedSteps',
+      JSON.stringify([true, true, true, true, true, true, 'no'])
+    );
+    render(<Home />);
+    await new Promise(r => setTimeout(r, 50));
+    expect(mockClearDismissed).not.toHaveBeenCalled();
+    expect(localStorage.getItem('onboarding:lastCompletedSteps')).toBe(
+      JSON.stringify([true, true, true, true, true, true, 'no'])
+    );
   });
 
   it('does not clear dismissed state while profile completion is still loading', async () => {
@@ -348,6 +405,24 @@ describe('Home — auto-welcome for existing users (issue #22)', () => {
     await waitFor(() => {
       expect(mockClearDismissed).not.toHaveBeenCalled();
     });
+  });
+
+  it('does not clear dismissed state before onboarding source data is fully synced', async () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = true;
+    teamQueryResult.isSynced = false;
+    teamQueryResult.data = [];
+    localStorage.setItem('onboarding:lastCompletedSteps', JSON.stringify([true, true, true, true, true, true, true]));
+    mockCoachProfileGet.mockResolvedValue({ data: { firstName: '' } });
+
+    render(<Home />);
+
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(mockClearDismissed).not.toHaveBeenCalled();
+    expect(localStorage.getItem('onboarding:lastCompletedSteps')).toBe(
+      JSON.stringify([true, true, true, true, true, true, true])
+    );
   });
 
   it('reopens dismissed checklist only after loaded profile data confirms regression', async () => {
