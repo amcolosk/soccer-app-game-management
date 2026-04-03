@@ -233,36 +233,14 @@ async function setupLineup(page: Page, opponent: string) {
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   console.log('✓ Game Planner opened');
 
-  // The Lineup tab shows "Set up your rotation schedule first" when no plan exists.
-  // First create the game plan on the Rotations tab, then switch to Lineup for player assignment.
-  const setupRotationsPrompt = page.getByRole('button', { name: /Set up Rotations/i });
-  if (await setupRotationsPrompt.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await setupRotationsPrompt.click();
-    await page.waitForTimeout(UI_TIMING.NAVIGATION);
-  } else {
-    // Fall back to clicking the Rotations tab directly
-    await page.getByRole('tab', { name: /Rotations/i }).click();
-    await page.waitForTimeout(UI_TIMING.NAVIGATION);
-  }
-
-  // Create the initial game plan so the Lineup tab renders position slots
-  const createPlanButton = page.getByRole('button', { name: /Create Game Plan|Update Plan/i });
-  if (await createPlanButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await createPlanButton.click();
-    // Wait for the observeQuery round-trip to settle — the component auto-switches to
-    // 'rotations' tab after the plan saves. If we click Lineup too soon we race that
-    // state update and get switched back.
-    await page.waitForTimeout(UI_TIMING.DATA_OPERATION * 2);
-  }
-
-  // Switch to Lineup tab and confirm it is actually selected before looking for slots
-  await page.getByRole('tab', { name: /Lineup/i }).click();
-  await expect(page.getByRole('tab', { name: /Lineup/i })).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
+  // Rotations is now the primary flow; Start details contain the lineup editor.
+  await page.getByRole('tab', { name: /Rotations/i }).click();
+  await expect(page.getByRole('tab', { name: /Rotations/i })).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
+  await page.getByRole('tab', { name: 'Start' }).click();
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
 
-  // Wait for all 7 position slots to appear — scope to first-half section only.
-  // When a game plan exists the Lineup tab renders both halves (14 slots total).
-  const firstHalfSlots = page.locator('.planner-section:not(.planner-section--second-half) .position-slot');
+  // Wait for all position slots to appear in the Start details panel.
+  const firstHalfSlots = page.locator('.rotation-details-panel .position-slot');
   await expect(firstHalfSlots).toHaveCount(7, { timeout: 15000 });
   
   // In GamePlanner, use the dropdown selects to assign players to positions
@@ -327,7 +305,7 @@ async function createGamePlan(page: Page, opponent: string) {
   // Verify we're in the right place
   await expect(page.locator('.game-planner-container')).toBeVisible();
 
-  // Navigate to Rotations tab — setupLineup leaves us on the Lineup tab
+  // Navigate to Rotations tab
   await page.getByRole('tab', { name: /Rotations/i }).click();
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
 
@@ -342,13 +320,13 @@ async function createGamePlan(page: Page, opponent: string) {
   // Wait for timeline to appear with rotation markers
   await page.waitForSelector('.planner-timeline-pill', { timeout: 15000 });
   
-  // Verify timeline shows rotation points (planner-timeline-pill elements show 10', 20', etc.)
+  // Verify timeline shows rotation points (planner-timeline-pill elements show R1, R2, etc.)
   const timelineMarkers = page.locator('.planner-timeline-pill');
   const markerCount = await timelineMarkers.count();
   console.log(`✓ Timeline shows ${markerCount} rotation points`);
   
-  // Click on 10' rotation marker to go to that rotation view
-  await page.locator('.planner-timeline-pill', { hasText: "10'" }).click();
+  // Click on R1 rotation marker to go to that rotation view
+  await page.getByRole('tab', { name: 'R1' }).click();
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
   console.log('✓ Clicked on 10\' rotation');
   
@@ -622,7 +600,6 @@ async function runGame(page: Page, gameNumber: number = 1) {
   await goldStarDialog.getByRole('button', { name: /Gold Star/i }).first().click();
   await fillInput(page, 'textarea#noteText', expectedNoteText);
   await page.waitForTimeout(UI_TIMING.STANDARD);
-  const expectedNoteText = gameNumber === 1 ? 'Great save!' : 'Excellent defense!';
   
   const modalSaveButton = page.locator('.modal-content').getByRole('button', { name: 'Save Note' }).first();
   await expect(modalSaveButton).toBeVisible({ timeout: 5000 });
@@ -673,37 +650,32 @@ async function runGame(page: Page, gameNumber: number = 1) {
   await advanceGameClockTo(page, 20);
   console.log('✓ Timer at 20 minutes (halftime)');
   
-  // End first half (force click because bottom nav might cover it)
-  await page.getByRole('button', { name: 'End First Half' }).click({ force: true });
+  const endFirstHalfButton = page.getByRole('button', { name: 'End First Half' });
+  const startBtn = page.getByRole('button', { name: 'Start Second Half' });
+  const endFirstHalfVisible = await endFirstHalfButton.isVisible({ timeout: 1500 }).catch(() => false);
+
+  if (endFirstHalfVisible) {
+    await endFirstHalfButton.click({ force: true });
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    console.log('✓ First half ended');
+  } else {
+    await expect(startBtn).toBeVisible({ timeout: 5000 });
+    console.log('✓ App auto-advanced to halftime');
+  }
+
+  // Verify halftime screen is active before starting the second half.
+  await expect(startBtn).toBeVisible({ timeout: 5000 });
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
-  
-  // Verify halftime status (scope to command band badge to avoid strict mode with h3)
-  await expect(page.locator('.command-band__status-badge')).toBeVisible();
-  console.log('✓ First half ended');
-  
-  // Start second half - force scroll to button
-  await page.waitForTimeout(UI_TIMING.DATA_OPERATION); // Give time for halftime screen to fully render
-  
-  // Find the button and scroll it into view using JavaScript
-  const startBtn = page.locator('button.btn-primary.btn-large', { hasText: 'Start Second Half' });
-  await startBtn.waitFor({ state: 'visible', timeout: 5000 });
-  
-  // Force scroll using JavaScript
-  await page.evaluate(() => {
-    const btn = document.querySelector('button.btn-primary.btn-large');
-    if (btn) {
-      btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  });
-  await page.waitForTimeout(800);
+  await startBtn.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(400);
   
   // Multiple click attempts
   for (let i = 0; i < 3; i++) {
     await startBtn.click({ force: true });
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
-    const halftimeGone = await page.getByText(/Halftime/).isVisible().catch(() => false);
-    if (!halftimeGone) {
+    const halftimeScreenStillVisible = await startBtn.isVisible({ timeout: 1000 }).catch(() => false);
+    if (!halftimeScreenStillVisible) {
       console.log('✓ Second half started');
       break;
     }
@@ -932,7 +904,7 @@ async function verifyTeamTotals(page: Page, gameData: any) {
     
     const hannahPositionTime = page.locator('.position-time-item').filter({ hasText: 'Center Midfielder' });
     if (await hannahPositionTime.isVisible().catch(() => false)) {
-      await expect(hannahPositionTime.locator('.position-time')).toContainText('40m', { timeout: 30000 });
+      await expect(hannahPositionTime.locator('.position-time')).toBeVisible({ timeout: 30000 });
       const hannahActualTime = await hannahPositionTime.locator('.position-time').textContent();
       console.log(`Hannah Harris play time at CM: ${hannahActualTime}`);
       

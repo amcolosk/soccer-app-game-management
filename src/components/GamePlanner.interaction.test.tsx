@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const {
@@ -12,6 +12,8 @@ const {
   mockGamePlan,
   mockRotations,
   mockAmplifyQueryResult,
+  setMockGamePlans,
+  setMockRotations,
 } = vi.hoisted(() => ({
   mockSetDebugContext: vi.fn(),
   mockSetHelpContext: vi.fn(),
@@ -69,29 +71,99 @@ const {
     data: [],
     isSynced: true,
   },
+  setMockGamePlans: (() => {
+    const subscribers = new Set<(result: { items: unknown[]; isSynced?: boolean }) => void>();
+    let items = [] as unknown[];
+
+    const cloneItems = (nextItems: unknown[]) => nextItems.map((item) => ({ ...(item as Record<string, unknown>) }));
+    const emit = () => {
+      const snapshot = cloneItems(items);
+      subscribers.forEach((next) => next({ items: snapshot, isSynced: true }));
+    };
+
+    const setter = (nextItems: unknown[]) => {
+      items = cloneItems(nextItems);
+    };
+
+    Object.assign(setter, {
+      emit,
+      subscribe: (next: (result: { items: unknown[]; isSynced?: boolean }) => void) => {
+        subscribers.add(next);
+        next({ items: cloneItems(items), isSynced: true });
+        return () => subscribers.delete(next);
+      },
+      reset: () => {
+        subscribers.clear();
+        items = [];
+      },
+    });
+
+    return setter;
+  })(),
+  setMockRotations: (() => {
+    const subscribers = new Set<(result: { items: unknown[]; isSynced?: boolean }) => void>();
+    let items = [] as unknown[];
+
+    const cloneItems = (nextItems: unknown[]) => nextItems.map((item) => ({ ...(item as Record<string, unknown>) }));
+    const emit = () => {
+      const snapshot = cloneItems(items);
+      subscribers.forEach((next) => next({ items: snapshot, isSynced: true }));
+    };
+
+    const setter = (nextItems: unknown[]) => {
+      items = cloneItems(nextItems);
+    };
+
+    Object.assign(setter, {
+      emit,
+      subscribe: (next: (result: { items: unknown[]; isSynced?: boolean }) => void) => {
+        subscribers.add(next);
+        next({ items: cloneItems(items), isSynced: true });
+        return () => subscribers.delete(next);
+      },
+      reset: () => {
+        subscribers.clear();
+        items = [];
+      },
+    });
+
+    return setter;
+  })(),
 }));
 
-function createObserveQueryResult<T>(items: T[]) {
-  return {
-    subscribe: ({ next }: { next: (result: { items: T[]; isSynced?: boolean }) => void }) => {
-      next({ items, isSynced: true });
-      return { unsubscribe: vi.fn() };
-    },
-  };
-}
+const emitGamePlans = (setMockGamePlans as typeof setMockGamePlans & { emit: () => void }).emit;
+const emitRotations = (setMockRotations as typeof setMockRotations & { emit: () => void }).emit;
+const subscribeToGamePlans = (setMockGamePlans as typeof setMockGamePlans & {
+  subscribe: (next: (result: { items: unknown[]; isSynced?: boolean }) => void) => () => void;
+}).subscribe;
+const subscribeToRotations = (setMockRotations as typeof setMockRotations & {
+  subscribe: (next: (result: { items: unknown[]; isSynced?: boolean }) => void) => () => void;
+}).subscribe;
+const resetSubscriptions = () => {
+  (setMockGamePlans as typeof setMockGamePlans & { reset: () => void }).reset();
+  (setMockRotations as typeof setMockRotations & { reset: () => void }).reset();
+};
 
 vi.mock('aws-amplify/data', () => ({
   generateClient: () => ({
     models: {
       GamePlan: {
-        observeQuery: vi.fn(() => createObserveQueryResult([mockGamePlan])),
+        observeQuery: vi.fn(() => ({
+          subscribe: ({ next }: { next: (result: { items: unknown[]; isSynced?: boolean }) => void }) => ({
+            unsubscribe: subscribeToGamePlans(next),
+          }),
+        })),
         list: vi.fn().mockResolvedValue({ data: [mockGamePlan] }),
         update: vi.fn().mockResolvedValue({ data: mockGamePlan }),
         create: vi.fn().mockResolvedValue({ data: mockGamePlan }),
         delete: vi.fn().mockResolvedValue({ data: {} }),
       },
       PlannedRotation: {
-        observeQuery: vi.fn(() => createObserveQueryResult(mockRotations)),
+        observeQuery: vi.fn(() => ({
+          subscribe: ({ next }: { next: (result: { items: unknown[]; isSynced?: boolean }) => void }) => ({
+            unsubscribe: subscribeToRotations(next),
+          }),
+        })),
         update: vi.fn().mockResolvedValue({ data: mockRotations[0] }),
         create: vi.fn().mockResolvedValue({ data: mockRotations[0] }),
         delete: vi.fn().mockResolvedValue({ data: {} }),
@@ -113,6 +185,22 @@ vi.mock('../hooks/useTeamData', () => ({
 
 vi.mock('../hooks/useAmplifyQuery', () => ({
   useAmplifyQuery: vi.fn(() => mockAmplifyQueryResult),
+}));
+
+vi.mock('../hooks/useTeamCoachProfiles', () => ({
+  useTeamCoachProfiles: vi.fn(() => ({
+    profileMap: new Map(),
+  })),
+}));
+
+vi.mock('../hooks/useOfflineMutations', () => ({
+  useOfflineMutations: vi.fn(() => ({
+    mutations: {
+      createGameNote: vi.fn(),
+      updateGameNote: vi.fn(),
+      deleteGameNote: vi.fn(),
+    },
+  })),
 }));
 
 vi.mock('../contexts/HelpFabContext', () => ({
@@ -167,13 +255,33 @@ vi.mock('../services/rotationPlannerService', () => ({
   copyGamePlan: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { GamePlanner } from './GamePlanner';
+import { GamePlanner, type RotationTimelineItem } from './GamePlanner';
+import { reconcileSelectionKey } from '../utils/gamePlannerTimeline';
 
-describe('GamePlanner Start pill interaction', () => {
+function renderGamePlanner() {
+  return render(
+    <GamePlanner
+      game={{ id: 'game-1', opponent: 'Rivals FC', halfLengthMinutes: 30 } as never}
+      team={{
+        id: 'team-1',
+        formationId: 'formation-1',
+        coaches: ['coach-1'],
+        halfLengthMinutes: 30,
+        maxPlayersOnField: 2,
+      } as never}
+      onBack={vi.fn()}
+    />,
+  );
+}
+
+describe('GamePlanner timeline interaction', () => {
   let originalScrollIntoView: typeof Element.prototype.scrollIntoView;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetSubscriptions();
+    setMockGamePlans([mockGamePlan]);
+    setMockRotations(mockRotations);
     originalScrollIntoView = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = vi.fn();
   });
@@ -182,41 +290,153 @@ describe('GamePlanner Start pill interaction', () => {
     Element.prototype.scrollIntoView = originalScrollIntoView;
   });
 
-  it('renders the Start pill, opens the Starting Lineup panel, and returns to the Lineup tab', async () => {
+  it('defaults to Start selected and renders lineup editor inline without a Lineup tab', async () => {
     const user = userEvent.setup();
 
-    render(
-      <GamePlanner
-        game={{ id: 'game-1', opponent: 'Rivals FC', halfLengthMinutes: 30 } as never}
-        team={{
-          id: 'team-1',
-          formationId: 'formation-1',
-          coaches: ['coach-1'],
-          halfLengthMinutes: 30,
-          maxPlayersOnField: 2,
-        } as never}
-        onBack={vi.fn()}
-      />,
-    );
+    renderGamePlanner();
 
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /Rotations/i })).toHaveAttribute('aria-selected', 'true');
     });
 
-    const startPill = await screen.findByRole('button', { name: 'Start' });
-    expect(startPill).toBeInTheDocument();
-
-    await user.click(startPill);
+    const startPill = await screen.findByRole('tab', { name: 'Start' });
+    expect(startPill).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tab', { name: /Lineup/i })).not.toBeInTheDocument();
 
     expect(await screen.findByRole('heading', { name: 'Starting Lineup' })).toBeInTheDocument();
+    expect(screen.getByTestId('lineup-builder')).toBeInTheDocument();
 
-    const editButton = screen.getByRole('button', { name: 'Edit starting lineup in the Lineup tab' });
-    await user.click(editButton);
+    await user.click(startPill);
+    expect(startPill).toHaveAttribute('aria-selected', 'true');
+  });
 
-    await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Lineup/i })).toHaveAttribute('aria-selected', 'true');
+  it('moves selection with keyboard arrows and keeps focus on selected pill', async () => {
+    const user = userEvent.setup();
+
+    renderGamePlanner();
+
+    const startPill = await screen.findByRole('tab', { name: 'Start' });
+    startPill.focus();
+    await user.keyboard('{ArrowRight}');
+
+    const halftimePill = screen.getByRole('tab', { name: 'HT' });
+    expect(halftimePill).toHaveAttribute('aria-selected', 'true');
+    expect(document.activeElement).toBe(halftimePill);
+    expect(screen.getByRole('heading', { name: 'Halftime Lineup' })).toBeInTheDocument();
+
+    await user.keyboard('{ArrowRight}');
+    const rotationOnePill = screen.getByRole('tab', { name: /^R1/ });
+    expect(rotationOnePill).toHaveAttribute('aria-selected', 'true');
+    expect(document.activeElement).toBe(rotationOnePill);
+    expect(screen.getByRole('heading', { name: /Rotation 1/ })).toBeInTheDocument();
+
+    await user.keyboard('{Home}');
+    expect(startPill).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('mounts details for all selectable pre-plan pills, including numbered rotations', async () => {
+    const user = userEvent.setup();
+    setMockGamePlans([]);
+    setMockRotations([]);
+
+    renderGamePlanner();
+
+    const startPill = await screen.findByRole('tab', { name: 'Start' });
+    const rotationOnePill = await screen.findByRole('tab', { name: 'R1' });
+    const halftimePill = await screen.findByRole('tab', { name: 'HT' });
+
+    expect(startPill).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('heading', { name: 'Starting Lineup' })).toBeInTheDocument();
+
+    await user.click(rotationOnePill);
+    expect(rotationOnePill).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('heading', { name: /Rotation 1/ })).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel')).toBeInTheDocument();
+
+    await user.click(halftimePill);
+
+    expect(halftimePill).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('heading', { name: 'Halftime Lineup' })).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel')).toBeInTheDocument();
+  });
+
+  it('preserves halftime selection when the timeline transitions from pre-plan to persisted items', async () => {
+    const user = userEvent.setup();
+    setMockGamePlans([]);
+    setMockRotations([]);
+
+    renderGamePlanner();
+
+    const halftimePill = await screen.findByRole('tab', { name: 'HT' });
+    await user.click(halftimePill);
+    expect(screen.getByRole('heading', { name: 'Halftime Lineup' })).toBeInTheDocument();
+
+    await act(async () => {
+      setMockGamePlans([mockGamePlan]);
+      setMockRotations(mockRotations);
+      emitGamePlans();
+      emitRotations();
     });
 
-    expect(screen.getByRole('heading', { name: 'First Half Starting Lineup' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'HT' })).toHaveAttribute('aria-selected', 'true');
+    });
+    expect(screen.getByRole('heading', { name: 'Halftime Lineup' })).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel')).toBeInTheDocument();
+  });
+
+  it('reconciles selection by rotation-number semantic identity when persisted keys change', () => {
+    const persistedTimeline: RotationTimelineItem[] = [
+      {
+        key: 'starting',
+        label: 'Start',
+        selection: 'starting',
+        substitutionsCount: 0,
+        variant: 'starting',
+      },
+      {
+        key: 'rotation-1-rotation-1-reloaded',
+        label: 'R1',
+        selection: 1,
+        substitutionsCount: 1,
+        variant: 'rotation',
+      },
+      {
+        key: 'halftime-rotation-3',
+        label: 'HT',
+        selection: 'halftime',
+        substitutionsCount: 0,
+        variant: 'halftime',
+      },
+    ];
+
+    expect(reconcileSelectionKey(persistedTimeline, 'rotation-1-10-synthetic')).toBe('rotation-1-rotation-1-reloaded');
+    expect(reconcileSelectionKey(persistedTimeline, 'rotation-1')).toBe('rotation-1-rotation-1-reloaded');
+
+    const syntheticTimeline: RotationTimelineItem[] = [
+      {
+        key: 'starting',
+        label: 'Start',
+        selection: 'starting',
+        substitutionsCount: 0,
+        variant: 'starting',
+      },
+      {
+        key: 'rotation-1-10-synthetic',
+        label: 'R1',
+        selection: 1,
+        substitutionsCount: 0,
+        variant: 'rotation',
+      },
+      {
+        key: 'halftime-2-20',
+        label: 'HT',
+        selection: 'halftime',
+        substitutionsCount: 0,
+        variant: 'halftime',
+      },
+    ];
+
+    expect(reconcileSelectionKey(syntheticTimeline, 'rotation-1-rotation-1-reloaded')).toBe('rotation-1-10-synthetic');
   });
 });

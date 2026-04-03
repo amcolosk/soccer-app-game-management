@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo, useCallback } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback, type KeyboardEvent } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import type {
@@ -43,14 +43,15 @@ interface GamePlannerProps {
   onBack: () => void;
 }
 
-type RotationSelection = number | 'starting' | 'halftime';
+export type RotationSelection = number | 'starting' | 'halftime';
 
-interface RotationTimelineItem {
+export interface RotationTimelineItem {
   key: string;
   label: string;
   selection: RotationSelection;
   substitutionsCount: number;
   rotation?: PlannedRotation;
+  gameMinute?: number;
   variant: 'starting' | 'rotation' | 'halftime';
 }
 
@@ -116,11 +117,29 @@ function getRotationSubstitutionsCount(rotation: Pick<PlannedRotation, 'plannedS
   return parsePlannedSubstitutions(rotation.plannedSubstitutions).length;
 }
 
+function getRotationsPerHalf(halfLengthMinutes: number, intervalMinutes: number): number {
+  return Math.max(0, Math.floor(halfLengthMinutes / intervalMinutes) - 1);
+}
+
+function getRotationMinute(
+  rotationNumber: number,
+  rotationsPerHalf: number,
+  halfLengthMinutes: number,
+  rotationIntervalMinutes: number,
+): number {
+  if (rotationNumber <= rotationsPerHalf) {
+    return rotationNumber * rotationIntervalMinutes;
+  }
+
+  const secondHalfIndex = rotationNumber - rotationsPerHalf - 1;
+  return halfLengthMinutes + (secondHalfIndex * rotationIntervalMinutes);
+}
+
 function buildRotationTimelineItems(
   rotations: PlannedRotation[],
   halftimeRotationNumber?: number,
 ): RotationTimelineItem[] {
-  return [
+  const items: RotationTimelineItem[] = [
     {
       key: 'starting',
       label: 'Start',
@@ -128,40 +147,240 @@ function buildRotationTimelineItems(
       substitutionsCount: 0,
       variant: 'starting',
     },
-    ...rotations.map<RotationTimelineItem>((rotation) => {
-      const isHalftime = rotation.rotationNumber === halftimeRotationNumber;
-      const selection: RotationSelection = isHalftime ? 'halftime' : rotation.rotationNumber;
-      const variant: RotationTimelineItem['variant'] = isHalftime ? 'halftime' : 'rotation';
+  ];
 
-      return {
-        key: isHalftime ? `halftime-${rotation.id}` : `rotation-${rotation.id}`,
-        label: isHalftime ? 'HT' : `${rotation.gameMinute}'`,
-        selection,
+  if (rotations.length === 0) {
+    items.push({
+      key: 'halftime',
+      label: 'HT',
+      selection: 'halftime',
+      substitutionsCount: 0,
+      variant: 'halftime',
+    });
+    return items;
+  }
+
+  const seenHalftime = new Set<string>();
+  for (const rotation of rotations) {
+    const isHalftime = rotation.rotationNumber === halftimeRotationNumber;
+    if (isHalftime) {
+      const halftimeKey = rotation.id ? `halftime-${rotation.id}` : `halftime-${rotation.rotationNumber}-${rotation.gameMinute}`;
+      seenHalftime.add(halftimeKey);
+      items.push({
+        key: halftimeKey,
+        label: 'HT',
+        selection: 'halftime',
         substitutionsCount: getRotationSubstitutionsCount(rotation),
         rotation,
-        variant,
-      };
-    }),
+        variant: 'halftime',
+      });
+      continue;
+    }
+
+    items.push({
+      key: rotation.id
+        ? `rotation-${rotation.rotationNumber}-${rotation.id}`
+        : `rotation-${rotation.rotationNumber}-${rotation.gameMinute}`,
+      label: `R${rotation.rotationNumber}`,
+      selection: rotation.rotationNumber,
+      substitutionsCount: getRotationSubstitutionsCount(rotation),
+      rotation,
+      gameMinute: rotation.gameMinute,
+      variant: 'rotation',
+    });
+  }
+
+  if (!items.some((item) => item.selection === 'halftime')) {
+    items.splice(1, 0, {
+      key: 'halftime',
+      label: 'HT',
+      selection: 'halftime',
+      substitutionsCount: 0,
+      variant: 'halftime',
+    });
+  }
+
+  return items;
+}
+
+function buildPrePlanTimelineItems(
+  halfLengthMinutes: number,
+  rotationIntervalMinutes: number,
+): RotationTimelineItem[] {
+  const rotationsPerHalf = getRotationsPerHalf(halfLengthMinutes, rotationIntervalMinutes);
+  const halftimeRotationNumber = rotationsPerHalf > 0 ? rotationsPerHalf + 1 : 1;
+  const totalRotations = rotationsPerHalf * 2 + 1;
+
+  const items: RotationTimelineItem[] = [
+    {
+      key: 'starting',
+      label: 'Start',
+      selection: 'starting',
+      substitutionsCount: 0,
+      variant: 'starting',
+    },
   ];
+
+  for (let rotationNumber = 1; rotationNumber <= totalRotations; rotationNumber++) {
+    const gameMinute = getRotationMinute(
+      rotationNumber,
+      rotationsPerHalf,
+      halfLengthMinutes,
+      rotationIntervalMinutes,
+    );
+
+    if (rotationNumber === halftimeRotationNumber) {
+      items.push({
+        key: `halftime-${rotationNumber}-${gameMinute}`,
+        label: 'HT',
+        selection: 'halftime',
+        substitutionsCount: 0,
+        gameMinute,
+        variant: 'halftime',
+      });
+      continue;
+    }
+
+    items.push({
+      key: `rotation-${rotationNumber}-${gameMinute}-synthetic`,
+      label: `R${rotationNumber}`,
+      selection: rotationNumber,
+      substitutionsCount: 0,
+      gameMinute,
+      variant: 'rotation',
+    });
+  }
+
+  return items;
+}
+
+function getSelectionKey(item: RotationTimelineItem): string {
+  if (item.selection === 'starting') return 'starting';
+  if (item.selection === 'halftime') return 'halftime';
+  return `rotation-${item.selection}`;
+}
+
+function getSemanticSelectionKey(selectionKey: string): string | null {
+  if (selectionKey === 'starting') return 'starting';
+  if (selectionKey === 'halftime' || selectionKey.startsWith('halftime-')) return 'halftime';
+
+  const rotationMatch = /^rotation-(\d+)(?:-|$)/.exec(selectionKey);
+  if (rotationMatch) {
+    return `rotation-${rotationMatch[1]}`;
+  }
+
+  if (/^rotation-[^-]+$/.test(selectionKey)) {
+    return selectionKey;
+  }
+
+  return null;
+}
+
+function findTimelineItemBySemanticKey(
+  timelineItems: RotationTimelineItem[],
+  semanticSelectionKey: string,
+): RotationTimelineItem | undefined {
+  return timelineItems.find((item) => getSelectionKey(item) === semanticSelectionKey);
+}
+
+function reconcileSelectionKey(
+  timelineItems: RotationTimelineItem[],
+  currentSelectionKey: string,
+): string {
+  if (timelineItems.some((item) => item.key === currentSelectionKey)) {
+    return currentSelectionKey;
+  }
+
+  const semanticSelectionKey = getSemanticSelectionKey(currentSelectionKey);
+  if (semanticSelectionKey) {
+    const semanticMatch = findTimelineItemBySemanticKey(timelineItems, semanticSelectionKey);
+    if (semanticMatch) {
+      return semanticMatch.key;
+    }
+  }
+
+  const startItem = timelineItems.find((item) => item.selection === 'starting');
+  if (startItem) return startItem.key;
+
+  return timelineItems[0]?.key ?? 'starting';
+}
+
+function getTimelineTabId(itemKey: string): string {
+  return `planner-timeline-tab-${itemKey}`;
+}
+
+function getTimelinePanelId(): string {
+  return 'planner-rotation-details-panel';
+}
+
+function findTimelineItemByKey(
+  timelineItems: RotationTimelineItem[],
+  key: string,
+): RotationTimelineItem | undefined {
+  return timelineItems.find((item) => item.key === key);
+}
+
+function getNextTimelineIndex(index: number, delta: number, length: number): number {
+  if (length === 0) return 0;
+  const next = (index + delta + length) % length;
+  return next;
+}
+
+function getTimelineSelectionKey(selection: RotationSelection): string {
+  if (selection === 'starting') return 'starting';
+  if (selection === 'halftime') return 'halftime';
+  return `rotation-${selection}`;
+}
+
+function getTimelineItemBySelection(
+  timelineItems: RotationTimelineItem[],
+  selection: RotationSelection,
+): RotationTimelineItem | undefined {
+  return timelineItems.find((item) => getSelectionKey(item) === getTimelineSelectionKey(selection));
+}
+
+function getTimelineItemBySelectionKey(
+  timelineItems: RotationTimelineItem[],
+  selectionKey: string,
+): RotationTimelineItem | undefined {
+  const semanticSelectionKey = getSemanticSelectionKey(selectionKey);
+  if (semanticSelectionKey) {
+    return findTimelineItemBySemanticKey(timelineItems, semanticSelectionKey)
+      ?? timelineItems.find((item) => item.key === selectionKey);
+  }
+
+  return timelineItems.find((item) => item.key === selectionKey);
+}
+
+function getSelectedTimelineItem(
+  timelineItems: RotationTimelineItem[],
+  selectedTimelineKey: string,
+): RotationTimelineItem | undefined {
+  return findTimelineItemByKey(timelineItems, selectedTimelineKey)
+    ?? getTimelineItemBySelectionKey(timelineItems, selectedTimelineKey)
+    ?? timelineItems[0];
 }
 
 function resolveRotationSelection(
-  selectedRotation: RotationSelection | null,
-  halftimeRotationNumber?: number,
-): RotationSelection | null {
-  if (typeof selectedRotation === 'number' && selectedRotation === halftimeRotationNumber) {
-    return 'halftime';
-  }
-
-  return selectedRotation;
+  timelineItems: RotationTimelineItem[],
+  selectedTimelineKey: string,
+): RotationSelection {
+  return getSelectedTimelineItem(timelineItems, selectedTimelineKey)?.selection ?? 'starting';
 }
 
-function getBenchPlayersForLineup<TPlayer extends { id: string }>(
-  availablePlayers: TPlayer[],
-  lineup: Map<string, string>,
-): TPlayer[] {
-  const assignedPlayerIds = new Set(lineup.values());
-  return availablePlayers.filter((player) => !assignedPlayerIds.has(player.id));
+function getSelectedTimelineTabId(
+  timelineItems: RotationTimelineItem[],
+  selectedTimelineKey: string,
+): string | null {
+  const selected = getSelectedTimelineItem(timelineItems, selectedTimelineKey);
+  return selected ? getTimelineTabId(selected.key) : null;
+}
+
+function mapSelectionToTimelineKey(
+  timelineItems: RotationTimelineItem[],
+  selection: RotationSelection,
+): string | null {
+  return getTimelineItemBySelection(timelineItems, selection)?.key ?? null;
 }
 
 export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
@@ -248,12 +467,12 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   const [halfLengthMinutes, setHalfLengthMinutes] = useState(
     game.halfLengthMinutes ?? teamDefaultHalfLength
   );
-  const [selectedRotation, setSelectedRotation] = useState<RotationSelection | null>(null);
+  const [selectedTimelineKey, setSelectedTimelineKey] = useState<string>('starting');
+  const [isPrePlanHalftimeDirty, setIsPrePlanHalftimeDirty] = useState(false);
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [previousGames, setPreviousGames] = useState<Game[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [planWarnings, setPlanWarnings] = useState<string[]>([]);
-  const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<GameNote | null>(null);
   const [swapModalData, setSwapModalData] = useState<{
@@ -263,10 +482,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   } | null>(null);
   const timelineItemRefs = useRef(new Map<string, HTMLButtonElement>());
 
-  // New tab state for mobile redesign
-  const [plannerTab, setPlannerTab] = useState<'availability' | 'lineup' | 'rotations'>('lineup');
-  const tabInitialized = useRef(false);
-  const prevGamePlanId = useRef<string | null>(null);
+  const [plannerTab, setPlannerTab] = useState<'availability' | 'rotations'>('rotations');
 
   const maxPlayersOnField = team.maxPlayersOnField || 11;
   const preGameNotes = useMemo(
@@ -361,6 +577,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         if (data.items.length > 0) {
           const plan = data.items[0];
           setGamePlan(plan);
+          setIsPrePlanHalftimeDirty(false);
           gamePlanIdRef.current = plan.id; // Update ref for use in other subscriptions
           setRotationIntervalMinutes(plan.rotationIntervalMinutes);
           setRotationsPerHalfInput(Math.max(0, Math.floor(halfLengthMinutes / plan.rotationIntervalMinutes) - 1));
@@ -388,6 +605,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           gamePlanIdRef.current = null;
           setStartingLineup(new Map());
           setHalftimeLineup(null);
+          setIsPrePlanHalftimeDirty(false);
         }
       },
     });
@@ -460,23 +678,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   };
 
 
-  // Initial tab selection (runs once when data first loads)
-  useEffect(() => {
-    if (tabInitialized.current) return;
-    if (gamePlan !== null || players.length > 0) {
-      setPlannerTab(gamePlan ? 'rotations' : 'lineup');
-      tabInitialized.current = true;
-    }
-  }, [gamePlan, players]);
-
-  // Auto-jump to rotations when plan is first created
-  useEffect(() => {
-    if (gamePlan?.id && prevGamePlanId.current === null) {
-      setPlannerTab('rotations');
-    }
-    prevGamePlanId.current = gamePlan?.id ?? null;
-  }, [gamePlan?.id]);
-
   const getPlayerAvailability = useCallback((playerId: string): string => {
     const availability = availabilities.find((a) => a.playerId === playerId);
     return availability?.status || "available";
@@ -501,15 +702,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     () => normalizeRotationsForHelperCalls(rotations, 'Normalize rotation subs for helper calls'),
     [rotations],
   );
-
-  // Identify the halftime rotation number (first rotation of second half).
-  // Always derived from the plan settings — never from the half field on individual
-  // PlannedRotation records, which can be stale after a rotation-interval change.
-  const halftimeRotationNumber = useMemo(() => {
-    if (!gamePlan) return undefined;
-    const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
-    return rotationsPerHalf > 0 ? rotationsPerHalf + 1 : undefined;
-  }, [gamePlan, halfLengthMinutes, rotationIntervalMinutes]);
 
   const gamePlannerDebugContext = useMemo((): GamePlannerDebugContext => {
     const playerIdToNumber = new Map<string, number>(
@@ -577,28 +769,48 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     return () => setHelpContext(null);
   }, [setHelpContext]);
 
-  const normalizedSelectedRotation = useMemo(
-    () => resolveRotationSelection(selectedRotation, halftimeRotationNumber),
-    [selectedRotation, halftimeRotationNumber],
-  );
+  const halftimeRotationNumber = useMemo(() => getRotationsPerHalf(halfLengthMinutes, rotationIntervalMinutes) + 1, [halfLengthMinutes, rotationIntervalMinutes]);
+  const isTimelineLoading = gamePlan !== null && rotations.length === 0;
 
-  const timelineItems = useMemo(
-    () => (gamePlan && rotations.length > 0
-      ? buildRotationTimelineItems(rotations, halftimeRotationNumber)
-      : []),
-    [gamePlan, rotations, halftimeRotationNumber],
-  );
+  const timelineItems = useMemo(() => {
+    if (isTimelineLoading) return [];
+    if (gamePlan) {
+      return buildRotationTimelineItems(rotations, halftimeRotationNumber);
+    }
 
-  const selectedTimelineKey = useMemo(
-    () => timelineItems.find((item) => item.selection === normalizedSelectedRotation)?.key ?? null,
-    [timelineItems, normalizedSelectedRotation],
+    return buildPrePlanTimelineItems(halfLengthMinutes, rotationIntervalMinutes);
+  }, [gamePlan, rotations, halftimeRotationNumber, isTimelineLoading, halfLengthMinutes, rotationIntervalMinutes]);
+
+  const resolvedSelectedTimelineKey = useMemo(
+    () => (timelineItems.length > 0 ? reconcileSelectionKey(timelineItems, selectedTimelineKey) : ''),
+    [timelineItems, selectedTimelineKey],
   );
 
   useEffect(() => {
-    if (!selectedTimelineKey) return undefined;
+    if (!resolvedSelectedTimelineKey || resolvedSelectedTimelineKey === selectedTimelineKey) return;
+    setSelectedTimelineKey(resolvedSelectedTimelineKey);
+  }, [resolvedSelectedTimelineKey, selectedTimelineKey]);
+
+  const normalizedSelectedRotation = useMemo(
+    () => resolveRotationSelection(timelineItems, resolvedSelectedTimelineKey),
+    [timelineItems, resolvedSelectedTimelineKey],
+  );
+
+  const selectedTimelineTabId = useMemo(
+    () => getSelectedTimelineTabId(timelineItems, resolvedSelectedTimelineKey),
+    [timelineItems, resolvedSelectedTimelineKey],
+  );
+
+  const selectedTimelineItem = useMemo(
+    () => getSelectedTimelineItem(timelineItems, resolvedSelectedTimelineKey),
+    [timelineItems, resolvedSelectedTimelineKey],
+  );
+
+  useEffect(() => {
+    if (!resolvedSelectedTimelineKey) return undefined;
 
     const timeoutId = window.setTimeout(() => {
-      const selectedElement = timelineItemRefs.current.get(selectedTimelineKey);
+      const selectedElement = timelineItemRefs.current.get(resolvedSelectedTimelineKey);
       if (!selectedElement) return;
 
       selectedElement.scrollIntoView({
@@ -609,7 +821,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }, UI_CONSTANTS.SCROLL.DELAY_MS);
 
     return () => window.clearTimeout(timeoutId);
-  }, [selectedTimelineKey]);
+  }, [resolvedSelectedTimelineKey]);
 
   // Memoize play time calculation which is expensive
   const playTimeData = useMemo(() => {
@@ -628,9 +840,25 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
   const halftimeLineupForDisplay = useMemo(() => {
     if (halftimeLineup !== null) return halftimeLineup;
-    if (!halftimeRotationNumber || rotations.length === 0) return startingLineup;
+    if (rotations.length === 0) return startingLineup;
     return computeLineupAtRotation(startingLineup, normalizedRotationsForHelpers, halftimeRotationNumber - 1);
   }, [halftimeLineup, halftimeRotationNumber, startingLineup, rotations.length, normalizedRotationsForHelpers]);
+
+  const handlePrePlanScheduleChangeWarning = useCallback(async () => {
+    if (gamePlan || !isPrePlanHalftimeDirty) return;
+
+    const shouldResetDraft = await confirm({
+      title: 'Halftime draft may be affected',
+      message: 'Schedule changes can invalidate your pre-plan halftime draft baseline. Keep is the default action.\n\nChoose Reset only if you want to rebuild halftime from the updated schedule baseline.',
+      confirmText: 'Reset Draft',
+      variant: 'warning',
+    });
+
+    if (shouldResetDraft) {
+      setHalftimeLineup(null);
+      setIsPrePlanHalftimeDirty(false);
+    }
+  }, [confirm, gamePlan, isPrePlanHalftimeDirty]);
 
   const handleLineupChange = async (positionId: string, playerId: string) => {
     const newLineup = new Map(startingLineup);
@@ -677,6 +905,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   // so that both coupled inputs stay in sync with the new half length.
   const handleHalfLengthChange = async (newHalf: number) => {
     const clamped = Math.max(1, Math.min(newHalf, 99));
+    if (clamped !== halfLengthMinutes) {
+      await handlePrePlanScheduleChangeWarning();
+    }
     setHalfLengthMinutes(clamped);
     const newInterval = Math.max(1, Math.floor(clamped / (rotationsPerHalfInput + 1)));
     setRotationIntervalMinutes(newInterval);
@@ -689,6 +920,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   };
 
   const handleResetHalfLength = async () => {
+    if (teamDefaultHalfLength !== halfLengthMinutes) {
+      await handlePrePlanScheduleChangeWarning();
+    }
     setHalfLengthMinutes(teamDefaultHalfLength);
     const newInterval = Math.max(1, Math.floor(teamDefaultHalfLength / (rotationsPerHalfInput + 1)));
     setRotationIntervalMinutes(newInterval);
@@ -702,16 +936,22 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
   // Coupled rotation input handlers
   // Single source of truth is rotationIntervalMinutes; rotationsPerHalf is always derived.
-  const handleRotationsChange = (rotations: number) => {
+  const handleRotationsChange = async (rotations: number) => {
     const maxRotations = Math.floor(halfLengthMinutes / 2);
     const clamped = Math.max(0, Math.min(rotations, maxRotations));
+    if (clamped !== rotationsPerHalfInput) {
+      await handlePrePlanScheduleChangeWarning();
+    }
     setRotationsPerHalfInput(clamped);
     const interval = Math.floor(halfLengthMinutes / (clamped + 1));
     setRotationIntervalMinutes(Math.max(1, interval));
   };
 
-  const handleIntervalChange = (interval: number) => {
+  const handleIntervalChange = async (interval: number) => {
     const clamped = Math.max(1, Math.min(interval, halfLengthMinutes));
+    if (clamped !== rotationIntervalMinutes) {
+      await handlePrePlanScheduleChangeWarning();
+    }
     setRotationIntervalMinutes(clamped);
     setRotationsPerHalfInput(Math.max(0, Math.floor(halfLengthMinutes / clamped) - 1));
   };
@@ -724,7 +964,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }
 
     setIsGenerating(true);
-    setValidationErrors([]);
     pendingLineupSaves.current++;
     pendingRotationSaves.current++;
 
@@ -1048,7 +1287,10 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
     setHalftimeLineup(newLineup);
 
-    if (!gamePlan || halftimeRotationNumber === undefined) return;
+    if (!gamePlan) {
+      setIsPrePlanHalftimeDirty(true);
+      return;
+    }
     const halftimeRotation = rotations.find(r => r.rotationNumber === halftimeRotationNumber);
     if (!halftimeRotation) return;
 
@@ -1076,10 +1318,61 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     }
   };
 
-  const handleRotationClick = (rotationNumber: RotationSelection) => {
-    setSelectedRotation((currentSelection) => (
-      currentSelection === rotationNumber ? null : rotationNumber
-    ));
+  const handleRotationClick = (timelineKey: string) => {
+    const semanticSelectionKey = getSemanticSelectionKey(timelineKey);
+    setSelectedTimelineKey(semanticSelectionKey ?? timelineKey);
+  };
+
+  const handleTimelineKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    currentIndex: number,
+  ) => {
+    if (timelineItems.length === 0) return;
+
+    const focusTimelineIndex = (nextIndex: number) => {
+      const nextItem = timelineItems[nextIndex];
+      if (!nextItem) return;
+      setSelectedTimelineKey(getSelectionKey(nextItem));
+      window.setTimeout(() => {
+        timelineItemRefs.current.get(nextItem.key)?.focus();
+      }, 0);
+    };
+
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown': {
+        event.preventDefault();
+        focusTimelineIndex(getNextTimelineIndex(currentIndex, 1, timelineItems.length));
+        return;
+      }
+      case 'ArrowLeft':
+      case 'ArrowUp': {
+        event.preventDefault();
+        focusTimelineIndex(getNextTimelineIndex(currentIndex, -1, timelineItems.length));
+        return;
+      }
+      case 'Home': {
+        event.preventDefault();
+        focusTimelineIndex(0);
+        return;
+      }
+      case 'End': {
+        event.preventDefault();
+        focusTimelineIndex(Math.max(0, timelineItems.length - 1));
+        return;
+      }
+      case 'Enter':
+      case ' ': {
+        event.preventDefault();
+        const item = timelineItems[currentIndex];
+        if (item) {
+          setSelectedTimelineKey(getSelectionKey(item));
+        }
+        return;
+      }
+      default:
+        return;
+    }
   };
 
   /**
@@ -1247,8 +1540,11 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
       );
       // Data will update automatically via observeQuery subscriptions
 
-      // Select this rotation to edit it
-      setSelectedRotation(rotationNumber);
+      // Keep this rotation selected after reset.
+      const selectedKey = mapSelectionToTimelineKey(timelineItems, rotationNumber);
+      if (selectedKey) {
+        setSelectedTimelineKey(getSemanticSelectionKey(selectedKey) ?? selectedKey);
+      }
     } catch (error) {
       handleApiError(error, 'Failed to copy from previous rotation');
     } finally {
@@ -1347,62 +1643,23 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
   // Render selected rotation details — defined at component level so it can be
   // called from both renderRotationTimeline() and the bottom sheet.
   const renderSelectedDetails = () => {
-    if (normalizedSelectedRotation === null) return null;
-
     if (normalizedSelectedRotation === 'starting') {
-      const startingBenchPlayers = getBenchPlayersForLineup(startingLineupPlayers, startingLineup);
-
       return (
-        <div className="rotation-details-panel">
+        <div className="rotation-details-panel" id={getTimelinePanelId()} role="tabpanel" aria-labelledby={selectedTimelineTabId ?? undefined}>
           <div className="panel-header">
             <h4>Starting Lineup</h4>
-            <button
-              className="ht-edit-link"
-              onClick={() => setPlannerTab('lineup')}
-              aria-label="Edit starting lineup in the Lineup tab"
-            >
-              Edit in Lineup tab →
-            </button>
           </div>
-
-          <div className="rotation-lineup-custom">
-            <div className="position-lineup-grid">
-              {positions.map((position) => {
-                const assignedPlayerId = startingLineup.get(position.id);
-                const assignedPlayer = startingLineupPlayers.find((player) => player.id === assignedPlayerId);
-
-                return (
-                  <div key={position.id} className="position-slot">
-                    <div className="position-label">{position.abbreviation}</div>
-                    {assignedPlayer ? (
-                      <div className="assigned-player assigned-player--readonly">
-                        <span className="player-number">#{assignedPlayer.playerNumber || 0}</span>
-                        <span className="player-name-short">
-                          {assignedPlayer.firstName} {assignedPlayer.lastName}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="planner-readonly-empty-slot">Unassigned</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="bench-area">
-              <h4>Bench</h4>
-              <div className="bench-players">
-                {startingBenchPlayers.map((player) => (
-                  <div key={player.id} className="bench-player bench-player--readonly">
-                    <span className="player-number">#{player.playerNumber || 0}</span>
-                    <span className="player-name">
-                      {player.firstName} {player.lastName}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          {startingLineupPlayers.length === 0 ? (
+            <p className="planner-empty-hint">Mark players as available above to generate a rotation plan.</p>
+          ) : (
+            <LineupBuilder
+              positions={positions}
+              availablePlayers={startingLineupPlayers}
+              lineup={startingLineup}
+              onLineupChange={handleLineupChange}
+              showPreferredPositions={true}
+            />
+          )}
         </div>
       );
     }
@@ -1412,18 +1669,19 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         ? rotations.find(r => r.rotationNumber === halftimeRotationNumber)
         : undefined;
 
-      const halftimeSubs = secondHalfStartRotation
+      const persistedHalftimeSubs = secondHalfStartRotation
         ? parsePlannedSubstitutions(secondHalfStartRotation.plannedSubstitutions, 'Parse halftime subs in renderSelectedDetails')
         : [];
+      const firstHalfFieldLineup = halftimeRotationNumber > 1 && rotations.length > 0
+        ? getLineupAtRotation(halftimeRotationNumber - 1)
+        : startingLineup;
+      const halftimeSubs = persistedHalftimeSubs.length > 0
+        ? persistedHalftimeSubs
+        : computeLineupDiff(firstHalfFieldLineup, halftimeLineupForDisplay);
       // Positions with an explicit halftime change (playerInId keyed by positionId).
       const halftimeSubsLineup = new Map<string, string>(
         halftimeSubs.map(s => [s.positionId, s.playerInId])
       );
-
-      // Players who are on the field at end of the first half (they "continue" unless subbed).
-      const firstHalfFieldLineup = halftimeRotationNumber && halftimeRotationNumber > 1
-        ? getLineupAtRotation(halftimeRotationNumber - 1)
-        : startingLineup;
       // Positions where the first-half player continues with no explicit sub.
       // Shown as a read-only list so the coach can see the full second-half lineup.
       const continuingEntries = Array.from(firstHalfFieldLineup.entries())
@@ -1435,20 +1693,25 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
         .filter(e => e.position && e.player);
 
       return (
-        <div className="rotation-details-panel">
+        <div className="rotation-details-panel" id={getTimelinePanelId()} role="tabpanel" aria-labelledby={selectedTimelineTabId ?? undefined}>
           <div className="panel-header">
-            <h4>Halftime</h4>
-            <button
-              className="ht-edit-link"
-              onClick={() => setPlannerTab('lineup')}
-              aria-label="Edit halftime lineup in the Lineup tab"
-            >
-              Edit in Lineup tab →
-            </button>
+            <h4>Halftime Lineup</h4>
           </div>
 
+          {halftimeLineup === null && (
+            <p className="planner-section-subtitle">Halftime lineup is using the current projected lineup. Edit to customize before saving.</p>
+          )}
+
+          <LineupBuilder
+            positions={positions}
+            availablePlayers={rotationPlayers}
+            lineup={halftimeLineupForDisplay}
+            onLineupChange={handleHalftimeLineupChange}
+            showPreferredPositions={true}
+          />
+
           {halftimeSubs.length === 0 ? (
-            <p className="ht-readonly-empty">No halftime changes — first half lineup continues.</p>
+            <p className="ht-readonly-empty">No halftime changes - first half lineup continues.</p>
           ) : (
             <>
               <div className="planned-subs-list">
@@ -1497,13 +1760,25 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
     // Rotation logic
     const rotation = rotations.find(r => r.rotationNumber === normalizedSelectedRotation);
-    if (!rotation) return null;
+    if (!rotation) {
+      return (
+        <div className="rotation-details-panel" id={getTimelinePanelId()} role="tabpanel" aria-labelledby={selectedTimelineTabId ?? undefined}>
+          <div className="panel-header">
+            <h4>
+              Rotation {normalizedSelectedRotation}
+              {typeof selectedTimelineItem?.gameMinute === 'number' ? ` (${selectedTimelineItem.gameMinute}')` : ''}
+            </h4>
+          </div>
+          <p className="planner-empty-hint">Create your game plan to edit substitutions for this rotation.</p>
+        </div>
+      );
+    }
 
     const subs = parsePlannedSubstitutions(rotation.plannedSubstitutions, 'Parse rotation subs in renderSelectedDetails');
     const currentLineup = getLineupAtRotation(rotation.rotationNumber);
 
     return (
-      <div className="rotation-details-panel">
+      <div className="rotation-details-panel" id={getTimelinePanelId()} role="tabpanel" aria-labelledby={selectedTimelineTabId ?? undefined}>
         <div className="panel-header">
           <h4>Rotation {rotation.rotationNumber} ({rotation.gameMinute}')</h4>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -1632,36 +1907,18 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
     return (
       <div className="planner-section">
         {timelineItems.length > 0 && (
-          <div className="planner-timeline-strip">
-            {timelineItems.map((item) => {
-              const isSelected = normalizedSelectedRotation === item.selection;
-
-              if (item.variant === 'halftime') {
-                return (
-                  <button
-                    key={item.key}
-                    ref={(element) => {
-                      if (element) {
-                        timelineItemRefs.current.set(item.key, element);
-                        return;
-                      }
-
-                      timelineItemRefs.current.delete(item.key);
-                    }}
-                    className={`planner-timeline-pill planner-timeline-pill--halftime${isSelected ? ' planner-timeline-pill--active' : ''}`}
-                    onClick={() => handleRotationClick('halftime')}
-                  >
-                    {item.label}
-                    {item.substitutionsCount > 0 && (
-                      <span className="planner-sub-badge">{item.substitutionsCount}</span>
-                    )}
-                  </button>
-                );
-              }
+          <div className="planner-timeline-strip" role="tablist" aria-label="Rotation timeline">
+            {timelineItems.map((item, index) => {
+              const isSelected = resolvedSelectedTimelineKey === item.key;
 
               return (
                 <button
                   key={item.key}
+                  id={getTimelineTabId(item.key)}
+                  role="tab"
+                  aria-selected={isSelected}
+                  aria-controls={getTimelinePanelId()}
+                  tabIndex={isSelected ? 0 : -1}
                   ref={(element) => {
                     if (element) {
                       timelineItemRefs.current.set(item.key, element);
@@ -1670,8 +1927,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
                     timelineItemRefs.current.delete(item.key);
                   }}
-                  className={`planner-timeline-pill${isSelected ? ' planner-timeline-pill--active' : ''}`}
-                  onClick={() => handleRotationClick(item.selection)}
+                  className={`planner-timeline-pill${item.variant === 'halftime' ? ' planner-timeline-pill--halftime' : ''}${isSelected ? ' planner-timeline-pill--active' : ''}`}
+                  onClick={() => handleRotationClick(item.key)}
+                  onKeyDown={(event) => handleTimelineKeyDown(event, index)}
                 >
                   {item.label}
                   {item.substitutionsCount > 0 && (
@@ -1734,15 +1992,9 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
         {/* Tab Nav */}
         <nav className="planner-tab-nav" role="tablist">
-          {(['availability', 'lineup', 'rotations'] as const).map((tab) => {
-            const label = tab === 'availability' ? 'Availability' : tab === 'lineup' ? 'Lineup' : 'Rotations';
-            // Badge: lineup tab shows ✓ when all positions filled, rotations tab shows unfilled count
+          {(['availability', 'rotations'] as const).map((tab) => {
+            const label = tab === 'availability' ? 'Availability' : 'Rotations';
             let badge: string | null = null;
-            if (tab === 'lineup' && gamePlan) {
-              const firstHalfFull = startingLineup.size >= positions.length;
-              const secondHalfFull = rotations.length === 0 || halftimeLineupForDisplay.size >= positions.length;
-              if (firstHalfFull && secondHalfFull) badge = '✓';
-            }
             if (tab === 'rotations' && rotations.length > 0) {
               const unfilledCount = rotations.filter(r => {
                 return parsePlannedSubstitutions(r.plannedSubstitutions).length === 0;
@@ -1776,62 +2028,6 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
           </div>
         )}
 
-        {plannerTab === 'lineup' && (
-          <div className="planner-tab-panel">
-            {validationErrors.length > 0 && (
-              <div className="validation-errors">
-                <ul>{validationErrors.map((e, i) => <li key={i}>{e}</li>)}</ul>
-              </div>
-            )}
-            {gamePlan ? (
-              <>
-                <div className="planner-section">
-                  <div className="panel-header">
-                    <h4>First Half Starting Lineup</h4>
-                  </div>
-                  <LineupBuilder
-                    positions={positions}
-                    availablePlayers={startingLineupPlayers}
-                    lineup={startingLineup}
-                    onLineupChange={handleLineupChange}
-                    showPreferredPositions={true}
-                  />
-                </div>
-
-                {rotations.length > 0 && (
-                  <>
-                    <div className="lineup-halftime-divider">
-                      <span>Half Time</span>
-                    </div>
-                    <div className="planner-section planner-section--second-half">
-                      <div className="panel-header">
-                        <h4>Second Half Starting Lineup</h4>
-                      </div>
-                      <p className="planner-section-subtitle">
-                        Changes here update the Rotations tab automatically
-                      </p>
-                      <LineupBuilder
-                        positions={positions}
-                        availablePlayers={rotationPlayers}
-                        lineup={halftimeLineupForDisplay}
-                        onLineupChange={handleHalftimeLineupChange}
-                        showPreferredPositions={true}
-                      />
-                    </div>
-                  </>
-                )}
-              </>
-            ) : (
-              <div className="planner-empty-state">
-                <p>Set up your rotation schedule first.</p>
-                <button onClick={() => setPlannerTab('rotations')} className="btn-primary">
-                  Set up Rotations →
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
         {plannerTab === 'rotations' && (
           <div className="planner-tab-panel">
             {/* Rotation interval + create/update plan — always at the top */}
@@ -1844,7 +2040,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                     <button
                       className="rotation-stepper-btn"
                       aria-label="Decrease half length"
-                      onClick={() => handleHalfLengthChange(halfLengthMinutes - 1)}
+                      onClick={() => { void handleHalfLengthChange(halfLengthMinutes - 1); }}
                     >−</button>
                     <input
                       type="number"
@@ -1854,16 +2050,16 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                       min={1}
                       max={99}
                       value={halfLengthMinutes}
-                      onChange={(e) => handleHalfLengthChange(parseInt(e.target.value, 10) || 1)}
+                      onChange={(e) => { void handleHalfLengthChange(parseInt(e.target.value, 10) || 1); }}
                     />
                     <button
                       className="rotation-stepper-btn"
                       aria-label="Increase half length"
-                      onClick={() => handleHalfLengthChange(halfLengthMinutes + 1)}
+                      onClick={() => { void handleHalfLengthChange(halfLengthMinutes + 1); }}
                     >+</button>
                   </div>
                   {halfLengthMinutes !== teamDefaultHalfLength && (
-                    <button className="half-length-reset-btn" onClick={handleResetHalfLength}>
+                    <button className="half-length-reset-btn" onClick={() => { void handleResetHalfLength(); }}>
                       Reset to team default ({teamDefaultHalfLength} min)
                     </button>
                   )}
@@ -1877,7 +2073,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                     <button
                       className="rotation-stepper-btn"
                       aria-label="Decrease rotations per half"
-                      onClick={() => handleRotationsChange(rotationsPerHalfInput - 1)}
+                      onClick={() => { void handleRotationsChange(rotationsPerHalfInput - 1); }}
                     >−</button>
                     <input
                       type="number"
@@ -1887,12 +2083,12 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                       min={0}
                       max={Math.floor(halfLengthMinutes / 2)}
                       value={rotationsPerHalfInput}
-                      onChange={(e) => handleRotationsChange(parseInt(e.target.value, 10) || 0)}
+                      onChange={(e) => { void handleRotationsChange(parseInt(e.target.value, 10) || 0); }}
                     />
                     <button
                       className="rotation-stepper-btn"
                       aria-label="Increase rotations per half"
-                      onClick={() => handleRotationsChange(rotationsPerHalfInput + 1)}
+                      onClick={() => { void handleRotationsChange(rotationsPerHalfInput + 1); }}
                     >+</button>
                   </div>
                 </div>
@@ -1902,7 +2098,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                     <button
                       className="rotation-stepper-btn"
                       aria-label="Decrease interval minutes"
-                      onClick={() => handleIntervalChange(rotationIntervalMinutes - 1)}
+                      onClick={() => { void handleIntervalChange(rotationIntervalMinutes - 1); }}
                     >−</button>
                     <input
                       type="number"
@@ -1912,12 +2108,12 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
                       min={1}
                       max={halfLengthMinutes}
                       value={rotationIntervalMinutes}
-                      onChange={(e) => handleIntervalChange(parseInt(e.target.value, 10) || 1)}
+                      onChange={(e) => { void handleIntervalChange(parseInt(e.target.value, 10) || 1); }}
                     />
                     <button
                       className="rotation-stepper-btn"
                       aria-label="Increase interval minutes"
-                      onClick={() => handleIntervalChange(rotationIntervalMinutes + 1)}
+                      onClick={() => { void handleIntervalChange(rotationIntervalMinutes + 1); }}
                     >+</button>
                   </div>
                 </div>
@@ -1949,17 +2145,18 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
             )}
 
             {/* Timeline + selected detail + playtime */}
-            {gamePlan && rotations.length > 0 ? (
+            {isTimelineLoading ? (
+              <p className="planner-empty-hint">Loading timeline...</p>
+            ) : (
               <>
                 {renderRotationTimeline()}
+                {!gamePlan && (
+                  <p className="planner-empty-hint">Set your lineup and schedule, then create your plan.</p>
+                )}
                 {renderSelectedDetails()}
-                {renderPlayTime()}
+                {gamePlan && rotations.length > 0 && renderPlayTime()}
               </>
-            ) : gamePlan ? (
-              <div className="planner-empty-state">
-                <p>Click "Create Game Plan" above to generate rotations.</p>
-              </div>
-            ) : null}
+            )}
           </div>
         )}
 

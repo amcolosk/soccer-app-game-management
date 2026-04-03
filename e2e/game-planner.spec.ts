@@ -201,34 +201,14 @@ async function setupLineup(page: Page) {
   await gameCard.locator('.plan-button').click();
   await page.waitForTimeout(1000);
 
-  // The Lineup tab shows "Set up your rotation schedule first" when no game plan exists.
-  // Navigate to Rotations, create the initial plan, then return to Lineup for player assignment.
-  const setupRotationsPrompt = page.getByRole('button', { name: /Set up Rotations/i });
-  if (await setupRotationsPrompt.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await setupRotationsPrompt.click();
-    await page.waitForTimeout(UI_TIMING.NAVIGATION);
-  } else {
-    await page.getByRole('tab', { name: /Rotations/i }).click();
-    await page.waitForTimeout(UI_TIMING.NAVIGATION);
-  }
-
-  // Create the initial game plan so the Lineup tab renders position slots
-  const createPlanButton = page.getByRole('button', { name: /Create Game Plan|Update Plan/i });
-  if (await createPlanButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await createPlanButton.click();
-    // Wait for the observeQuery round-trip to settle — the component auto-switches to
-    // 'rotations' tab after the plan saves (line 292 in GamePlanner.tsx). If we click
-    // Lineup too soon we race that state update and get switched back.
-    await page.waitForTimeout(UI_TIMING.DATA_OPERATION * 2);
-  }
-
-  // Switch to Lineup tab and confirm it is actually selected before looking for slots
-  await page.getByRole('tab', { name: /Lineup/i }).click();
-  await expect(page.getByRole('tab', { name: /Lineup/i })).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
+  // Rotations is now the primary planning flow; Start details host the lineup editor.
+  await page.getByRole('tab', { name: /Rotations/i }).click();
+  await expect(page.getByRole('tab', { name: /Rotations/i })).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
+  await page.getByRole('tab', { name: 'Start' }).click();
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
 
   // Wait for players to be loaded in the dropdown (ensure options exist)
-  const firstSlotSelect = page.locator('.position-slot select').first();
+  const firstSlotSelect = page.locator('.rotation-details-panel .position-slot select').first();
   await expect(firstSlotSelect).toBeVisible({ timeout: 10000 });
 
   // Check for pre-assigned players
@@ -251,7 +231,7 @@ async function setupLineup(page: Page) {
   }).toPass();
 
   // Assign the first 5 available players dynamically
-  const positionSlots = page.locator('.position-slot');
+  const positionSlots = page.locator('.rotation-details-panel .position-slot');
   const slotCount = await positionSlots.count();
   
   for (let i = 0; i < Math.min(slotCount, 5); i++) {
@@ -387,7 +367,7 @@ async function checkPlayerAvailability(page: Page) {
 async function createRotationPlan(page: Page) {
   console.log('Creating rotation plan...');
 
-  // Navigate to Rotations tab — previous steps (setupLineup / openGamePlanner) leave us on Lineup tab
+  // Navigate to Rotations tab where schedule and timeline controls live
   await page.getByRole('tab', { name: /Rotations/i }).click();
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
 
@@ -430,8 +410,8 @@ async function verifyTimeline(page: Page) {
   const rotationCount = await rotationButtons.count();
   console.log(`  Found ${rotationCount} rotation pills`);
   
-  // Check that Lineup tab exists
-  await expect(page.getByRole('tab', { name: 'Lineup' })).toBeVisible();
+  // Ensure Start is always present and selected by default when timeline is visible.
+  await expect(page.getByRole('tab', { name: 'Start' })).toBeVisible();
   
   // Check that HT (halftime) marker exists (with longer timeout for observeQuery to update)
   try {
@@ -443,11 +423,32 @@ async function verifyTimeline(page: Page) {
   console.log('✓ Timeline structure verified');
 }
 
+async function verifyPrePlanSelectablePills(page: Page) {
+  console.log('Verifying pre-plan selectable pills and mounted details...');
+
+  await page.getByRole('tab', { name: /Rotations/i }).click();
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+
+  const startPill = page.getByRole('tab', { name: 'Start' });
+  const rotationPills = page.locator('.planner-timeline-pill').filter({ hasText: /^R\d+$/ });
+  const firstRotationPill = rotationPills.first();
+
+  await expect(startPill).toBeVisible();
+  await expect(startPill).toHaveAttribute('aria-selected', 'true');
+  await expect(firstRotationPill).toBeVisible();
+
+  await firstRotationPill.click();
+  await expect(page.locator('.rotation-details-panel')).toBeVisible();
+  await expect(page.locator('.rotation-details-panel .panel-header h4')).toContainText(/Rotation\s+\d+/);
+
+  console.log('✓ Pre-plan numbered pills are selectable with mounted details');
+}
+
 async function planSubstitutions(page: Page) {
   console.log('Planning substitutions...');
   
   // Check if rotation pills exist (non-halftime)
-  const rotationPills = page.locator('.planner-timeline-pill:not(.planner-timeline-pill--halftime)');
+  const rotationPills = page.locator('.planner-timeline-pill').filter({ hasText: /^R\d+$/ });
   const buttonCount = await rotationPills.count();
   console.log(`  Found ${buttonCount} rotation pills`);
   
@@ -491,9 +492,12 @@ async function planSubstitutions(page: Page) {
     }
   }
   
-  // Note: Halftime lineup changes are made via the Lineup tab (halftime detail panel is read-only).
-  // The upstream/downstream recalculation handles auto-generating reverse swaps.
-  console.log('  (Halftime subs are managed via Lineup tab, not rotation detail panel)');
+  // Halftime lineup changes now happen directly in the HT details panel.
+  const halftimePill = page.locator('.planner-timeline-pill--halftime').first();
+  if (await halftimePill.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await halftimePill.click();
+    await expect(page.getByRole('heading', { name: 'Halftime Lineup' })).toBeVisible();
+  }
 
   // The rotation detail panel is still open from the first rotation swap above.
   // Wait for the lineup to update (observeQuery propagation after the swap).
@@ -576,7 +580,7 @@ async function testCopyFromPrevious(page: Page) {
   }
   
   // Click on second rotation (with force to bypass any remaining overlay)
-  const rotationButtons = page.locator('.rotation-button').filter({ hasText: /subs/ });
+  const rotationButtons = page.locator('.planner-timeline-pill').filter({ hasText: /^R\d+$/ });
   const secondRotation = rotationButtons.nth(1);
   
   if (await secondRotation.isVisible()) {
@@ -605,7 +609,7 @@ async function managePreGameCoachingNotes(page: Page) {
   await expect(page.getByRole('dialog')).toBeVisible();
 
   await page.fill('#pre-game-note-text', 'Pre-game: keep compact shape when out of possession');
-  await page.getByRole('button', { name: 'Create' }).click();
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
 
   await expect(page.getByText('Pre-game: keep compact shape when out of possession')).toBeVisible();
 
@@ -692,34 +696,39 @@ test.describe('Game Planner with Timeline', () => {
     console.log('Step 10: Check Player Availability');
     await checkPlayerAvailability(page);
     console.log('');
+
+    // Step 11: Verify pre-plan timeline behavior
+    console.log('Step 11: Verify Pre-Plan Timeline');
+    await verifyPrePlanSelectablePills(page);
+    console.log('');
     
-    // Step 11: Create Rotation Plan
-    console.log('Step 11: Create Rotation Plan');
+    // Step 12: Create Rotation Plan
+    console.log('Step 12: Create Rotation Plan');
     await createRotationPlan(page);
     console.log('');
     
-    // Step 12: Verify Timeline
-    console.log('Step 12: Verify Timeline');
+    // Step 13: Verify Timeline
+    console.log('Step 13: Verify Timeline');
     await verifyTimeline(page);
     console.log('');
     
-    // Step 13: Plan Substitutions
-    console.log('Step 13: Plan Substitutions');
+    // Step 14: Plan Substitutions
+    console.log('Step 14: Plan Substitutions');
     await planSubstitutions(page);
     console.log('');
     
-    // Step 14: Verify Substitution Display
-    console.log('Step 14: Verify Substitution Display');
+    // Step 15: Verify Substitution Display
+    console.log('Step 15: Verify Substitution Display');
     await verifySubstitutionDisplay(page);
     console.log('');
     
-    // Step 15: Test Copy from Previous
-    console.log('Step 15: Test Copy from Previous');
+    // Step 16: Test Copy from Previous
+    console.log('Step 16: Test Copy from Previous');
     await testCopyFromPrevious(page);
     console.log('');
     
-    // Step 16: Verify Play Time Report
-    console.log('Step 16: Verify Play Time Report');
+    // Step 17: Verify Play Time Report
+    console.log('Step 17: Verify Play Time Report');
     await verifyPlayTimeReport(page);
     console.log('');
     
