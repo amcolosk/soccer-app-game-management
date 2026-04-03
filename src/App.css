@@ -6310,3 +6310,100 @@
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* ===== Completed Game: Play Time Summary ===== */
+.completed-playtime-summary {
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.completed-playtime-summary__heading {
+  margin: 0 0 0.75rem 0;
+  font-size: 1.1em;
+  font-weight: 600;
+  color: var(--primary-green);
+}
+
+.completed-playtime-summary__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.completed-playtime-summary__table th {
+  text-align: left;
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 0 0.5rem 0.5rem 0;
+  border-bottom: 2px solid var(--border-color);
+}
+
+.completed-playtime-summary__table td {
+  padding: 0.5rem 0.5rem 0.5rem 0;
+  font-size: 0.95em;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+.completed-playtime-summary__table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.completed-playtime-summary__col--number {
+  width: 2rem;
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+.completed-playtime-summary__col--time {
+  text-align: right;
+  font-weight: 700;
+  font-size: 0.95em;
+  min-width: 3rem;
+}
+
+.completed-playtime-summary__row--no-time {
+  opacity: 0.55;
+}
+
+.completed-playtime-summary__row--no-time .completed-playtime-summary__col--time {
+  color: var(--text-secondary);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* ===== Completed Game: Season Report Link ===== */
+.completed-report-link {
+  display: flex;
+  justify-content: center;
+  padding: 1rem 0 0.5rem;
+}
+
+.completed-report-link__anchor {
+  /* Inherits .btn-link base styles */
+}
+
+/* ===== Responsive overrides ===== */
+@media (max-width: 768px) {
+  .completed-playtime-summary__col--name {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .completed-playtime-summary__table th,
+  .completed-playtime-summary__table td {
+    padding: 0.5rem 0.4rem;
+    font-size: 0.85em;
+  }
+
+  .completed-playtime-summary__col--name {
+    max-width: 110px;
+  }
+}
