@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
@@ -24,6 +25,7 @@ import { CreateEditNoteModal } from "./CreateEditNoteModal";
 import { RotationWidget } from "./RotationWidget";
 import { SubstitutionPanel } from "./SubstitutionPanel";
 import { LineupPanel } from "./LineupPanel";
+import { CompletedPlayTimeSummary } from "./CompletedPlayTimeSummary";
 import { PlayerAvailabilityGrid } from "../PlayerAvailabilityGrid";
 import { OfflineBanner } from "../OfflineBanner";
 import type { Game, Team, FormationPosition, SubQueue } from "./types";
@@ -1140,6 +1142,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         {/* ── COMPLETED ────────────────────────────────────────────── */}
         {gameState.status === 'completed' && (
           <div className="completed-layout">
+            <CompletedPlayTimeSummary
+              players={players}
+              playTimeRecords={playTimeRecords}
+              gameEndSeconds={gameState.elapsedSeconds ?? 0}
+            />
             <PreGameNotesPanel
               gameStatus={gameState.status}
               notes={preGameNotes}
@@ -1167,6 +1174,14 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           onRequestOpenNote={openLiveNoteModal}
           onRequestCloseNote={closeLiveNoteModal}
         />
+
+        {gameState.status === 'completed' && (
+          <div className="completed-report-link">
+            <Link to={`/reports/${team.id}`} className="btn-link completed-report-link__anchor">
+              View Full Season Report →
+            </Link>
+          </div>
+        )}
 
         {injuryModalOpen && gameState.status === 'halftime' && (
           <div className="modal-overlay" onClick={closeInjuryModal}>
