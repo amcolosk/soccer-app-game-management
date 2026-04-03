@@ -20,6 +20,8 @@ async function navigateToProfile(page: Page) {
   } catch {
     // Prompt not present
   }
+
+  await closeWelcomeModal(page);
   
   // Click Profile tab in bottom navigation
   const profileTab = page.getByRole('link', { name: /profile/i });

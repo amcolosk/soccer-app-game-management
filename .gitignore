@@ -39,4 +39,4 @@ playwright/.cache/
 .env.test
 
 #Coverage
-coverage/tsconfig.node.tsbuildinfo
+coverage/*.tsbuildinfo

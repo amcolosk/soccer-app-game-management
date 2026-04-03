@@ -10,6 +10,8 @@ import { Page, expect } from '@playwright/test';
 export async function waitForPageLoad(page: Page) {
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(500); // Brief pause for any animations
+  await closePWAPrompt(page);
+  await closeWelcomeModal(page);
 }
 
 /**
@@ -24,9 +26,20 @@ export async function fillInput(page: Page, selector: string, value: string) {
  * Click button and wait for action to complete
  */
 export async function clickButton(page: Page, text: string) {
-  await closeWelcomeModal(page);
-  const button = page.getByRole('button', { name: text, exact: true }).first();
-  
+  const buttons = page.getByRole('button', { name: text });
+
+  // Pick the first visible match to avoid strict mode conflicts when duplicate
+  // button labels exist in the UI.
+  const buttonCount = await buttons.count();
+  let button = buttons.first();
+  for (let i = 0; i < buttonCount; i++) {
+    const candidate = buttons.nth(i);
+    if (await candidate.isVisible().catch(() => false)) {
+      button = candidate;
+      break;
+    }
+  }
+
   // Scroll into view if needed, with center alignment to avoid bottom nav
   await button.scrollIntoViewIfNeeded();
   await page.waitForTimeout(100);
@@ -112,32 +125,31 @@ export async function closePWAPrompt(page: Page) {
 }
 
 /**
- * Close first-run welcome modal if it appears
+ * Close welcome modal overlay if it appears
  */
 export async function closeWelcomeModal(page: Page) {
   try {
     const overlay = page.locator('.welcome-modal-overlay');
-    if (!(await overlay.isVisible({ timeout: 1500 }).catch(() => false))) {
-      return;
+    if (await overlay.isVisible({ timeout: 2000 }).catch(() => false)) {
+      const closeButton = page.locator('.welcome-modal-close');
+      if (await closeButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await closeButton.click();
+      } else {
+        await overlay.click({ force: true });
+      }
+
+      await expect(overlay).not.toBeVisible({ timeout: 5000 });
     }
 
-    const maybeLater = overlay.locator('text=Maybe later');
-    const closeButton = overlay.locator('.welcome-modal-close');
-    const getStarted = overlay.locator('text=Get Started');
-
-    if (await maybeLater.isVisible().catch(() => false)) {
-      await maybeLater.click();
-    } else if (await closeButton.isVisible().catch(() => false)) {
-      await closeButton.click();
-    } else if (await getStarted.isVisible().catch(() => false)) {
-      await getStarted.click();
-    } else {
-      await overlay.click({ position: { x: 4, y: 4 } });
+    // Dismiss quick-start checklist card if present, since it can intercept
+    // or obscure interactions around the schedule game controls.
+    const checklistDismiss = page.locator('.quick-start-dismiss');
+    if (await checklistDismiss.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await checklistDismiss.click();
+      await page.waitForTimeout(300);
     }
-
-    await expect(overlay).not.toBeVisible({ timeout: 5000 });
   } catch {
-    // Modal may not appear in this session
+    // Modal may not appear or already closed
   }
 }
 
@@ -209,13 +221,10 @@ export async function cleanupTestData(page: Page) {
   await closePWAPrompt(page);
   await closeWelcomeModal(page);
   
-  // Make sure we're on Management page
-  const manageTab = page.locator('a.nav-item', { hasText: 'Manage' });
-  if (await manageTab.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await closeWelcomeModal(page);
-    await manageTab.click();
-    await page.waitForTimeout(500);
-  }
+  // Use direct route navigation to avoid overlay interception on nav clicks.
+  await page.goto('/manage');
+  await page.waitForSelector('.management', { timeout: 10000 });
+  await page.waitForTimeout(500);
   
   // Clean up teams first (which will clean up rosters)
   await clickManagementTab(page, 'Teams');
@@ -267,6 +276,14 @@ export async function cleanupTestData(page: Page) {
     console.log('✓ Players deleted');
   }
   
+  // Use page.goto to force a full SPA route change to /manage, remounting the
+  // Management component and resetting all Amplify observeQuery subscription caches.
+  // This avoids nav-link click issues with overlays (e.g. welcome-modal-overlay).
+  console.log('Remounting Management component to reset subscription state...');
+  await page.goto('/manage');
+  await page.waitForSelector('.management', { timeout: 10000 });
+  await page.waitForTimeout(1000);
+
   // Clean up formations
   await clickManagementTab(page, 'Formations');
   await page.waitForTimeout(500);
@@ -279,13 +296,21 @@ export async function cleanupTestData(page: Page) {
     
     const cleanupFormationDialog = handleConfirmDialog(page, false);
     
+    let stuckCount = 0;
     while (formationCount > 0) {
       await swipeToDelete(page, '.item-card');
       await page.waitForTimeout(1000);
       formationCards = page.locator('.item-card'); // Re-query to get updated list
       const newCount = await formationCards.count();
-      if (newCount === formationCount) break;
-      formationCount = newCount;
+      if (newCount === formationCount) {
+        stuckCount++;
+        if (stuckCount >= 3) break;
+        console.log(`  Formation delete stuck, retrying... (attempt ${stuckCount}/3)`);
+        await page.waitForTimeout(2000);
+      } else {
+        stuckCount = 0;
+        formationCount = newCount;
+      }
     }
     
     cleanupFormationDialog();
@@ -555,14 +580,68 @@ export async function clickConfirmModalCancel(page: Page) {
 }
 
 /**
+ * Add a player to a team's roster.
+ * Assumes the caller is already on the Teams tab and the team card is visible.
+ * @param page - Playwright page object
+ * @param teamName - Name of the team to expand
+ * @param playerFullName - "FirstName LastName" as it appears in the dropdown
+ * @param playerNumber - Jersey number (1-99)
+ */
+export async function addPlayerToRoster(
+  page: Page,
+  teamName: string,
+  playerFullName: string,
+  playerNumber: string,
+) {
+  console.log(`Adding ${playerFullName} (#${playerNumber}) to ${teamName} roster...`);
+
+  // Expand the team card to show roster section
+  const teamCard = page.locator('.item-card').filter({ hasText: teamName });
+  const expandButton = teamCard.locator('button[aria-label*="roster"]').first();
+  await expandButton.click();
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+
+  // Click Add Player to Roster
+  await page.getByRole('button', { name: '+ Add Player to Roster' }).click();
+  await page.waitForTimeout(UI_TIMING.STANDARD);
+
+  // Select the player from the dropdown
+  const rosterPlayerSelect = page.locator('.create-form select').first();
+  await expect(rosterPlayerSelect).toBeVisible({ timeout: 5000 });
+  await expect(async () => {
+    const options = await rosterPlayerSelect.locator('option').allTextContents();
+    expect(options.some((option) => option.includes(playerFullName))).toBeTruthy();
+  }).toPass({ timeout: 10000 });
+  await rosterPlayerSelect.selectOption({ label: playerFullName });
+  await page.waitForTimeout(UI_TIMING.QUICK);
+
+  // Enter jersey number
+  await page.fill('input[placeholder*="Player Number"]', playerNumber);
+  await page.waitForTimeout(UI_TIMING.QUICK);
+
+  // Submit
+  const addButton = page.locator('.create-form .form-actions .btn-primary', { hasText: 'Add' }).first();
+  await addButton.click();
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+  console.log(`✓ Added ${playerFullName} to ${teamName} roster`);
+}
+
+/**
  * Swipe an item to reveal the delete button and click it
  * This simulates the swipe-to-delete interaction for teams, players, and formations
  * @param page - Playwright page object
  * @param itemSelector - Selector for the item card to swipe
  */
 export async function swipeToDelete(page: Page, itemSelector: string) {
+  const matchCount = await page.locator(itemSelector).count();
+  if (matchCount === 0) {
+    return;
+  }
+
   // Locate the swipeable container (use .first() if selector matches multiple elements)
   const itemCard = page.locator(itemSelector).first();
+  await itemCard.scrollIntoViewIfNeeded();
   
   // Get the bounding box to calculate swipe coordinates
   const box = await itemCard.boundingBox();
@@ -588,6 +667,13 @@ export async function swipeToDelete(page: Page, itemSelector: string) {
   
   // Click the delete button that's now visible
   const deleteButton = page.locator('.btn-delete-swipe').first();
+  const deleteButtonVisible = await deleteButton
+    .waitFor({ state: 'visible', timeout: 1000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!deleteButtonVisible) {
+    return;
+  }
   await deleteButton.click();
   await page.waitForTimeout(UI_TIMING.QUICK);
 }

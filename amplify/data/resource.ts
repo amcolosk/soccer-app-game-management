@@ -6,6 +6,10 @@ import { createGameNote } from "../functions/create-game-note/resource";
 import { updateGameNote } from "../functions/update-game-note/resource";
 import { upsertCoachProfile } from "../functions/upsert-coach-profile/resource";
 import { getTeamCoachProfiles } from "../functions/get-team-coach-profiles/resource";
+import { deleteFormationSafe } from "../functions/delete-formation-safe/resource";
+import { deleteGameSafe } from "../functions/delete-game-safe/resource";
+import { deleteTeamSafe } from "../functions/delete-team-safe/resource";
+import { deletePlayerSafe } from "../functions/delete-player-safe/resource";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -24,7 +28,8 @@ const schema = a.schema({
       coaches: a.string().array(), // Array of user IDs who can access this formation
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'), // Full access for coaches
+      // Delete is intentionally disallowed on the model. Use deleteFormationSafe.
+      allow.ownersDefinedIn('coaches').to(['create', 'read', 'update']),
     ]),
 
   FormationPosition: a
@@ -56,7 +61,8 @@ const schema = a.schema({
       invitations: a.hasMany('TeamInvitation', 'teamId'),
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'), // Full access for coaches
+      // Delete is intentionally disallowed on the model. Use deleteTeamSafe.
+      allow.ownersDefinedIn('coaches').to(['create', 'read', 'update']),
     ]),
 
   Player: a
@@ -77,7 +83,8 @@ const schema = a.schema({
       playerAvailabilities: a.hasMany('PlayerAvailability', 'playerId'),
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'), // Only team coaches can access players
+      // Delete is intentionally disallowed on the model. Use deletePlayerSafe.
+      allow.ownersDefinedIn('coaches').to(['create', 'read', 'update']),
     ]),
 
   TeamRoster: a
@@ -135,7 +142,8 @@ const schema = a.schema({
       gamePlan: a.hasOne('GamePlan', 'gameId'),
     })
     .authorization((allow) => [
-      allow.ownersDefinedIn('coaches'), // Only team coaches can access games
+      // Delete is intentionally disallowed on the model. Use deleteGameSafe.
+      allow.ownersDefinedIn('coaches').to(['create', 'read', 'update']),
     ]),
 
   PlayerAvailability: a
@@ -387,6 +395,46 @@ const schema = a.schema({
     .returns(a.json())
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(createGitHubIssue)),
+
+  // Secure custom mutation for deleting formations with authoritative team-reference guard.
+  deleteFormationSafe: a
+    .mutation()
+    .arguments({
+      formationId: a.string().required(),
+    })
+    .returns(a.json())
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(deleteFormationSafe)),
+
+  // Authoritative custom mutation for deleting games with safe-order cascade and rollback.
+  deleteGameSafe: a
+    .mutation()
+    .arguments({
+      gameId: a.string().required(),
+    })
+    .returns(a.json())
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(deleteGameSafe)),
+
+  // Authoritative custom mutation for deleting teams with safe-order cascade and rollback.
+  deleteTeamSafe: a
+    .mutation()
+    .arguments({
+      teamId: a.string().required(),
+    })
+    .returns(a.json())
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(deleteTeamSafe)),
+
+  // Authoritative custom mutation for deleting players with safe-order cascade and rollback.
+  deletePlayerSafe: a
+    .mutation()
+    .arguments({
+      playerId: a.string().required(),
+    })
+    .returns(a.json())
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(deletePlayerSafe)),
   
   CoachProfile: a
     .model({

@@ -72,6 +72,12 @@ coordinator-agent → implementation-planner → architect-agent → [ui-designe
 - If a sub-agent needs more information, it must return `Status: blocked`, `Required Next Step: ask-user`, and the minimum clarification questions needed to unblock the stage
 - Major/Critical findings from review stages block progression until `coding-agent` resolves them and the blocking reviewer re-runs
 
+**Read-only command approval policy**
+- Treat read-only terminal commands as pre-approved when possible
+- Examples: `git status`, `git diff`, `git show`, `git log`, `git branch`, `rg` searches, file listing commands, and targeted test-run commands
+- Mutating or destructive commands still require explicit approval
+- Batch read-only commands together when practical to reduce prompt noise
+
 **Clarification loop**
 - Sub-agents do not ask the user questions directly
 - When a stage is blocked on missing information, the sub-agent returns `Status: blocked` and `Required Next Step: ask-user`

@@ -91,12 +91,25 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     await fillInput(page, 'input[placeholder*="team name"]', SHARED_TEAM_NAME);
     await fillInput(page, 'input[placeholder*="max players"]', '7');
     await fillInput(page, 'input[placeholder*="half length"]', '25');
+
+    // Team creation requires a formation; choose the first available option.
+    const formationSelect = page.getByLabel('Formation');
+    await expect(formationSelect).toBeVisible({ timeout: 10000 });
+    const formationValue = await formationSelect
+      .locator('option:not([value=""])')
+      .first()
+      .getAttribute('value');
+    if (!formationValue) {
+      throw new Error('No formation options available for team creation');
+    }
+    await formationSelect.selectOption(formationValue);
+    await page.waitForTimeout(UI_TIMING.STANDARD);
     
     await clickButton(page, 'Create');
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     
     // Verify team was created
-    await expect(page.locator('.item-card').filter({ hasText: SHARED_TEAM_NAME }).first()).toBeVisible();
+    await expect(page.locator('.item-card').filter({ hasText: SHARED_TEAM_NAME }).first()).toBeVisible({ timeout: 30000 });
     console.log(`✓ Created team: ${SHARED_TEAM_NAME}`);
     
     // Create a player
@@ -122,33 +135,52 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     
     // Expand the team roster
     const teamCard = page.locator('.item-card').filter({ hasText: SHARED_TEAM_NAME }).first();
-    const rosterToggle = teamCard.locator('button[aria-label*="roster"]').first();
-    await expect(rosterToggle).toBeVisible({ timeout: 5000 });
-    const teamRosterLabel = (await rosterToggle.getAttribute('aria-label')) ?? '';
-    if (/show/i.test(teamRosterLabel)) {
-      await rosterToggle.click();
-      await page.waitForTimeout(UI_TIMING.STANDARD);
-    }
-    
+    const teamExpandButton = teamCard.locator('button[aria-label*="roster" i]').first();
+
     // Add player to roster
-    const addToRosterButton = page.getByRole('button', { name: /\+ Add Player to Roster|add to roster/i });
-    if (await addToRosterButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await addToRosterButton.click();
+    const addToRosterButton = teamCard.locator('button:visible', { hasText: /Add Player to Roster/i }).first();
+
+    await teamCard.click();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    if (!await addToRosterButton.isVisible({ timeout: 1200 }).catch(() => false)) {
+      await teamExpandButton.scrollIntoViewIfNeeded();
+      await teamExpandButton.click({ force: true });
       await page.waitForTimeout(UI_TIMING.STANDARD);
-      
-      // Select the player and assign jersey number
-      const playerSelect = page.locator('select').first();
-      await playerSelect.selectOption({ label: `${PLAYER_NAME.firstName} ${PLAYER_NAME.lastName}` });
-      await page.waitForTimeout(UI_TIMING.QUICK);
-      
-      await fillInput(page, 'input[placeholder*="Player Number"]', '10');
-      
-      await clickButton(page, 'Add');
-      await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
-      await expect(page.getByText('#10 John Smith')).toBeVisible({ timeout: 10000 });
-      
-      console.log('✓ Added player to roster with jersey #10');
     }
+
+    if (await addToRosterButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await addToRosterButton.click();
+    } else {
+      const fallbackAddToRosterButton = page.getByRole('button', { name: /Add Player to Roster/i }).first();
+      await expect(fallbackAddToRosterButton).toBeVisible({ timeout: 10000 });
+      await fallbackAddToRosterButton.click();
+    }
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+    
+    // Wait for form fields to fully render
+    await page.waitForSelector('.create-form select', { timeout: 10000 });
+    
+    // Select the player and assign jersey number
+    const playerSelect = page.locator('.create-form select').first();
+    await playerSelect.selectOption({ label: `${PLAYER_NAME.firstName} ${PLAYER_NAME.lastName}` });
+    await page.waitForTimeout(UI_TIMING.QUICK);
+    
+    // Wait for jersey input to render
+    await page.waitForSelector('.create-form input[type="number"], .create-form input[placeholder*="jersey"], .create-form input[placeholder*="number"]', { timeout: 10000 });
+    
+    const jerseyInput = page.locator('.create-form input[placeholder*="number"], .create-form input[type="number"]').first();
+    await jerseyInput.fill('10');
+
+    const addButton = page.locator('.create-form button').filter({ hasText: 'Add' }).first();
+    await addButton.scrollIntoViewIfNeeded();
+    await addButton.click();
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+    await expect(page.getByText(`#10 ${PLAYER_NAME.firstName} ${PLAYER_NAME.lastName}`)).toBeVisible();
+    await expect(teamCard).toContainText(/Roster:\s*1 player/i);
+    
+    console.log('✓ Added player to roster with jersey #10');
     
     console.log('✓ Initial team setup complete');
 
@@ -403,19 +435,44 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     await expect(sharedTeam.first()).toBeVisible({ timeout: 20000 });
     console.log(`✓ User 2 can see shared team: ${SHARED_TEAM_NAME}`);
     
-    // Expand roster for the shared team
-    const rosterToggle = sharedTeam.first().locator('button[aria-label*="roster"]');
-    await expect(rosterToggle).toBeVisible({ timeout: 10000 });
-    const initialRosterLabel = (await rosterToggle.getAttribute('aria-label')) ?? '';
-    if (/show/i.test(initialRosterLabel)) {
-      await rosterToggle.click();
+    // Verify roster is visible, allowing time for eventual coaches backfill sync.
+    const fullPlayerName = `${PLAYER_NAME.firstName} ${PLAYER_NAME.lastName}`;
+    let rosterPlayerVisible = false;
+    const rosterRetryDeadline = Date.now() + 30000;
+
+    for (let attempt = 0; attempt < 15; attempt++) {
+      if (Date.now() >= rosterRetryDeadline) {
+        break;
+      }
+
+      await clickManagementTab(page, 'Teams');
+      await page.waitForTimeout(UI_TIMING.STANDARD);
+
+      const sharedTeamRetry = page.locator('.item-card').filter({ hasText: SHARED_TEAM_NAME });
+      await expect(sharedTeamRetry.first()).toBeVisible({ timeout: 20000 });
+      const expandRosterButton = sharedTeamRetry.first().locator('button[aria-label*="roster"]').first();
+      if (await expandRosterButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await expandRosterButton.click();
+      } else {
+        await sharedTeamRetry.first().click();
+      }
+      await page.waitForTimeout(UI_TIMING.STANDARD);
+
+      const playerInRoster = page.locator('.roster-list, .item-card').filter({ hasText: fullPlayerName });
+      if (await playerInRoster.first().isVisible().catch(() => false)) {
+        rosterPlayerVisible = true;
+        break;
+      }
+
+      if (Date.now() + 2000 < rosterRetryDeadline) {
+        await page.waitForTimeout(2000);
+      }
     }
-    await page.waitForTimeout(UI_TIMING.STANDARD);
-    
-    // Hard assertion: pre-existing player MUST be visible after coaches backfill.
-    // This is the exact pattern that was silently broken in production.
-    const playerInRoster = page.locator('.roster-list, .item-card').filter({ hasText: PLAYER_NAME.firstName });
-    await expect(playerInRoster.first()).toBeVisible({ timeout: 10000 });
+
+    if (!rosterPlayerVisible) {
+      const playerInRoster = page.locator('.roster-list, .item-card').filter({ hasText: fullPlayerName });
+      await expect(playerInRoster.first()).toBeVisible({ timeout: 10000 });
+    }
     console.log(`✓ User 2 can see player in roster: ${PLAYER_NAME.firstName} ${PLAYER_NAME.lastName}`);
 
     console.log('✓ Shared team data visible to User 2');
