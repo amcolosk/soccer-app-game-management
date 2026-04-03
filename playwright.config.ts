@@ -42,7 +42,16 @@ export default defineConfig({
   /* Configure projects for major browsers */
   projects: [
     {
-      name: 'chromium',
+      name: 'smoke',
+      testMatch: [
+        '**/formation-management.spec.ts',
+        '**/team-management.spec.ts',
+        '**/player-management.spec.ts',
+      ],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'full',
       use: { ...devices['Desktop Chrome'] },
     },
   ],

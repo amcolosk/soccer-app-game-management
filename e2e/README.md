@@ -40,7 +40,16 @@ npx playwright install --with-deps
 ## Running Tests
 
 ```bash
-# Run all E2E tests
+# Fast local feedback (Vitest only, no browser)
+npm run test:fast
+
+# Run smoke E2E lane (management smoke matrix)
+npm run test:e2e:smoke
+
+# Run full E2E lane (all browser regression specs)
+npm run test:e2e:full
+
+# Legacy full E2E alias
 npm run test:e2e
 
 # Open interactive Playwright UI
@@ -55,6 +64,15 @@ npm run test:e2e:debug
 # Run a single spec file
 npx playwright test e2e/team-management.spec.ts
 ```
+
+## Lane Mapping
+
+- `npm run test:fast`: local fast lane, Vitest-only integration/unit feedback.
+- `npm run test:e2e:smoke`: local smoke lane aligned to CI smoke intent.
+- `npm run test:e2e:full`: local full lane aligned to CI full regression intent.
+- `npm run gate:commit`: local commit gate (lint -> test:run -> build), unchanged.
+
+Increment 1 keeps CI workflow ownership unchanged. The script mapping above is for local lane parity.
 
 ## Test Configuration
 
