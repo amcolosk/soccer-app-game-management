@@ -74,6 +74,28 @@ npx playwright test e2e/team-management.spec.ts
 
 Increment 1 keeps CI workflow ownership unchanged. The script mapping above is for local lane parity.
 
+## Assertion Ownership
+
+Use this matrix to decide where a test belongs:
+
+| Layer | Owns | Avoids |
+|---|---|---|
+| Policy/static (`amplify/data/resource.safe-delete-policy.test.ts`) | Source-level safe-delete policy declarations and authoritative mutation presence | Runtime request/response mapping, auth semantics, UI behavior |
+| Service contracts (`src/services/contracts/*.contract.test.ts`) | Service/client boundary request shape, response mapping, auth/error semantics | UI rendering/selectors and duplicated source-text policy checks |
+| Browser smoke (`e2e/*.spec.ts` in smoke project) | Minimal browser wiring confidence only | Business-rule matrixes and deep contract semantics |
+
+### Data Isolation: Do/Don't
+
+- Do in contracts: verify list/get request shape and unauthorized cross-owner error semantics.
+- Do in smoke: one user-switch path proving owner-scoped visibility wiring is surfaced.
+- Don't in smoke: broad data-isolation matrix assertions.
+
+### Safe Deletes: Do/Don't
+
+- Do in static/contract layers: policy declaration ownership plus runtime mutation response/auth semantics.
+- Do in smoke: guard surfaced and confirm/cancel wiring checks.
+- Don't in smoke: duplicate safe-delete payload semantics or policy-source assertions.
+
 ## Test Configuration
 
 - **Browser**: Chromium (default)

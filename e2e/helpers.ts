@@ -167,7 +167,7 @@ export async function loginUser(page: Page, email: string, password: string) {
     // Navigate to profile and sign out
     await page.getByRole('link', { name: 'Profile' }).click();
     await page.getByRole('button', { name: 'Sign Out' }).click();
-    await expect(page.getByRole('button', { name: 'Log In' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('banner').getByRole('button', { name: 'Log In' })).toBeVisible({ timeout: 10000 });
   }
   
   // Check for Landing Page "Log In" button — scope to header to avoid ambiguity

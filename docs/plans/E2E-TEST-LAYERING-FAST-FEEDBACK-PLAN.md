@@ -178,10 +178,108 @@ Increment 1 is intentionally limited to harness and execution-path changes plus 
 
 ## Backlog After Increment 1
 
-### Increment 2: Contract test lane
-1. Add `src/services/contracts/data-isolation.contract.test.ts`.
-2. Add `src/services/contracts/safe-delete.contract.test.ts`.
-3. Reduce `e2e/data-isolation.spec.ts` and `e2e/safe-deletes.spec.ts` to smoke-level UX wiring only.
+### Increment 2: Contract test lane (revised per architecture findings)
+
+#### Increment 2 objective
+Move data isolation and safe-delete policy confidence out of broad browser assertions into deterministic contract/static layers, while keeping Playwright coverage as minimal browser wiring smoke.
+
+#### Assertion ownership matrix (authoritative)
+1. Policy/static checks (`amplify/data/resource.safe-delete-policy.test.ts`)
+  - Primary ownership:
+    - Safe-delete source-text policy declarations in `amplify/data/resource.ts`.
+    - Presence of authoritative safe-delete mutation declarations.
+  - Explicit non-ownership:
+    - Runtime request/response mapping and auth/error semantics.
+    - UI rendering, selector, or end-user interaction flows.
+2. Service contract checks (`src/services/contracts/*.contract.test.ts`)
+  - Primary ownership:
+    - Service/client boundary validation for request shape, response mapping, and auth/error semantics.
+    - Runtime behavioral contract for data isolation and safe-delete execution outcomes.
+  - Explicit non-ownership:
+    - UI selector/rendering assertions.
+    - Duplicate source-text policy assertions already owned by `amplify/data/resource.safe-delete-policy.test.ts`.
+3. Browser smoke wiring checks (`e2e/*.spec.ts` smoke project)
+  - Primary ownership:
+    - Minimal end-to-end wiring confidence that browser actions surface expected guardrails and trigger expected integration paths.
+  - Explicit non-ownership:
+    - Deep policy semantics, contract payload shape verification, or business-rule matrix validation.
+
+#### Single primary layer mapping (no overlap)
+1. Data isolation requirements:
+  - Primary layer: service contract checks.
+  - Smoke layer only verifies one minimal browser wiring path that isolation is surfaced in app behavior (no matrix of isolation assertions).
+2. Safe-delete requirements:
+  - Primary layer: policy/static checks for source policy declarations + service contract checks for runtime semantics.
+  - Smoke layer only verifies guard visibility and confirm/cancel wiring.
+
+#### Strict contract-test boundary definition
+1. Contract tests are defined strictly as service/client boundary tests.
+2. Contract tests must include:
+  - request shape validation,
+  - response mapping validation,
+  - auth/error semantics validation.
+3. Contract tests must not include:
+  - UI selector assertions,
+  - rendering assertions,
+  - duplicate source-text policy checks already in `amplify/data/resource.safe-delete-policy.test.ts`.
+
+#### Playwright demotion guardrails (required)
+1. `e2e/data-isolation.spec.ts` in smoke lane is limited to minimal browser wiring checks only.
+2. `e2e/safe-deletes.spec.ts` in smoke lane is limited to:
+  - guard surfaced assertion,
+  - confirm wiring assertion,
+  - cancel wiring assertion.
+3. Any additional data-isolation or safe-delete semantics found in smoke specs must be migrated to contract/static layers during this increment.
+
+#### Anti-flake strategy for smoke
+1. Add deterministic uniqueness for smoke-created entities (for example `${baseName}-${Date.now()}-${testInfo.workerIndex}` or equivalent deterministic run suffix).
+2. Require deterministic cleanup for smoke-created entities when feasible via existing UI/API flow.
+3. If cleanup cannot be guaranteed, enforce uniqueness-only with explicit non-reuse naming to prevent cross-run collisions.
+
+#### Smoke selection and docs alignment
+1. `playwright.config.ts`:
+  - keep `full` project as complete regression lane.
+  - update `smoke` `testMatch` to include `e2e/data-isolation.spec.ts` and `e2e/safe-deletes.spec.ts` only after both specs are demoted to wiring-only checks.
+  - document rationale inline: smoke is browser wiring confidence; semantics owned by contract/static layers.
+2. `e2e/README.md`:
+  - add "where assertions belong" guidance table mapping:
+    - policy/static,
+    - service contracts,
+    - browser smoke.
+  - include explicit do/don't examples for data isolation and safe deletes.
+
+#### Increment 2 file-by-file change list (coding-ready)
+1. `src/services/contracts/data-isolation.contract.test.ts` (new)
+  - Add service/client boundary tests for data isolation request/response and auth/error semantics.
+2. `src/services/contracts/safe-delete.contract.test.ts` (new)
+  - Add service/client boundary tests for safe-delete request/response and auth/error semantics.
+  - Do not duplicate source-text policy checks.
+3. `e2e/data-isolation.spec.ts` (update)
+  - Demote to minimal browser smoke wiring checks only.
+4. `e2e/safe-deletes.spec.ts` (update)
+  - Demote to guard surfaced + confirm/cancel wiring checks only.
+5. `playwright.config.ts` (update)
+  - Adjust smoke project selection to include demoted specs with rationale comments.
+  - Keep full lane as broad regression lane.
+6. `e2e/README.md` (update)
+  - Add ownership guidance for assertion placement.
+7. `docs/plans/E2E-TEST-LAYERING-FAST-FEEDBACK-PLAN.md` (update)
+  - Record finalized Increment 2 ownership rules and demotion guardrails.
+
+#### Increment 2 sequencing
+1. Author contract tests first so semantic ownership is in place before browser demotion.
+2. Demote `e2e/data-isolation.spec.ts` and `e2e/safe-deletes.spec.ts` to wiring-only smoke checks.
+3. Update smoke selection in `playwright.config.ts` once demotion is complete.
+4. Update `e2e/README.md` and plan docs with ownership guidance.
+5. Validate with `npm run test:run`, `npm run test:e2e:smoke`, `npm run test:e2e:full`, then `npm run gate:commit`.
+
+#### Increment 2 risks and edge cases
+1. Risk: accidental assertion overlap between contract and smoke layers.
+  - Mitigation: enforce ownership matrix in PR review checklist.
+2. Risk: flaky smoke failures due to shared test data names.
+  - Mitigation: unique naming + deterministic cleanup requirement.
+3. Risk: contract tests drifting into UI concerns.
+  - Mitigation: boundary definition and explicit no-UI rule in test file headers/review checklist.
 
 ### Increment 3: Planner and note-flow migration
 1. Migrate deterministic planner behavior from `e2e/game-planner.spec.ts` into integration tests.

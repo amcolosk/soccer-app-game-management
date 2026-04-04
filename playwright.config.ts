@@ -43,10 +43,14 @@ export default defineConfig({
   projects: [
     {
       name: 'smoke',
+      // Smoke lane is browser wiring confidence only.
+      // Contract/static layers own deep semantics and payload policy assertions.
       testMatch: [
         '**/formation-management.spec.ts',
         '**/team-management.spec.ts',
         '**/player-management.spec.ts',
+        '**/data-isolation.spec.ts',
+        '**/safe-deletes.spec.ts',
       ],
       use: { ...devices['Desktop Chrome'] },
     },
