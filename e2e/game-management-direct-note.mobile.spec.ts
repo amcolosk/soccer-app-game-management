@@ -18,12 +18,12 @@ import {
   createFormation,
   createTeam,
   fillInput,
-  loginUser,
+  navigateToApp,
   navigateToManagement,
   waitForPageLoad,
   UI_TIMING,
 } from './helpers';
-import { TEST_USERS, TEST_CONFIG } from '../test-config';
+import { TEST_CONFIG } from '../test-config';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -185,7 +185,7 @@ test.use({ ...devices['iPhone 12'] });
 
 test.describe('Direct Note Entry — Mobile', () => {
   test.beforeEach(async ({ page }) => {
-    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+    await navigateToApp(page);
   });
 
   // ── Icon-only trigger accessibility ────────────────────────────────────────

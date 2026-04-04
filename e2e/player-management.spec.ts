@@ -7,12 +7,12 @@ import {
   cleanupTestData,
   createTeam,
   fillInput,
-  loginUser,
+  navigateToApp,
   navigateToManagement,
   swipeToDelete,
   UI_TIMING,
 } from './helpers';
-import { TEST_USERS, TEST_CONFIG } from '../test-config';
+import { TEST_CONFIG } from '../test-config';
 
 test.describe('Player Management Smoke', () => {
   test.describe.configure({ mode: 'serial' });
@@ -25,7 +25,7 @@ test.describe('Player Management Smoke', () => {
     const firstName = 'Smoke';
     const lastName = `Player${Date.now()}`;
 
-    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+    await navigateToApp(page);
     await navigateToManagement(page);
     await cleanupTestData(page);
 

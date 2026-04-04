@@ -15,7 +15,7 @@ import {
   waitForPageLoad,
   fillInput,
   clickButton,
-  loginUser,
+  navigateToApp,
   cleanupTestData,
   clickManagementTab,
   createFormation,
@@ -24,7 +24,6 @@ import {
   closePWAPrompt,
   closeWelcomeModal,
 } from './helpers';
-import { TEST_USERS } from '../test-config';
 
 const TEST_DATA = {
   formation: {
@@ -163,7 +162,7 @@ async function openGamePlanner(page: Page) {
 }
 
 async function setupTestData(page: Page) {
-  await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+  await navigateToApp(page);
   await cleanupTestData(page);
 
   const formationLabel = `${TEST_DATA.formation.name} (${TEST_DATA.formation.playerCount} players)`;

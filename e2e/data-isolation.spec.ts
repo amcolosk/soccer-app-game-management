@@ -4,6 +4,7 @@ import {
   clickManagementTab,
   createTeam,
   loginUser,
+  navigateToApp,
   navigateToManagement,
   swipeToDelete,
   UI_TIMING,
@@ -34,7 +35,7 @@ test.describe.serial('Data isolation smoke wiring', () => {
     test.setTimeout(TEST_CONFIG.timeout.long);
     const teamName = `Isolation Smoke Team ${runSuffix(testInfo.workerIndex)}`;
 
-    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+    await navigateToApp(page);
     await navigateToManagement(page);
     await createTeam(page, {
       name: teamName,

@@ -150,6 +150,49 @@ test('your test name', async ({ page }) => {
 
 Use the helper functions in `e2e/helpers.ts` (e.g., `fillInput`, `clickButton`) to keep tests consistent.
 
+### `navigateToApp` vs `loginUser`
+
+| Helper | When to use |
+|---|---|
+| `navigateToApp(page)` | Smoke specs where the user is already logged in via project storageState (user1). Navigates to `/`, waits for networkidle, dismisses prompts, asserts `.bottom-nav` visible. |
+| `loginUser(page, email, password)` | When you need to perform a real credential-backed login — e.g., mid-test user switches, tests that verify the auth flow itself, or the `auth.setup.ts` setup fixture. |
+
+### Adding a new spec to the smoke lane
+1. Add the spec filename to the `smoke` project's `testMatch` array in `playwright.config.ts`.
+2. Use `navigateToApp(page)` (not `loginUser`) at the start of each test or `beforeEach` — the smoke project provides `storageState: '.auth/user1.json'` automatically.
+3. If your spec tests authentication flows (sign-in, sign-out, wrong credentials), add `test.use({ storageState: { cookies: [], origins: [] } })` inside your `test.describe` block to opt out of the project-level storage state.
+
+## Storage-State Reuse
+
+The smoke lane uses Playwright's [storage state](https://playwright.dev/docs/auth) feature to skip re-logging in for every test.
+
+**How it works:**
+1. `e2e/auth.setup.ts` (the `setup` project) runs first. It logs in as user1 and user2 using `loginUser`, then saves browser cookies/localStorage to `.auth/user1.json` and `.auth/user2.json`.
+2. The `smoke` project declares `dependencies: ['setup']`, so the setup project always runs before any smoke test.
+3. Each smoke spec's browser context starts already authenticated as user1 via `storageState: '.auth/user1.json'`.
+
+**The `.auth/` directory** is gitignored (never committed). It is created at runtime by `auth.setup.ts`.
+
+**Opt-out pattern:** Tests that need a real login flow (e.g., `auth.spec.ts`) add this inside their `test.describe` block:
+```typescript
+test.use({ storageState: { cookies: [], origins: [] } });
+```
+
+## CI Cadence
+
+| Trigger | Smoke E2E | Full E2E |
+|---|---|---|
+| Trusted PR (risk paths changed) | ✓ | — |
+| Trusted PR with `run-smoke-e2e` label | ✓ | — |
+| Trusted PR with `run-full-e2e` label | ✓ | ✓ |
+| Push to `main` | — | ✓ |
+| Merge group | — | ✓ |
+| `workflow_dispatch` | — | ✓ |
+| Nightly schedule (3 AM UTC) | — | ✓ |
+
+**Smoke lane** (`--project=smoke`): runs the `testMatch` list from `playwright.config.ts` — management specs, data-isolation, safe-deletes, game-planner, mobile-note.
+**Full lane** (`--project=full`): runs everything except `auth.setup.ts` and the two specs owned by the smoke-only lane.
+
 ## CI/CD
 
 Trusted and untrusted pull requests are handled differently in CI:

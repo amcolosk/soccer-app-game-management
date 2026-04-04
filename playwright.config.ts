@@ -42,6 +42,10 @@ export default defineConfig({
   /* Configure projects for major browsers */
   projects: [
     {
+      name: 'setup',
+      testMatch: '**/auth.setup.ts',
+    },
+    {
       name: 'smoke',
       // Smoke lane is browser wiring confidence only.
       // Contract/static layers own deep semantics and payload policy assertions.
@@ -55,15 +59,22 @@ export default defineConfig({
         '**/game-planner.spec.ts',
         '**/game-management-direct-note.mobile.spec.ts',
       ],
-      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['setup'],
+      use: { ...devices['Desktop Chrome'], storageState: '.auth/user1.json' },
     },
     {
       name: 'full',
-      // game-planner.spec.ts and game-management-direct-note.mobile.spec.ts run in smoke only
-      // to avoid duplicate seeding in combined runs.
+      // These specs use `navigateToApp` which requires the smoke project's storageState.
+      // They run via smoke lane only.
       testIgnore: [
         '**/game-planner.spec.ts',
         '**/game-management-direct-note.mobile.spec.ts',
+        '**/auth.setup.ts',
+        '**/data-isolation.spec.ts',
+        '**/formation-management.spec.ts',
+        '**/team-management.spec.ts',
+        '**/player-management.spec.ts',
+        '**/safe-deletes.spec.ts',
       ],
       use: { ...devices['Desktop Chrome'] },
     },

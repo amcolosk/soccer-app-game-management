@@ -375,9 +375,128 @@ Migrate deterministic planner/note behaviors from two E2E specs into Vitest inte
    - Mitigation: `workers: 1` in smoke lane ensures serial execution for shared seeded state.
 
 ### Increment 4: Browser hardening and CI policy
-1. Replace remaining fixed sleeps in `e2e/helpers.ts` with state-driven waits.
-2. Add auth storage-state reuse for smoke lane.
-3. Finalize CI cadence for full-browser regression (nightly + release or nightly-only).
+
+#### Increment 4 objective
+1. Replace remaining fixed sleeps in `e2e/helpers.ts` with state-driven waits to reduce flakiness and wall-clock time.
+2. Add auth storage-state reuse for the smoke lane, eliminating redundant login round-trips.
+3. Finalize CI cadence: add nightly schedule trigger, fix hardcoded spec list in smoke job, add `--project` flags to both Playwright commands.
+
+#### Work stream 1 — Sleep inventory
+
+**Removed (replaced with nothing or state-driven alt):**
+
+| Location | Old wait | Replacement |
+|---|---|---|
+| `waitForPageLoad` | `waitForTimeout(500)` | removed |
+| `fillInput` | `waitForTimeout(100)` | removed |
+| `clickButton` pre-click | `waitForTimeout(100)` | removed |
+| `clickButton` post-click | `waitForTimeout(300)` | removed |
+| `clickButtonByText` | `waitForTimeout(300)` | removed |
+| `selectOption` | `waitForTimeout(200)` | removed |
+| `cleanupTestData` initial goto | `waitForTimeout(500)` | removed (waitForSelector follows) |
+| `navigateToManagement` | `waitForTimeout(UI_TIMING.NAVIGATION)` | removed (waitForSelector follows) |
+| `createTeam` manageTab.click | `waitForTimeout(UI_TIMING.NAVIGATION)` | removed |
+| `createTeam` formation selectOption | `waitForTimeout(UI_TIMING.STANDARD)` | removed |
+| `createTeam` after Create button | `waitForTimeout(UI_TIMING.DATA_OPERATION)` | removed (expect visible follows) |
+| `createFormation` after Create button | `waitForTimeout(UI_TIMING.DATA_OPERATION)` | removed (expect visible follows) |
+| `addPlayerToRoster` after expandButton.click | `waitForTimeout(UI_TIMING.NAVIGATION)` | removed |
+| `addPlayerToRoster` after selectOption | `waitForTimeout(UI_TIMING.QUICK)` | removed |
+| `addPlayerToRoster` after addButton.click | `waitForTimeout(UI_TIMING.DATA_OPERATION)` | removed |
+
+**Replaced with state-driven waits:**
+
+| Location | Old wait | Replacement |
+|---|---|---|
+| `closeWelcomeModal` after dismiss-click | `waitForTimeout(300)` | `expect(.quick-start-dismiss).not.toBeVisible()` |
+| `cleanupTestData` Teams tab switch | `waitForTimeout(500)` | `expect(+ Create New Team button).toBeVisible()` |
+| `cleanupTestData` team delete loop | `waitForTimeout(1000)` | `expect(.item-card).not.toHaveCount(teamCount)` |
+| `cleanupTestData` Players tab switch | `waitForTimeout(500)` | `expect(+ Add Player button).toBeVisible()` |
+| `cleanupTestData` player delete loop | `waitForTimeout(1000)` | `expect(.item-card).not.toHaveCount(playerCount)` |
+| `cleanupTestData` Formations tab switch | `waitForTimeout(500)` | `expect(+ Create Formation button).toBeVisible()` |
+| `cleanupTestData` formation delete loop | `waitForTimeout(1000)` | `expect(.item-card).not.toHaveCount(formationCount)` |
+| `clickManagementTab` | `waitForTimeout(UI_TIMING.STANDARD)` | `expect(tab).toHaveClass(/active/)` |
+| `clickConfirmModalConfirm` | `waitForTimeout(100)` | `expect(.confirm-overlay).not.toBeVisible()` |
+| `clickConfirmModalCancel` | `waitForTimeout(100)` | `expect(.confirm-overlay).not.toBeVisible()` |
+| `swipeToDelete` after deleteButton.click | `waitForTimeout(UI_TIMING.QUICK)` | `.btn-delete-swipe.waitFor({ state: 'hidden' })` |
+| `createTeam` after Create New Team click | `waitForTimeout(UI_TIMING.STANDARD)` | `expect(.create-form).toBeVisible()` |
+| `addPlayerToRoster` after Add Player to Roster click | `waitForTimeout(UI_TIMING.STANDARD)` | `expect(.create-form).toBeVisible()` |
+| `createFormation` positions auto-populate | `waitForTimeout(UI_TIMING.STANDARD)` | `expect(.position-row).toHaveCount(playerCount)` |
+
+**Kept (justified exceptions — do not remove):**
+
+| Location | Wait | Rationale |
+|---|---|---|
+| `cleanupTestData` after second page.goto('/manage') | `waitForTimeout(1000)` | Subscription cache reset — no DOM state change to poll |
+| `cleanupTestData` formation retry back-off | `waitForTimeout(2000)` | Intentional delete-retry back-off |
+| `createFormation` DynamoDB propagation | `waitForTimeout(3000)` | Eventually consistent replica read delay — no DOM indicator |
+| `swipeToDelete` CSS animation | `waitForTimeout(UI_TIMING.STANDARD)` | CSS animation — no DOM state change during animation |
+| `handleConfirmDialog` polling intervals | `waitForTimeout(100/200)` | Polling loop intervals — intentional |
+
+#### Work stream 2 — Auth storage-state strategy
+
+**Setup project**: `e2e/auth.setup.ts` — two `setup(...)` tests, each calling `loginUser` and saving to `.auth/user1.json` / `.auth/user2.json`. Creates `.auth/` directory with `mkdirSync(..., { recursive: true })` before the first write.
+
+**Playwright config**:
+- New `setup` project: `{ name: 'setup', testMatch: '**/auth.setup.ts' }`.
+- Smoke project adds: `dependencies: ['setup']` and `use: { ...existing, storageState: '.auth/user1.json' }`.
+- Full project `testIgnore` adds `'**/auth.setup.ts'` to prevent it running as a test in the full lane.
+
+**`navigateToApp` helper**: replaces `loginUser(user1)` in specs where user1 is the expected logged-in user at test start. Navigates to `/`, waits for networkidle, dismisses prompts, asserts `.bottom-nav` visible.
+
+**Opt-out pattern**: `test.use({ storageState: { cookies: [], origins: [] } })` inside `test.describe('Authentication', ...)` in `auth.spec.ts` — ensures auth tests perform real browser login flows regardless of any project-level storageState.
+
+**Spec migration**:
+- Smoke specs migrated to `navigateToApp`: `formation-management`, `team-management`, `player-management`, `safe-deletes`, `game-planner` (via setupTestData), `game-management-direct-note.mobile`.
+- `data-isolation.spec.ts`: only the initial `loginUser(user1)` replaced with `navigateToApp`; all mid-test user-switching `loginUser` calls left unchanged.
+- `auth.spec.ts`: no `loginUser` calls changed; only `test.use()` override added.
+
+**Gitignore**: `.auth/` added under the Playwright section with "never commit" comment.
+
+#### Work stream 3 — CI cadence
+
+**Nightly schedule**: `schedule: - cron: '0 3 * * *'` added to `on:` block. Nightly runs are treated as `is_mainline=true`, which triggers the full E2E job.
+
+**`calc-mode` script**: Added `is_schedule` variable. Updated `is_mainline` block to include `is_schedule`. Added `is_schedule` to both the job outputs section and the `$GITHUB_OUTPUT` echo lines.
+
+**Smoke job command**: replaced `npx playwright test ... e2e/auth.spec.ts e2e/team-management.spec.ts` with `npx playwright test --config=playwright.config.ts --project=smoke`. This uses the testMatch list defined in playwright.config.ts rather than a hardcoded spec list.
+
+**Full job command**: replaced `npx playwright test --config=playwright.config.ts` (implicit full run) with `npx playwright test --config=playwright.config.ts --project=full`. This respects the `testIgnore` list (excludes game-planner, game-management-direct-note, and auth.setup) and is explicit about lane intent.
+
+#### Increment 4 file-by-file change list
+
+1. `e2e/auth.setup.ts` (new) — setup fixture for user1/user2 storage state
+2. `playwright.config.ts` — setup project, smoke dependencies+storageState, full testIgnore for auth.setup.ts
+3. `e2e/helpers.ts` — remove 15 fixed sleeps, replace 14 with state-driven waits, add `navigateToApp`
+4. `e2e/auth.spec.ts` — `test.use()` storageState opt-out
+5. `e2e/formation-management.spec.ts` — `navigateToApp`, remove `loginUser`/`TEST_USERS` imports
+6. `e2e/team-management.spec.ts` — same as #5
+7. `e2e/player-management.spec.ts` — same as #5
+8. `e2e/safe-deletes.spec.ts` — `navigateToApp` in both test bodies, remove `loginUser`/`TEST_USERS` imports
+9. `e2e/game-planner.spec.ts` — `navigateToApp` in `setupTestData`, remove `loginUser`/`TEST_USERS` imports
+10. `e2e/game-management-direct-note.mobile.spec.ts` — `navigateToApp` in `beforeEach`, remove `loginUser`/`TEST_USERS` imports
+11. `e2e/data-isolation.spec.ts` — `navigateToApp` for initial user1 login only; mid-test user switches unchanged
+12. `.github/workflows/ci.yml` — nightly schedule, is_schedule variable, --project=smoke/full flags
+13. `.gitignore` — .auth/ entry
+14. `docs/plans/E2E-TEST-LAYERING-FAST-FEEDBACK-PLAN.md` (this file) — Increment 4 section
+15. `e2e/README.md` — storage-state reuse, CI cadence, adding new tests guidance
+
+#### Increment 4 sequencing
+1. Create `e2e/auth.setup.ts` and update `playwright.config.ts`.
+2. Update `e2e/helpers.ts` (sleep removal + navigateToApp).
+3. Update all spec files.
+4. Update CI yml.
+5. Update .gitignore.
+6. Validate with `npm run gate:commit`.
+
+#### Increment 4 risks and edge cases
+1. Risk: smoke project storageState unavailable in first run (`.auth/user1.json` not yet created).
+   - Mitigation: setup project dependency ensures auth.setup.ts runs before any smoke test.
+2. Risk: data-isolation tests still use real login for user2 switch; if user2 storage state is not loaded, the login is still real-credential-based.
+   - Mitigation: user2 storage state is prepared by auth.setup.ts but only user1's is used as project-level storageState; user2 login in data-isolation remains real-login as required.
+3. Risk: `expect(tab).toHaveClass(/active/)` fails if Management component uses a different active indicator.
+   - Mitigation: confirmed via Management.tsx source that active tabs use `management-tab active` class pattern.
+4. Risk: nightly schedule runs could exhaust CI test quota.
+   - Mitigation: full-e2e has `timeout-minutes: 45` cap; globalTimeout: 45 min in playwright.config.ts for CI.
 
 ## Validation Commands (planning target)
 1. `npm run test:fast`

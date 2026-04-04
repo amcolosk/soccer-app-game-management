@@ -6,12 +6,12 @@ import {
   clickManagementTab,
   cleanupTestData,
   fillInput,
-  loginUser,
+  navigateToApp,
   navigateToManagement,
   swipeToDelete,
   UI_TIMING,
 } from './helpers';
-import { TEST_USERS, TEST_CONFIG } from '../test-config';
+import { TEST_CONFIG } from '../test-config';
 
 test.describe('Team Management Smoke', () => {
   test.describe.configure({ mode: 'serial' });
@@ -23,7 +23,7 @@ test.describe('Team Management Smoke', () => {
   test('creates a team and verifies delete cancel/confirm', async ({ page }) => {
     const teamName = `Smoke Team ${Date.now()}`;
 
-    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+    await navigateToApp(page);
     await navigateToManagement(page);
     await cleanupTestData(page);
 

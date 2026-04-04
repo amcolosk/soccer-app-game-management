@@ -7,13 +7,13 @@ import {
   createFormation,
   createTeam,
   fillInput,
-  loginUser,
+  navigateToApp,
   navigateToManagement,
   addPlayerToRoster,
   swipeToDelete,
   UI_TIMING,
 } from './helpers';
-import { TEST_USERS, TEST_CONFIG } from '../test-config';
+import { TEST_CONFIG } from '../test-config';
 
 /**
  * Safe-delete smoke specs intentionally keep only browser wiring checks.
@@ -45,7 +45,7 @@ test.describe('Safe Delete Guards', () => {
     const formationName = `Safe Delete Formation ${suffix}`;
     const teamName = `Safe Delete Team ${suffix}`;
 
-    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+    await navigateToApp(page);
     await navigateToManagement(page);
 
     await createFormation(page, {
@@ -94,7 +94,7 @@ test.describe('Safe Delete Guards', () => {
     const playerFirstName = `Roster${suffix}`;
     const playerLastName = 'Smoke';
 
-    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+    await navigateToApp(page);
     await navigateToManagement(page);
 
     await createTeam(page, {

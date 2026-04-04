@@ -12,6 +12,9 @@ import { TEST_USERS, TEST_CONFIG } from '../test-config';
  */
 
 test.describe('Authentication', () => {
+  // Opt out of smoke project storageState so auth tests can perform real login flows.
+  test.use({ storageState: { cookies: [], origins: [] } });
+
   test('should login successfully', async ({ page }) => {
     test.setTimeout(TEST_CONFIG.timeout.short);
     
