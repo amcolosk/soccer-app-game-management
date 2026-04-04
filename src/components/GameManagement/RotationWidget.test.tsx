@@ -362,7 +362,7 @@ describe("RotationWidget", () => {
     );
 
     expect(
-      screen.getByText(/No rotation changes available\. Planned players are marked injured\./i),
+      screen.getByText(/No rotation changes available\. All planned players are either unavailable or already on the field\./i),
     ).toBeInTheDocument();
   });
 });

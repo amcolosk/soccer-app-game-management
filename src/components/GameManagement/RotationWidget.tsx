@@ -33,6 +33,15 @@ interface RotationWidgetProps {
   isRotationModalOpen?: boolean;
   onOpenRotationModal?: () => void;
   onCloseRotationModal?: () => void;
+  onRecalculateRotations?: () => void;
+  isRecalculating?: boolean;
+  getPlanConflicts?: () => Array<{
+    type: 'starter' | 'rotation' | 'on-field';
+    playerId: string;
+    playerName: string;
+    status: string;
+    rotationNumbers: number[];
+  }>;
 }
 
 export function RotationWidget({
@@ -44,11 +53,15 @@ export function RotationWidget({
   gamePlan,
   plannedRotations,
   currentTime,
+  lineup,
   substitutionQueue,
   onQueueSubstitution,
   isRotationModalOpen,
   onOpenRotationModal,
   onCloseRotationModal,
+  onRecalculateRotations,
+  isRecalculating,
+  getPlanConflicts,
 }: RotationWidgetProps) {
   const { getPlayerAvailability } = useAvailability();
   const [internalShowRotationModal, setInternalShowRotationModal] = useState(false);
@@ -153,7 +166,12 @@ export function RotationWidget({
               return subs.filter(sub => {
                 const inStatus = getPlayerAvailability(sub.playerInId);
                 const outStatus = getPlayerAvailability(sub.playerOutId);
-                return inStatus === 'absent' || inStatus === 'injured' || outStatus === 'absent' || outStatus === 'injured';
+                const isAlreadyOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerInId) ?? false;
+                return (
+                  isAlreadyOnField ||
+                  inStatus === 'absent' || inStatus === 'injured' ||
+                  outStatus === 'absent' || outStatus === 'injured'
+                );
               });
             } catch { return []; }
           })();
@@ -229,7 +247,7 @@ export function RotationWidget({
                 if (queueEligibleSubs.length === 0) {
                   return (
                     <p className="empty-state">
-                      No rotation changes available. Planned players are marked injured. Recover a player or update the plan.
+                      No rotation changes available. All planned players are either unavailable or already on the field.
                     </p>
                   );
                 }
@@ -275,6 +293,9 @@ export function RotationWidget({
                             {playerIn?.firstName} {playerIn?.lastName}
                           </span>
                           {getAvailabilityBadge(inAvailability)}
+                          {lineup?.some(l => l.isStarter && l.playerId === sub.playerInId) && (
+                            <span className="availability-badge unavailable">⚠️ on field</span>
+                          )}
                         </div>
                       </div>
                       <button
@@ -295,6 +316,19 @@ export function RotationWidget({
               })()}
             </div>
 
+            {(getPlanConflicts?.() ?? []).length > 0 && onRecalculateRotations && (
+              <div style={{ marginBottom: '0.5rem' }}>
+                <button
+                  onClick={onRecalculateRotations}
+                  disabled={isRecalculating}
+                  aria-busy={isRecalculating}
+                  className="btn-secondary"
+                  style={{ width: '100%' }}
+                >
+                  {isRecalculating ? '⏳ Recalculating...' : '🔄 Recalculate Rotations'}
+                </button>
+              </div>
+            )}
             <div className="form-actions">
               <button
                 onClick={handleQueueAll}

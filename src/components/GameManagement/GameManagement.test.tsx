@@ -27,6 +27,7 @@ const {
   mockUpdatePlayerAvailability,
   mockSetHelpContext,
   mockRefetchCoachProfiles,
+  mockPlannedRotationUpdate,
 } = vi.hoisted(() => ({
   mockLineupDelete:      vi.fn().mockResolvedValue({}),
   mockLineupCreate:      vi.fn().mockResolvedValue({ data: { id: "la-new" } }),
@@ -40,6 +41,7 @@ const {
   mockUpdatePlayerAvailability: vi.fn().mockResolvedValue(undefined),
   mockSetHelpContext:    vi.fn(),
   mockRefetchCoachProfiles: vi.fn().mockResolvedValue(undefined),
+  mockPlannedRotationUpdate: vi.fn().mockResolvedValue({ data: {} }),
 }));
 
 vi.mock("aws-amplify/data", () => ({
@@ -55,6 +57,9 @@ vi.mock("aws-amplify/data", () => ({
         create: mockPlayTimeCreate,
         list:   vi.fn().mockResolvedValue({ data: [], nextToken: null }),
       },
+      PlannedRotation: {
+        update: mockPlannedRotationUpdate,
+      },
     },
   }),
 }));
@@ -68,6 +73,7 @@ const mockCaptures: {
   latestSubstitutionQueue?: { playerId: string; positionId: string }[];
   preGameNotesPanelProps?: any;
   playerNotesPanelProps?: any;
+  rotationWidgetProps?: any;
 } = {};
 
 vi.mock("./GameTimer", () => ({
@@ -97,6 +103,7 @@ vi.mock("./RotationWidget", () => ({
   RotationWidget: vi.fn((props: any) => {
     mockCaptures.onQueueSubstitution = props.onQueueSubstitution;
     mockCaptures.latestSubstitutionQueue = props.substitutionQueue;
+    mockCaptures.rotationWidgetProps = props;
     return <div />;
   }),
 }));
@@ -175,6 +182,8 @@ vi.mock("../../utils/analytics", () => ({
     GAME_COMPLETED: { category: "game", action: "completed" },
     PLAYER_MARKED_INJURED: { category: "GameDay", action: "Player Marked Injured" },
     PLAYER_RECOVERED_FROM_INJURY: { category: "GameDay", action: "Player Recovered From Injury" },
+    ROTATION_RECALCULATED: { category: "GameDay", action: "Rotation Recalculated" },
+    ROTATION_WIDGET_OPENED: { category: "GameDay", action: "Rotation Widget Opened" },
   },
 }));
 vi.mock("../../utils/toast", () => ({
@@ -971,5 +980,219 @@ describe("completed state play time summary", () => {
     const link = screen.getByRole("link", { name: /view full season report/i });
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute("href", "/reports/team-abc");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getPlanConflicts on-field detection
+// ---------------------------------------------------------------------------
+describe("GameManagement – getPlanConflicts on-field detection", () => {
+  const futureRotation = {
+    id: 'rot-future',
+    rotationNumber: 1,
+    gameMinute: 40, // future: 40 > currentMinutes(30)
+    half: 2,
+    plannedSubstitutions: JSON.stringify([
+      { playerInId: 'player-C', playerOutId: 'player-D', positionId: 'pos1' },
+    ]),
+  };
+  const pastRotation = {
+    id: 'rot-past',
+    rotationNumber: 1,
+    gameMinute: 10, // past: 10 <= currentMinutes(30)
+    half: 1,
+    plannedSubstitutions: JSON.stringify([
+      { playerInId: 'player-C', playerOutId: 'player-D', positionId: 'pos1' },
+    ]),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+  });
+
+  it("detects 'on-field' conflict when playerIn is already a starter in a future rotation during in-progress game", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+      lineup: [
+        { id: 'la-C', gameId: 'game-1', playerId: 'player-C', positionId: 'pos2', isStarter: true },
+      ],
+      plannedRotations: [futureRotation],
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10 } as any,
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    const conflicts = mockCaptures.rotationWidgetProps?.getPlanConflicts?.();
+    expect(conflicts).toBeDefined();
+    const onFieldConflict = conflicts.find((c: any) => c.type === 'on-field' && c.playerId === 'player-C');
+    expect(onFieldConflict).toBeDefined();
+    expect(onFieldConflict.rotationNumbers).toContain(1);
+  });
+
+  it("does NOT flag a past rotation as 'on-field' conflict", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+      lineup: [
+        { id: 'la-C', gameId: 'game-1', playerId: 'player-C', positionId: 'pos2', isStarter: true },
+      ],
+      plannedRotations: [pastRotation],
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10 } as any,
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    const conflicts = mockCaptures.rotationWidgetProps?.getPlanConflicts?.();
+    const onFieldConflict = conflicts?.find((c: any) => c.type === 'on-field' && c.playerId === 'player-C');
+    expect(onFieldConflict).toBeUndefined();
+  });
+
+  it("does NOT produce 'on-field' conflicts for a scheduled game", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled' },
+      lineup: [
+        { id: 'la-C', gameId: 'game-1', playerId: 'player-C', positionId: 'pos2', isStarter: true },
+      ],
+      plannedRotations: [futureRotation],
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10 } as any,
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+
+    const conflicts = mockCaptures.rotationWidgetProps?.getPlanConflicts?.();
+    const onFieldConflict = conflicts?.find((c: any) => c.type === 'on-field');
+    expect(onFieldConflict).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleRecalculateRotations uses live lineup
+// ---------------------------------------------------------------------------
+describe("GameManagement – handleRecalculateRotations uses live lineup", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseTeamData.mockReturnValue({
+      players: [
+        { id: 'p1', playerNumber: 1, firstName: 'Alice', lastName: 'A', isActive: true, preferredPositions: 'pos1' },
+        { id: 'p2', playerNumber: 2, firstName: 'Bob', lastName: 'B', isActive: true, preferredPositions: 'pos2' },
+      ],
+      positions: [{ id: 'pos1', abbreviation: 'FW' }, { id: 'pos2', abbreviation: 'MF' }],
+    });
+  });
+
+  it("calls calculateFairRotations with live starters (not gamePlan.startingLineup)", async () => {
+    const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
+    const mockedFn = vi.mocked(mockedCalc);
+    mockedFn.mockReturnValue({ rotations: [], warnings: [] });
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+      lineup: [
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+        { id: 'la-2', gameId: 'game-1', playerId: 'p2', positionId: 'pos2', isStarter: true },
+      ],
+      playTimeRecords: [
+        { id: 'ptr-1', playerId: 'p1', startGameSeconds: 0, endGameSeconds: 600, positionId: 'pos1', gameId: 'game-1', coaches: ['coach-1'] },
+      ],
+      gamePlan: {
+        id: 'gp-1',
+        rotationIntervalMinutes: 10,
+        startingLineup: JSON.stringify([{ playerId: 'old-p1', positionId: 'pos1' }]),
+      } as any,
+      plannedRotations: [
+        { id: 'rot-1', rotationNumber: 1, gameMinute: 40, half: 2, plannedSubstitutions: '[]' } as any,
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    await act(async () => {
+      await mockCaptures.rotationWidgetProps?.onRecalculateRotations?.();
+    });
+
+    await waitFor(() => {
+      expect(mockedFn).toHaveBeenCalled();
+    });
+
+    const callArgs = mockedFn.mock.calls[0];
+    // Second argument = lineupArray (from live starters, not from gamePlan.startingLineup)
+    const lineupArg = callArgs[1];
+    expect(lineupArg).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ playerId: 'p1', positionId: 'pos1' }),
+        expect.objectContaining({ playerId: 'p2', positionId: 'pos2' }),
+      ])
+    );
+    // Must NOT use the old gamePlan.startingLineup ('old-p1')
+    expect(lineupArg.map((e: any) => e.playerId)).not.toContain('old-p1');
+  });
+
+  it("passes initialPlayTimeMinutes derived from playTimeRecords in the options", async () => {
+    const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
+    const mockedFn = vi.mocked(mockedCalc);
+    mockedFn.mockReturnValue({ rotations: [], warnings: [] });
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+      lineup: [
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+      ],
+      playTimeRecords: [
+        { id: 'ptr-1', playerId: 'p1', startGameSeconds: 0, endGameSeconds: 600, positionId: 'pos1', gameId: 'game-1', coaches: ['coach-1'] },
+      ],
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10, startingLineup: '[]' } as any,
+      plannedRotations: [
+        { id: 'rot-1', rotationNumber: 1, gameMinute: 40, half: 2, plannedSubstitutions: '[]' } as any,
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    await act(async () => {
+      await mockCaptures.rotationWidgetProps?.onRecalculateRotations?.();
+    });
+
+    await waitFor(() => {
+      expect(mockedFn).toHaveBeenCalled();
+    });
+
+    const callArgs = mockedFn.mock.calls[0];
+    // 8th argument is options
+    const options = callArgs[7];
+    expect(options?.initialPlayTimeMinutes).toBeInstanceOf(Map);
+    // p1 has 600 seconds (10 minutes) in playTimeRecords
+    expect(options?.initialPlayTimeMinutes?.get('p1')).toBeCloseTo(10, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RotationWidget receives recalculate props
+// ---------------------------------------------------------------------------
+describe("GameManagement – RotationWidget receives recalculate props", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+  });
+
+  it("passes onRecalculateRotations, isRecalculating, and getPlanConflicts to RotationWidget for in-progress game", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10 } as any,
+      plannedRotations: [
+        { id: 'rot-1', rotationNumber: 1, gameMinute: 40, half: 2, plannedSubstitutions: '[]' } as any,
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    expect(typeof mockCaptures.rotationWidgetProps?.onRecalculateRotations).toBe('function');
+    expect(mockCaptures.rotationWidgetProps?.isRecalculating).toBeDefined();
+    expect(typeof mockCaptures.rotationWidgetProps?.getPlanConflicts).toBe('function');
   });
 });

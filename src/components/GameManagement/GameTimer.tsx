@@ -39,7 +39,7 @@ interface GameTimerProps {
   onRecalculateRotations: () => void;
   onApplyHalftimeSub: (sub: PlannedSubstitution) => Promise<void>;
   getPlanConflicts: () => Array<{
-    type: 'starter' | 'rotation';
+    type: 'starter' | 'rotation' | 'on-field';
     playerId: string;
     playerName: string;
     status: string;
@@ -150,6 +150,7 @@ export function GameTimer({
                 <li key={c.playerId}>
                   <strong>{c.playerName}</strong> — {c.status}
                   {c.type === 'starter' && ' (starting lineup)'}
+                  {c.type === 'on-field' && ' (already on field)'}
                   {c.rotationNumbers.length > 0 && ` · Rotation${c.rotationNumbers.length > 1 ? 's' : ''} ${c.rotationNumbers.join(', ')}`}
                 </li>
               ))}

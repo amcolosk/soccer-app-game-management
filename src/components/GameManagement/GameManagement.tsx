@@ -9,6 +9,7 @@ import { useConfirm } from "../ConfirmModal";
 import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, type PlannedSubstitution } from "../../services/rotationPlannerService";
+import { calculatePlayerPlayTime } from "../../utils/playTimeCalculations";
 import { useTeamData } from "../../hooks/useTeamData";
 import { useOfflineMutations } from "../../hooks/useOfflineMutations";
 import { useTeamCoachProfiles } from "../../hooks/useTeamCoachProfiles";
@@ -217,7 +218,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   // Detect conflicts between current availability and the rotation plan
   const getPlanConflicts = () => {
     const conflicts: Array<{
-      type: 'starter' | 'rotation';
+      type: 'starter' | 'rotation' | 'on-field';
       playerId: string;
       playerName: string;
       status: string;
@@ -275,16 +276,46 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       } catch { /* ignore parse errors */ }
     }
 
+    // Check for playerIn already on the live field (in-progress only, future rotations only)
+    if (gameState.status === 'in-progress') {
+      const currentMinutes = Math.floor(currentTime / 60);
+      for (const rotation of plannedRotations) {
+        if (rotation.gameMinute <= currentMinutes) continue; // skip past rotations
+        try {
+          const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
+          for (const sub of subs) {
+            const isOnField = lineup.some(l => l.isStarter && l.playerId === sub.playerInId);
+            if (isOnField) {
+              const player = players.find(p => p.id === sub.playerInId);
+              const existing = conflicts.find(c => c.playerId === sub.playerInId && c.type === 'on-field');
+              if (existing) {
+                if (!existing.rotationNumbers.includes(rotation.rotationNumber)) {
+                  existing.rotationNumbers.push(rotation.rotationNumber);
+                }
+              } else {
+                conflicts.push({
+                  type: 'on-field',
+                  playerId: sub.playerInId,
+                  playerName: player
+                    ? `#${player.playerNumber} ${player.firstName} ${player.lastName}`
+                    : 'Unknown',
+                  status: 'on-field',
+                  rotationNumbers: [rotation.rotationNumber],
+                });
+              }
+            }
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+    }
+
     return conflicts;
   };
 
   const handleRecalculateRotations = async () => {
     if (!gamePlan || plannedRotations.length === 0) return;
-
-    if (!gamePlan.startingLineup) {
-      showWarning('No starting lineup found in the game plan.');
-      return;
-    }
 
     const confirmed = await confirm({
       title: 'Recalculate Rotations',
@@ -310,12 +341,19 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           preferredPositions: p.preferredPositions,
         }));
 
-      // Parse starting lineup, filtering out unavailable starters
-      const fullLineup = JSON.parse(gamePlan.startingLineup as string) as Array<{ playerId: string; positionId: string }>;
-      const lineupArray = fullLineup.filter(entry => {
-        const status = getPlayerAvailability(entry.playerId);
-        return status === 'available' || status === 'late-arrival';
-      });
+      // Use live lineup instead of gamePlan.startingLineup for mid-game recalculations
+      const liveStarters = lineup.filter(l => l.isStarter);
+      if (liveStarters.length === 0) {
+        showWarning('No active lineup found. Please set up the lineup before recalculating.');
+        setIsRecalculating(false);
+        return;
+      }
+      const lineupArray = liveStarters
+        .map(l => ({ playerId: l.playerId, positionId: l.positionId }))
+        .filter((entry): entry is { playerId: string; positionId: string } => {
+          const status = getPlayerAvailability(entry.playerId);
+          return (status === 'available' || status === 'late-arrival') && entry.positionId != null;
+        });
 
       if (lineupArray.length === 0) {
         showWarning('No available players in the starting lineup. Adjust the lineup in the Game Planner first.');
@@ -332,6 +370,13 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       });
       const goaliePositionId = goaliePos?.id;
 
+      // Compute accumulated play time per player (seconds → minutes) for fairness seeding
+      const initialPlayTimeMinutes = new Map<string, number>();
+      for (const player of availableRoster) {
+        const accSecs = calculatePlayerPlayTime(player.playerId, playTimeRecords, currentTime);
+        initialPlayTimeMinutes.set(player.playerId, accSecs / 60);
+      }
+
       const { rotations: generatedRotations } = calculateFairRotations(
         availableRoster,
         lineupArray,
@@ -340,17 +385,20 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         team.maxPlayersOnField || positions.length,
         goaliePositionId,
         undefined,
-        { rotationIntervalMinutes, halfLengthMinutes, positions, playerAvailabilities },
+        { rotationIntervalMinutes, halfLengthMinutes, positions, playerAvailabilities, initialPlayTimeMinutes },
       );
 
-      // Update each rotation with generated substitutions
-      const updates = plannedRotations.map((rotation, idx) => {
-        const generated = generatedRotations[idx];
-        return client.models.PlannedRotation.update({
-          id: rotation.id,
-          plannedSubstitutions: JSON.stringify(generated?.substitutions || []),
+      // Update only future rotations with generated substitutions
+      const currentMinutes = Math.floor(currentTime / 60);
+      const updates = plannedRotations
+        .filter(rotation => rotation.gameMinute > currentMinutes)
+        .map((rotation, idx) => {
+          const generated = generatedRotations[idx];
+          return client.models.PlannedRotation.update({
+            id: rotation.id,
+            plannedSubstitutions: JSON.stringify(generated?.substitutions || []),
+          });
         });
-      });
 
       await Promise.all(updates);
 
@@ -931,6 +979,9 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           isRotationModalOpen={rotationModalOpen}
           onOpenRotationModal={() => { setRotationModalOpen(true); trackEvent(AnalyticsEvents.ROTATION_WIDGET_OPENED.category, AnalyticsEvents.ROTATION_WIDGET_OPENED.action); }}
           onCloseRotationModal={() => setRotationModalOpen(false)}
+          onRecalculateRotations={handleRecalculateRotations}
+          isRecalculating={isRecalculating}
+          getPlanConflicts={getPlanConflicts}
         />
 
         {/* Substitution modal (always mounted) */}

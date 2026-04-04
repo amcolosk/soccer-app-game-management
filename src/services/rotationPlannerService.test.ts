@@ -646,6 +646,95 @@ describe('rotationPlannerService', () => {
         expect(pt).toBeGreaterThanOrEqual(threshold);
       });
     });
+
+    it('initialPlayTimeMinutes seeds play time so player with 0 accumulated minutes gets priority over player with 20', () => {
+      // 5 players, 3 field positions → 2 bench players, 1 sub per rotation
+      // p4 has 20 accumulated minutes, p5 has 0 → p5 should be subbed in first
+      // Bench players intentionally have no preferredPositions so play-time ordering governs
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' },
+        { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: 'pos2' },
+        { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: 'pos3' },
+        { id: 'r4', playerId: 'p4', playerNumber: 4 }, // no preferredPositions
+        { id: 'r5', playerId: 'p5', playerNumber: 5 }, // no preferredPositions
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+      ];
+
+      const initialPlayTimeMinutes = new Map<string, number>([
+        ['p1', 0],
+        ['p2', 0],
+        ['p3', 0],
+        ['p4', 20],
+        ['p5', 0],
+      ]);
+
+      const { rotations } = calculateFairRotations(
+        players,
+        startingLineup,
+        4,
+        2,
+        3,
+        undefined,
+        undefined,
+        { rotationIntervalMinutes: 10, halfLengthMinutes: 30, initialPlayTimeMinutes },
+      );
+
+      expect(rotations.length).toBeGreaterThan(0);
+      const firstRotSubs = rotations[0].substitutions;
+      // p5 (0 accumulated) should be chosen for the first rotation, not p4 (20 accumulated)
+      const incomingIds = firstRotSubs.map(s => s.playerInId);
+      expect(incomingIds).toContain('p5');
+      expect(incomingIds).not.toContain('p4');
+    });
+
+    it('players with fewer accumulated minutes get priority over those with more', () => {
+      // Similar to above but with 10 vs 20 minutes to verify relative ordering works
+      // Bench players intentionally have no preferredPositions so play-time ordering governs
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' },
+        { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: 'pos2' },
+        { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: 'pos3' },
+        { id: 'r4', playerId: 'p4', playerNumber: 4 }, // 20 min, no preferredPositions
+        { id: 'r5', playerId: 'p5', playerNumber: 5 }, // 10 min, no preferredPositions
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+      ];
+
+      const initialPlayTimeMinutes = new Map<string, number>([
+        ['p1', 0],
+        ['p2', 0],
+        ['p3', 0],
+        ['p4', 20],
+        ['p5', 10],
+      ]);
+
+      const { rotations } = calculateFairRotations(
+        players,
+        startingLineup,
+        4,
+        2,
+        3,
+        undefined,
+        undefined,
+        { rotationIntervalMinutes: 10, halfLengthMinutes: 30, initialPlayTimeMinutes },
+      );
+
+      expect(rotations.length).toBeGreaterThan(0);
+      const firstRotSubs = rotations[0].substitutions;
+      // p5 (10 minutes) should be chosen before p4 (20 minutes)
+      const incomingIds = firstRotSubs.map(s => s.playerInId);
+      expect(incomingIds).toContain('p5');
+      expect(incomingIds).not.toContain('p4');
+    });
   });
 
   describe('calculatePlayTime', () => {
