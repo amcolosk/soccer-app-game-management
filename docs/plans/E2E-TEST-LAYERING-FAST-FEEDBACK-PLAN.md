@@ -282,9 +282,97 @@ Move data isolation and safe-delete policy confidence out of broad browser asser
   - Mitigation: boundary definition and explicit no-UI rule in test file headers/review checklist.
 
 ### Increment 3: Planner and note-flow migration
-1. Migrate deterministic planner behavior from `e2e/game-planner.spec.ts` into integration tests.
-2. Migrate non-viewport-dependent note modal assertions from `e2e/game-management-direct-note.mobile.spec.ts`.
-3. Keep one browser path per critical planner/note user journey.
+
+#### Increment 3 objective
+Migrate deterministic planner/note behaviors from two E2E specs into Vitest integration tests, retaining minimal browser smoke paths that verify only real frontend wiring.
+
+#### Scope
+1. Shared game fixture builders for planner/note test data.
+2. New Vitest integration tests for planner UI controls and plan display state.
+3. New Vitest integration tests for note modal Cancel behavior (internal and externally-controlled modes).
+4. Demote `e2e/game-planner.spec.ts` to wiring-only smoke (timeline create path + coaching notes CRUD confirm/cancel wiring).
+5. Demote `e2e/game-management-direct-note.mobile.spec.ts` to single iPhone 12 viewport with 3 wiring-only tests.
+6. Add both demoted specs to the `smoke` Playwright project.
+7. Expand plan documentation with assertion ownership matrix and smoke matrix per spec.
+
+#### Increment 3 file-by-file change list
+1. `src/test/fixtures/gameFixtures.ts` (new)
+   - `gameFixture(overrides?)` — defaults: id, status, currentHalf, elapsedSeconds, lastStartTime, opponent, teamId, halfLengthMinutes, coaches.
+   - `gamePlanFixture(overrides?)` — defaults: id, gameId, rotationIntervalMinutes, startingLineup, halftimeLineup.
+   - `plannedRotationFixture(overrides?)` — defaults: id, gamePlanId, gameId, rotationNumber, gameMinute, half, plannedSubstitutions.
+   - `gameNoteFixture(overrides?)` — defaults: id, gameId, noteType, notes, gameSeconds, half, coaches.
+   - Standalone data-builder module; does not implicitly import harness.
+2. `src/components/GamePlanner.interaction.test.tsx` (extended)
+   - New `describe('planner controls and plan display', ...)` block appended to existing file.
+   - 6 new test cases covering: interval input label, Create/Update button state, Copy from Previous visibility, Projected Play Time section, substitution display in rotation panel.
+   - Do not modify existing tests.
+3. `src/components/GameManagement/PlayerNotesPanel.test.tsx` (extended)
+   - New case: `'Cancel button dismisses modal in internal mode'`.
+   - New case: `'external control: Cancel calls onRequestCloseNote'`.
+   - Appended to existing describe block; existing tests untouched.
+4. `e2e/game-planner.spec.ts` (demoted)
+   - 6 players (5 positions + 1 bench minimum for rotation generation).
+   - Retained test 1 — smoke "Complete game planning workflow": container visible → interval input → Create Game Plan → timeline strip appears. No deep plan/substitution/play time assertions.
+   - Retained test 2 — smoke "Pre-game coaching notes CRUD": create → visible, delete-confirm → gone, re-create → delete-cancel → still visible.
+   - Removed: deep helper functions (verifyPrePlanSelectablePills, verifyTimeline, verifySubstitutionDisplay, verifyPlayTimeReport, testCopyFromPrevious, planSubstitutions). Simplified setupLineup to one-pass only.
+5. `e2e/game-management-direct-note.mobile.spec.ts` (demoted)
+   - Replaced for...of viewport loop with `test.use({ ...devices['iPhone 12'] })` at file level.
+   - Single `test.describe('Direct Note Entry — Mobile', ...)` block.
+   - Retained test 1: `'CommandBand note button exists and has accessible name "Add note"'`.
+   - Retained test 2 (renamed): `'Tap Add note → dialog visible → Cancel → dismissed'` — open modal, click Cancel, modal gone.
+   - Retained test 3: `'Save button remains within viewport when note textarea is focused (narrow keyboard-open simulation)'`.
+   - Dropped: tab-switching tests, halftime note test, multi-viewport iteration.
+6. `playwright.config.ts` (updated)
+   - Added `'**/game-planner.spec.ts'` and `'**/game-management-direct-note.mobile.spec.ts'` to smoke project `testMatch`.
+   - Inline comment: wiring-only smoke checks; semantics covered by Vitest integration tests.
+7. `docs/plans/E2E-TEST-LAYERING-FAST-FEEDBACK-PLAN.md` (this file)
+   - Replaced brief Increment 3 backlog entry with full section.
+
+#### Assertion ownership (Increment 3)
+| Assertion domain | Primary layer | Smoke role |
+|---|---|---|
+| Interval input accessible label | `GamePlanner.interaction.test.tsx` (Layer B) | Wiring: input is reachable in browser |
+| Create vs Update button state | `GamePlanner.interaction.test.tsx` (Layer B) | Wiring: button leads to timeline |
+| Copy from Previous visibility | `GamePlanner.interaction.test.tsx` (Layer B) | None |
+| Projected Play Time section | `GamePlanner.interaction.test.tsx` (Layer B) | None |
+| Substitution display in rotation panel | `GamePlanner.interaction.test.tsx` (Layer B) | None |
+| Note modal Cancel (internal mode) | `PlayerNotesPanel.test.tsx` (Layer B) | Wiring: Cancel exists and closes |
+| Note modal Cancel (external mode) | `PlayerNotesPanel.test.tsx` (Layer B) | None |
+| CommandBand note button accessible name | `PlayerNotesPanel.test.tsx` (Layer B) | Wiring: accessible name surfaced in browser |
+| Save button viewport visibility | N/A (viewport simulation) | Smoke only |
+| Timeline create wiring (planner) | Smoke only | Yes |
+| Coaching notes CRUD confirm/cancel | Smoke only | Yes |
+
+#### Smoke matrix per spec (Increment 3)
+**`e2e/game-planner.spec.ts`:**
+- Container visible after data setup and navigation.
+- Interval input reachable when Rotations tab active.
+- "Create Game Plan" button leads to timeline strip appearing.
+- Coaching note create → text visible.
+- Delete-confirm → "No coaching points yet." visible.
+- Delete-cancel → note still visible.
+
+**`e2e/game-management-direct-note.mobile.spec.ts`:**
+- CommandBand note button has accessible name "Add note".
+- Open modal → Cancel → dialog dismissed.
+- Save button scrollable into view when textarea focused with narrow viewport.
+
+#### Increment 3 sequencing
+1. Add `src/test/fixtures/gameFixtures.ts` so fixture types are available.
+2. Extend `GamePlanner.interaction.test.tsx` and `PlayerNotesPanel.test.tsx` with new Layer B tests.
+3. Demote `e2e/game-planner.spec.ts` to smoke assertions.
+4. Demote `e2e/game-management-direct-note.mobile.spec.ts` to single viewport + 3 tests.
+5. Update `playwright.config.ts` smoke testMatch.
+6. Update plan documentation.
+7. Validate with `npm run test:fast`, `npm run test:e2e:smoke`, `npm run gate:commit`.
+
+#### Increment 3 risks and edge cases
+1. Risk: planner Layer B tests couple too tightly to internal label strings.
+   - Mitigation: test against aria-label and role selectors, not CSS classes.
+2. Risk: mobile smoke viewport simulation is brittle across Playwright versions.
+   - Mitigation: use `devices['iPhone 12'].viewport` constant rather than hardcoded dimensions.
+3. Risk: existing `seededStateReady` module-level flag may cause cross-test contamination when tests run in parallel workers.
+   - Mitigation: `workers: 1` in smoke lane ensures serial execution for shared seeded state.
 
 ### Increment 4: Browser hardening and CI policy
 1. Replace remaining fixed sleeps in `e2e/helpers.ts` with state-driven waits.

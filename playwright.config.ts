@@ -51,11 +51,20 @@ export default defineConfig({
         '**/player-management.spec.ts',
         '**/data-isolation.spec.ts',
         '**/safe-deletes.spec.ts',
+        // Wiring-only smoke checks; planner/note semantics owned by Vitest integration tests (Layer B)
+        '**/game-planner.spec.ts',
+        '**/game-management-direct-note.mobile.spec.ts',
       ],
       use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'full',
+      // game-planner.spec.ts and game-management-direct-note.mobile.spec.ts run in smoke only
+      // to avoid duplicate seeding in combined runs.
+      testIgnore: [
+        '**/game-planner.spec.ts',
+        '**/game-management-direct-note.mobile.spec.ts',
+      ],
       use: { ...devices['Desktop Chrome'] },
     },
   ],
