@@ -1011,12 +1011,14 @@ describe("GameManagement – getPlanConflicts on-field detection", () => {
     mockUseTeamData.mockReturnValue({ players: [], positions: [] });
   });
 
-  it("detects 'on-field' conflict when playerIn is already a starter in a future rotation during in-progress game", () => {
+  it("detects 'on-field' conflict when BOTH playerIn and playerOut are starters in a future rotation (true conflict)", () => {
     mockUseGameSubscriptions.mockReturnValue({
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
       lineup: [
+        // Both player-C (playerIn) and player-D (playerOut) are simultaneously on field — true conflict
         { id: 'la-C', gameId: 'game-1', playerId: 'player-C', positionId: 'pos2', isStarter: true },
+        { id: 'la-D', gameId: 'game-1', playerId: 'player-D', positionId: 'pos1', isStarter: true },
       ],
       plannedRotations: [futureRotation],
       gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10 } as any,
@@ -1029,6 +1031,108 @@ describe("GameManagement – getPlanConflicts on-field detection", () => {
     const onFieldConflict = conflicts.find((c: any) => c.type === 'on-field' && c.playerId === 'player-C');
     expect(onFieldConflict).toBeDefined();
     expect(onFieldConflict.rotationNumbers).toContain(1);
+  });
+
+  // Scenario A — Bug 1: CC injured, EE subs in emergency; plan CC→EE is effectively executed
+  it("Scenario A: no conflict when sub is effectively executed (playerIn on field, playerOut off field)", () => {
+    // EE (playerIn) is now on field; CC (playerOut) is NOT in lineup — effectively executed
+    const executedRotation = {
+      id: 'rot-executed',
+      rotationNumber: 2,
+      gameMinute: 40,
+      half: 1,
+      plannedSubstitutions: JSON.stringify([
+        { playerInId: 'player-EE', playerOutId: 'player-CC', positionId: 'pos1' },
+      ]),
+    };
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+      lineup: [
+        { id: 'la-EE', gameId: 'game-1', playerId: 'player-EE', positionId: 'pos1', isStarter: true },
+        // player-CC is NOT in lineup (was injured and replaced)
+      ],
+      playerAvailabilities: [
+        { id: 'av-CC', playerId: 'player-CC', status: 'injured', gameId: 'game-1', coaches: ['coach-1'] },
+      ],
+      plannedRotations: [executedRotation],
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10 } as any,
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    const conflicts = mockCaptures.rotationWidgetProps?.getPlanConflicts?.();
+    expect(conflicts).toBeDefined();
+    // No rotation or on-field conflict should be produced — EE is on field, CC is off field → effectively executed
+    const rotationConflict = conflicts.find((c: any) => c.playerId === 'player-CC' || c.playerId === 'player-EE');
+    expect(rotationConflict).toBeUndefined();
+  });
+
+  // Scenario B — true on-field conflict must still fire
+  it("Scenario B: 'on-field' conflict fires when both playerIn (C) and playerOut (A) are simultaneously on field", () => {
+    const trueConflictRotation = {
+      id: 'rot-true-conflict',
+      rotationNumber: 3,
+      gameMinute: 40,
+      half: 1,
+      plannedSubstitutions: JSON.stringify([
+        { playerInId: 'player-C', playerOutId: 'player-A', positionId: 'pos1' },
+      ]),
+    };
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+      lineup: [
+        { id: 'la-A', gameId: 'game-1', playerId: 'player-A', positionId: 'pos1', isStarter: true },
+        { id: 'la-C', gameId: 'game-1', playerId: 'player-C', positionId: 'pos3', isStarter: true },
+      ],
+      plannedRotations: [trueConflictRotation],
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10 } as any,
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    const conflicts = mockCaptures.rotationWidgetProps?.getPlanConflicts?.();
+    expect(conflicts).toBeDefined();
+    const onFieldConflict = conflicts.find((c: any) => c.type === 'on-field' && c.playerId === 'player-C');
+    expect(onFieldConflict).toBeDefined();
+    expect(onFieldConflict.rotationNumbers).toContain(3);
+  });
+
+  // Scenario C — Bug 2: halftime subs applied; second half starts; no conflict
+  it("Scenario C: no conflict when all halftime subs are effectively executed at start of second half", () => {
+    // Halftime rotation: player-B replaced player-A, player-D replaced player-C
+    const halftimeRotation = {
+      id: 'rot-halftime',
+      rotationNumber: 1,
+      gameMinute: 30,
+      half: 1,
+      plannedSubstitutions: JSON.stringify([
+        { playerInId: 'player-B', playerOutId: 'player-A', positionId: 'pos1' },
+        { playerInId: 'player-D', playerOutId: 'player-C', positionId: 'pos2' },
+      ]),
+    };
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress', currentHalf: 2 },
+      // All sub-ins are now starters; sub-outs are not in lineup
+      lineup: [
+        { id: 'la-B', gameId: 'game-1', playerId: 'player-B', positionId: 'pos1', isStarter: true },
+        { id: 'la-D', gameId: 'game-1', playerId: 'player-D', positionId: 'pos2', isStarter: true },
+      ],
+      plannedRotations: [halftimeRotation],
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10 } as any,
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    const conflicts = mockCaptures.rotationWidgetProps?.getPlanConflicts?.();
+    expect(conflicts).toBeDefined();
+    // All subs are effectively executed — no rotation conflicts should fire
+    const anyConflict = conflicts.find(
+      (c: any) => ['player-A', 'player-B', 'player-C', 'player-D'].includes(c.playerId)
+    );
+    expect(anyConflict).toBeUndefined();
   });
 
   it("does NOT flag a past rotation as 'on-field' conflict", () => {

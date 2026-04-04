@@ -4,6 +4,7 @@ import { showSuccess } from "../../utils/toast";
 import { handleApiError } from "../../utils/errorHandler";
 import { useAvailability } from "../../contexts/AvailabilityContext";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
+import { isRotationFullyExecuted, isSubEffectivelyExecuted } from "../../utils/rotationConflictUtils";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import type {
   Game,
@@ -84,8 +85,10 @@ export function RotationWidget({
 
     const currentMinutes = Math.floor(currentTime / 60);
     return plannedRotations.find(r => {
-      return r.half === gameState.currentHalf &&
-             r.gameMinute >= currentMinutes - 2;
+      if (r.half !== gameState.currentHalf) return false;
+      if (r.gameMinute < currentMinutes - 2) return false;
+      if (isRotationFullyExecuted(r.plannedSubstitutions as string, lineup ?? [])) return false;
+      return true;
     }) || null;
   };
 
@@ -164,11 +167,16 @@ export function RotationWidget({
             try {
               const subs: PlannedSubstitution[] = JSON.parse(nextRotation.plannedSubstitutions as string);
               return subs.filter(sub => {
+                // Rotation already physically executed — playerIn on field, playerOut off field
+                if (isSubEffectivelyExecuted(sub, lineup ?? [])) return false;
                 const inStatus = getPlayerAvailability(sub.playerInId);
                 const outStatus = getPlayerAvailability(sub.playerOutId);
-                const isAlreadyOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerInId) ?? false;
+                const playerInOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerInId) ?? false;
+                const playerOutOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerOutId) ?? false;
+                // True on-field conflict: both players are simultaneously on the field
+                const isTrueOnFieldConflict = playerInOnField && playerOutOnField;
                 return (
-                  isAlreadyOnField ||
+                  isTrueOnFieldConflict ||
                   inStatus === 'absent' || inStatus === 'injured' ||
                   outStatus === 'absent' || outStatus === 'injured'
                 );

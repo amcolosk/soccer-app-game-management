@@ -34,6 +34,7 @@ import { AvailabilityProvider } from "../../contexts/AvailabilityContext";
 import { useHelpFab } from "../../contexts/HelpFabContext";
 import type { HelpScreenKey } from "../../help";
 import { buildFlatDebugSnapshot } from "../../utils/debugUtils";
+import { isSubEffectivelyExecuted } from "../../utils/rotationConflictUtils";
 import type { GameManagementDebugContext } from "../../types/debug";
 import { useWakeLock } from "../../hooks/useWakeLock";
 import { useGameNotification } from "../../hooks/useGameNotification";
@@ -252,6 +253,9 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       try {
         const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
         for (const sub of subs) {
+          // CRITICAL: Only skip in in-progress state.
+          // In scheduled state, 'lineup' contains the pre-game starting lineup, not live substitution state.
+          if (gameState.status === 'in-progress' && isSubEffectivelyExecuted(sub, lineup)) continue;
           for (const pid of [sub.playerOutId, sub.playerInId]) {
             const status = getPlayerAvailability(pid);
             if (status === 'absent' || status === 'injured') {
@@ -284,8 +288,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         try {
           const subs: PlannedSubstitution[] = JSON.parse(rotation.plannedSubstitutions as string);
           for (const sub of subs) {
-            const isOnField = lineup.some(l => l.isStarter && l.playerId === sub.playerInId);
-            if (isOnField) {
+            const playerInOnField = lineup.some(l => l.isStarter && l.playerId === sub.playerInId);
+            const playerOutOnField = lineup.some(l => l.isStarter && l.playerId === sub.playerOutId);
+            const isTrueOnFieldConflict = playerInOnField && playerOutOnField;
+            if (isTrueOnFieldConflict) {
               const player = players.find(p => p.id === sub.playerInId);
               const existing = conflicts.find(c => c.playerId === sub.playerInId && c.type === 'on-field');
               if (existing) {
