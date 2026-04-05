@@ -80,7 +80,8 @@ jobs:
           fi
 
           is_mainline=false
-          if [[ "$is_push_main" == "true" || "$is_merge_group" == "true" || "$is_workflow_dispatch" == "true" ]]; then
+          if [[ "$is_push_main" == "true" || "$is_merge_group" == "true" || \
+                "$is_workflow_dispatch" == "true" ]]; then
             is_mainline=true
           fi
 
@@ -288,7 +289,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run smoke E2E suite
-        run: npx playwright test --config=playwright.config.ts e2e/auth.spec.ts e2e/team-management.spec.ts
+        run: npx playwright test --config=playwright.config.ts --project=smoke
 
       - name: Cleanup Amplify outputs
         if: always()
@@ -409,7 +410,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run full E2E suite
-        run: npx playwright test --config=playwright.config.ts
+        run: npx playwright test --config=playwright.config.ts --project=full
 
       - name: Cleanup Amplify outputs
         if: always()

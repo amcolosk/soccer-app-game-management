@@ -362,7 +362,112 @@ describe("RotationWidget", () => {
     );
 
     expect(
-      screen.getByText(/No rotation changes available\. Planned players are marked injured\./i),
+      screen.getByText(/No rotation changes available\. All planned players are either unavailable or already on the field\./i),
     ).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stale rotation conflict detection (execution state awareness)
+// ---------------------------------------------------------------------------
+describe("RotationWidget – stale rotation conflict detection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetPlayerAvailability.mockReturnValue("available");
+  });
+
+  // Test A: fully-executed rotation is hidden from countdown banner
+  it("A: skips a fully-executed rotation in the countdown banner (playerIn on field, playerOut off field)", () => {
+    // p2 is on field (playerIn executed), p1 is NOT in lineup (playerOut went off)
+    const executedRotation = {
+      id: "rot-executed",
+      half: 1,
+      gameMinute: 5, // within the 2-min grace window at currentTime=600 (10 min)
+      rotationNumber: 1,
+      plannedSubstitutions: JSON.stringify([
+        { playerOutId: "p1", playerInId: "p2", positionId: "pos-1" },
+      ]),
+    };
+    const lineupWithP2 = [
+      { id: "la-p2", gameId: "game-1", playerId: "p2", positionId: "pos-1", isStarter: true },
+      // p1 is NOT in lineup
+    ] as any[];
+
+    const { container } = render(
+      <RotationWidget
+        {...baseProps}
+        plannedRotations={[executedRotation] as any}
+        lineup={lineupWithP2}
+        currentTime={600}
+      />
+    );
+
+    // Countdown banner should not render (rotation is fully executed)
+    expect(container.querySelector(".rotation-countdown-banner")).toBeNull();
+  });
+
+  // Test B: non-executed rotation is shown in countdown banner
+  it("B: shows a non-executed rotation in the countdown banner (playerOut still on field)", () => {
+    // Normal upcoming rotation: p1 is playerOut and still on field, p2 is not on field
+    const upcomingRotation = makeRotation(15); // 15 min, within 2-min window at currentTime=780 (13 min)
+    const lineupWithP1 = [
+      { id: "la-p1", gameId: "game-1", playerId: "p1", positionId: "pos-1", isStarter: true },
+    ] as any[];
+
+    render(
+      <RotationWidget
+        {...baseProps}
+        plannedRotations={[upcomingRotation] as any}
+        lineup={lineupWithP1}
+        currentTime={780}
+      />
+    );
+
+    expect(screen.getByText(/Next Rotation:/i)).toBeInTheDocument();
+  });
+
+  // Test C: no conflict shown for effectively-executed sub (playerIn on field, playerOut off)
+  it("C: rotationConflicts returns 0 for effectively-executed sub", () => {
+    // p2 is on field (executed), p1 is NOT in lineup — should not be flagged orange
+    const executedRotation = makeRotation(12); // within 2-min window at currentTime=600
+    const lineupWithP2 = [
+      { id: "la-p2", gameId: "game-1", playerId: "p2", positionId: "pos-1", isStarter: true },
+    ] as any[];
+
+    render(
+      <RotationWidget
+        {...baseProps}
+        plannedRotations={[executedRotation] as any}
+        lineup={lineupWithP2}
+        currentTime={600}
+      />
+    );
+
+    // Countdown banner should not render (rotation is fully executed)
+    // If the banner DID render it would show has-conflicts class — absence of banner is the assertion
+    const banner = document.querySelector(".rotation-countdown-banner");
+    expect(banner).toBeNull();
+  });
+
+  // Test D: true on-field conflict (BOTH playerIn and playerOut on field) still fires
+  it("D: shows conflict badge when both playerIn and playerOut are simultaneously on field", () => {
+    const trueConflictRotation = makeRotation(12); // within 2-min window at currentTime=600
+    const lineupWithBoth = [
+      { id: "la-p1", gameId: "game-1", playerId: "p1", positionId: "pos-1", isStarter: true },
+      { id: "la-p2", gameId: "game-1", playerId: "p2", positionId: "pos-2", isStarter: true },
+    ] as any[];
+
+    render(
+      <RotationWidget
+        {...baseProps}
+        plannedRotations={[trueConflictRotation] as any}
+        lineup={lineupWithBoth}
+        currentTime={600}
+      />
+    );
+
+    // Both p1 (playerOut) and p2 (playerIn) are on field — true conflict
+    expect(screen.getByText(/Next Rotation:/i)).toBeInTheDocument();
+    expect(screen.getByText(/conflict/i)).toBeInTheDocument();
   });
 });

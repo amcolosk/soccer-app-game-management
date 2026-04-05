@@ -9,7 +9,6 @@ import { Page, expect } from '@playwright/test';
  */
 export async function waitForPageLoad(page: Page) {
   await page.waitForLoadState('networkidle');
-  await page.waitForTimeout(500); // Brief pause for any animations
   await closePWAPrompt(page);
   await closeWelcomeModal(page);
 }
@@ -19,7 +18,6 @@ export async function waitForPageLoad(page: Page) {
  */
 export async function fillInput(page: Page, selector: string, value: string) {
   await page.fill(selector, value);
-  await page.waitForTimeout(100);
 }
 
 /**
@@ -42,10 +40,8 @@ export async function clickButton(page: Page, text: string) {
 
   // Scroll into view if needed, with center alignment to avoid bottom nav
   await button.scrollIntoViewIfNeeded();
-  await page.waitForTimeout(100);
-  
+
   await button.click();
-  await page.waitForTimeout(300);
 }
 
 /**
@@ -53,7 +49,6 @@ export async function clickButton(page: Page, text: string) {
  */
 export async function clickButtonByText(page: Page, text: string | RegExp) {
   await page.getByRole('button', { name: text }).click();
-  await page.waitForTimeout(300);
 }
 
 /**
@@ -61,7 +56,6 @@ export async function clickButtonByText(page: Page, text: string | RegExp) {
  */
 export async function selectOption(page: Page, selector: string, value: string) {
   await page.selectOption(selector, value);
-  await page.waitForTimeout(200);
 }
 
 /**
@@ -146,7 +140,7 @@ export async function closeWelcomeModal(page: Page) {
     const checklistDismiss = page.locator('.quick-start-dismiss');
     if (await checklistDismiss.isVisible({ timeout: 1000 }).catch(() => false)) {
       await checklistDismiss.click();
-      await page.waitForTimeout(300);
+      await expect(page.locator('.quick-start-dismiss')).not.toBeVisible({ timeout: 2000 });
     }
   } catch {
     // Modal may not appear or already closed
@@ -167,7 +161,7 @@ export async function loginUser(page: Page, email: string, password: string) {
     // Navigate to profile and sign out
     await page.getByRole('link', { name: 'Profile' }).click();
     await page.getByRole('button', { name: 'Sign Out' }).click();
-    await expect(page.getByRole('button', { name: 'Log In' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('banner').getByRole('button', { name: 'Log In' })).toBeVisible({ timeout: 10000 });
   }
   
   // Check for Landing Page "Log In" button — scope to header to avoid ambiguity
@@ -211,6 +205,18 @@ export async function loginUser(page: Page, email: string, password: string) {
 }
 
 /**
+ * Navigate to the app and wait for it to be ready.
+ * Use instead of loginUser when the smoke project provides stored auth state.
+ */
+export async function navigateToApp(page: Page): Promise<void> {
+  await page.goto('/');
+  await page.waitForLoadState('networkidle');
+  await closePWAPrompt(page);
+  await closeWelcomeModal(page);
+  await expect(page.locator('.bottom-nav')).toBeVisible({ timeout: 10000 });
+}
+
+/**
  * Clean up all test data (players, games, teams, seasons, formations)
  * Should be called after navigating to Management page
  */
@@ -224,11 +230,10 @@ export async function cleanupTestData(page: Page) {
   // Use direct route navigation to avoid overlay interception on nav clicks.
   await page.goto('/manage');
   await page.waitForSelector('.management', { timeout: 10000 });
-  await page.waitForTimeout(500);
   
   // Clean up teams first (which will clean up rosters)
   await clickManagementTab(page, 'Teams');
-  await page.waitForTimeout(500);
+  await expect(page.getByRole('button', { name: '+ Create New Team' })).toBeVisible({ timeout: 5000 });
   
   let teamCards = page.locator('.item-card');
   let teamCount = await teamCards.count();
@@ -240,7 +245,7 @@ export async function cleanupTestData(page: Page) {
     
     while (teamCount > 0) {
       await swipeToDelete(page, '.item-card');
-      await page.waitForTimeout(1000);
+      await expect(page.locator('.item-card')).not.toHaveCount(teamCount, { timeout: 5000 });
       teamCards = page.locator('.item-card'); // Re-query to get updated list
       const newCount = await teamCards.count();
       if (newCount === teamCount) break;
@@ -253,7 +258,7 @@ export async function cleanupTestData(page: Page) {
   
   // Clean up players (now global)
   await clickManagementTab(page, 'Players');
-  await page.waitForTimeout(500);
+  await expect(page.getByRole('button', { name: '+ Add Player' })).toBeVisible({ timeout: 5000 });
   
   let playerCards = page.locator('.item-card');
   let playerCount = await playerCards.count();
@@ -265,7 +270,7 @@ export async function cleanupTestData(page: Page) {
     
     while (playerCount > 0) {
       await swipeToDelete(page, '.item-card');
-      await page.waitForTimeout(1000);
+      await expect(page.locator('.item-card')).not.toHaveCount(playerCount, { timeout: 5000 });
       playerCards = page.locator('.item-card'); // Re-query to get updated list
       const newCount = await playerCards.count();
       if (newCount === playerCount) break;
@@ -286,7 +291,7 @@ export async function cleanupTestData(page: Page) {
 
   // Clean up formations
   await clickManagementTab(page, 'Formations');
-  await page.waitForTimeout(500);
+  await expect(page.getByRole('button', { name: '+ Create Formation' })).toBeVisible({ timeout: 5000 });
   
   let formationCards = page.locator('.item-card');
   let formationCount = await formationCards.count();
@@ -299,7 +304,7 @@ export async function cleanupTestData(page: Page) {
     let stuckCount = 0;
     while (formationCount > 0) {
       await swipeToDelete(page, '.item-card');
-      await page.waitForTimeout(1000);
+      await expect(page.locator('.item-card')).not.toHaveCount(formationCount, { timeout: 5000 });
       formationCards = page.locator('.item-card'); // Re-query to get updated list
       const newCount = await formationCards.count();
       if (newCount === formationCount) {
@@ -340,7 +345,6 @@ export async function navigateToManagement(page: Page) {
   // Click Manage tab in bottom navigation
   await manageButton.click();
   await waitForPageLoad(page);
-  await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // Wait for management page to load
   await page.waitForSelector('.management', { timeout: 5000 });
@@ -355,7 +359,7 @@ export async function clickManagementTab(page: Page, tabName: 'Teams' | 'Formati
   // eslint-disable-next-line security/detect-non-literal-regexp
   const tab = page.locator('button.management-tab', { hasText: new RegExp(`^${tabName}`) });
   await tab.click();
-  await page.waitForTimeout(UI_TIMING.STANDARD);
+  await expect(tab).toHaveClass(/active/, { timeout: 3000 });
 }
 
 /**
@@ -376,7 +380,6 @@ export async function createTeam(
   if (await manageTab.isVisible({ timeout: 1000 }).catch(() => false)) {
     console.log('  Navigating to Management page...');
     await manageTab.click();
-    await page.waitForTimeout(UI_TIMING.NAVIGATION);
   }
   
   console.log('  Clicking Teams tab...');
@@ -384,7 +387,7 @@ export async function createTeam(
   
   console.log('  Clicking Create New Team button...');
   await clickButton(page, '+ Create New Team');
-  await page.waitForTimeout(UI_TIMING.STANDARD);
+  await expect(page.locator('.create-form').first()).toBeVisible({ timeout: 5000 });
   
   console.log('  Filling team form...');
   await fillInput(page, 'input[placeholder*="team name"]', teamData.name);
@@ -397,12 +400,10 @@ export async function createTeam(
     console.log(`  Selecting formation: ${formationName}...`);
     const formationSelect = page.getByLabel('Formation');
     await formationSelect.selectOption({ label: formationName });
-    await page.waitForTimeout(UI_TIMING.STANDARD);
   }
   
   console.log('  Clicking Create button...');
   await clickButton(page, 'Create');
-  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   console.log('  Verifying team was created...');
   
@@ -428,13 +429,12 @@ export async function createFormation(
   
   await clickManagementTab(page, 'Formations');
   await clickButton(page, '+ Create Formation');
-  await page.waitForTimeout(UI_TIMING.STANDARD);
-  
+  // No explicit waitForTimeout needed here: page.fill() auto-waits for the input to be actionable.
   await fillInput(page, 'input[placeholder*="Formation Name"]', formationData.name);
   await fillInput(page, 'input[placeholder*="Number of Players on Field"]', formationData.playerCount);
   
   // Positions auto-populate when playerCount is entered — fill each slot by index
-  await page.waitForTimeout(UI_TIMING.STANDARD);
+  await expect(page.locator('.position-row')).toHaveCount(parseInt(formationData.playerCount), { timeout: 5000 });
   const positionRows = page.locator('.position-row');
   for (let i = 0; i < formationData.positions.length; i++) {
     const row = positionRows.nth(i);
@@ -443,7 +443,6 @@ export async function createFormation(
   }
   
   await clickButton(page, 'Create');
-  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   // Verify formation was created
   await expect(page.getByText(formationData.name)).toBeVisible();
@@ -566,7 +565,7 @@ export function handleDismissDialog(page: Page, logMessage: boolean = true): () 
 export async function clickConfirmModalConfirm(page: Page) {
   await page.locator('.confirm-overlay').waitFor({ state: 'visible', timeout: 5000 });
   await page.locator('.confirm-btn--confirm').click();
-  await page.waitForTimeout(100);
+  await expect(page.locator('.confirm-overlay')).not.toBeVisible({ timeout: 3000 });
 }
 
 /**
@@ -576,7 +575,7 @@ export async function clickConfirmModalConfirm(page: Page) {
 export async function clickConfirmModalCancel(page: Page) {
   await page.locator('.confirm-overlay').waitFor({ state: 'visible', timeout: 5000 });
   await page.locator('.confirm-btn--cancel').click();
-  await page.waitForTimeout(100);
+  await expect(page.locator('.confirm-overlay')).not.toBeVisible({ timeout: 3000 });
 }
 
 /**
@@ -599,11 +598,10 @@ export async function addPlayerToRoster(
   const teamCard = page.locator('.item-card').filter({ hasText: teamName });
   const expandButton = teamCard.locator('button[aria-label*="roster"]').first();
   await expandButton.click();
-  await page.waitForTimeout(UI_TIMING.NAVIGATION);
 
   // Click Add Player to Roster
   await page.getByRole('button', { name: '+ Add Player to Roster' }).click();
-  await page.waitForTimeout(UI_TIMING.STANDARD);
+  await expect(page.locator('.create-form').first()).toBeVisible({ timeout: 5000 });
 
   // Select the player from the dropdown
   const rosterPlayerSelect = page.locator('.create-form select').first();
@@ -613,16 +611,16 @@ export async function addPlayerToRoster(
     expect(options.some((option) => option.includes(playerFullName))).toBeTruthy();
   }).toPass({ timeout: 10000 });
   await rosterPlayerSelect.selectOption({ label: playerFullName });
-  await page.waitForTimeout(UI_TIMING.QUICK);
 
   // Enter jersey number
   await page.fill('input[placeholder*="Player Number"]', playerNumber);
+  // Retained: no subsequent assertion before the Add click; this gives React time to
+  // process the jersey number input change before the form is submitted.
   await page.waitForTimeout(UI_TIMING.QUICK);
 
   // Submit
   const addButton = page.locator('.create-form .form-actions .btn-primary', { hasText: 'Add' }).first();
   await addButton.click();
-  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 
   console.log(`✓ Added ${playerFullName} to ${teamName} roster`);
 }
@@ -675,5 +673,5 @@ export async function swipeToDelete(page: Page, itemSelector: string) {
     return;
   }
   await deleteButton.click();
-  await page.waitForTimeout(UI_TIMING.QUICK);
+  await page.locator('.btn-delete-swipe').first().waitFor({ state: 'hidden', timeout: 2000 });
 }
