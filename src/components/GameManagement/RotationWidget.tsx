@@ -94,12 +94,12 @@ export function RotationWidget({
 
   // When the modal is opened externally (via CommandBand tap), auto-select the next rotation.
   useEffect(() => {
-    if (isRotationModalOpen && !currentRotation) {
+    if (isRotationModalOpen) {
       const next = getNextRotation();
-      if (next) setCurrentRotation(next);
+      setCurrentRotation(next ?? null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRotationModalOpen]);
+  }, [isRotationModalOpen, plannedRotations]);
 
   const handleQueueAll = () => {
     if (!currentRotation) return;
