@@ -159,6 +159,13 @@ async function ensureSeededState(page: Page): Promise<void> {
 async function navigateToInProgressGame(page: Page): Promise<boolean> {
   await ensureSeededState(page);
 
+  // If localStorage restored the game management view on page load, the CommandBand
+  // timer may already be (or become) visible — wait up to 2s before falling back.
+  const timer = page.locator('.command-band__timer');
+  if (await timer.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    return true;
+  }
+
   const seededCardOpened = await openGameByOpponent(page, SEED_DATA.inProgressOpponent);
   if (!seededCardOpened) {
     const homeTab = page.locator('a.nav-item', { hasText: 'Games' });
@@ -166,7 +173,7 @@ async function navigateToInProgressGame(page: Page): Promise<boolean> {
     await page.waitForTimeout(UI_TIMING.NAVIGATION);
 
     const anyCard = page.locator('.game-card').first();
-    if (!(await anyCard.isVisible({ timeout: 3000 }).catch(() => false))) {
+    if (!(await anyCard.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false))) {
       return false;
     }
     await anyCard.click();
@@ -174,8 +181,7 @@ async function navigateToInProgressGame(page: Page): Promise<boolean> {
   }
 
   // The game is "in-progress" when the CommandBand timer is visible
-  const timer = page.locator('.command-band__timer');
-  return timer.isVisible({ timeout: 3000 }).catch(() => false);
+  return timer.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false);
 }
 
 // ─── single viewport ──────────────────────────────────────────────────────────
@@ -184,6 +190,8 @@ async function navigateToInProgressGame(page: Page): Promise<boolean> {
 test.use({ ...devices['iPhone 12'] });
 
 test.describe('Direct Note Entry — Mobile', () => {
+  test.describe.configure({ mode: 'serial' });
+
   test.beforeEach(async ({ page }) => {
     await navigateToApp(page);
   });

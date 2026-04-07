@@ -43,13 +43,15 @@ test.describe('Formation Management Smoke', () => {
 
     await clickButton(page, 'Create');
     await expect(page.locator('.item-card').filter({ hasText: formationName })).toBeVisible();
+    // Wait for the create form to fully close (RESET dispatch fires after async DynamoDB writes)
+    await expect(page.getByRole('button', { name: '+ Create Formation' })).toBeVisible({ timeout: 5000 });
 
-    await swipeToDelete(page, '.item-card');
+    await swipeToDelete(page, `.item-card:has-text("${formationName}")`);
     await clickConfirmModalCancel(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await expect(page.locator('.item-card').filter({ hasText: formationName })).toBeVisible();
 
-    await swipeToDelete(page, '.item-card');
+    await swipeToDelete(page, `.item-card:has-text("${formationName}")`);
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     await expect(page.locator('.item-card').filter({ hasText: formationName })).not.toBeVisible();

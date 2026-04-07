@@ -234,6 +234,8 @@ export async function cleanupTestData(page: Page) {
   // Clean up teams first (which will clean up rosters)
   await clickManagementTab(page, 'Teams');
   await expect(page.getByRole('button', { name: '+ Create New Team' })).toBeVisible({ timeout: 5000 });
+  // Wait for DynamoDB subscription to deliver items before counting
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   let teamCards = page.locator('.item-card');
   let teamCount = await teamCards.count();
@@ -245,7 +247,11 @@ export async function cleanupTestData(page: Page) {
     
     while (teamCount > 0) {
       await swipeToDelete(page, '.item-card');
-      await expect(page.locator('.item-card')).not.toHaveCount(teamCount, { timeout: 5000 });
+      try {
+        await expect(page.locator('.item-card')).not.toHaveCount(teamCount, { timeout: 5000 });
+      } catch {
+        break; // swipe didn't register; stop to avoid hanging
+      }
       teamCards = page.locator('.item-card'); // Re-query to get updated list
       const newCount = await teamCards.count();
       if (newCount === teamCount) break;
@@ -259,6 +265,8 @@ export async function cleanupTestData(page: Page) {
   // Clean up players (now global)
   await clickManagementTab(page, 'Players');
   await expect(page.getByRole('button', { name: '+ Add Player' })).toBeVisible({ timeout: 5000 });
+  // Wait for DynamoDB subscription to deliver items before counting
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
   let playerCards = page.locator('.item-card');
   let playerCount = await playerCards.count();
@@ -270,7 +278,11 @@ export async function cleanupTestData(page: Page) {
     
     while (playerCount > 0) {
       await swipeToDelete(page, '.item-card');
-      await expect(page.locator('.item-card')).not.toHaveCount(playerCount, { timeout: 5000 });
+      try {
+        await expect(page.locator('.item-card')).not.toHaveCount(playerCount, { timeout: 5000 });
+      } catch {
+        break; // swipe didn't register; stop to avoid hanging
+      }
       playerCards = page.locator('.item-card'); // Re-query to get updated list
       const newCount = await playerCards.count();
       if (newCount === playerCount) break;
@@ -288,6 +300,9 @@ export async function cleanupTestData(page: Page) {
   await page.goto('/manage');
   await page.waitForSelector('.management', { timeout: 10000 });
   await page.waitForTimeout(1000);
+  // Dismiss any overlays that may have appeared after navigation
+  await closePWAPrompt(page);
+  await closeWelcomeModal(page);
 
   // Clean up formations
   await clickManagementTab(page, 'Formations');
@@ -304,7 +319,15 @@ export async function cleanupTestData(page: Page) {
     let stuckCount = 0;
     while (formationCount > 0) {
       await swipeToDelete(page, '.item-card');
-      await expect(page.locator('.item-card')).not.toHaveCount(formationCount, { timeout: 5000 });
+      try {
+        await expect(page.locator('.item-card')).not.toHaveCount(formationCount, { timeout: 5000 });
+      } catch {
+        stuckCount++;
+        if (stuckCount >= 3) break;
+        console.log(`  Formation delete stuck, retrying... (attempt ${stuckCount}/3)`);
+        await page.waitForTimeout(2000);
+        continue;
+      }
       formationCards = page.locator('.item-card'); // Re-query to get updated list
       const newCount = await formationCards.count();
       if (newCount === formationCount) {
@@ -632,13 +655,13 @@ export async function addPlayerToRoster(
  * @param itemSelector - Selector for the item card to swipe
  */
 export async function swipeToDelete(page: Page, itemSelector: string) {
-  const matchCount = await page.locator(itemSelector).count();
-  if (matchCount === 0) {
+  // Wait up to 5s for a matching element to be visible (handles async DynamoDB subscription loading)
+  const itemCard = page.locator(itemSelector).first();
+  const isVisible = await itemCard.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false);
+  if (!isVisible) {
     return;
   }
 
-  // Locate the swipeable container (use .first() if selector matches multiple elements)
-  const itemCard = page.locator(itemSelector).first();
   await itemCard.scrollIntoViewIfNeeded();
   
   // Get the bounding box to calculate swipe coordinates
@@ -648,8 +671,8 @@ export async function swipeToDelete(page: Page, itemSelector: string) {
   }
   
   // Perform a mouse drag from right to left to reveal delete button
-  // Start from the right edge, drag left by 100px
-  const startX = box.x + box.width - 10;
+  // Start from 30% of the card width (text area, well away from right-side action buttons)
+  const startX = box.x + box.width * 0.3;
   const startY = box.y + box.height / 2;
   const endX = startX - 100;
   const endY = startY;
