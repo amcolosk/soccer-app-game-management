@@ -36,6 +36,7 @@ export const AnalyticsEvents = {
 
   // Game lifecycle
   GAME_CREATED: { category: 'Game', action: 'Create Game' },
+  GAME_UPDATED: { category: 'Game', action: 'Update Game' },
   GAME_STARTED: { category: 'Game', action: 'Start Game' },
   GAME_HALFTIME: { category: 'Game', action: 'Halftime' },
   GAME_SECOND_HALF_STARTED: { category: 'Game', action: 'Start Second Half' },

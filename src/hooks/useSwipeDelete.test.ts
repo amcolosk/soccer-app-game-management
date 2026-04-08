@@ -187,3 +187,81 @@ describe('useSwipeDelete', () => {
     expect(typeof props.onMouseUp).toBe('function');
   });
 });
+
+describe('useSwipeDelete — config and direction lock', () => {
+  it('default config uses 80px open width (snap sets translateX to -80px)', () => {
+    const { result } = renderHook(() => useSwipeDelete());
+
+    act(() => {
+      result.current.getSwipeProps('a').onTouchStart({ touches: [{ clientX: 100 }] } as React.TouchEvent);
+    });
+    act(() => {
+      result.current.getSwipeProps('a').onTouchMove({ touches: [{ clientX: 50 }] } as React.TouchEvent);
+    });
+    act(() => {
+      result.current.getSwipeProps('a').onTouchEnd();
+    });
+
+    // Default openWidthPx=80; swipe of 50px > 40 (80/2) → snaps to 80px
+    expect(result.current.getSwipeStyle('a').transform).toBe('translateX(-80px)');
+  });
+
+  it('custom openWidthPx config is respected: snap sets translateX to custom width', () => {
+    const { result } = renderHook(() => useSwipeDelete({ openWidthPx: 160, maxDistancePx: 180 }));
+
+    act(() => {
+      result.current.getSwipeProps('a').onTouchStart({ touches: [{ clientX: 200 }] } as React.TouchEvent);
+    });
+    act(() => {
+      result.current.getSwipeProps('a').onTouchMove({ touches: [{ clientX: 100 }] } as React.TouchEvent);
+    });
+    act(() => {
+      result.current.getSwipeProps('a').onTouchEnd();
+    });
+
+    // swipe=100px > 80 (160/2) threshold → snaps to 160px
+    expect(result.current.getSwipeStyle('a').transform).toBe('translateX(-160px)');
+  });
+
+  it('direction-lock: vertical drag (dy > dx * 1.5) does NOT translate the element', () => {
+    const { result } = renderHook(() => useSwipeDelete());
+
+    act(() => {
+      result.current.getSwipeProps('a').onTouchStart({ touches: [{ clientX: 100, clientY: 200 }] } as unknown as React.TouchEvent);
+    });
+    // dy=30, dx=5 → dy > dx*1.5 → vertical lock
+    act(() => {
+      result.current.getSwipeProps('a').onTouchMove({ touches: [{ clientX: 95, clientY: 230 }] } as unknown as React.TouchEvent);
+    });
+
+    expect(result.current.getSwipeStyle('a').transform).toBe('translateX(-0px)');
+  });
+
+  it('direction-lock: horizontal drag (dx > dy * 1.5) DOES translate the element', () => {
+    const { result } = renderHook(() => useSwipeDelete());
+
+    act(() => {
+      result.current.getSwipeProps('a').onTouchStart({ touches: [{ clientX: 100, clientY: 200 }] } as unknown as React.TouchEvent);
+    });
+    // dx=40, dy=2 → dx > dy*1.5 → horizontal lock
+    act(() => {
+      result.current.getSwipeProps('a').onTouchMove({ touches: [{ clientX: 60, clientY: 202 }] } as unknown as React.TouchEvent);
+    });
+
+    expect(result.current.getSwipeStyle('a').transform).toBe('translateX(-40px)');
+  });
+
+  it('close() resets swipedItemId to null', () => {
+    const { result } = renderHook(() => useSwipeDelete());
+
+    act(() => {
+      result.current.getSwipeProps('a').onTouchStart({ touches: [{ clientX: 100 }] } as React.TouchEvent);
+    });
+    act(() => {
+      result.current.close();
+    });
+
+    expect(result.current.swipedItemId).toBeNull();
+    expect(result.current.getSwipeStyle('a').transform).toBe('translateX(-0px)');
+  });
+});

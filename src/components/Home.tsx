@@ -1,4 +1,8 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useSwipeDelete } from '../hooks/useSwipeDelete';
+import { deleteGameCascade } from '../services/cascadeDeleteService';
+import { useConfirm } from './ConfirmModal';
+import { isoToDatetimeLocal } from '../utils/gameTimeUtils';
 import { useNavigate } from 'react-router-dom';
 import { useAuthenticator } from '@aws-amplify/ui-react';
 import { getCurrentUser } from 'aws-amplify/auth';
@@ -37,10 +41,17 @@ export function Home() {
   const [gameDate, setGameDate] = useState('');
   const [isHome, setIsHome] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | undefined>();
+  const [editingGameId, setEditingGameId] = useState<string | null>(null);
+  const [editOpponent, setEditOpponent] = useState('');
+  const [editGameDate, setEditGameDate] = useState('');
+  const [editIsHome, setEditIsHome] = useState(true);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [profileComplete, setProfileComplete] = useState(false);
   const [isProfileCompletionResolved, setIsProfileCompletionResolved] = useState(false);
 
   const scheduleGameButtonRef = useRef<HTMLButtonElement>(null);
+  const { getSwipeProps, getSwipeStyle, close: closeSwipe } = useSwipeDelete({ openWidthPx: 160, maxDistancePx: 180 });
+  const confirm = useConfirm();
 
   useEffect(() => {
     if (authStatus === 'authenticated') {
@@ -405,6 +416,65 @@ export function Home() {
     });
   };
 
+  const handleEditGame = useCallback((game: Game) => {
+    closeSwipe();
+    setEditingGameId(game.id);
+    setEditOpponent(game.opponent ?? '');
+    setEditGameDate(isoToDatetimeLocal(game.gameDate));
+    setEditIsHome(game.isHome ?? true);
+  }, [closeSwipe]);
+
+  const handleSaveEditGame = useCallback(async () => {
+    if (!editingGameId) return;
+    if (!editOpponent.trim()) {
+      showWarning('Please enter an opponent name');
+      return;
+    }
+    setIsSavingEdit(true);
+    const timeoutId = setTimeout(() => {
+      setIsSavingEdit(false);
+      showError('Could not confirm save — check your connection and try again.');
+    }, 5000);
+    try {
+      await client.models.Game.update({
+        id: editingGameId,
+        opponent: editOpponent.trim(),
+        isHome: editIsHome,
+        gameDate: editGameDate ? new Date(editGameDate).toISOString() : null,
+      });
+      clearTimeout(timeoutId);
+      trackEvent(AnalyticsEvents.GAME_UPDATED.category, AnalyticsEvents.GAME_UPDATED.action);
+      setEditingGameId(null);
+      setIsSavingEdit(false);
+    } catch (error) {
+      clearTimeout(timeoutId);
+      setIsSavingEdit(false);
+      handleApiError(error, 'Failed to update game');
+    }
+  }, [editingGameId, editOpponent, editIsHome, editGameDate]);
+
+  const handleCancelEditGame = useCallback(() => {
+    setEditingGameId(null);
+    setIsSavingEdit(false);
+  }, []);
+
+  const handleDeleteGameFromHome = useCallback(async (game: Game) => {
+    closeSwipe();
+    const confirmed = await confirm({
+      title: 'Delete Game',
+      message: 'Are you sure you want to delete this game? This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await deleteGameCascade(game.id);
+      trackEvent(AnalyticsEvents.GAME_DELETED.category, AnalyticsEvents.GAME_DELETED.action);
+    } catch (error) {
+      handleApiError(error, 'Failed to delete game');
+    }
+  }, [closeSwipe, confirm]);
+
   const handlePlanClick = (game: Game) => {
     const team = getTeam(game.teamId);
     void navigate(`/game/${game.id}/plan`, {
@@ -555,48 +625,107 @@ export function Home() {
           {scheduledGames.map((game) => {
             const team = getTeam(game.teamId);
             if (!team) return null;
-            
+
+            const isEditingThis = editingGameId === game.id;
+
             return (
-              <div 
-                key={game.id} 
-                className="game-card"
-              >
-                <div 
-                  className="game-card-content"
-                  onClick={() => handleGameClick(game)}
-                >
-                  <div className="game-status">
-                    {getStatusBadge(game.status)}
+              <div key={game.id} className="swipeable-item-container">
+                {isEditingThis ? (
+                  <div className="create-form">
+                    <h3>Edit Game</h3>
+                    <input
+                      type="text"
+                      placeholder="Opponent Team Name *"
+                      value={editOpponent}
+                      onChange={(e) => setEditOpponent(e.target.value)}
+                      maxLength={100}
+                      autoFocus
+                    />
+                    <input
+                      type="datetime-local"
+                      value={editGameDate}
+                      onChange={(e) => setEditGameDate(e.target.value)}
+                    />
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={editIsHome}
+                        onChange={(e) => setEditIsHome(e.target.checked)}
+                      />
+                      Home Game
+                    </label>
+                    <div className="form-actions">
+                      <button
+                        onClick={handleSaveEditGame}
+                        className="btn-primary"
+                        disabled={isSavingEdit}
+                      >
+                        {isSavingEdit ? 'Saving…' : 'Save Changes'}
+                      </button>
+                      <button onClick={handleCancelEditGame} className="btn-secondary" disabled={isSavingEdit}>
+                        Cancel
+                      </button>
+                    </div>
                   </div>
-                  <div className="game-info">
-                    <h4>{team.name} vs {game.opponent}</h4>
-                    <p className="game-meta">
-                      {game.isHome ? '🏠 Home' : '✈️ Away'}
-                      {game.gameDate && ` • ${formatDate(game.gameDate)}`}
-                    </p>
-                  </div>
-                </div>
-                <div className="game-card-actions">
-                    <button
-                      className="plan-button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handlePlanClick(game);
-                      }}
+                ) : (
+                  <>
+                    <div
+                      className="game-card"
+                      {...getSwipeProps(game.id)}
+                      style={getSwipeStyle(game.id)}
+                      aria-label={`${team.name} vs ${game.opponent}, scheduled. Swipe left for edit and delete options.`}
                     >
-                      📋 Plan Game
-                    </button>
-                    <button
-                      className="open-game-button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        trackEvent(AnalyticsEvents.GAME_OPENED.category, AnalyticsEvents.GAME_OPENED.action);
-                        handleGameClick(game);
-                      }}
-                    >
-                      ▶ Open Game
-                    </button>
-                  </div>
+                      <div
+                        className="game-card-content"
+                        onClick={() => handleGameClick(game)}
+                      >
+                        <div className="game-status">{getStatusBadge(game.status)}</div>
+                        <div className="game-info">
+                          <h4>{team.name} vs {game.opponent}</h4>
+                          <p className="game-meta">
+                            {game.isHome ? '🏠 Home' : '✈️ Away'}
+                            {game.gameDate && ` • ${formatDate(game.gameDate)}`}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="game-card-actions">
+                        <button
+                          className="plan-button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePlanClick(game);
+                          }}
+                        >
+                          📋 Plan Game
+                        </button>
+                        <button
+                          className="open-game-button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            trackEvent(AnalyticsEvents.GAME_OPENED.category, AnalyticsEvents.GAME_OPENED.action);
+                            handleGameClick(game);
+                          }}
+                        >
+                          ▶ Open Game
+                        </button>
+                      </div>
+                    </div>
+                    <div className="game-card-swipe-reveal">
+                      <button
+                        className="btn-edit-swipe"
+                        onClick={() => handleEditGame(game)}
+                      >
+                        ✏️ Edit
+                      </button>
+                      <button
+                        className="btn-delete-swipe-game"
+                        onClick={() => handleDeleteGameFromHome(game)}
+                      >
+                        🗑 Delete
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             );
           })}

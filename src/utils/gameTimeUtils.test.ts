@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatGameTimeDisplay, formatMinutesSeconds } from './gameTimeUtils';
+import { formatGameTimeDisplay, formatMinutesSeconds, isoToDatetimeLocal } from './gameTimeUtils';
 
 describe('formatGameTimeDisplay', () => {
   it('should format time for 1st half', () => {
@@ -69,5 +69,33 @@ describe('formatMinutesSeconds', () => {
     expect(formatMinutesSeconds(1)).toBe('00:01');
     expect(formatMinutesSeconds(61)).toBe('01:01');
     expect(formatMinutesSeconds(3661)).toBe('61:01');
+  });
+});
+
+describe('isoToDatetimeLocal', () => {
+  it('returns empty string for null', () => {
+    expect(isoToDatetimeLocal(null)).toBe('');
+  });
+  it('returns empty string for undefined', () => {
+    expect(isoToDatetimeLocal(undefined)).toBe('');
+  });
+  it('returns empty string for empty string', () => {
+    expect(isoToDatetimeLocal('')).toBe('');
+  });
+  it('returns empty string for invalid date', () => {
+    expect(isoToDatetimeLocal('not-a-date')).toBe('');
+  });
+  it('converts a UTC ISO string to local datetime-local format', () => {
+    // Create a known local time and verify the conversion produces a valid datetime-local string
+    const iso = new Date(2026, 3, 15, 14, 30, 0).toISOString(); // local time
+    const result = isoToDatetimeLocal(iso);
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    // Should round-trip: parsing the result back should give the same local time
+    const roundTrip = new Date(result);
+    expect(roundTrip.getFullYear()).toBe(2026);
+    expect(roundTrip.getMonth()).toBe(3); // April
+    expect(roundTrip.getDate()).toBe(15);
+    expect(roundTrip.getHours()).toBe(14);
+    expect(roundTrip.getMinutes()).toBe(30);
   });
 });

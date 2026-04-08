@@ -979,7 +979,8 @@
   border-bottom-right-radius: 0;
 }
 
-.swipeable-item-container .item-card {
+.swipeable-item-container .item-card,
+.swipeable-item-container .game-card {
   position: relative;
   z-index: 2;
   margin-bottom: 0;
@@ -988,7 +989,8 @@
   cursor: grab;
 }
 
-.swipeable-item-container .item-card:active {
+.swipeable-item-container .item-card:active,
+.swipeable-item-container .game-card:active {
   cursor: grabbing;
 }
 
@@ -1019,6 +1021,57 @@
 
 .btn-delete-swipe:active {
   opacity: 0.8;
+}
+
+.game-card-swipe-reveal {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 160px;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  z-index: 1;
+  border-radius: 0 12px 12px 0;
+  overflow: hidden;
+}
+
+.btn-edit-swipe {
+  flex: 1;
+  background: var(--primary-green);
+  color: white;
+  border: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.3);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.btn-edit-swipe:hover {
+  background: var(--light-green);
+}
+
+.btn-delete-swipe-game {
+  flex: 1;
+  background: var(--danger-red);
+  color: white;
+  border: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.btn-delete-swipe-game:hover {
+  background: #b71c1c;
+}
+
+.btn-edit-game-trigger {
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: 12px;
 }
 
 /* Team Roster Section */
