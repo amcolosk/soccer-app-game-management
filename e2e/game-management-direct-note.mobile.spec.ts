@@ -187,7 +187,9 @@ async function navigateToInProgressGame(page: Page): Promise<boolean> {
 // ─── single viewport ──────────────────────────────────────────────────────────
 // Wiring-only smoke checks; deep modal-dismiss and accessibility semantics
 // are owned by PlayerNotesPanel.test.tsx (Layer B).
-test.use({ ...devices['iPhone 12'] });
+// Override browserName to chromium so the smoke project doesn't require webkit
+// in CI — mobile viewport/touch simulation is preserved via the device descriptor.
+test.use({ ...devices['iPhone 12'], browserName: 'chromium' });
 
 test.describe('Direct Note Entry — Mobile', () => {
   test.describe.configure({ mode: 'serial' });
