@@ -36,6 +36,8 @@ amplify/.env
 test-results/
 playwright-report/
 playwright/.cache/
+# Playwright auth state (never commit)
+.auth/
 .env.test
 
 #Coverage

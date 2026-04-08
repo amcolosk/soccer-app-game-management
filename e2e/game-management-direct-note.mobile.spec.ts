@@ -18,12 +18,12 @@ import {
   createFormation,
   createTeam,
   fillInput,
-  loginUser,
+  navigateToApp,
   navigateToManagement,
   waitForPageLoad,
   UI_TIMING,
 } from './helpers';
-import { TEST_USERS, TEST_CONFIG } from '../test-config';
+import { TEST_CONFIG } from '../test-config';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -45,7 +45,6 @@ const SEED_DATA = {
     maxPlayers: '5',
   },
   inProgressOpponent: 'E2E Mobile Notes In Progress',
-  halftimeOpponent: 'E2E Mobile Notes Halftime',
 } as const;
 
 const MAX_SEED_ATTEMPTS = 2;
@@ -131,9 +130,7 @@ async function seedDeterministicMobileGameStates(page: Page): Promise<void> {
   }
 
   await scheduleSeedGame(page, SEED_DATA.inProgressOpponent);
-  await scheduleSeedGame(page, SEED_DATA.halftimeOpponent);
   await startGameFromScheduledCard(page, SEED_DATA.inProgressOpponent, false);
-  await startGameFromScheduledCard(page, SEED_DATA.halftimeOpponent, true);
 }
 
 async function ensureSeededState(page: Page): Promise<void> {
@@ -162,6 +159,13 @@ async function ensureSeededState(page: Page): Promise<void> {
 async function navigateToInProgressGame(page: Page): Promise<boolean> {
   await ensureSeededState(page);
 
+  // If localStorage restored the game management view on page load, the CommandBand
+  // timer may already be (or become) visible — wait up to 2s before falling back.
+  const timer = page.locator('.command-band__timer');
+  if (await timer.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    return true;
+  }
+
   const seededCardOpened = await openGameByOpponent(page, SEED_DATA.inProgressOpponent);
   if (!seededCardOpened) {
     const homeTab = page.locator('a.nav-item', { hasText: 'Games' });
@@ -169,7 +173,7 @@ async function navigateToInProgressGame(page: Page): Promise<boolean> {
     await page.waitForTimeout(UI_TIMING.NAVIGATION);
 
     const anyCard = page.locator('.game-card').first();
-    if (!(await anyCard.isVisible({ timeout: 3000 }).catch(() => false))) {
+    if (!(await anyCard.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false))) {
       return false;
     }
     await anyCard.click();
@@ -177,217 +181,83 @@ async function navigateToInProgressGame(page: Page): Promise<boolean> {
   }
 
   // The game is "in-progress" when the CommandBand timer is visible
-  const timer = page.locator('.command-band__timer');
-  return timer.isVisible({ timeout: 3000 }).catch(() => false);
+  return timer.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false);
 }
 
-/**
- * Navigate to Games and open the first game card that is at halftime.
- * Returns true when successful.
- */
-async function navigateToHalftimeGame(page: Page): Promise<boolean> {
-  await ensureSeededState(page);
+// ─── single viewport ──────────────────────────────────────────────────────────
+// Wiring-only smoke checks; deep modal-dismiss and accessibility semantics
+// are owned by PlayerNotesPanel.test.tsx (Layer B).
+// Override browserName to chromium so the smoke project doesn't require webkit
+// in CI — mobile viewport/touch simulation is preserved via the device descriptor.
+test.use({ ...devices['iPhone 12'], browserName: 'chromium' });
 
-  const seededCardOpened = await openGameByOpponent(page, SEED_DATA.halftimeOpponent);
-  if (!seededCardOpened) {
-    const homeTab = page.locator('a.nav-item', { hasText: 'Games' });
-    await homeTab.click();
-    await page.waitForTimeout(UI_TIMING.NAVIGATION);
+test.describe('Direct Note Entry — Mobile', () => {
+  test.describe.configure({ mode: 'serial' });
 
-    const anyCard = page.locator('.game-card').first();
-    if (!(await anyCard.isVisible({ timeout: 3000 }).catch(() => false))) {
-      return false;
-    }
-    await anyCard.click();
-    await waitForPageLoad(page);
-  }
+  test.beforeEach(async ({ page }) => {
+    await navigateToApp(page);
+  });
 
-  // Halftime shows a status badge and the "Start Second Half" button
-  const halftimeBadge = page.locator('.command-band__status-badge');
-  return halftimeBadge.isVisible({ timeout: 3000 }).catch(() => false);
-}
+  // ── Icon-only trigger accessibility ────────────────────────────────────────
 
-// ─── viewport matrix ─────────────────────────────────────────────────────────
+  test('CommandBand note button exists and has accessible name "Add note"', async ({ page }) => {
+    const isReady = await navigateToInProgressGame(page);
+    expect(isReady).toBeTruthy();
 
-const MOBILE_VIEWPORTS = [
-  { label: 'iPhone 12', device: devices['iPhone 12'] },
-  { label: 'iPhone SE', device: devices['iPhone SE'] },
-  { label: 'iPhone 14 Pro Max', device: devices['iPhone 14 Pro Max'] },
-] as const;
+    const noteBtn = page.getByRole('button', { name: 'Add note' });
+    await expect(noteBtn).toBeVisible();
+    await expect(noteBtn).toHaveAccessibleName('Add note');
+  }, TEST_CONFIG.timeout.short);
 
-// ─── test suites per viewport ─────────────────────────────────────────────────
+  // ── Open → Cancel wiring ───────────────────────────────────────────────────
 
-for (const { label, device } of MOBILE_VIEWPORTS) {
-  test.describe(`Direct Note Entry — ${label} (${device.viewport.width}×${device.viewport.height})`, () => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { defaultBrowserType, ...deviceOptions } = device;
-    test.use({ ...deviceOptions });
+  test('Tap Add note → dialog visible → Cancel → dismissed', async ({ page }) => {
+    const isReady = await navigateToInProgressGame(page);
+    expect(isReady).toBeTruthy();
 
-    test.beforeEach(async ({ page }) => {
-      await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+    await page.getByRole('button', { name: 'Add note' }).click();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+    await expect(dialog).not.toBeVisible();
+  }, TEST_CONFIG.timeout.short);
+
+  // ── Save button accessible with keyboard open ──────────────────────────────
+
+  test('Save button remains within viewport when note textarea is focused (narrow keyboard-open simulation)', async ({ page }) => {
+    const isReady = await navigateToInProgressGame(page);
+    expect(isReady).toBeTruthy();
+
+    // Open modal
+    await page.getByRole('button', { name: 'Add note' }).click();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    // Simulate keyboard open: shrink viewport height to ~55% of original
+    const iphone12Viewport = devices['iPhone 12'].viewport;
+    await page.setViewportSize({
+      width: iphone12Viewport.width,
+      height: Math.round(iphone12Viewport.height * 0.55),
     });
 
-    // ── 5. Icon-only trigger accessibility ─────────────────────────────────
+    // Focus the textarea (triggers on-screen keyboard on real device)
+    const textarea = page.locator('#noteText');
+    await textarea.focus();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
 
-    test('CommandBand note button exists and has accessible name "Add note"', async ({ page }) => {
-      const isReady = await navigateToInProgressGame(page);
-      expect(isReady).toBeTruthy();
+    // Save button should be scrollable into view and accessible
+    const saveBtn = page.getByRole('button', { name: 'Save Note' });
+    await saveBtn.scrollIntoViewIfNeeded();
+    await expect(saveBtn).toBeVisible();
 
-      const noteBtn = page.getByRole('button', { name: 'Add note' });
-      await expect(noteBtn).toBeVisible();
-      await expect(noteBtn).toHaveAccessibleName('Add note');
-    }, TEST_CONFIG.timeout.short);
+    // Restore original viewport
+    await page.setViewportSize(iphone12Viewport);
 
-    // ── 1. From Lineup (Field) tab ──────────────────────────────────────────
-
-    test('Tap CommandBand "Add note" from Lineup tab opens modal without switching tabs', async ({ page }) => {
-      const isReady = await navigateToInProgressGame(page);
-      expect(isReady).toBeTruthy();
-
-      // Ensure we are on the Lineup/Field tab
-      const lineupTab = page.getByRole('tab', { name: /lineup|field/i });
-      if (await lineupTab.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await lineupTab.click();
-        await page.waitForTimeout(UI_TIMING.STANDARD);
-      }
-
-      // Tap the CommandBand note trigger
-      await page.getByRole('button', { name: 'Add note' }).click();
-      await page.waitForTimeout(UI_TIMING.STANDARD);
-
-      // Modal should open
-      await expect(page.getByRole('dialog')).toBeVisible();
-
-      // The active tab should still be Lineup/Field — not Notes
-      const notesTab = page.getByRole('tab', { name: /notes/i });
-      if (await notesTab.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await expect(notesTab).not.toHaveAttribute('aria-selected', 'true');
-      }
-
-      // Close modal
-      await page.getByRole('button', { name: 'Cancel' }).click();
-      await page.waitForTimeout(UI_TIMING.STANDARD);
-    }, TEST_CONFIG.timeout.short);
-
-    // ── 2. From Bench tab ──────────────────────────────────────────────────
-
-    test('Tap CommandBand "Add note" from Bench tab opens modal without switching tabs', async ({ page }) => {
-      const isReady = await navigateToInProgressGame(page);
-      expect(isReady).toBeTruthy();
-
-      // Navigate to Bench tab if it exists
-      const benchTab = page.getByRole('tab', { name: /bench/i });
-      if (await benchTab.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await benchTab.click();
-        await page.waitForTimeout(UI_TIMING.STANDARD);
-      } else {
-        test.skip(true, 'Bench tab not visible on this game state — skipping');
-      }
-
-      // Tap the CommandBand note trigger
-      await page.getByRole('button', { name: 'Add note' }).click();
-      await page.waitForTimeout(UI_TIMING.STANDARD);
-
-      // Modal should open
-      await expect(page.getByRole('dialog')).toBeVisible();
-
-      // Active tab should still be Bench
-      const recheckBenchTab = page.getByRole('tab', { name: /bench/i });
-      if (await recheckBenchTab.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await expect(recheckBenchTab).toHaveAttribute('aria-selected', 'true');
-      }
-
-      // Close modal
-      await page.getByRole('button', { name: 'Cancel' }).click();
-      await page.waitForTimeout(UI_TIMING.STANDARD);
-    }, TEST_CONFIG.timeout.short);
-
-    // ── 3. From halftime ────────────────────────────────────────────────────
-
-    test('Tap halftime "Add note" opens modal', async ({ page }) => {
-      const isHalftime = await navigateToHalftimeGame(page);
-      expect(isHalftime).toBeTruthy();
-
-      // Find the halftime-actions area Add note button
-      const addNoteBtn = page.locator('.halftime-actions').getByRole('button', { name: /add note/i });
-      if (!(await addNoteBtn.isVisible({ timeout: 3000 }).catch(() => false))) {
-        test.skip(true, 'Halftime "Add note" button not visible — skipping');
-      }
-
-      await addNoteBtn.click();
-      await page.waitForTimeout(UI_TIMING.STANDARD);
-
-      await expect(page.getByRole('dialog')).toBeVisible();
-
-      // Close modal
-      await page.getByRole('button', { name: 'Cancel' }).click();
-      await page.waitForTimeout(UI_TIMING.STANDARD);
-    }, TEST_CONFIG.timeout.short);
-
-    // ── 4. Common 4-tap modal flow ──────────────────────────────────────────
-
-    test('4-tap flow: open → dictation controls visible → cancel → modal dismissed', async ({ page }) => {
-      const isReady = await navigateToInProgressGame(page);
-      expect(isReady).toBeTruthy();
-
-      // 1. Open modal via CommandBand
-      await page.getByRole('button', { name: 'Add note' }).click();
-      await page.waitForTimeout(UI_TIMING.STANDARD);
-
-      // 2. Modal visible
-      const dialog = page.getByRole('dialog');
-      await expect(dialog).toBeVisible();
-
-      // 3. Dictation controls visible (either Start Dictation button or fallback text)
-      const dictationVisible = await page
-        .getByRole('button', { name: /dictation/i })
-        .isVisible({ timeout: 2000 })
-        .catch(() => false);
-      const fallbackVisible = await page
-        .getByText(/voice capture is not supported/i)
-        .isVisible({ timeout: 1000 })
-        .catch(() => false);
-      expect(dictationVisible || fallbackVisible).toBe(true);
-
-      // 4. Cancel → modal dismissed
-      await page.getByRole('button', { name: 'Cancel' }).click();
-      await page.waitForTimeout(UI_TIMING.STANDARD);
-      await expect(dialog).not.toBeVisible();
-    }, TEST_CONFIG.timeout.short);
-
-    // ── 6. Save button accessible with keyboard open ───────────────────────
-
-    test('Save button remains within viewport when note textarea is focused (narrow keyboard-open simulation)', async ({ page }) => {
-      const isReady = await navigateToInProgressGame(page);
-      expect(isReady).toBeTruthy();
-
-      // Open modal
-      await page.getByRole('button', { name: 'Add note' }).click();
-      await page.waitForTimeout(UI_TIMING.STANDARD);
-      await expect(page.getByRole('dialog')).toBeVisible();
-
-      // Simulate keyboard open: shrink viewport height to ~55% of original
-      const originalViewport = device.viewport;
-      await page.setViewportSize({
-        width: originalViewport.width,
-        height: Math.round(originalViewport.height * 0.55),
-      });
-
-      // Focus the textarea (triggers on-screen keyboard on real device)
-      const textarea = page.locator('#noteText');
-      await textarea.focus();
-      await page.waitForTimeout(UI_TIMING.STANDARD);
-
-      // Save button should be scrollable into view and accessible
-      const saveBtn = page.getByRole('button', { name: 'Save Note' });
-      await saveBtn.scrollIntoViewIfNeeded();
-      await expect(saveBtn).toBeVisible();
-
-      // Restore original viewport
-      await page.setViewportSize(originalViewport);
-
-      // Close modal
-      await page.getByRole('button', { name: 'Cancel' }).click();
-    }, TEST_CONFIG.timeout.short);
-  });
-}
+    // Close modal
+    await page.getByRole('button', { name: 'Cancel' }).click();
+  }, TEST_CONFIG.timeout.short);
+});

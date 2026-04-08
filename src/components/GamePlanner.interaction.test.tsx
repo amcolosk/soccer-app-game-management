@@ -439,4 +439,69 @@ describe('GamePlanner timeline interaction', () => {
 
     expect(reconcileSelectionKey(syntheticTimeline, 'rotation-1-rotation-1-reloaded')).toBe('rotation-1-10-synthetic');
   });
+
+  describe('planner controls and plan display', () => {
+    it('interval input renders with accessible label', async () => {
+      setMockGamePlans([]);
+      setMockRotations([]);
+
+      renderGamePlanner();
+
+      expect(
+        await screen.findByRole('spinbutton', { name: /Rotation interval in minutes/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('shows "Create Game Plan" button before any plan exists', async () => {
+      setMockGamePlans([]);
+      setMockRotations([]);
+
+      renderGamePlanner();
+
+      expect(
+        await screen.findByRole('button', { name: /Create Game Plan/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('shows "Update Plan" button when a game plan already exists', async () => {
+      // beforeEach already seeds mockGamePlan + mockRotations
+      renderGamePlanner();
+
+      expect(
+        await screen.findByRole('button', { name: /Update Plan/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('Copy from Previous button is visible in rotation detail panel when rotations exist', async () => {
+      const user = userEvent.setup();
+      // beforeEach already seeds mockGamePlan + mockRotations
+      renderGamePlanner();
+
+      const rotationOnePill = await screen.findByRole('tab', { name: /^R1/ });
+      await user.click(rotationOnePill);
+
+      expect(
+        screen.getByRole('button', { name: /Reset to Previous Lineup/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('Projected Play Time section renders when plan data exists', async () => {
+      // beforeEach already seeds mockGamePlan + mockRotations
+      renderGamePlanner();
+
+      expect(await screen.findByText(/Projected Play Time/i)).toBeInTheDocument();
+    });
+
+    it('rotation detail panel shows substitution display when rotation has planned subs', async () => {
+      const user = userEvent.setup();
+      // beforeEach already seeds mockGamePlan + mockRotations; mockRotations[0] has one planned sub
+      renderGamePlanner();
+
+      const rotationOnePill = await screen.findByRole('tab', { name: /^R1/ });
+      await user.click(rotationOnePill);
+
+      await screen.findByRole('heading', { name: /Rotation 1/i });
+      expect(screen.getByText(/Planned Substitutions/i)).toBeInTheDocument();
+    });
+  });
 });

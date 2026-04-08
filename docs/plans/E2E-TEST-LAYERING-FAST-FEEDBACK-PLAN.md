@@ -1,0 +1,520 @@
+# E2E Test Layering and Fast Feedback Plan
+
+Status: Stage 1 planning artifact (enhanced for executable Increment 1)
+Date: 2026-04-03
+
+## Objective
+Reduce default developer feedback time by shifting broad UI behavior coverage from Playwright to faster Vitest integration tests, while retaining a small browser smoke lane that protects real frontend-backend/auth integration.
+
+## Increment 1 Scope (single coding pass)
+Increment 1 is intentionally limited to harness and execution-path changes plus the first migration slice (management UI behaviors). It does not include contract-test migration for data isolation/safe deletes yet.
+
+### CI lane ownership and mapping (pinned for Increment 1)
+1. `.github/workflows/ci.yml` changes are out of scope for Increment 1. Existing CI lane ownership remains unchanged:
+  - `quality` job owns lint/typecheck/unit/build.
+  - `smoke-e2e` job owns browser smoke lane.
+  - `full-e2e` job owns full browser regression lane.
+2. Increment 1 must map local scripts to CI lane semantics without ambiguity:
+  - `npm run test:fast` -> local fast feedback lane (Vitest only; no browser).
+  - `npm run test:e2e:smoke` -> local equivalent of CI `smoke-e2e` intent.
+  - `npm run test:e2e:full` -> local equivalent of CI `full-e2e` intent.
+  - `npm run gate:commit` remains the local commit gate and is not redefined.
+
+### What Increment 1 will deliver
+1. Fast-run path and smoke-run path commands in package scripts.
+2. Playwright project split into smoke/full without changing backend contracts.
+3. Concurrency safety guard: management smoke specs remain serial (`workers: 1`) until data partitioning/isolation is implemented in a later increment.
+4. UI integration test harness additions in `src/test` for management workflows.
+5. Migration of highest-volume management form/state assertions from browser tests into Vitest integration tests.
+6. Reduction of corresponding Playwright files to smoke assertions only, with required retained create and destructive confirmation assertions per spec.
+7. Documentation updates for the new testing workflow and runtime expectations.
+
+### Increment 1 architecture guardrail (required)
+1. Increment 1 must not modify Vitest include/exclude discovery globs or global test-boundary configuration.
+2. `test:fast` must be implemented through script-level targeting/filtering only.
+3. Validation for Increment 1 must include an explicit checkpoint confirming no Vitest discovery-config changes were made.
+
+### Out of scope for Increment 1
+1. GraphQL schema or Amplify model changes.
+2. Contract-test suite for ownership boundaries and safe delete guards.
+3. Planner/mobile direct-note migration.
+4. Auth storage-state reuse and deep helper refactors beyond low-risk cleanup.
+
+## Requirements Gaps and Assumptions
+
+### Gaps
+1. No explicit current runtime baseline is documented in repo for `npm run test:e2e` and `npm run test:run`.
+2. No formal rule exists for which assertions must remain browser-only versus integration-eligible.
+3. Current smoke runtime and flake baseline for management specs is not yet captured in this plan as a measured checkpoint.
+
+### Assumptions
+1. Existing Amplify-backed E2E environment remains unchanged for Increment 1.
+2. `npm run gate:commit` remains the only local commit gate command.
+3. Integration tests can mock Amplify client interactions via existing React testing setup without introducing new external libraries.
+4. Management smoke specs must stay serial in Increment 1 because test data isolation/partitioning work is deferred.
+
+## Layering Strategy (target state)
+1. Layer A: Unit/service tests for deterministic business logic.
+2. Layer B: Vitest + Testing Library integration tests for UI behavior and state transitions.
+3. Layer C: Contract tests for API shape/authorization boundaries (planned in later increment).
+4. Layer D: Minimal Playwright smoke tests for cross-system browser confidence.
+
+## Increment 1 File-by-File Change List (exact)
+
+### Plan/doc artifacts
+1. `docs/plans/E2E-TEST-LAYERING-FAST-FEEDBACK-PLAN.md`
+  - Update with executable increment details, metrics, and backlog.
+2. `e2e/README.md`
+  - Add smoke/full run model and default developer workflow.
+
+### Command and config updates
+3. `package.json`
+  - Add scripts:
+    - `test:fast` (Vitest run path; excludes browser).
+    - `test:e2e:smoke` (Playwright smoke project).
+    - `test:e2e:full` (existing comprehensive project behavior).
+  - Keep `gate:commit` unchanged.
+4. `playwright.config.ts`
+  - Add Playwright projects/tags for smoke vs full selection.
+  - Keep management smoke execution serial in Increment 1 (`workers: 1` for smoke selection) to avoid shared-data races.
+  - Preserve CI retries/timeouts and safety controls.
+5. `.github/workflows/ci.yml`
+  - No changes in Increment 1 (explicitly out of scope; mapping-only documentation update).
+
+### New integration harness utilities
+6. `src/test/renderWithProviders.tsx` (new)
+  - Shared integration harness entry point that owns provider composition and exports a single render API.
+7. `src/test/mockAmplifyClient.ts` (new)
+  - Shared Amplify mocking setup consumed through the same harness contract (not directly ad-hoc per test file).
+8. `src/test/fixtures/managementFixtures.ts` (new)
+  - Shared fixture builders for team/player/formation test data used by the single harness contract.
+
+### Harness contract and migration rule
+1. Increment 1 defines one shared integration harness API surface that combines:
+   - provider rendering,
+   - Amplify client mocking/setup,
+   - deterministic fixture builders.
+2. Management integration tests must consume only this shared harness surface.
+3. Existing Management tests must be migrated to that harness or wrapped by it in Increment 1 so dual harness patterns are not left in place.
+
+### New/updated integration tests (first migration slice)
+9. `src/components/Management.integration.test.tsx` (new or split into domain files if preferred)
+  - Cover migrated assertions from management CRUD/browser specs:
+    - validation failures and messages,
+    - create/edit mode transitions,
+    - cancel/reset behavior,
+    - template/custom formation selection UX,
+    - delete-confirmation decision behavior at component level.
+10. `src/components/Management.test.tsx`
+  - Keep or trim existing tests to avoid duplicated assertions with new integration file.
+
+### Browser smoke reductions
+11. `e2e/formation-management.spec.ts`
+  - Reduce to smoke-level assertions while retaining:
+    - at least one create-path assertion,
+    - at least one destructive delete flow with both confirm and cancel assertions.
+12. `e2e/team-management.spec.ts`
+  - Reduce to smoke-level assertions while retaining:
+    - at least one create-path assertion,
+    - at least one destructive delete flow with both confirm and cancel assertions.
+13. `e2e/player-management.spec.ts`
+  - Reduce to smoke-level assertions while retaining:
+    - at least one create-path assertion,
+    - at least one destructive delete flow with both confirm and cancel assertions.
+14. `e2e/helpers.ts`
+  - Optional low-risk wait cleanup only where needed by reduced smoke specs (no broad refactor in Increment 1).
+
+## Data Model and API Impact
+1. Amplify schema/data models: no changes.
+2. API contracts/mutations/queries: no functional changes in Increment 1.
+3. Test-only mocking surface expands in `src/test` to simulate existing API responses.
+
+## Dependencies and Sequencing
+1. Update scripts/config first (`package.json`, `playwright.config.ts`) so new commands exist before migration work.
+2. Add integration harness and fixtures (`src/test/*`) second.
+3. Implement migrated management integration tests third.
+4. Reduce overlapping Playwright assertions fourth.
+5. Update docs and verify command matrix last.
+
+## Revised Increment 1 sequencing (ready for coding-agent)
+1. Update `package.json` and `playwright.config.ts` with explicit smoke/full commands and serial-smoke safety.
+2. Keep Vitest discovery include/exclude globs and global test-boundary configuration unchanged; implement `test:fast` via script-level targeting/filtering only.
+3. Implement shared integration harness contract in `src/test/renderWithProviders.tsx`, `src/test/mockAmplifyClient.ts`, and `src/test/fixtures/managementFixtures.ts`.
+4. Migrate management integration coverage to the shared harness, and align `src/components/Management.test.tsx` + `src/components/Management.integration.test.tsx` to avoid dual harness usage.
+5. Trim management Playwright specs to smoke matrix minimums (create path + destructive confirm/cancel) in each reduced spec.
+6. Update docs (`docs/plans/...`, `e2e/README.md`) to lock lane mapping and developer workflow.
+7. Validate with `npm run test:fast`, `npm run test:e2e:smoke`, `npm run test:e2e:full`, then `npm run gate:commit`.
+
+## Risks and Edge Cases for Increment 1
+1. Risk: Integration tests diverge from real API behavior.
+  - Mitigation: keep CRUD happy paths in Playwright smoke and align fixtures with real model fields.
+2. Risk: Parallel management smoke execution causes cross-test data interference.
+  - Mitigation: keep management smoke serial (`workers: 1`) until explicit data partitioning/isolation lands.
+3. Risk: Duplicate assertions increase maintenance during transition.
+  - Mitigation: remove or trim browser assertions in same pass as migration and enforce single shared harness usage.
+4. Edge case: Modal overlays (PWA/welcome) still intercept smoke interactions.
+  - Mitigation: keep existing helper closures and only reduce waits where evidence shows stability.
+5. Edge case: Management integration tests rely on asynchronous subscription-like updates.
+  - Mitigation: use deterministic mocked responses and `findBy*`/`waitFor` assertions.
+
+## Increment 1 Test Strategy
+1. Add integration tests for management behavior migration targets and run with `npm run test:fast`.
+2. Implement `test:fast` using script-level targeting/filtering only; do not alter Vitest include/exclude discovery globs or global test-boundary config.
+3. Keep a reduced smoke browser subset for management domains via `npm run test:e2e:smoke`.
+4. Enforce smoke assertion matrix per reduced management spec:
+  - at least one create-path assertion,
+  - at least one destructive delete-confirm assertion,
+  - at least one destructive delete-cancel assertion.
+5. Validate no regression in full suite by running `npm run test:e2e:full` at least once before merge.
+6. Add explicit validation checkpoint: verify Increment 1 did not change Vitest discovery include/exclude globs or global test-boundary config.
+7. Final quality gate remains `npm run gate:commit`.
+
+## Increment 1 Success Metrics
+1. Runtime metric: `npm run test:e2e:smoke` completes at least 40% faster than current full `npm run test:e2e` baseline measured on the same machine.
+2. Coverage migration metric: at least 30 assertions moved from management Playwright specs to Vitest integration tests.
+3. Stability metric: management smoke specs run serially with no worker-related data race failures across 20 local reruns.
+4. Harness metric: management integration tests use one shared harness contract with no remaining dual-harness pattern in Management test files.
+5. Developer workflow metric: lane mapping is documented (`test:fast` -> fast local, `test:e2e:smoke` -> smoke lane intent, `test:e2e:full` -> full lane intent) with no Increment 1 changes to `.github/workflows/ci.yml`.
+
+## Backlog After Increment 1
+
+### Increment 2: Contract test lane (revised per architecture findings)
+
+#### Increment 2 objective
+Move data isolation and safe-delete policy confidence out of broad browser assertions into deterministic contract/static layers, while keeping Playwright coverage as minimal browser wiring smoke.
+
+#### Assertion ownership matrix (authoritative)
+1. Policy/static checks (`amplify/data/resource.safe-delete-policy.test.ts`)
+  - Primary ownership:
+    - Safe-delete source-text policy declarations in `amplify/data/resource.ts`.
+    - Presence of authoritative safe-delete mutation declarations.
+  - Explicit non-ownership:
+    - Runtime request/response mapping and auth/error semantics.
+    - UI rendering, selector, or end-user interaction flows.
+2. Service contract checks (`src/services/contracts/*.contract.test.ts`)
+  - Primary ownership:
+    - Service/client boundary validation for request shape, response mapping, and auth/error semantics.
+    - Runtime behavioral contract for data isolation and safe-delete execution outcomes.
+  - Explicit non-ownership:
+    - UI selector/rendering assertions.
+    - Duplicate source-text policy assertions already owned by `amplify/data/resource.safe-delete-policy.test.ts`.
+3. Browser smoke wiring checks (`e2e/*.spec.ts` smoke project)
+  - Primary ownership:
+    - Minimal end-to-end wiring confidence that browser actions surface expected guardrails and trigger expected integration paths.
+  - Explicit non-ownership:
+    - Deep policy semantics, contract payload shape verification, or business-rule matrix validation.
+
+#### Single primary layer mapping (no overlap)
+1. Data isolation requirements:
+  - Primary layer: service contract checks.
+  - Smoke layer only verifies one minimal browser wiring path that isolation is surfaced in app behavior (no matrix of isolation assertions).
+2. Safe-delete requirements:
+  - Primary layer: policy/static checks for source policy declarations + service contract checks for runtime semantics.
+  - Smoke layer only verifies guard visibility and confirm/cancel wiring.
+
+#### Strict contract-test boundary definition
+1. Contract tests are defined strictly as service/client boundary tests.
+2. Contract tests must include:
+  - request shape validation,
+  - response mapping validation,
+  - auth/error semantics validation.
+3. Contract tests must not include:
+  - UI selector assertions,
+  - rendering assertions,
+  - duplicate source-text policy checks already in `amplify/data/resource.safe-delete-policy.test.ts`.
+
+#### Playwright demotion guardrails (required)
+1. `e2e/data-isolation.spec.ts` in smoke lane is limited to minimal browser wiring checks only.
+2. `e2e/safe-deletes.spec.ts` in smoke lane is limited to:
+  - guard surfaced assertion,
+  - confirm wiring assertion,
+  - cancel wiring assertion.
+3. Any additional data-isolation or safe-delete semantics found in smoke specs must be migrated to contract/static layers during this increment.
+
+#### Anti-flake strategy for smoke
+1. Add deterministic uniqueness for smoke-created entities (for example `${baseName}-${Date.now()}-${testInfo.workerIndex}` or equivalent deterministic run suffix).
+2. Require deterministic cleanup for smoke-created entities when feasible via existing UI/API flow.
+3. If cleanup cannot be guaranteed, enforce uniqueness-only with explicit non-reuse naming to prevent cross-run collisions.
+
+#### Smoke selection and docs alignment
+1. `playwright.config.ts`:
+  - keep `full` project as complete regression lane.
+  - update `smoke` `testMatch` to include `e2e/data-isolation.spec.ts` and `e2e/safe-deletes.spec.ts` only after both specs are demoted to wiring-only checks.
+  - document rationale inline: smoke is browser wiring confidence; semantics owned by contract/static layers.
+2. `e2e/README.md`:
+  - add "where assertions belong" guidance table mapping:
+    - policy/static,
+    - service contracts,
+    - browser smoke.
+  - include explicit do/don't examples for data isolation and safe deletes.
+
+#### Increment 2 file-by-file change list (coding-ready)
+1. `src/services/contracts/data-isolation.contract.test.ts` (new)
+  - Add service/client boundary tests for data isolation request/response and auth/error semantics.
+2. `src/services/contracts/safe-delete.contract.test.ts` (new)
+  - Add service/client boundary tests for safe-delete request/response and auth/error semantics.
+  - Do not duplicate source-text policy checks.
+3. `e2e/data-isolation.spec.ts` (update)
+  - Demote to minimal browser smoke wiring checks only.
+4. `e2e/safe-deletes.spec.ts` (update)
+  - Demote to guard surfaced + confirm/cancel wiring checks only.
+5. `playwright.config.ts` (update)
+  - Adjust smoke project selection to include demoted specs with rationale comments.
+  - Keep full lane as broad regression lane.
+6. `e2e/README.md` (update)
+  - Add ownership guidance for assertion placement.
+7. `docs/plans/E2E-TEST-LAYERING-FAST-FEEDBACK-PLAN.md` (update)
+  - Record finalized Increment 2 ownership rules and demotion guardrails.
+
+#### Increment 2 sequencing
+1. Author contract tests first so semantic ownership is in place before browser demotion.
+2. Demote `e2e/data-isolation.spec.ts` and `e2e/safe-deletes.spec.ts` to wiring-only smoke checks.
+3. Update smoke selection in `playwright.config.ts` once demotion is complete.
+4. Update `e2e/README.md` and plan docs with ownership guidance.
+5. Validate with `npm run test:run`, `npm run test:e2e:smoke`, `npm run test:e2e:full`, then `npm run gate:commit`.
+
+#### Increment 2 risks and edge cases
+1. Risk: accidental assertion overlap between contract and smoke layers.
+  - Mitigation: enforce ownership matrix in PR review checklist.
+2. Risk: flaky smoke failures due to shared test data names.
+  - Mitigation: unique naming + deterministic cleanup requirement.
+3. Risk: contract tests drifting into UI concerns.
+  - Mitigation: boundary definition and explicit no-UI rule in test file headers/review checklist.
+
+### Increment 3: Planner and note-flow migration
+
+#### Increment 3 objective
+Migrate deterministic planner/note behaviors from two E2E specs into Vitest integration tests, retaining minimal browser smoke paths that verify only real frontend wiring.
+
+#### Scope
+1. Shared game fixture builders for planner/note test data.
+2. New Vitest integration tests for planner UI controls and plan display state.
+3. New Vitest integration tests for note modal Cancel behavior (internal and externally-controlled modes).
+4. Demote `e2e/game-planner.spec.ts` to wiring-only smoke (timeline create path + coaching notes CRUD confirm/cancel wiring).
+5. Demote `e2e/game-management-direct-note.mobile.spec.ts` to single iPhone 12 viewport with 3 wiring-only tests.
+6. Add both demoted specs to the `smoke` Playwright project.
+7. Expand plan documentation with assertion ownership matrix and smoke matrix per spec.
+
+#### Increment 3 file-by-file change list
+1. `src/test/fixtures/gameFixtures.ts` (new)
+   - `gameFixture(overrides?)` — defaults: id, status, currentHalf, elapsedSeconds, lastStartTime, opponent, teamId, halfLengthMinutes, coaches.
+   - `gamePlanFixture(overrides?)` — defaults: id, gameId, rotationIntervalMinutes, startingLineup, halftimeLineup.
+   - `plannedRotationFixture(overrides?)` — defaults: id, gamePlanId, gameId, rotationNumber, gameMinute, half, plannedSubstitutions.
+   - `gameNoteFixture(overrides?)` — defaults: id, gameId, noteType, notes, gameSeconds, half, coaches.
+   - Standalone data-builder module; does not implicitly import harness.
+2. `src/components/GamePlanner.interaction.test.tsx` (extended)
+   - New `describe('planner controls and plan display', ...)` block appended to existing file.
+   - 6 new test cases covering: interval input label, Create/Update button state, Copy from Previous visibility, Projected Play Time section, substitution display in rotation panel.
+   - Do not modify existing tests.
+3. `src/components/GameManagement/PlayerNotesPanel.test.tsx` (extended)
+   - New case: `'Cancel button dismisses modal in internal mode'`.
+   - New case: `'external control: Cancel calls onRequestCloseNote'`.
+   - Appended to existing describe block; existing tests untouched.
+4. `e2e/game-planner.spec.ts` (demoted)
+   - 6 players (5 positions + 1 bench minimum for rotation generation).
+   - Retained test 1 — smoke "Complete game planning workflow": container visible → interval input → Create Game Plan → timeline strip appears. No deep plan/substitution/play time assertions.
+   - Retained test 2 — smoke "Pre-game coaching notes CRUD": create → visible, delete-confirm → gone, re-create → delete-cancel → still visible.
+   - Removed: deep helper functions (verifyPrePlanSelectablePills, verifyTimeline, verifySubstitutionDisplay, verifyPlayTimeReport, testCopyFromPrevious, planSubstitutions). Simplified setupLineup to one-pass only.
+5. `e2e/game-management-direct-note.mobile.spec.ts` (demoted)
+   - Replaced for...of viewport loop with `test.use({ ...devices['iPhone 12'] })` at file level.
+   - Single `test.describe('Direct Note Entry — Mobile', ...)` block.
+   - Retained test 1: `'CommandBand note button exists and has accessible name "Add note"'`.
+   - Retained test 2 (renamed): `'Tap Add note → dialog visible → Cancel → dismissed'` — open modal, click Cancel, modal gone.
+   - Retained test 3: `'Save button remains within viewport when note textarea is focused (narrow keyboard-open simulation)'`.
+   - Dropped: tab-switching tests, halftime note test, multi-viewport iteration.
+6. `playwright.config.ts` (updated)
+   - Added `'**/game-planner.spec.ts'` and `'**/game-management-direct-note.mobile.spec.ts'` to smoke project `testMatch`.
+   - Inline comment: wiring-only smoke checks; semantics covered by Vitest integration tests.
+7. `docs/plans/E2E-TEST-LAYERING-FAST-FEEDBACK-PLAN.md` (this file)
+   - Replaced brief Increment 3 backlog entry with full section.
+
+#### Assertion ownership (Increment 3)
+| Assertion domain | Primary layer | Smoke role |
+|---|---|---|
+| Interval input accessible label | `GamePlanner.interaction.test.tsx` (Layer B) | Wiring: input is reachable in browser |
+| Create vs Update button state | `GamePlanner.interaction.test.tsx` (Layer B) | Wiring: button leads to timeline |
+| Copy from Previous visibility | `GamePlanner.interaction.test.tsx` (Layer B) | None |
+| Projected Play Time section | `GamePlanner.interaction.test.tsx` (Layer B) | None |
+| Substitution display in rotation panel | `GamePlanner.interaction.test.tsx` (Layer B) | None |
+| Note modal Cancel (internal mode) | `PlayerNotesPanel.test.tsx` (Layer B) | Wiring: Cancel exists and closes |
+| Note modal Cancel (external mode) | `PlayerNotesPanel.test.tsx` (Layer B) | None |
+| CommandBand note button accessible name | `PlayerNotesPanel.test.tsx` (Layer B) | Wiring: accessible name surfaced in browser |
+| Save button viewport visibility | N/A (viewport simulation) | Smoke only |
+| Timeline create wiring (planner) | Smoke only | Yes |
+| Coaching notes CRUD confirm/cancel | Smoke only | Yes |
+
+#### Smoke matrix per spec (Increment 3)
+**`e2e/game-planner.spec.ts`:**
+- Container visible after data setup and navigation.
+- Interval input reachable when Rotations tab active.
+- "Create Game Plan" button leads to timeline strip appearing.
+- Coaching note create → text visible.
+- Delete-confirm → "No coaching points yet." visible.
+- Delete-cancel → note still visible.
+
+**`e2e/game-management-direct-note.mobile.spec.ts`:**
+- CommandBand note button has accessible name "Add note".
+- Open modal → Cancel → dialog dismissed.
+- Save button scrollable into view when textarea focused with narrow viewport.
+
+#### Increment 3 sequencing
+1. Add `src/test/fixtures/gameFixtures.ts` so fixture types are available.
+2. Extend `GamePlanner.interaction.test.tsx` and `PlayerNotesPanel.test.tsx` with new Layer B tests.
+3. Demote `e2e/game-planner.spec.ts` to smoke assertions.
+4. Demote `e2e/game-management-direct-note.mobile.spec.ts` to single viewport + 3 tests.
+5. Update `playwright.config.ts` smoke testMatch.
+6. Update plan documentation.
+7. Validate with `npm run test:fast`, `npm run test:e2e:smoke`, `npm run gate:commit`.
+
+#### Increment 3 risks and edge cases
+1. Risk: planner Layer B tests couple too tightly to internal label strings.
+   - Mitigation: test against aria-label and role selectors, not CSS classes.
+2. Risk: mobile smoke viewport simulation is brittle across Playwright versions.
+   - Mitigation: use `devices['iPhone 12'].viewport` constant rather than hardcoded dimensions.
+3. Risk: existing `seededStateReady` module-level flag may cause cross-test contamination when tests run in parallel workers.
+   - Mitigation: `workers: 1` in smoke lane ensures serial execution for shared seeded state.
+
+### Increment 4: Browser hardening and CI policy
+
+#### Increment 4 objective
+1. Replace remaining fixed sleeps in `e2e/helpers.ts` with state-driven waits to reduce flakiness and wall-clock time.
+2. Add auth storage-state reuse for the smoke lane, eliminating redundant login round-trips.
+3. Finalize CI cadence: add nightly schedule trigger, fix hardcoded spec list in smoke job, add `--project` flags to both Playwright commands.
+
+#### Work stream 1 — Sleep inventory
+
+**Removed (replaced with nothing or state-driven alt):**
+
+| Location | Old wait | Replacement |
+|---|---|---|
+| `waitForPageLoad` | `waitForTimeout(500)` | removed |
+| `fillInput` | `waitForTimeout(100)` | removed |
+| `clickButton` pre-click | `waitForTimeout(100)` | removed |
+| `clickButton` post-click | `waitForTimeout(300)` | removed |
+| `clickButtonByText` | `waitForTimeout(300)` | removed |
+| `selectOption` | `waitForTimeout(200)` | removed |
+| `cleanupTestData` initial goto | `waitForTimeout(500)` | removed (waitForSelector follows) |
+| `navigateToManagement` | `waitForTimeout(UI_TIMING.NAVIGATION)` | removed (waitForSelector follows) |
+| `createTeam` manageTab.click | `waitForTimeout(UI_TIMING.NAVIGATION)` | removed |
+| `createTeam` formation selectOption | `waitForTimeout(UI_TIMING.STANDARD)` | removed |
+| `createTeam` after Create button | `waitForTimeout(UI_TIMING.DATA_OPERATION)` | removed (expect visible follows) |
+| `createFormation` after Create button | `waitForTimeout(UI_TIMING.DATA_OPERATION)` | removed (expect visible follows) |
+| `addPlayerToRoster` after expandButton.click | `waitForTimeout(UI_TIMING.NAVIGATION)` | removed |
+| `addPlayerToRoster` after selectOption | `waitForTimeout(UI_TIMING.QUICK)` | removed |
+| `addPlayerToRoster` after addButton.click | `waitForTimeout(UI_TIMING.DATA_OPERATION)` | removed |
+
+**Replaced with state-driven waits:**
+
+| Location | Old wait | Replacement |
+|---|---|---|
+| `closeWelcomeModal` after dismiss-click | `waitForTimeout(300)` | `expect(.quick-start-dismiss).not.toBeVisible()` |
+| `cleanupTestData` Teams tab switch | `waitForTimeout(500)` | `expect(+ Create New Team button).toBeVisible()` |
+| `cleanupTestData` team delete loop | `waitForTimeout(1000)` | `expect(.item-card).not.toHaveCount(teamCount)` |
+| `cleanupTestData` Players tab switch | `waitForTimeout(500)` | `expect(+ Add Player button).toBeVisible()` |
+| `cleanupTestData` player delete loop | `waitForTimeout(1000)` | `expect(.item-card).not.toHaveCount(playerCount)` |
+| `cleanupTestData` Formations tab switch | `waitForTimeout(500)` | `expect(+ Create Formation button).toBeVisible()` |
+| `cleanupTestData` formation delete loop | `waitForTimeout(1000)` | `expect(.item-card).not.toHaveCount(formationCount)` |
+| `clickManagementTab` | `waitForTimeout(UI_TIMING.STANDARD)` | `expect(tab).toHaveClass(/active/)` |
+| `clickConfirmModalConfirm` | `waitForTimeout(100)` | `expect(.confirm-overlay).not.toBeVisible()` |
+| `clickConfirmModalCancel` | `waitForTimeout(100)` | `expect(.confirm-overlay).not.toBeVisible()` |
+| `swipeToDelete` after deleteButton.click | `waitForTimeout(UI_TIMING.QUICK)` | `.btn-delete-swipe.waitFor({ state: 'hidden' })` |
+| `createTeam` after Create New Team click | `waitForTimeout(UI_TIMING.STANDARD)` | `expect(.create-form).toBeVisible()` |
+| `addPlayerToRoster` after Add Player to Roster click | `waitForTimeout(UI_TIMING.STANDARD)` | `expect(.create-form).toBeVisible()` |
+| `createFormation` positions auto-populate | `waitForTimeout(UI_TIMING.STANDARD)` | `expect(.position-row).toHaveCount(playerCount)` |
+
+**Kept (justified exceptions — do not remove):**
+
+| Location | Wait | Rationale |
+|---|---|---|
+| `cleanupTestData` after second page.goto('/manage') | `waitForTimeout(1000)` | Subscription cache reset — no DOM state change to poll |
+| `cleanupTestData` formation retry back-off | `waitForTimeout(2000)` | Intentional delete-retry back-off |
+| `createFormation` DynamoDB propagation | `waitForTimeout(3000)` | Eventually consistent replica read delay — no DOM indicator |
+| `swipeToDelete` CSS animation | `waitForTimeout(UI_TIMING.STANDARD)` | CSS animation — no DOM state change during animation |
+| `handleConfirmDialog` polling intervals | `waitForTimeout(100/200)` | Polling loop intervals — intentional |
+
+#### Work stream 2 — Auth storage-state strategy
+
+**Setup project**: `e2e/auth.setup.ts` — two `setup(...)` tests, each calling `loginUser` and saving to `.auth/user1.json` / `.auth/user2.json`. Creates `.auth/` directory with `mkdirSync(..., { recursive: true })` before the first write.
+
+**Playwright config**:
+- New `setup` project: `{ name: 'setup', testMatch: '**/auth.setup.ts' }`.
+- Smoke project adds: `dependencies: ['setup']` and `use: { ...existing, storageState: '.auth/user1.json' }`.
+- Full project `testIgnore` adds `'**/auth.setup.ts'` to prevent it running as a test in the full lane.
+
+**`navigateToApp` helper**: replaces `loginUser(user1)` in specs where user1 is the expected logged-in user at test start. Navigates to `/`, waits for networkidle, dismisses prompts, asserts `.bottom-nav` visible.
+
+**Opt-out pattern**: `test.use({ storageState: { cookies: [], origins: [] } })` inside `test.describe('Authentication', ...)` in `auth.spec.ts` — ensures auth tests perform real browser login flows regardless of any project-level storageState.
+
+**Spec migration**:
+- Smoke specs migrated to `navigateToApp`: `formation-management`, `team-management`, `player-management`, `safe-deletes`, `game-planner` (via setupTestData), `game-management-direct-note.mobile`.
+- `data-isolation.spec.ts`: only the initial `loginUser(user1)` replaced with `navigateToApp`; all mid-test user-switching `loginUser` calls left unchanged.
+- `auth.spec.ts`: no `loginUser` calls changed; only `test.use()` override added.
+
+**Gitignore**: `.auth/` added under the Playwright section with "never commit" comment.
+
+#### Work stream 3 — CI cadence
+
+**Nightly schedule**: `schedule: - cron: '0 3 * * *'` added to `on:` block. Nightly runs are treated as `is_mainline=true`, which triggers the full E2E job.
+
+**`calc-mode` script**: Added `is_schedule` variable. Updated `is_mainline` block to include `is_schedule`. Added `is_schedule` to both the job outputs section and the `$GITHUB_OUTPUT` echo lines.
+
+**Smoke job command**: replaced `npx playwright test ... e2e/auth.spec.ts e2e/team-management.spec.ts` with `npx playwright test --config=playwright.config.ts --project=smoke`. This uses the testMatch list defined in playwright.config.ts rather than a hardcoded spec list.
+
+**Full job command**: replaced `npx playwright test --config=playwright.config.ts` (implicit full run) with `npx playwright test --config=playwright.config.ts --project=full`. This respects the `testIgnore` list (excludes game-planner, game-management-direct-note, and auth.setup) and is explicit about lane intent.
+
+#### Increment 4 file-by-file change list
+
+1. `e2e/auth.setup.ts` (new) — setup fixture for user1/user2 storage state
+2. `playwright.config.ts` — setup project, smoke dependencies+storageState, full testIgnore for auth.setup.ts
+3. `e2e/helpers.ts` — remove 15 fixed sleeps, replace 14 with state-driven waits, add `navigateToApp`
+4. `e2e/auth.spec.ts` — `test.use()` storageState opt-out
+5. `e2e/formation-management.spec.ts` — `navigateToApp`, remove `loginUser`/`TEST_USERS` imports
+6. `e2e/team-management.spec.ts` — same as #5
+7. `e2e/player-management.spec.ts` — same as #5
+8. `e2e/safe-deletes.spec.ts` — `navigateToApp` in both test bodies, remove `loginUser`/`TEST_USERS` imports
+9. `e2e/game-planner.spec.ts` — `navigateToApp` in `setupTestData`, remove `loginUser`/`TEST_USERS` imports
+10. `e2e/game-management-direct-note.mobile.spec.ts` — `navigateToApp` in `beforeEach`, remove `loginUser`/`TEST_USERS` imports
+11. `e2e/data-isolation.spec.ts` — `navigateToApp` for initial user1 login only; mid-test user switches unchanged
+12. `.github/workflows/ci.yml` — nightly schedule, is_schedule variable, --project=smoke/full flags
+13. `.gitignore` — .auth/ entry
+14. `docs/plans/E2E-TEST-LAYERING-FAST-FEEDBACK-PLAN.md` (this file) — Increment 4 section
+15. `e2e/README.md` — storage-state reuse, CI cadence, adding new tests guidance
+
+#### Increment 4 sequencing
+1. Create `e2e/auth.setup.ts` and update `playwright.config.ts`.
+2. Update `e2e/helpers.ts` (sleep removal + navigateToApp).
+3. Update all spec files.
+4. Update CI yml.
+5. Update .gitignore.
+6. Validate with `npm run gate:commit`.
+
+#### Increment 4 risks and edge cases
+1. Risk: smoke project storageState unavailable in first run (`.auth/user1.json` not yet created).
+   - Mitigation: setup project dependency ensures auth.setup.ts runs before any smoke test.
+2. Risk: data-isolation tests still use real login for user2 switch; if user2 storage state is not loaded, the login is still real-credential-based.
+   - Mitigation: user2 storage state is prepared by auth.setup.ts but only user1's is used as project-level storageState; user2 login in data-isolation remains real-login as required.
+3. Risk: `expect(tab).toHaveClass(/active/)` fails if Management component uses a different active indicator.
+   - Mitigation: confirmed via Management.tsx source that active tabs use `management-tab active` class pattern.
+4. Risk: nightly schedule runs could exhaust CI test quota.
+   - Mitigation: full-e2e has `timeout-minutes: 45` cap; globalTimeout: 45 min in playwright.config.ts for CI.
+
+## Validation Commands (planning target)
+1. `npm run test:fast`
+2. `npm run test:e2e:smoke`
+3. `npm run test:e2e:full`
+4. `npm run gate:commit`
+
+## Browser-retained assertion matrix (Increment 1 minimum)
+1. `e2e/formation-management.spec.ts`
+  - Create path: retain one formation create assertion.
+  - Destructive path: retain delete-confirm and delete-cancel assertions.
+2. `e2e/team-management.spec.ts`
+  - Create path: retain one team create assertion.
+  - Destructive path: retain delete-confirm and delete-cancel assertions.
+3. `e2e/player-management.spec.ts`
+  - Create path: retain one player add/create assertion.
+  - Destructive path: retain delete-confirm and delete-cancel assertions.
+
+## Open Questions
+1. Should full Playwright run in CI on every PR to `main`, or nightly/release-only after smoke passes?
+2. Is there a preferred naming convention for smoke-only grep tags (`@smoke`) versus explicit file targeting for Increment 1?

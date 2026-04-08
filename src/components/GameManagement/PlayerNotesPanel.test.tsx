@@ -252,4 +252,34 @@ describe("PlayerNotesPanel", () => {
     expect(activeChip).toBeDefined();
     expect(activeChip).toHaveClass("active");
   });
+
+  it("Cancel button dismisses modal in internal mode", async () => {
+    const user = userEvent.setup();
+    render(<PlayerNotesPanel {...defaultProps} />);
+
+    await user.click(screen.getByRole("button", { name: /Gold Star/i }));
+    expect(screen.queryByRole("dialog")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("external control: Cancel calls onRequestCloseNote", async () => {
+    const user = userEvent.setup();
+    const onRequestCloseNote = vi.fn();
+
+    render(
+      <PlayerNotesPanel
+        {...defaultProps}
+        isNoteModalOpen={true}
+        noteModalRequestId={1}
+        noteModalIntent={{ source: "command-band", defaultType: "other" }}
+        onRequestOpenNote={vi.fn()}
+        onRequestCloseNote={onRequestCloseNote}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onRequestCloseNote).toHaveBeenCalledOnce();
+  });
 });

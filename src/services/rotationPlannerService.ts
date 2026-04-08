@@ -22,6 +22,7 @@ interface RotationOptions {
   halfLengthMinutes: number;
   positions?: Array<{ id: string; abbreviation?: string | null }>;
   playerAvailabilities?: Array<{ playerId: string; status: string | null }>;
+  initialPlayTimeMinutes?: Map<string, number>; // accumulated play time in minutes per playerId
 }
 
 export interface RotationResult {
@@ -207,7 +208,13 @@ export function calculateFairRotations(
 
   // Play time tracking (minutes)
   const playTimeMinutes = new Map<string, number>();
-  playerIds.forEach(id => playTimeMinutes.set(id, 0));
+  playerIds.forEach(id => {
+    const accumulated = options?.initialPlayTimeMinutes?.get(id) ?? 0;
+    playTimeMinutes.set(id, accumulated);
+  });
+  // NOTE: continuousRotations is not seeded from live game state.
+  // Fatigue-based forced-off (MAX_CONTINUOUS_ROTATIONS) may be delayed by 1 rotation.
+  // Rotations are reference-only; coaches may override.
 
   // Consecutive on-field intervals (reset to 0 when benched or at halftime)
   const continuousRotations = new Map<string, number>();

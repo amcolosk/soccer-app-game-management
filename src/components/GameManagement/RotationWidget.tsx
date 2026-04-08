@@ -4,6 +4,7 @@ import { showSuccess } from "../../utils/toast";
 import { handleApiError } from "../../utils/errorHandler";
 import { useAvailability } from "../../contexts/AvailabilityContext";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
+import { isRotationFullyExecuted, isSubEffectivelyExecuted } from "../../utils/rotationConflictUtils";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import type {
   Game,
@@ -33,6 +34,15 @@ interface RotationWidgetProps {
   isRotationModalOpen?: boolean;
   onOpenRotationModal?: () => void;
   onCloseRotationModal?: () => void;
+  onRecalculateRotations?: () => void;
+  isRecalculating?: boolean;
+  getPlanConflicts?: () => Array<{
+    type: 'starter' | 'rotation' | 'on-field';
+    playerId: string;
+    playerName: string;
+    status: string;
+    rotationNumbers: number[];
+  }>;
 }
 
 export function RotationWidget({
@@ -44,11 +54,15 @@ export function RotationWidget({
   gamePlan,
   plannedRotations,
   currentTime,
+  lineup,
   substitutionQueue,
   onQueueSubstitution,
   isRotationModalOpen,
   onOpenRotationModal,
   onCloseRotationModal,
+  onRecalculateRotations,
+  isRecalculating,
+  getPlanConflicts,
 }: RotationWidgetProps) {
   const { getPlayerAvailability } = useAvailability();
   const [internalShowRotationModal, setInternalShowRotationModal] = useState(false);
@@ -71,19 +85,21 @@ export function RotationWidget({
 
     const currentMinutes = Math.floor(currentTime / 60);
     return plannedRotations.find(r => {
-      return r.half === gameState.currentHalf &&
-             r.gameMinute >= currentMinutes - 2;
+      if (r.half !== gameState.currentHalf) return false;
+      if (r.gameMinute < currentMinutes - 2) return false;
+      if (isRotationFullyExecuted(r.plannedSubstitutions as string, lineup ?? [])) return false;
+      return true;
     }) || null;
   };
 
   // When the modal is opened externally (via CommandBand tap), auto-select the next rotation.
   useEffect(() => {
-    if (isRotationModalOpen && !currentRotation) {
+    if (isRotationModalOpen) {
       const next = getNextRotation();
-      if (next) setCurrentRotation(next);
+      setCurrentRotation(next ?? null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRotationModalOpen]);
+  }, [isRotationModalOpen, plannedRotations]);
 
   const handleQueueAll = () => {
     if (!currentRotation) return;
@@ -151,9 +167,19 @@ export function RotationWidget({
             try {
               const subs: PlannedSubstitution[] = JSON.parse(nextRotation.plannedSubstitutions as string);
               return subs.filter(sub => {
+                // Rotation already physically executed — playerIn on field, playerOut off field
+                if (isSubEffectivelyExecuted(sub, lineup ?? [])) return false;
                 const inStatus = getPlayerAvailability(sub.playerInId);
                 const outStatus = getPlayerAvailability(sub.playerOutId);
-                return inStatus === 'absent' || inStatus === 'injured' || outStatus === 'absent' || outStatus === 'injured';
+                const playerInOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerInId) ?? false;
+                const playerOutOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerOutId) ?? false;
+                // True on-field conflict: both players are simultaneously on the field
+                const isTrueOnFieldConflict = playerInOnField && playerOutOnField;
+                return (
+                  isTrueOnFieldConflict ||
+                  inStatus === 'absent' || inStatus === 'injured' ||
+                  outStatus === 'absent' || outStatus === 'injured'
+                );
               });
             } catch { return []; }
           })();
@@ -229,7 +255,7 @@ export function RotationWidget({
                 if (queueEligibleSubs.length === 0) {
                   return (
                     <p className="empty-state">
-                      No rotation changes available. Planned players are marked injured. Recover a player or update the plan.
+                      No rotation changes available. All planned players are either unavailable or already on the field.
                     </p>
                   );
                 }
@@ -275,6 +301,9 @@ export function RotationWidget({
                             {playerIn?.firstName} {playerIn?.lastName}
                           </span>
                           {getAvailabilityBadge(inAvailability)}
+                          {lineup?.some(l => l.isStarter && l.playerId === sub.playerInId) && (
+                            <span className="availability-badge unavailable">⚠️ on field</span>
+                          )}
                         </div>
                       </div>
                       <button
@@ -295,6 +324,19 @@ export function RotationWidget({
               })()}
             </div>
 
+            {(getPlanConflicts?.() ?? []).length > 0 && onRecalculateRotations && (
+              <div style={{ marginBottom: '0.5rem' }}>
+                <button
+                  onClick={onRecalculateRotations}
+                  disabled={isRecalculating}
+                  aria-busy={isRecalculating}
+                  className="btn-secondary"
+                  style={{ width: '100%' }}
+                >
+                  {isRecalculating ? '⏳ Recalculating...' : '🔄 Recalculate Rotations'}
+                </button>
+              </div>
+            )}
             <div className="form-actions">
               <button
                 onClick={handleQueueAll}

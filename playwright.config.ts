@@ -42,7 +42,40 @@ export default defineConfig({
   /* Configure projects for major browsers */
   projects: [
     {
-      name: 'chromium',
+      name: 'setup',
+      testMatch: '**/auth.setup.ts',
+    },
+    {
+      name: 'smoke',
+      // Smoke lane is browser wiring confidence only.
+      // Contract/static layers own deep semantics and payload policy assertions.
+      testMatch: [
+        '**/formation-management.spec.ts',
+        '**/team-management.spec.ts',
+        '**/player-management.spec.ts',
+        '**/data-isolation.spec.ts',
+        '**/safe-deletes.spec.ts',
+        // Wiring-only smoke checks; planner/note semantics owned by Vitest integration tests (Layer B)
+        '**/game-planner.spec.ts',
+        '**/game-management-direct-note.mobile.spec.ts',
+      ],
+      dependencies: ['setup'],
+      use: { ...devices['Desktop Chrome'], storageState: '.auth/user1.json' },
+    },
+    {
+      name: 'full',
+      // These specs use `navigateToApp` which requires the smoke project's storageState.
+      // They run via smoke lane only.
+      testIgnore: [
+        '**/game-planner.spec.ts',
+        '**/game-management-direct-note.mobile.spec.ts',
+        '**/auth.setup.ts',
+        '**/data-isolation.spec.ts',
+        '**/formation-management.spec.ts',
+        '**/team-management.spec.ts',
+        '**/player-management.spec.ts',
+        '**/safe-deletes.spec.ts',
+      ],
       use: { ...devices['Desktop Chrome'] },
     },
   ],
