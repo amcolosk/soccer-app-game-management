@@ -114,6 +114,9 @@ vi.mock('../utils/analytics', () => ({
   trackEvent: vi.fn(),
   AnalyticsEvents: {
     GAME_CREATED: { category: 'Game', action: 'Game Created' },
+    GAME_UPDATED: { category: 'Game', action: 'Update Game' },
+    GAME_DELETED: { category: 'Game', action: 'Delete Game' },
+    GAME_OPENED: { category: 'Game', action: 'Open Game' },
     DEMO_TEAM_CREATED: { category: 'Onboarding', action: 'Demo Team Created' },
     DEMO_TEAM_REMOVED: { category: 'Onboarding', action: 'Demo Team Removed' },
   },
@@ -140,6 +143,18 @@ vi.mock('./Onboarding/WelcomeModal', () => ({
 
 vi.mock('./Onboarding/QuickStartChecklist', () => ({
   QuickStartChecklist: () => <div data-testid="quick-start-checklist" />,
+}));
+
+vi.mock('./ConfirmModal', () => ({
+  useConfirm: () => vi.fn().mockResolvedValue(false),
+}));
+
+vi.mock('../services/cascadeDeleteService', () => ({
+  deleteGameCascade: vi.fn(),
+}));
+
+vi.mock('../utils/gameTimeUtils', () => ({
+  isoToDatetimeLocal: vi.fn().mockReturnValue(''),
 }));
 
 // ---------------------------------------------------------------------------

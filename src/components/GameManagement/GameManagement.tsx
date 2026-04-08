@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
-import { showSuccess, showWarning } from "../../utils/toast";
+import { showError, showSuccess, showWarning } from "../../utils/toast";
 import { handleApiError } from "../../utils/errorHandler";
+import { isoToDatetimeLocal } from "../../utils/gameTimeUtils";
 import { useConfirm } from "../ConfirmModal";
 import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
@@ -86,6 +87,15 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [isRecalculating, setIsRecalculating] = useState(false);
 
   const [substitutionQueue, setSubstitutionQueue] = useState<SubQueue[]>([]);
+
+  // Edit scheduled game state
+  const [isEditingGame, setIsEditingGame] = useState(false);
+  const [editGameOpponent, setEditGameOpponent] = useState('');
+  const [editGameDate, setEditGameDate] = useState('');
+  const [editGameIsHome, setEditGameIsHome] = useState(true);
+  const [isSavingGameEdit, setIsSavingGameEdit] = useState(false);
+  const editFormRef = useRef<HTMLDivElement>(null);
+  const editGameButtonRef = useRef<HTMLButtonElement>(null);
 
   // Guards to prevent duplicate halftime/end-game handling when both the
   // auto-trigger (from useGameTimer) and a manual button click fire concurrently.
@@ -194,6 +204,14 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     setDebugContext(gameManagementDebugSnapshot);
     return () => setDebugContext(null);
   }, [gameManagementDebugSnapshot, setDebugContext]);
+
+  useEffect(() => {
+    if (isEditingGame && editFormRef.current) {
+      editFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const firstInput = editFormRef.current.querySelector<HTMLInputElement>('input[type="text"]');
+      firstInput?.focus();
+    }
+  }, [isEditingGame]);
 
   // Wake Lock: prevent screen sleep during active game
   const isGameActive = gameState.status === 'in-progress' || gameState.status === 'halftime';
@@ -414,6 +432,47 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       setIsRecalculating(false);
     }
   };
+
+  const handleOpenEditGame = useCallback(() => {
+    setEditGameOpponent(game.opponent ?? '');
+    setEditGameDate(isoToDatetimeLocal(game.gameDate));
+    setEditGameIsHome(game.isHome ?? true);
+    setIsEditingGame(true);
+  }, [game]);
+
+  const handleSaveGameEdit = useCallback(async () => {
+    if (!editGameOpponent.trim()) {
+      showWarning('Please enter an opponent name');
+      return;
+    }
+    setIsSavingGameEdit(true);
+    const timeoutId = setTimeout(() => {
+      setIsSavingGameEdit(false);
+      showError('Could not confirm save — check your connection and try again.');
+    }, 5000);
+    try {
+      await client.models.Game.update({
+        id: game.id,
+        opponent: editGameOpponent.trim(),
+        isHome: editGameIsHome,
+        gameDate: editGameDate ? new Date(editGameDate).toISOString() : null,
+      });
+      clearTimeout(timeoutId);
+      trackEvent(AnalyticsEvents.GAME_UPDATED.category, AnalyticsEvents.GAME_UPDATED.action);
+      setIsEditingGame(false);
+      setIsSavingGameEdit(false);
+      editGameButtonRef.current?.focus();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      setIsSavingGameEdit(false);
+      handleApiError(error, 'Failed to update game');
+    }
+  }, [game, editGameOpponent, editGameIsHome, editGameDate]);
+
+  const handleCancelGameEdit = useCallback(() => {
+    setIsEditingGame(false);
+    editGameButtonRef.current?.focus();
+  }, []);
 
   const handleStartGame = async () => {
     // Warn if any starters are unavailable
@@ -1010,6 +1069,57 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         {/* ── PRE-GAME ─────────────────────────────────────────────── */}
         {gameState.status === 'scheduled' && (
           <div className="pregame-layout">
+            {/* Edit Game trigger or inline edit form */}
+            {!isEditingGame ? (
+              <button
+                ref={editGameButtonRef}
+                className="btn-secondary btn-edit-game-trigger"
+                onClick={handleOpenEditGame}
+              >
+                ✏️ Edit Game
+              </button>
+            ) : (
+              <div className="create-form" ref={editFormRef}>
+                <h3>Edit Game</h3>
+                <input
+                  type="text"
+                  placeholder="Opponent Team Name *"
+                  value={editGameOpponent}
+                  onChange={(e) => setEditGameOpponent(e.target.value)}
+                  maxLength={100}
+                />
+                <input
+                  type="datetime-local"
+                  value={editGameDate}
+                  onChange={(e) => setEditGameDate(e.target.value)}
+                />
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={editGameIsHome}
+                    onChange={(e) => setEditGameIsHome(e.target.checked)}
+                  />
+                  Home Game
+                </label>
+                <div className="form-actions">
+                  <button
+                    onClick={handleSaveGameEdit}
+                    className="btn-primary"
+                    disabled={isSavingGameEdit}
+                  >
+                    {isSavingGameEdit ? 'Saving…' : 'Save Changes'}
+                  </button>
+                  <button
+                    onClick={handleCancelGameEdit}
+                    className="btn-secondary"
+                    disabled={isSavingGameEdit}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
             {gamePlan && (() => {
               const conflicts = getPlanConflicts();
               if (conflicts.length === 0) return null;
@@ -1050,13 +1160,15 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
             <LineupPanel {...sharedLineupPanelProps} />
 
-            <div className="pregame-start-cta">
-              <button onClick={handleStartGame} className="btn-primary btn-large">
-                Start Game
-              </button>
-            </div>
+            {!isEditingGame && (
+              <div className="pregame-start-cta">
+                <button onClick={handleStartGame} className="btn-primary btn-large">
+                  Start Game
+                </button>
+              </div>
+            )}
 
-            {deleteGameButton}
+            {!isEditingGame && deleteGameButton}
           </div>
         )}
 
