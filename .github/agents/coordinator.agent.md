@@ -1,7 +1,7 @@
 ---
 name: coordinator-agent
 description: "Coordinate multi-agent feature delivery, defect triage, VS Code custom agent discovery, and stage-gated orchestration across implementation-planner, architect-agent, ui-designer, coding-agent, validation-agent, and security-engineer. Use when you need a workflow owner that gathers context, delegates work, enforces gates, and manages handoffs."
-tools: [read, search, agent, todo]
+tools: [read, search, agent, todo, vscode/askQuestions]
 argument-hint: "Describe the task, desired outcome, affected areas, constraints, and whether this is a new feature, defect fix, or issue triage request."
 user-invocable: true
 agents:
