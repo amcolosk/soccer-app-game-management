@@ -278,6 +278,7 @@ describe('executeSubstitution', () => {
     vi.clearAllMocks();
     mockPlayTimeRecordUpdate.mockResolvedValue({ data: {} });
     mockPlayTimeRecordCreate.mockResolvedValue({ data: {} });
+    mockPlayTimeRecordList.mockResolvedValue({ data: [], nextToken: null });
     mockLineupAssignmentDelete.mockResolvedValue({ data: {} });
     mockLineupAssignmentCreate.mockResolvedValue({ data: {} });
     mockSubstitutionCreate.mockResolvedValue({ data: {} });
@@ -409,5 +410,87 @@ describe('executeSubstitution', () => {
     expect(mockLineupAssignmentCreate).toHaveBeenCalledWith(expect.objectContaining({ coaches: multiCoaches }));
     expect(mockPlayTimeRecordCreate).toHaveBeenCalledWith(expect.objectContaining({ coaches: multiCoaches }));
     expect(mockSubstitutionCreate).toHaveBeenCalledWith(expect.objectContaining({ coaches: multiCoaches }));
+  });
+
+  describe('with stale playTimeRecords and DB fallback', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      mockPlayTimeRecordUpdate.mockResolvedValue({ data: {} });
+      mockPlayTimeRecordCreate.mockResolvedValue({ data: {} });
+      mockPlayTimeRecordList.mockResolvedValue({ data: [], nextToken: null });
+      mockLineupAssignmentDelete.mockResolvedValue({ data: {} });
+      mockLineupAssignmentCreate.mockResolvedValue({ data: {} });
+      mockSubstitutionCreate.mockResolvedValue({ data: {} });
+    });
+
+    it('should query DB when active record is not found in stale React state', async () => {
+      const dbRecord = makeRecord({ id: 'db-record', playerId: 'old-player', positionId: 'position-1', endGameSeconds: null });
+
+      // React state has no matching active record; DB has it
+      mockPlayTimeRecordList.mockResolvedValue({ data: [dbRecord], nextToken: null });
+
+      await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations);
+
+      expect(mockPlayTimeRecordList).toHaveBeenCalledWith(expect.objectContaining({
+        filter: { gameId: { eq: 'game-1' } },
+      }));
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'db-record', endGameSeconds: 600 });
+    });
+
+    it('should paginate through DB pages when searching for active record', async () => {
+      const dbRecord = makeRecord({ id: 'page-2-record', playerId: 'old-player', positionId: 'position-1', endGameSeconds: null });
+
+      mockPlayTimeRecordList
+        .mockResolvedValueOnce({ data: [], nextToken: 'some-token' })
+        .mockResolvedValueOnce({ data: [dbRecord], nextToken: null });
+
+      await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations);
+
+      expect(mockPlayTimeRecordList).toHaveBeenCalledTimes(2);
+      expect(mockPlayTimeRecordList.mock.calls[1][0]).toMatchObject({ nextToken: 'some-token' });
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'page-2-record', endGameSeconds: 600 });
+    });
+
+    it('should still execute remaining steps even when DB query finds no active record', async () => {
+      // Neither React state nor DB has the active record
+      mockPlayTimeRecordList.mockResolvedValue({ data: [], nextToken: null });
+
+      await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations);
+
+      expect(mockPlayTimeRecordUpdate).not.toHaveBeenCalled();
+      // All other 4 operations still execute
+      expect(mockLineupAssignmentDelete).toHaveBeenCalled();
+      expect(mockLineupAssignmentCreate).toHaveBeenCalled();
+      expect(mockPlayTimeRecordCreate).toHaveBeenCalled();
+      expect(mockSubstitutionCreate).toHaveBeenCalled();
+    });
+
+    it('should fall back gracefully when DB query throws', async () => {
+      mockPlayTimeRecordList.mockRejectedValue(new Error('Network error'));
+
+      await expect(
+        executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations)
+      ).resolves.not.toThrow();
+
+      expect(mockPlayTimeRecordUpdate).not.toHaveBeenCalled();
+      // All other operations still execute
+      expect(mockLineupAssignmentDelete).toHaveBeenCalled();
+      expect(mockLineupAssignmentCreate).toHaveBeenCalled();
+      expect(mockPlayTimeRecordCreate).toHaveBeenCalled();
+    });
+
+    it('should prefer in-memory record over DB query when both are available', async () => {
+      const inMemoryRecord = makeRecord({ id: 'memory-record', playerId: 'old-player', positionId: 'position-1', endGameSeconds: null });
+      const dbRecord = makeRecord({ id: 'db-record', playerId: 'old-player', positionId: 'position-1', endGameSeconds: null });
+
+      // React state has the record; DB also has it
+      mockPlayTimeRecordList.mockResolvedValue({ data: [dbRecord], nextToken: null });
+
+      await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [inMemoryRecord], 'assignment-1', coaches, mockMutations);
+
+      // Should use the in-memory record and NOT call the DB
+      expect(mockPlayTimeRecordList).not.toHaveBeenCalled();
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'memory-record', endGameSeconds: 600 });
+    });
   });
 });
