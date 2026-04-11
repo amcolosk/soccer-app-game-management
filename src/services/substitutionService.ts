@@ -169,11 +169,44 @@ export async function executeSubstitution(
   console.log(`Executing substitution: ${oldPlayerId} OUT, ${newPlayerId} IN at position ${positionId}`);
 
   // 1. End play time for outgoing player
-  const activeRecord = playTimeRecords.find(
-    r => r.playerId === oldPlayerId && 
+  let activeRecord = playTimeRecords.find(
+    r => r.playerId === oldPlayerId &&
     r.positionId === positionId &&
     (r.endGameSeconds === null || r.endGameSeconds === undefined)
   );
+
+  // If not found in the passed-in records (possibly stale React state),
+  // do a fresh DB query to catch records not yet reflected in subscriptions
+  if (!activeRecord) {
+    console.warn(`Active play time record for player ${oldPlayerId} not found in React state — querying DB`);
+    try {
+      let nextToken: string | null | undefined = undefined;
+      let hasMore = true;
+      outer: while (hasMore) {
+        const listOptions: { filter: { gameId: { eq: string } }; nextToken?: string; limit?: number } = {
+          filter: { gameId: { eq: gameId } },
+          limit: 1000,
+        };
+        if (nextToken) listOptions.nextToken = nextToken;
+        const response = await client.models.PlayTimeRecord.list(listOptions);
+        if (response.data) {
+          const found = response.data.find(
+            r => r.playerId === oldPlayerId &&
+            r.positionId === positionId &&
+            (r.endGameSeconds === null || r.endGameSeconds === undefined)
+          );
+          if (found) {
+            activeRecord = found;
+            break outer;
+          }
+        }
+        nextToken = response.nextToken;
+        hasMore = !!nextToken;
+      }
+    } catch (error) {
+      console.warn('DB query for active play time record failed:', error);
+    }
+  }
 
   if (activeRecord) {
     console.log(`Ending play time record ${activeRecord.id} at ${currentGameSeconds}s`);

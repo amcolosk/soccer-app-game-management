@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../../amplify/data/resource";
 import type {
@@ -34,9 +34,25 @@ export function useGameSubscriptions({
   const [plannedRotations, setPlannedRotations] = useState<PlannedRotation[]>([]);
 
   // Simple data subscriptions via reusable hook
-  const { data: lineup } = useAmplifyQuery('LineupAssignment', {
+  const { data: lineupRaw } = useAmplifyQuery('LineupAssignment', {
     filter: { gameId: { eq: game.id } },
   }, [game.id]);
+
+  // Deduplicate lineup assignments: when multiple assignments exist for the same
+  // position (caused by a failed delete during substitution), keep only the most
+  // recently created one. This prevents stale entries from showing the old player.
+  const lineup = useMemo(() => {
+    const byPosition = new Map<string, (typeof lineupRaw)[0]>();
+    for (const assignment of lineupRaw) {
+      if (!assignment.positionId) continue;
+      const existing = byPosition.get(assignment.positionId);
+      if (!existing || (assignment.createdAt ?? '') > (existing.createdAt ?? '')) {
+        byPosition.set(assignment.positionId, assignment);
+      }
+    }
+    const withoutPosition = lineupRaw.filter(a => !a.positionId);
+    return [...Array.from(byPosition.values()), ...withoutPosition];
+  }, [lineupRaw]);
 
   const { data: playTimeRecords } = useAmplifyQuery('PlayTimeRecord', {
     filter: { gameId: { eq: game.id } },
