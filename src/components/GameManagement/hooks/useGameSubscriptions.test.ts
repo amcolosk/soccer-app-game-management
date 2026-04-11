@@ -240,6 +240,80 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     expect(setCurrentTime).not.toHaveBeenCalled();
   });
 
+  it('does NOT auto-resume when a stale in-progress event arrives after game was completed (regression guard)', () => {
+    // This tests the fix for: games persisting as in-progress on Home screen
+    // after End Game was pressed.
+    //
+    // Scenario: the game is already completed in local state (coach pressed
+    // End Game). A stale subscription notification from a prior timer-sync
+    // write arrives late. Without the regression guard, this would call
+    // setIsRunning(true) and re-start the saveInterval.
+    const setIsRunning = vi.fn();
+    const setCurrentTime = vi.fn();
+    const completedGame = createDefaultGame({
+      status: 'completed',
+      elapsedSeconds: 2700,
+      lastStartTime: null,
+    });
+    const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, game: completedGame });
+
+    renderHook(() => useGameSubscriptions(props));
+
+    expect(capturedGameNext).not.toBeNull();
+
+    // Fire a stale in-progress event — simulates a late DynamoDB subscription
+    // notification from a timer-sync write that happened before End Game.
+    act(() => {
+      capturedGameNext!({
+        items: [
+          {
+            id: 'game-1',
+            status: 'in-progress',
+            elapsedSeconds: 2695,
+            lastStartTime: new Date(Date.now() - 5_000).toISOString(),
+          } as Partial<Game>,
+        ],
+      });
+    });
+
+    // The regression guard must block auto-resume: timer should NOT restart.
+    expect(setIsRunning).not.toHaveBeenCalledWith(true);
+    // Time should NOT be updated (stays at 2700 from the completed state).
+    expect(setCurrentTime).not.toHaveBeenCalled();
+  });
+
+  it('does NOT recreate the subscription when isRunning changes (isRunningRef fix)', () => {
+    // This tests Bug Fix 1: isRunning was previously in the observeQuery useEffect
+    // deps, causing the subscription to recreate on every timer tick. The new
+    // isRunningRef pattern means subscribe is called only once regardless of how
+    // many times isRunning changes.
+    const subscribeSpy = vi.fn((handlers: { next: (data: { items: Partial<Game>[] }) => void }) => {
+      capturedGameNext = handlers.next;
+      return makeNoOpSub();
+    });
+    mockGameObserveQuery.mockReturnValue({ subscribe: subscribeSpy });
+
+    // Start with isRunning = false
+    const props = createDefaultProps({ isRunning: false });
+    const { rerender } = renderHook(
+      (p: ReturnType<typeof createDefaultProps>) => useGameSubscriptions(p),
+      { initialProps: props }
+    );
+
+    // Subscription created once on mount
+    expect(subscribeSpy).toHaveBeenCalledTimes(1);
+
+    // Simulate isRunning changing to true (timer started)
+    rerender(createDefaultProps({ isRunning: true }));
+    // Subscription must NOT be recreated — still only 1 call
+    expect(subscribeSpy).toHaveBeenCalledTimes(1);
+
+    // Simulate isRunning changing back to false (timer paused/stopped)
+    rerender(createDefaultProps({ isRunning: false }));
+    // Still only 1 call — no subscription churn
+    expect(subscribeSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('unsubscribes from Game.observeQuery on unmount', () => {
     const unsubscribeSpy = vi.fn();
     mockGameObserveQuery.mockReturnValue({

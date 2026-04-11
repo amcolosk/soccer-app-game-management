@@ -105,6 +105,13 @@ export function useGameSubscriptions({
   const isRunningRef = useRef(isRunning);
   isRunningRef.current = isRunning;
 
+  // Ref for gameState — allows the observeQuery callback to read the latest
+  // local game state without being in the effect deps. Used to block
+  // auto-resume when a stale in-progress subscription event arrives after
+  // the game has already been completed locally (regression guard).
+  const gameStateRef = useRef(gameState);
+  gameStateRef.current = gameState;
+
   // Ref to track if lineup sync is in progress - prevents duplicate creation
   const lineupSyncInProgressRef = useRef(false);
 
@@ -139,6 +146,12 @@ export function useGameSubscriptions({
             }
             return updatedGame;
           });
+
+          // If local state is already completed, skip all timer logic — this
+          // event is stale and must not trigger auto-resume or time updates.
+          if (gameStateRef.current.status === 'completed') {
+            return;
+          }
 
           // Don't update time if timer is currently running in this component.
           // Use isRunningRef (not the captured closure) so this check is always
