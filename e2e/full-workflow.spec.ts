@@ -743,26 +743,45 @@ async function runGame(page: Page, gameNumber: number = 1) {
   // Remove the confirm handler now that game is complete
   cleanupConfirm();
   
-  // Navigate back to Home to see games list for next game (if not the last game)
-  if (gameNumber === 1) {
-    // Try clicking the back button first if it exists
-    const backButton = page.locator('button.back-button, button:has-text("← Back")');
-    const backButtonVisible = await backButton.isVisible().catch(() => false);
-    if (backButtonVisible) {
-      await backButton.click();
-      await page.waitForTimeout(UI_TIMING.NAVIGATION);
-    }
-    
-    // Then navigate to Home tab
-    const homeTab = page.locator('a.nav-item', { hasText: 'Games' });
-    await homeTab.click();
-    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
-    
-    // Verify we're on Home page by waiting for the Schedule button
-    await page.waitForSelector('button:has-text("+ Schedule New Game")', { timeout: 5000 });
-    console.log('✓ Returned to Home/Games list');
+  // --- Regression guard: game must show "completed" on Home screen immediately after
+  //     ending it, and must remain completed after a full page reload (app close/reopen).
+  //     Bug: status persisted as 'in-progress' on Home screen even after End Game.
+  const opponent = gameNumber === 1 ? TEST_DATA.game1.opponent : TEST_DATA.game2.opponent;
+
+  // Navigate back to Home screen via bottom nav (applies to both games)
+  const backButton = page.locator('button.back-button, button:has-text("← Back")');
+  if (await backButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await backButton.click();
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
   }
-  
+  const homeTab = page.locator('a.nav-item', { hasText: 'Games' });
+  await homeTab.click();
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+  await page.waitForSelector('button:has-text("+ Schedule New Game")', { timeout: 5000 });
+  console.log(`✓ Returned to Home/Games list after game ${gameNumber}`);
+
+  // Game card must appear in "Past Games" with completed styling — not in "Active Games"
+  const completedCard = page.locator('.game-card.completed-game', { hasText: opponent });
+  const activeCard = page.locator('.game-card.active-game', { hasText: opponent });
+  await expect(completedCard).toBeVisible({ timeout: 10000 });
+  await expect(activeCard).not.toBeVisible();
+  await expect(completedCard.locator('.game-status')).toContainText('Completed');
+  console.log(`✓ Home screen shows game vs ${opponent} as completed (not in-progress)`);
+
+  // Reload the page to simulate the coach closing and reopening the app
+  await page.reload();
+  await waitForPageLoad(page);
+  await page.waitForSelector('.bottom-nav', { timeout: 15000 });
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+  console.log('✓ Page reloaded (simulating app close/reopen)');
+
+  const completedCardAfterReload = page.locator('.game-card.completed-game', { hasText: opponent });
+  const activeCardAfterReload = page.locator('.game-card.active-game', { hasText: opponent });
+  await expect(completedCardAfterReload).toBeVisible({ timeout: 10000 });
+  await expect(activeCardAfterReload).not.toBeVisible();
+  await expect(completedCardAfterReload.locator('.game-status')).toContainText('Completed');
+  console.log(`✓ After reload: game vs ${opponent} still shown as completed`);
+
   // Return game statistics
   if (gameNumber === 1) {
     return {
