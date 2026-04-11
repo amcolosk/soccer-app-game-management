@@ -443,6 +443,31 @@ describe('useGameTimer', () => {
     });
   });
 
+  it('saveInterval does not persist to DB after game status changes to completed', () => {
+    // Simulates the race window between handleEndGame calling setIsRunning(false)
+    // and the React effect cleanup: the saveInterval fires but gameStatusRef.current
+    // is already 'completed', so it must skip the DB write.
+    const props = createDefaultProps();
+    props.isRunning = true;
+    props.gameState.status = 'in-progress';
+    props.currentTime = 0;
+    props.setCurrentTime = vi.fn();
+
+    const { rerender } = renderHook(() => useGameTimer(props));
+
+    // Simulate game completing — status flips to 'completed' before interval fires
+    props.gameState = { ...props.gameState, status: 'completed' };
+    rerender();
+
+    // Advance past the 5-second save interval threshold
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    // The guard should have prevented any DB write
+    expect(mockGameUpdate).not.toHaveBeenCalled();
+  });
+
   // ── Callback ref correctness ─────────────────────────────────────────────
 
   it('uses latest onHalftime/onEndGame via refs — updated callbacks are invoked, not stale ones', () => {
