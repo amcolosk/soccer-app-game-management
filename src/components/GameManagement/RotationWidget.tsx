@@ -249,7 +249,9 @@ export function RotationWidget({
 
                 const queueEligibleSubs = subs.filter((sub) => {
                   const inAvailability = getPlayerAvailability(sub.playerInId);
-                  return inAvailability !== 'injured';
+                  if (inAvailability === 'injured') return false;
+                  if (isSubEffectivelyExecuted(sub, lineup ?? [])) return false;
+                  return true;
                 });
 
                 if (queueEligibleSubs.length === 0) {
@@ -309,14 +311,18 @@ export function RotationWidget({
                           <span className="sub-availability-slot">{getAvailabilityBadge(inAvailability)}</span>
                         </div>
                       </div>
-                      {lineup?.some(l => l.isStarter && l.playerId === sub.playerInId) && (
-                        <div className="sub-conflict-banner" role="alert">
-                          <span aria-hidden="true">⚠️</span>
-                          <span>
-                            #{playerIn?.playerNumber} {playerIn?.firstName} is already on the field — this sub cannot execute
-                          </span>
-                        </div>
-                      )}
+                      {(() => {
+                        const playerInOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerInId) ?? false;
+                        const playerOutOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerOutId) ?? false;
+                        return (playerInOnField && playerOutOnField) && (
+                          <div className="sub-conflict-banner" role="alert">
+                            <span aria-hidden="true">⚠️</span>
+                            <span>
+                              #{playerIn?.playerNumber} {playerIn?.firstName} is already on the field — this sub cannot execute
+                            </span>
+                          </div>
+                        );
+                      })()}
                       <button
                         onClick={() => {
                           if (canQueue) {
