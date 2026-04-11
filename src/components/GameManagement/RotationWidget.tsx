@@ -249,7 +249,9 @@ export function RotationWidget({
 
                 const queueEligibleSubs = subs.filter((sub) => {
                   const inAvailability = getPlayerAvailability(sub.playerInId);
-                  return inAvailability !== 'injured';
+                  if (inAvailability === 'injured') return false;
+                  if (isSubEffectivelyExecuted(sub, lineup ?? [])) return false;
+                  return true;
                 });
 
                 if (queueEligibleSubs.length === 0) {
@@ -274,38 +276,53 @@ export function RotationWidget({
                   const canQueue = inAvailability === 'available' && !isQueued;
 
                   const getAvailabilityBadge = (status: string) => {
+                    if (status === 'available') {
+                      return null; // available is the default; no badge needed
+                    }
                     if (status === 'injured' || status === 'absent') {
-                      return <span className="availability-badge unavailable">⚠️ {status}</span>;
+                      return <span className="availability-badge unavailable" role="status">⚠️ {status}</span>;
                     }
                     if (status === 'late-arrival') {
-                      return <span className="availability-badge late">⏰ late</span>;
+                      return <span className="availability-badge late" role="status">⏰ late</span>;
                     }
-                    return <span className="availability-badge available">✓</span>;
+                    return null;
                   };
 
                   return (
-                    <div key={idx} className="planned-sub-item">
-                      <div className="sub-position-label">{position?.abbreviation}</div>
-                      <div className="sub-players">
-                        <div className="sub-player sub-out">
+                    <div
+                      key={idx}
+                      className="planned-sub-item"
+                      aria-label={`${position?.abbreviation ?? 'Position'}: ${playerOut?.firstName ?? ''} ${playerOut?.lastName ?? ''} off, ${playerIn?.firstName ?? ''} ${playerIn?.lastName ?? ''} on`}
+                    >
+                      <div className="sub-position-chip" aria-hidden="true">{position?.abbreviation}</div>
+                      <div className="sub-players-stacked" aria-hidden="true">
+                        {/* Player leaving the field */}
+                        <div className="sub-player-row sub-player-row--out">
+                          <span className="sub-direction-pill sub-direction-pill--out" aria-label="coming off">OFF</span>
                           <span className="player-number">#{playerOut?.playerNumber}</span>
-                          <span className="player-name">
-                            {playerOut?.firstName} {playerOut?.lastName}
-                          </span>
-                          {getAvailabilityBadge(outAvailability)}
+                          <span className="player-name">{playerOut?.firstName} {playerOut?.lastName}</span>
+                          <span className="sub-availability-slot">{getAvailabilityBadge(outAvailability)}</span>
                         </div>
-                        <div className="sub-arrow">→</div>
-                        <div className="sub-player sub-in">
+                        {/* Player entering from bench */}
+                        <div className="sub-player-row sub-player-row--in">
+                          <span className="sub-direction-pill sub-direction-pill--in" aria-label="coming in">IN</span>
                           <span className="player-number">#{playerIn?.playerNumber}</span>
-                          <span className="player-name">
-                            {playerIn?.firstName} {playerIn?.lastName}
-                          </span>
-                          {getAvailabilityBadge(inAvailability)}
-                          {lineup?.some(l => l.isStarter && l.playerId === sub.playerInId) && (
-                            <span className="availability-badge unavailable">⚠️ on field</span>
-                          )}
+                          <span className="player-name">{playerIn?.firstName} {playerIn?.lastName}</span>
+                          <span className="sub-availability-slot">{getAvailabilityBadge(inAvailability)}</span>
                         </div>
                       </div>
+                      {(() => {
+                        const playerInOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerInId) ?? false;
+                        const playerOutOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerOutId) ?? false;
+                        return (playerInOnField && playerOutOnField) && (
+                          <div className="sub-conflict-banner" role="alert">
+                            <span aria-hidden="true">⚠️</span>
+                            <span>
+                              #{playerIn?.playerNumber} {playerIn?.firstName} is already on the field — this sub cannot execute
+                            </span>
+                          </div>
+                        );
+                      })()}
                       <button
                         onClick={() => {
                           if (canQueue) {
@@ -315,6 +332,11 @@ export function RotationWidget({
                         className={`btn-queue-sub ${isQueued ? 'queued' : ''}`}
                         disabled={!canQueue}
                         title={isQueued ? 'Already queued' : (canQueue ? 'Add to substitution queue' : 'Player not available')}
+                        aria-label={
+                          isQueued
+                            ? `${playerOut?.firstName} off, ${playerIn?.firstName} on for ${position?.abbreviation} — already queued`
+                            : `Queue sub: ${playerOut?.firstName} off, ${playerIn?.firstName} on for ${position?.abbreviation}`
+                        }
                       >
                         {isQueued ? '✓ Queued' : '+ Queue'}
                       </button>

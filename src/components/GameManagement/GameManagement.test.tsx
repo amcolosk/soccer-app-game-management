@@ -149,6 +149,8 @@ vi.mock("../../hooks/useOfflineMutations", () => ({
       deleteLineupAssignment: (id: string) => mockLineupDelete({ id }),
       updateLineupAssignment: vi.fn().mockResolvedValue(undefined),
       createGoal:             vi.fn().mockResolvedValue(undefined),
+      deleteGoal:             vi.fn().mockResolvedValue(undefined),
+      updateGoal:             vi.fn().mockResolvedValue(undefined),
       createGameNote:         (...args: unknown[]) => mockCreateGameNote(...args),
       updateGameNote:         (...args: unknown[]) => mockUpdateGameNote(...args),
       deleteGameNote:         (...args: unknown[]) => mockDeleteGameNote(...args),
