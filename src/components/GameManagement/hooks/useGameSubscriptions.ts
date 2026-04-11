@@ -98,6 +98,13 @@ export function useGameSubscriptions({
   // Ref to track manual pause - prevents race condition with observeQuery auto-resume
   const manuallyPausedRef = useRef(false);
 
+  // Ref for isRunning — keeps the observeQuery callback up-to-date without
+  // recreating the subscription every time the timer starts or stops (fixes
+  // the stale-subscription race that caused completed games to show as
+  // in-progress after ending).
+  const isRunningRef = useRef(isRunning);
+  isRunningRef.current = isRunning;
+
   // Ref to track if lineup sync is in progress - prevents duplicate creation
   const lineupSyncInProgressRef = useRef(false);
 
@@ -109,15 +116,12 @@ export function useGameSubscriptions({
       next: (data) => {
         if (data.items.length > 0) {
           const updatedGame = data.items[0];
-          setGameState(updatedGame);
 
           // If the game is completed, always stop the timer regardless of isRunning.
-          // This handles the case where stale Amplify cache data (status: in-progress)
-          // caused the timer to auto-resume, and the live completed data arrived after.
-          // Without this, the early `if (isRunning) return` below would prevent the
-          // completed status from stopping the timer (fixes game showing as in-progress
-          // after being finished).
+          // Guard against stale subscription events regressing a completed game back
+          // to in-progress (fixes games appearing in-progress after ending).
           if (updatedGame.status === 'completed') {
+            setGameState(updatedGame);
             setIsRunning(false);
             if (updatedGame.elapsedSeconds !== null && updatedGame.elapsedSeconds !== undefined) {
               setCurrentTime(updatedGame.elapsedSeconds);
@@ -125,9 +129,21 @@ export function useGameSubscriptions({
             return;
           }
 
-          // Don't update time if timer is currently running in this component
-          // This prevents score updates from resetting the clock
-          if (isRunning) {
+          // Prevent a stale 'in-progress' subscription event from overwriting a
+          // locally-completed game state. This handles the race where the DynamoDB
+          // write for 'completed' has succeeded but a prior timer-sync write's
+          // subscription notification arrives out of order.
+          setGameState(prev => {
+            if (prev.status === 'completed') {
+              return prev;
+            }
+            return updatedGame;
+          });
+
+          // Don't update time if timer is currently running in this component.
+          // Use isRunningRef (not the captured closure) so this check is always
+          // fresh without requiring the subscription to recreate on every tick.
+          if (isRunningRef.current) {
             return;
           }
 
@@ -151,8 +167,10 @@ export function useGameSubscriptions({
     return () => {
       gameSub.unsubscribe();
     };
+    // isRunning intentionally omitted from deps — we use isRunningRef to read
+    // the latest value without recreating the subscription on every timer tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game.id, isRunning]);
+  }, [game.id]);
 
   // GamePlan + PlannedRotation subscriptions (co-dependent — stays manual)
   useEffect(() => {

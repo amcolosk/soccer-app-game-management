@@ -709,7 +709,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       });
       
       // Update local state with the exact end time
-      setGameState({ ...gameState, status: 'completed', elapsedSeconds: endGameTime });
+      setGameState(prev => ({ ...prev, status: 'completed', elapsedSeconds: endGameTime }));
       setCurrentTime(endGameTime);
       trackEvent(AnalyticsEvents.GAME_COMPLETED.category, AnalyticsEvents.GAME_COMPLETED.action);
     } catch (error) {
