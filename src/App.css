@@ -2404,6 +2404,14 @@
   flex: 1;
 }
 
+.goal-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+  align-self: flex-start;
+}
+
 .goal-header {
   display: flex;
   align-items: center;

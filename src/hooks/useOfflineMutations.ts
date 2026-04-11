@@ -73,6 +73,12 @@ export interface GoalCreateFields {
   coaches?: string[] | null;
 }
 
+export interface GoalUpdateFields {
+  scorerId?: string | null;
+  assistId?: string | null;
+  notes?: string | null;
+}
+
 export interface GameNoteCreateFields {
   gameId: string;
   noteType: 'coaching-point' | 'gold-star' | 'yellow-card' | 'red-card' | 'other';
@@ -118,6 +124,8 @@ export interface GameMutationInput {
   deleteLineupAssignment: (id: string) => Promise<void>;
   updateLineupAssignment: (id: string, fields: LineupAssignmentUpdateFields) => Promise<void>;
   createGoal: (fields: GoalCreateFields) => Promise<void>;
+  deleteGoal: (id: string) => Promise<void>;
+  updateGoal: (id: string, fields: GoalUpdateFields) => Promise<void>;
   createGameNote: (fields: GameNoteCreateFields) => Promise<void>;
   updateGameNote: (id: string, fields: GameNoteUpdateFields) => Promise<void>;
   deleteGameNote: (id: string) => Promise<void>;
@@ -436,6 +444,30 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
     [enqueueOrRun]
   );
 
+  const deleteGoal = useCallback(
+    async (id: string): Promise<void> => {
+      await enqueueOrRun(
+        'Goal', 'delete',
+        { id },
+        () => client.models.Goal.delete({ id }).then(() => undefined)
+      );
+    },
+    [enqueueOrRun]
+  );
+
+  const updateGoal = useCallback(
+    async (id: string, fields: GoalUpdateFields): Promise<void> => {
+      const { scorerId, assistId, notes } = fields;
+      const safeFields = { scorerId, assistId, notes };
+      await enqueueOrRun(
+        'Goal', 'update',
+        { id, ...safeFields } as Record<string, unknown>,
+        () => client.models.Goal.update({ id, ...safeFields }).then(() => undefined)
+      );
+    },
+    [enqueueOrRun]
+  );
+
   const createGameNote = useCallback(
     async (fields: GameNoteCreateFields): Promise<void> => {
       const { authorId: _strippedAuthorId, coaches: _strippedCoaches, ...safeFields } = fields as GameNoteCreateFields & {
@@ -513,6 +545,8 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       deleteLineupAssignment,
       updateLineupAssignment,
       createGoal,
+      deleteGoal,
+      updateGoal,
       createGameNote,
       updateGameNote,
       deleteGameNote,
@@ -522,7 +556,7 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
     [
       updateGame, createPlayTimeRecord, updatePlayTimeRecord, createSubstitution,
       createLineupAssignment, deleteLineupAssignment, updateLineupAssignment,
-      createGoal, createGameNote, updateGameNote, deleteGameNote,
+      createGoal, deleteGoal, updateGoal, createGameNote, updateGameNote, deleteGameNote,
       createPlayerAvailability, updatePlayerAvailability,
     ]
   );
