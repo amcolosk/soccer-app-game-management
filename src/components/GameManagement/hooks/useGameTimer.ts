@@ -59,6 +59,11 @@ export function useGameTimer({
   const onEndGameRef = useRef(onEndGame);
   onEndGameRef.current = onEndGame;
 
+  // Track the current game status via a ref so the saveInterval callback
+  // can guard against writing lastStartTime after the game is no longer in-progress.
+  const gameStatusRef = useRef(gameState.status);
+  gameStatusRef.current = gameState.status;
+
   // Capture anchor whenever isRunning transitions.
   // currentTime is intentionally excluded from deps so we only read it at the
   // exact moment of the transition, not on every tick.
@@ -116,6 +121,9 @@ export function useGameTimer({
 
       // Save elapsed time to database every 5 seconds
       saveInterval = setInterval(() => {
+        // Guard: skip if the game is no longer in-progress (e.g., handleEndGame was called
+        // but the effect cleanup hasn't run yet due to the React re-render cycle).
+        if (gameStatusRef.current !== 'in-progress') return;
         const derivedNow = startMsRef.current !== null
           ? startElapsedRef.current + Math.floor((Date.now() - startMsRef.current) / 1000)
           : startElapsedRef.current;

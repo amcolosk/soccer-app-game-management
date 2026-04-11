@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../../amplify/data/resource";
 import type {
@@ -34,9 +34,25 @@ export function useGameSubscriptions({
   const [plannedRotations, setPlannedRotations] = useState<PlannedRotation[]>([]);
 
   // Simple data subscriptions via reusable hook
-  const { data: lineup } = useAmplifyQuery('LineupAssignment', {
+  const { data: lineupRaw } = useAmplifyQuery('LineupAssignment', {
     filter: { gameId: { eq: game.id } },
   }, [game.id]);
+
+  // Deduplicate lineup assignments: when multiple assignments exist for the same
+  // position (caused by a failed delete during substitution), keep only the most
+  // recently created one. This prevents stale entries from showing the old player.
+  const lineup = useMemo(() => {
+    const byPosition = new Map<string, (typeof lineupRaw)[0]>();
+    for (const assignment of lineupRaw) {
+      if (!assignment.positionId) continue;
+      const existing = byPosition.get(assignment.positionId);
+      if (!existing || (assignment.createdAt ?? '') > (existing.createdAt ?? '')) {
+        byPosition.set(assignment.positionId, assignment);
+      }
+    }
+    const withoutPosition = lineupRaw.filter(a => !a.positionId);
+    return [...Array.from(byPosition.values()), ...withoutPosition];
+  }, [lineupRaw]);
 
   const { data: playTimeRecords } = useAmplifyQuery('PlayTimeRecord', {
     filter: { gameId: { eq: game.id } },
@@ -95,18 +111,23 @@ export function useGameSubscriptions({
           const updatedGame = data.items[0];
           setGameState(updatedGame);
 
-          // Don't update time if timer is currently running in this component
-          // This prevents score updates from resetting the clock
-          if (isRunning) {
-            return;
-          }
-
-          // Don't update time if game was just completed - the handleEndGame already set the final time
-          if (updatedGame.status === 'completed' && gameState.status !== 'completed') {
-            // Game just completed, use the final elapsedSeconds from database
+          // If the game is completed, always stop the timer regardless of isRunning.
+          // This handles the case where stale Amplify cache data (status: in-progress)
+          // caused the timer to auto-resume, and the live completed data arrived after.
+          // Without this, the early `if (isRunning) return` below would prevent the
+          // completed status from stopping the timer (fixes game showing as in-progress
+          // after being finished).
+          if (updatedGame.status === 'completed') {
+            setIsRunning(false);
             if (updatedGame.elapsedSeconds !== null && updatedGame.elapsedSeconds !== undefined) {
               setCurrentTime(updatedGame.elapsedSeconds);
             }
+            return;
+          }
+
+          // Don't update time if timer is currently running in this component
+          // This prevents score updates from resetting the clock
+          if (isRunning) {
             return;
           }
 
@@ -117,8 +138,8 @@ export function useGameSubscriptions({
             const additionalSeconds = Math.floor((now - lastStart) / 1000);
             setCurrentTime((updatedGame.elapsedSeconds || 0) + additionalSeconds);
             setIsRunning(true);
-          } else if (updatedGame.status !== 'completed') {
-            // Only restore elapsed time if game is not actively running and not completed
+          } else {
+            // Restore elapsed time for halftime or paused states
             if (updatedGame.elapsedSeconds !== null && updatedGame.elapsedSeconds !== undefined) {
               setCurrentTime(updatedGame.elapsedSeconds);
             }

@@ -93,7 +93,7 @@ export function Home() {
       }
 
       // In-progress/scheduled: upcoming first
-      return dateB - dateA;
+      return dateA - dateB;
     },
   });
 

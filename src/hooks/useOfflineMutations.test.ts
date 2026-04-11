@@ -674,4 +674,56 @@ describe('useOfflineMutations', () => {
       expect(result.current.isSyncing).toBe(false);
     });
   });
+
+  describe('drainQueue — triggered on startup (mount-time drain)', () => {
+    it('drains the queue on mount when online and there are pending items', async () => {
+      mockPendingCount.mockResolvedValue(1);
+      mockDequeueAll.mockResolvedValue([
+        {
+          id: 'q1',
+          model: 'Game',
+          operation: 'update',
+          payload: { id: 'g1', status: 'completed', elapsedSeconds: 9194, lastStartTime: null },
+          enqueuedAt: 1,
+          retryCount: 0,
+          ownerSub: DEFAULT_SUB,
+        },
+      ]);
+      setupOnline(); // navigator.onLine = true
+
+      renderHook(() => useOfflineMutations());
+      await flush();
+
+      expect(mockDeduplicateGameUpdates).toHaveBeenCalled();
+      expect(mockDequeueAll).toHaveBeenCalled();
+      expect(mockGameUpdate).toHaveBeenCalledWith({
+        id: 'g1',
+        status: 'completed',
+        elapsedSeconds: 9194,
+        lastStartTime: null,
+      });
+    });
+
+    it('does NOT drain on mount when online but there are no pending items', async () => {
+      mockPendingCount.mockResolvedValue(0);
+      setupOnline();
+
+      renderHook(() => useOfflineMutations());
+      await flush();
+
+      expect(mockDequeueAll).not.toHaveBeenCalled();
+      expect(mockGameUpdate).not.toHaveBeenCalled();
+    });
+
+    it('does NOT drain on mount when offline even if there are pending items', async () => {
+      mockPendingCount.mockResolvedValue(2);
+      setupOffline(); // navigator.onLine = false
+
+      renderHook(() => useOfflineMutations());
+      await flush();
+
+      expect(mockDequeueAll).not.toHaveBeenCalled();
+      expect(mockGameUpdate).not.toHaveBeenCalled();
+    });
+  });
 });

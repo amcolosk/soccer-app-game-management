@@ -443,6 +443,38 @@ describe('useGameTimer', () => {
     });
   });
 
+  it('effect cleanup prevents saveInterval from firing after gameState.status changes to completed', () => {
+    // What this test actually verifies: when gameState.status changes to 'completed',
+    // the effect dep array ([isRunning, gameState.status, ...]) triggers React's cleanup
+    // function, which calls clearInterval on both intervals BEFORE advanceTimersByTime
+    // can fire them. The intervals are therefore never executed.
+    //
+    // Note: the gameStatusRef guard at line ~126 of useGameTimer.ts is a defense-in-depth
+    // measure for a narrower race condition (interval fires in the same render cycle
+    // before cleanup runs). That guard is NOT what this test exercises — the cleanup
+    // fires first, making the guard unreachable in this scenario.
+    const props = createDefaultProps();
+    props.isRunning = true;
+    props.gameState.status = 'in-progress';
+    props.currentTime = 0;
+    props.setCurrentTime = vi.fn();
+
+    const { rerender } = renderHook(() => useGameTimer(props));
+
+    // Simulate game completing — changing gameState.status triggers effect cleanup,
+    // which clears both intervals before they can fire.
+    props.gameState = { ...props.gameState, status: 'completed' };
+    rerender();
+
+    // Advance past the 5-second save interval threshold; intervals are already cleared.
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    // No DB write should have occurred because the interval was cleared by cleanup.
+    expect(mockGameUpdate).not.toHaveBeenCalled();
+  });
+
   // ── Callback ref correctness ─────────────────────────────────────────────
 
   it('uses latest onHalftime/onEndGame via refs — updated callbacks are invoked, not stale ones', () => {
