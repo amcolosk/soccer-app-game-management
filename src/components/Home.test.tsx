@@ -42,6 +42,7 @@ const {
 
 // Mutable query results — tests mutate these before rendering
 const teamQueryResult: { data: object[]; isSynced: boolean } = { data: [], isSynced: false };
+const gameQueryResult: { data: object[]; isSynced: boolean } = { data: [], isSynced: true };
 
 // Mutable onboarding state — tests set `welcomed` before rendering
 const onboardingState = {
@@ -62,6 +63,7 @@ const authState: { authStatus: string } = {
 vi.mock('../hooks/useAmplifyQuery', () => ({
   useAmplifyQuery: (modelName: string) => {
     if (modelName === 'Team') return teamQueryResult;
+    if (modelName === 'Game') return gameQueryResult;
     return { data: [], isSynced: true };
   },
 }));
@@ -175,6 +177,8 @@ function resetState() {
   mockCoachProfileGet.mockResolvedValue({ data: { firstName: '' } });
   teamQueryResult.data = [];
   teamQueryResult.isSynced = false;
+  gameQueryResult.data = [];
+  gameQueryResult.isSynced = true;
   onboardingState.welcomed = false;
   onboardingState.dismissed = true;
   authState.authStatus = 'authenticated';
@@ -484,6 +488,38 @@ describe('Home — auto-welcome for existing users (issue #22)', () => {
     expect(localStorage.getItem('onboarding:lastCompletedSteps')).toBe(
       JSON.stringify([true, true, false, false, false, false, false])
     );
+  });
+});
+
+describe('Home — game status grouping (regression guard)', () => {
+  beforeEach(resetState);
+
+  it('shows a completed game in "Past Games", not "Active Games"', () => {
+    teamQueryResult.data = [{ id: 't1', name: 'Eagles', coaches: ['test-user-id'] }];
+    teamQueryResult.isSynced = true;
+    gameQueryResult.data = [
+      { id: 'g1', status: 'completed', teamId: 't1', opponent: 'Rivals FC', isHome: true },
+    ];
+    gameQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    expect(screen.getByText('Past Games')).toBeInTheDocument();
+    expect(screen.queryByText('Active Games')).not.toBeInTheDocument();
+  });
+
+  it('shows an in-progress game in "Active Games", not "Past Games"', () => {
+    teamQueryResult.data = [{ id: 't1', name: 'Eagles', coaches: ['test-user-id'] }];
+    teamQueryResult.isSynced = true;
+    gameQueryResult.data = [
+      { id: 'g1', status: 'in-progress', teamId: 't1', opponent: 'Rivals FC', isHome: true },
+    ];
+    gameQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    expect(screen.getByText('Active Games')).toBeInTheDocument();
+    expect(screen.queryByText('Past Games')).not.toBeInTheDocument();
   });
 });
 

@@ -8,6 +8,7 @@ import { HelpFabProvider } from "../contexts/HelpFabContext";
 import { HelpFab } from "./HelpFab";
 import { useEffect } from "react";
 import { trackPageView } from "../utils/analytics";
+import { useOfflineMutations } from "../hooks/useOfflineMutations";
 
 export function AppLayout() {
   const location = useLocation();
@@ -17,6 +18,11 @@ export function AppLayout() {
   useEffect(() => {
     trackPageView(location.pathname);
   }, [location.pathname]);
+
+  // Trigger startup drain of any pending offline mutations (e.g., game status
+  // changes queued while offline). Runs once on mount; safe alongside the
+  // instance used in GameManagement/GamePlanner — dequeueAll() is atomic.
+  useOfflineMutations();
 
   return (
     <OnboardingProvider>

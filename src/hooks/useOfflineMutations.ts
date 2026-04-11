@@ -316,6 +316,21 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
     isOnlineRef.current = isOnline;
   }, [isOnline]);
 
+  // Drain any pending items on startup when the device is already online.
+  // This handles the case where mutations were queued during a brief offline
+  // period and the app is reopened while already connected — in that scenario
+  // no offline→online transition fires so onReconnect never triggers the drain.
+  useEffect(() => {
+    if (!isOnlineRef.current) return;
+    void getQueuePendingCount()
+      .then(count => {
+        if (count > 0) void drainQueue();
+      })
+      .catch(() => {});
+  // drainQueue is a stable useCallback ([] deps); this effect runs once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Helper: route to direct API call or IndexedDB queue ──────────────────
 
   const enqueueOrRun = useCallback(
