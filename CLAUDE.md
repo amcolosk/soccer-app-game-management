@@ -13,7 +13,7 @@ TeamTrack is a progressive web app for coaches to manage teams, players, and gam
 Every new feature must go through this agent pipeline in order. Do not skip stages or proceed to the next stage until the current one is complete.
 
 ```
-coordinator-agent → implementation-planner → architect-agent → [ui-designer] → coding-agent → validation-agent + security-engineer → commit gate
+coordinator-agent → implementation-planner → architect-agent → [ui-designer] → coding-agent → validation-agent + security-engineer + [ui-designer for UI-impacting changes] → commit gate
 ```
 
 `coordinator-agent` is the entry point for this workflow. It owns workflow state, gathers context, delegates to the stage-specific agents below, and requires structured responses before advancing stages.
@@ -34,9 +34,10 @@ coordinator-agent → implementation-planner → architect-agent → [ui-designe
 - Executes the finalized plan
 - Writes code, updates tests, follows existing patterns
 
-**Stage 5 — Review** (`validation-agent` + `security-engineer` agents, run in parallel)
-- Both agents independently review the implementation
-- If either agent finds a **Major or higher severity issue**, the `coding-agent` must fix it and the reviewing agent must re-run until no Major+ issues remain
+**Stage 5 — Parallel Reviews** (`validation-agent` + `security-engineer` + `[ui-designer for UI-impacting changes]` agents, run in parallel)
+- `ui-designer` runs in Stage 5 only for UI-impacting changes and is reviewer-only (does not implement code changes)
+- All participating Stage 5 reviewers independently review the implementation
+- If any Stage 5 reviewer finds a **Major or higher severity issue**, the `coding-agent` must fix it and the blocking reviewer must re-run until no Major+ issues remain
 - Minor/informational findings are recorded but do not block progress
 
 **Stage 6 — Commit gate**

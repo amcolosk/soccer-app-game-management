@@ -1,7 +1,7 @@
 ---
 name: implementation-planner
 description: "Create implementation plans, technical specifications, markdown plan docs, file-by-file change lists, data model impact analysis, and edge-case analysis for new features or larger defect fixes. Use when planning only; not for coding or orchestration."
-tools: [read, search, edit, todo]
+tools: [read, search, edit, todo, github/issue_read, github/add_issue_comment, github/get_commit, github/list_commits, github/list_issues, github/list_pull_requests, github/list_branches, github/get_file_contents]
 user-invocable: false
 ---
 

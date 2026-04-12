@@ -1,7 +1,7 @@
 ---
 name: validation-agent
 description: "Review completed implementation against requirements, plans, behavior, regressions, and test coverage. Use for implementation validation and defect review only; not for coordination or implementation."
-tools: [read, search, execute]
+tools: [read, search, execute, github/issue_read, github/add_issue_comment, github/get_commit, github/list_commits, github/list_issues, github/list_pull_requests, github/list_branches, github/get_file_contents]
 user-invocable: false
 ---
 
