@@ -281,25 +281,36 @@ export function SubstitutionPanel({
               if (!player || !position) return null;
 
               return (
-                <div key={`${queueItem.playerId}-${queueItem.positionId}`} className="sub-queue-item">
+                <div
+                  key={`${queueItem.playerId}-${queueItem.positionId}`}
+                  className="sub-queue-item"
+                  aria-label={`Queued sub: ${position.abbreviation}, ${currentPlayer?.firstName ?? 'open'} off, ${player.firstName} ${player.lastName} on`}
+                >
                   <div className="sub-queue-info">
-                    <div className="sub-queue-position">
-                      {position.abbreviation} - {position.positionName}
+                    <div className="sub-queue-position-chip">
+                      <span className="sub-queue-position-abbr">{position.abbreviation}</span>
+                      <span className="sub-queue-position-full">{position.positionName}</span>
                     </div>
-                    <div className="sub-queue-players">
-                      <span className="player-out">
-                        {currentPlayer ? `#${currentPlayer.playerNumber} ${currentPlayer.firstName}` : 'N/A'}
-                      </span>
-                      <span className="sub-arrow">→</span>
-                      <span className="player-in">
-                        #{player.playerNumber} {player.firstName} {player.lastName}
-                      </span>
+                    <div className="sub-players-stacked">
+                      <div className="sub-player-row sub-player-row--out">
+                        <span className="sub-direction-pill sub-direction-pill--out" aria-label="coming off">OFF</span>
+                        <span>
+                          {currentPlayer
+                            ? `#${currentPlayer.playerNumber} ${currentPlayer.firstName}`
+                            : 'Open Position'}
+                        </span>
+                      </div>
+                      <div className="sub-player-row sub-player-row--in">
+                        <span className="sub-direction-pill sub-direction-pill--in" aria-label="coming in">IN</span>
+                        <span>#{player.playerNumber} {player.firstName} {player.lastName}</span>
+                      </div>
                     </div>
                   </div>
                   <div className="sub-queue-actions">
                     <button
                       onClick={() => handleExecuteSubstitution(queueItem)}
                       className="btn-execute-sub"
+                      aria-label={`Execute sub now: ${currentPlayer?.firstName ?? 'open'} off, ${player.firstName} on for ${position.abbreviation}`}
                       title="Execute substitution now"
                     >
                       ✓ Sub Now
@@ -307,6 +318,7 @@ export function SubstitutionPanel({
                     <button
                       onClick={() => handleRemoveFromQueue(queueItem.playerId, queueItem.positionId)}
                       className="btn-remove-queue"
+                      aria-label={`Remove ${player.firstName} from queue`}
                       title="Remove from queue"
                     >
                       ✕

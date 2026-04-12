@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useState, useCallback, useRef } from "react";
 import { showWarning } from "../../utils/toast";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
 import { handleApiError } from "../../utils/errorHandler";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { PlayerSelect } from "../PlayerSelect";
+import { useConfirm } from "../ConfirmModal";
 import { isPlayerCurrentlyPlaying } from "../../utils/playTimeCalculations";
 import { isPlayerInLineup } from "../../utils/lineupUtils";
-import type { GameMutationInput } from "../../hooks/useOfflineMutations";
+import type { GameMutationInput, GoalUpdateFields } from "../../hooks/useOfflineMutations";
 import type { Game, Team, PlayerWithRoster, Goal, PlayTimeRecord, LineupAssignment } from "./types";
 
 interface GoalTrackerProps {
@@ -39,6 +40,17 @@ export function GoalTracker({
   const [goalScorerId, setGoalScorerId] = useState("");
   const [goalAssistId, setGoalAssistId] = useState("");
   const [goalNotes, setGoalNotes] = useState("");
+
+  const [showEditGoalModal, setShowEditGoalModal] = useState(false);
+  const [editGoal, setEditGoal] = useState<Goal | null>(null);
+  const [editScorerId, setEditScorerId] = useState('');
+  const [editAssistId, setEditAssistId] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [error, setError] = useState('');
+  const editTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  const confirm = useConfirm();
 
   const onFieldPlayerIds = players
     .filter(p =>
@@ -92,6 +104,71 @@ export function GoalTracker({
     }
   };
 
+  const handleOpenEditGoalModal = useCallback((goal: Goal, triggerEl: HTMLButtonElement) => {
+    editTriggerRef.current = triggerEl;
+    setEditGoal(goal);
+    setEditScorerId(goal.scorerId ?? '');
+    setEditAssistId(goal.assistId ?? '');
+    setEditNotes(goal.notes ?? '');
+    setError('');
+    setShowEditGoalModal(true);
+  }, []);
+
+  const handleCloseEditGoalModal = useCallback(() => {
+    setShowEditGoalModal(false);
+    setEditGoal(null);
+    requestAnimationFrame(() => editTriggerRef.current?.focus());
+  }, []);
+
+  const handleSaveEditGoal = useCallback(async () => {
+    if (!editGoal) return;
+    if (editGoal.scoredByUs && !editScorerId) {
+      setError('A scorer is required for our goals.');
+      return;
+    }
+    setIsSavingEdit(true);
+    try {
+      await mutations.updateGoal(editGoal.id, {
+        scorerId: editScorerId || undefined,
+        assistId: editAssistId || undefined,
+        notes: editNotes || undefined,
+      } as GoalUpdateFields);
+      handleCloseEditGoalModal();
+    } catch (err) {
+      handleApiError(err, 'Failed to save goal');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }, [editGoal, editScorerId, editAssistId, editNotes, mutations, handleCloseEditGoalModal]);
+
+  const handleDeleteGoal = useCallback(async (goal: Goal) => {
+    const minute = Math.floor((goal.gameSeconds ?? 0) / 60);
+    const teamLabel = goal.scoredByUs ? 'Us' : (gameState.opponent ?? 'Opponent');
+    const confirmed = await confirm({
+      title: 'Delete Goal',
+      message: `Remove the ${teamLabel} goal at ${minute}'? This cannot be undone.`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await mutations.deleteGoal(goal.id);
+      const newOurScore = goal.scoredByUs
+        ? Math.max(0, (gameState.ourScore ?? 0) - 1)
+        : (gameState.ourScore ?? 0);
+      const newOpponentScore = goal.scoredByUs
+        ? (gameState.opponentScore ?? 0)
+        : Math.max(0, (gameState.opponentScore ?? 0) - 1);
+      await mutations.updateGame(gameState.id, {
+        ourScore: newOurScore,
+        opponentScore: newOpponentScore,
+      });
+      onScoreUpdate(newOurScore, newOpponentScore);
+    } catch (err) {
+      handleApiError(err, 'Failed to delete goal');
+    }
+  }, [confirm, gameState, mutations, onScoreUpdate]);
+
   return (
     <>
       {/* Goal Buttons */}
@@ -114,6 +191,8 @@ export function GoalTracker({
             {goals.map((goal) => {
               const scorer = goal.scorerId ? players.find(p => p.id === goal.scorerId) : null;
               const assist = goal.assistId ? players.find(p => p.id === goal.assistId) : null;
+              const minute = Math.floor((goal.gameSeconds ?? 0) / 60);
+              const teamLabel = goal.scoredByUs ? 'Us' : (gameState.opponent ?? 'Opponent');
               return (
                 <div key={goal.id} className={`goal-card ${goal.scoredByUs ? 'goal-us' : 'goal-opponent'}`}>
                   <div className="goal-icon">⚽</div>
@@ -139,6 +218,24 @@ export function GoalTracker({
                       <div className="goal-opponent-label">{gameState.opponent}</div>
                     )}
                     {goal.notes && <div className="goal-notes">{goal.notes}</div>}
+                  </div>
+                  <div className="goal-card-actions">
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      aria-label={`Edit ${teamLabel} goal at ${minute}'`}
+                      onClick={(e) => handleOpenEditGoalModal(goal, e.currentTarget)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-delete"
+                      aria-label={`Delete ${teamLabel} goal at ${minute}'`}
+                      onClick={() => handleDeleteGoal(goal)}
+                    >
+                      Delete
+                    </button>
                   </div>
                 </div>
               );
@@ -193,6 +290,7 @@ export function GoalTracker({
                     onChange={(e) => setGoalNotes(e.target.value)}
                     placeholder="e.g., header, penalty, great shot..."
                     rows={3}
+                    maxLength={500}
                     style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', resize: 'vertical' }}
                   />
                 </div>
@@ -208,6 +306,7 @@ export function GoalTracker({
                   onChange={(e) => setGoalNotes(e.target.value)}
                   placeholder="Any notes about the goal..."
                   rows={3}
+                  maxLength={500}
                   style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', resize: 'vertical' }}
                 />
               </div>
@@ -218,6 +317,80 @@ export function GoalTracker({
                 Record Goal
               </button>
               <button onClick={() => setShowGoalModal(false)} className="btn-secondary">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Goal Modal */}
+      {showEditGoalModal && editGoal && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="edit-goal-modal-title">
+          <div className="modal-content">
+            <h2 id="edit-goal-modal-title">
+              {editGoal.scoredByUs ? 'Edit Our Goal' : `Edit ${gameState.opponent ?? 'Opponent'} Goal`}
+            </h2>
+            <p className="modal-subtitle">
+              {editGoal.scoredByUs ? 'Our Goal' : `${gameState.opponent ?? 'Opponent'} Goal`}
+              {' — '}
+              Half {editGoal.half}, {Math.floor((editGoal.gameSeconds ?? 0) / 60)}'
+            </p>
+
+            {editGoal.scoredByUs && (
+              <>
+                <div className="form-group">
+                  <label>Scorer</label>
+                  <PlayerSelect
+                    id="editScorer"
+                    players={players}
+                    value={editScorerId}
+                    onChange={setEditScorerId}
+                    placeholder="Select scorer"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Assist (optional)</label>
+                  <PlayerSelect
+                    id="editAssist"
+                    players={players}
+                    value={editAssistId}
+                    onChange={setEditAssistId}
+                    placeholder="No assist / Select player..."
+                  />
+                </div>
+              </>
+            )}
+
+            <div className="form-group">
+              <label>Notes (optional)</label>
+              <textarea
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                placeholder="Optional notes"
+                rows={3}
+                maxLength={500}
+                autoFocus={!editGoal.scoredByUs}
+              />
+            </div>
+
+            {error && <p className="error-message">{error}</p>}
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleSaveEditGoal}
+                disabled={isSavingEdit}
+              >
+                {isSavingEdit ? 'Saving…' : 'Save Changes'}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleCloseEditGoalModal}
+                disabled={isSavingEdit}
+              >
                 Cancel
               </button>
             </div>
