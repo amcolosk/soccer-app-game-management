@@ -114,10 +114,9 @@ export function TeamReport({ team }: TeamReportProps) {
     trackEvent(AnalyticsEvents.SEASON_REPORT_VIEWED.category, AnalyticsEvents.SEASON_REPORT_VIEWED.action);
   }, []);
 
-  // Phase 2: Once games are loaded, fetch PlayTimeRecords, Goals, and GameNotes
-  // per-game using paginated list() calls. This avoids the unfiltered observeQuery()
-  // which scans the entire table and may miss records due to pagination issues
-  // when orphaned records from previous test/game sessions accumulate.
+  // Phase 2: Once games are loaded, fetch PlayTimeRecords via gameId index query,
+  // and fetch Goals/GameNotes via per-game paginated list() calls. This avoids
+  // unfiltered observeQuery() scans that can miss records under heavy pagination.
   const gameDataLoadedRef = useRef(false);
   useEffect(() => {
     if (!gamesSynced || allGames.length === 0) return;
@@ -128,16 +127,109 @@ export function TeamReport({ team }: TeamReportProps) {
     async function fetchPlayTimeForGame(gameId: string): Promise<PlayTimeRecord[]> {
       const items: PlayTimeRecord[] = [];
       let nextToken: string | null | undefined = undefined;
+
+      type IndexPage = {
+        data?: unknown;
+        nextToken?: string | null;
+        errors?: Array<{ message?: string }>;
+      };
+
+      const parseIndexPage = (page: IndexPage): { records: PlayTimeRecord[]; nextToken: string | null | undefined } => {
+        if (page.errors && page.errors.length > 0) {
+          throw new Error(page.errors[0]?.message ?? 'Failed to fetch PlayTimeRecords by gameId index');
+        }
+
+        const extractRecords = (value: unknown): PlayTimeRecord[] => {
+          if (!Array.isArray(value)) return [];
+          return value.filter((entry): entry is PlayTimeRecord => {
+            if (!entry || typeof entry !== 'object') return false;
+            const candidate = entry as Partial<PlayTimeRecord>;
+            return typeof candidate.gameId === 'string' && typeof candidate.playerId === 'string';
+          });
+        };
+
+        // Model index call shape: { data: PlayTimeRecord[], nextToken }
+        const modelData = extractRecords(page.data);
+        if (Array.isArray(page.data)) {
+          return { records: modelData, nextToken: page.nextToken };
+        }
+
+        // Query call shape can be a JSON string or nested object payload.
+        let payload: unknown = page.data;
+        if (typeof payload === 'string') {
+          try {
+            payload = JSON.parse(payload) as unknown;
+          } catch {
+            payload = null;
+          }
+        }
+
+        if (!payload || typeof payload !== 'object') {
+          return { records: [], nextToken: page.nextToken };
+        }
+
+        const payloadObj = payload as Record<string, unknown>;
+        const nestedResult = payloadObj.listPlayTimeRecordsByGameId;
+        const rootItems = extractRecords(payloadObj.items);
+        const rootNextToken = typeof payloadObj.nextToken === 'string' || payloadObj.nextToken === null
+          ? payloadObj.nextToken as string | null
+          : undefined;
+
+        if (rootItems.length > 0 || Array.isArray(payloadObj.items)) {
+          return { records: rootItems, nextToken: rootNextToken ?? page.nextToken };
+        }
+
+        if (nestedResult && typeof nestedResult === 'object') {
+          const nestedObj = nestedResult as Record<string, unknown>;
+          const nestedItems = extractRecords(nestedObj.items);
+          const nestedNextToken = typeof nestedObj.nextToken === 'string' || nestedObj.nextToken === null
+            ? nestedObj.nextToken as string | null
+            : undefined;
+          return { records: nestedItems, nextToken: nestedNextToken ?? page.nextToken };
+        }
+
+        return { records: [], nextToken: page.nextToken };
+      };
+
+      const playTimeModel = client.models.PlayTimeRecord as typeof client.models.PlayTimeRecord & {
+        listPlayTimeRecordsByGameId?: (args: {
+          gameId: string;
+          limit?: number;
+          nextToken?: string;
+        }) => Promise<IndexPage>;
+      };
+
+      const queryApi = client.queries as unknown as {
+        listPlayTimeRecordsByGameId?: (args: {
+          gameId: string;
+          limit?: number;
+          nextToken?: string;
+        }) => Promise<IndexPage>;
+      };
+
       do {
-        const opts: { filter: { gameId: { eq: string } }; nextToken?: string; limit?: number } = {
-          filter: { gameId: { eq: gameId } },
+        const queryArgs: { gameId: string; nextToken?: string; limit?: number } = {
+          gameId,
           limit: 1000,
         };
-        if (nextToken) opts.nextToken = nextToken;
-        const res = await client.models.PlayTimeRecord.list(opts);
-        if (res.data) items.push(...res.data);
-        nextToken = res.nextToken;
+        if (nextToken) queryArgs.nextToken = nextToken;
+
+        let page: IndexPage;
+        if (typeof playTimeModel.listPlayTimeRecordsByGameId === 'function') {
+          page = await playTimeModel.listPlayTimeRecordsByGameId(queryArgs);
+        } else if (typeof queryApi.listPlayTimeRecordsByGameId === 'function') {
+          page = await queryApi.listPlayTimeRecordsByGameId(queryArgs);
+        } else {
+          throw new Error('PlayTimeRecord gameId index query is not available on models or queries client');
+        }
+
+        const normalized = parseIndexPage(page);
+        if (normalized.records.length > 0) {
+          items.push(...normalized.records);
+        }
+        nextToken = normalized.nextToken;
       } while (nextToken);
+
       return items;
     }
 
@@ -176,7 +268,6 @@ export function TeamReport({ team }: TeamReportProps) {
     const loadGameData = async () => {
       try {
         const gameIds = allGames.map(g => g.id);
-        console.log(`[TeamReport] Loading data for ${gameIds.length} games...`);
 
         // Fetch PlayTimeRecords, Goals, and GameNotes for all games in parallel
         const [playTimeResults, goalResults, noteResults] = await Promise.all([
@@ -188,8 +279,6 @@ export function TeamReport({ team }: TeamReportProps) {
         const allPlayTime = playTimeResults.flat();
         const allGoalsData = goalResults.flat();
         const allNotesData = noteResults.flat();
-
-        console.log(`[TeamReport] Loaded ${allPlayTime.length} PlayTimeRecords, ${allGoalsData.length} Goals, ${allNotesData.length} Notes`);
 
         setAllPlayTimeRecords(allPlayTime);
         setAllGoals(allGoalsData);
@@ -210,7 +299,6 @@ export function TeamReport({ team }: TeamReportProps) {
     // eventually consistent DynamoDB Scans. This handles the case where
     // records were written very recently and the initial Scan didn't see them.
     const reloadTimer = setTimeout(() => {
-      console.log('[TeamReport] Reloading game data (eventual consistency retry)...');
       void loadGameData();
     }, 2000);
 
@@ -249,36 +337,10 @@ export function TeamReport({ team }: TeamReportProps) {
     const fixedPlayTimeRecords = allPlayTimeRecords.map(r => {
       if ((r.endGameSeconds === null || r.endGameSeconds === undefined) && completedGameEndTimes.has(r.gameId)) {
         const gameEndTime = completedGameEndTimes.get(r.gameId)!;
-        console.log(`[TeamReport] Fixing unclosed record for player ${r.playerId} in completed game: setting endGameSeconds to ${gameEndTime}`);
         return { ...r, endGameSeconds: gameEndTime };
       }
       return r;
     });
-    
-    // DEBUG: Log all games and their IDs
-    console.log(`[TeamReport DEBUG] Team games (${allGames.length}):`, 
-      allGames.map(g => ({ id: g.id, opponent: g.opponent, status: g.status }))
-    );
-    
-    // DEBUG: Log ALL PlayTimeRecords for this team's games
-    const teamPlayTimeRecords = fixedPlayTimeRecords.filter(r => teamGameIds.has(r.gameId));
-    console.log(`[TeamReport DEBUG] All PlayTimeRecords for team games (${teamPlayTimeRecords.length} records):`,
-      teamPlayTimeRecords.map(r => ({
-        id: r.id,
-        gameId: r.gameId,
-        playerId: r.playerId,
-        start: r.startGameSeconds,
-        end: r.endGameSeconds,
-        duration: r.endGameSeconds != null ? r.endGameSeconds - r.startGameSeconds : 'active'
-      }))
-    );
-    
-    // DEBUG: Group records by game to see distribution
-    const recordsByGame = new Map<string, number>();
-    teamPlayTimeRecords.forEach(r => {
-      recordsByGame.set(r.gameId, (recordsByGame.get(r.gameId) || 0) + 1);
-    });
-    console.log(`[TeamReport DEBUG] Records per game:`, Object.fromEntries(recordsByGame));
 
     const stats: PlayerStats[] = teamRosters.map((roster) => {
       const player = players.find(p => p.id === roster.playerId);
@@ -300,36 +362,6 @@ export function TeamReport({ team }: TeamReportProps) {
 
       // Use shared calculation utility for play time
       const totalPlayTimeSeconds = calculatePlayerPlayTime(player.id, playerPlayTime);
-
-      // Debug: Log play time calculation for Diana Davis
-      if (player.firstName === 'Diana' && player.lastName === 'Davis') {
-        console.log(`[TeamReport - Stats] Diana Davis play time records (${playerPlayTime.length} records):`,
-          playerPlayTime.map(r => ({
-            gameId: r.gameId,
-            startGameSeconds: r.startGameSeconds,
-            endGameSeconds: r.endGameSeconds,
-            duration: r.endGameSeconds !== null && r.endGameSeconds !== undefined 
-              ? r.endGameSeconds - r.startGameSeconds 
-              : 'incomplete'
-          }))
-        );
-        console.log(`[TeamReport - Stats] Diana Total play time: ${totalPlayTimeSeconds}s = ${formatPlayTime(totalPlayTimeSeconds, 'long')}`);
-      }
-      
-      // Debug: Log play time calculation for Hannah Harris
-      if (player.firstName === 'Hannah' && player.lastName === 'Harris') {
-        console.log(`[TeamReport - Stats] Hannah Harris play time records (${playerPlayTime.length} records):`,
-          playerPlayTime.map(r => ({
-            gameId: r.gameId,
-            startGameSeconds: r.startGameSeconds,
-            endGameSeconds: r.endGameSeconds,
-            duration: r.endGameSeconds !== null && r.endGameSeconds !== undefined 
-              ? r.endGameSeconds - r.startGameSeconds 
-              : 'incomplete'
-          }))
-        );
-        console.log(`[TeamReport - Stats] Hannah Total play time: ${totalPlayTimeSeconds}s = ${formatPlayTime(totalPlayTimeSeconds, 'long')}`);
-      }
 
       // Use shared utility to count games played
       const gamesPlayed = countGamesPlayed(player.id, playerPlayTime);

@@ -282,6 +282,80 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     expect(setCurrentTime).not.toHaveBeenCalled();
   });
 
+  it('blocks stale in-progress half-1 events while local state is halftime', () => {
+    const setIsRunning = vi.fn();
+    const setCurrentTime = vi.fn();
+    const halftimeGame = createDefaultGame({
+      status: 'halftime',
+      currentHalf: 1,
+      elapsedSeconds: 1800,
+      lastStartTime: null,
+    });
+    const props = createDefaultProps({
+      isRunning: false,
+      setIsRunning,
+      setCurrentTime,
+      game: halftimeGame,
+    });
+
+    const { result } = renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      capturedGameNext!({
+        items: [
+          {
+            id: 'game-1',
+            status: 'in-progress',
+            currentHalf: 1,
+            elapsedSeconds: 1800,
+            lastStartTime: new Date(Date.now() - 5_000).toISOString(),
+          } as Partial<Game>,
+        ],
+      });
+    });
+
+    expect(result.current.gameState.status).toBe('halftime');
+    expect(setIsRunning).not.toHaveBeenCalledWith(true);
+    expect(setCurrentTime).not.toHaveBeenCalled();
+  });
+
+  it('accepts legitimate second-half in-progress events while local state is halftime', () => {
+    const setIsRunning = vi.fn();
+    const setCurrentTime = vi.fn();
+    const halftimeGame = createDefaultGame({
+      status: 'halftime',
+      currentHalf: 1,
+      elapsedSeconds: 1800,
+      lastStartTime: null,
+    });
+    const props = createDefaultProps({
+      isRunning: false,
+      setIsRunning,
+      setCurrentTime,
+      game: halftimeGame,
+    });
+
+    const { result } = renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      capturedGameNext!({
+        items: [
+          {
+            id: 'game-1',
+            status: 'in-progress',
+            currentHalf: 2,
+            elapsedSeconds: 1800,
+            lastStartTime: new Date(Date.now() - 5_000).toISOString(),
+          } as Partial<Game>,
+        ],
+      });
+    });
+
+    expect(result.current.gameState.status).toBe('in-progress');
+    expect(result.current.gameState.currentHalf).toBe(2);
+    expect(setIsRunning).toHaveBeenCalledWith(true);
+  });
+
   it('does NOT recreate the subscription when isRunning changes (isRunningRef fix)', () => {
     // This tests Bug Fix 1: isRunning was previously in the observeQuery useEffect
     // deps, causing the subscription to recreate on every timer tick. The new

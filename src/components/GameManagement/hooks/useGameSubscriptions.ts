@@ -137,11 +137,22 @@ export function useGameSubscriptions({
           }
 
           // Prevent a stale 'in-progress' subscription event from overwriting a
-          // locally-completed game state. This handles the race where the DynamoDB
-          // write for 'completed' has succeeded but a prior timer-sync write's
-          // subscription notification arrives out of order.
+          // locally-set halftime or completed state. This handles the race where the
+          // periodic saveInterval write (in-progress + lastStartTime) has a buffered
+          // AppSync subscription event that arrives out-of-order after the halftime
+          // or completed write's subscription event.
+          const isSecondHalfStartEvent =
+            updatedGame.status === 'in-progress' && updatedGame.currentHalf === 2;
+
           setGameState(prev => {
             if (prev.status === 'completed') {
+              return prev;
+            }
+            if (
+              prev.status === 'halftime' &&
+              updatedGame.status === 'in-progress' &&
+              !isSecondHalfStartEvent
+            ) {
               return prev;
             }
             return updatedGame;
@@ -152,8 +163,26 @@ export function useGameSubscriptions({
           if (gameStateRef.current.status === 'completed') {
             return;
           }
+            // Skip timer logic if local state is halftime unless this is a
+            // legitimate second-half start from another coach.
+            if (gameStateRef.current.status === 'halftime' && !isSecondHalfStartEvent) {
+              return;
+            }
 
-          // Don't update time if timer is currently running in this component.
+            // Don't update time if timer is currently running in this component.
+            // When the confirmed pause event arrives (lastStartTime null, status in-progress),
+            // release the manual-pause guard so future resume events from another coach can
+            // auto-resume. This must happen BEFORE the isRunningRef check so that a
+            // stale in-progress+lastStartTime event (from game start) arriving before
+            // this confirmed-pause event is correctly blocked.
+            if (
+              updatedGame.status === 'in-progress' &&
+              (updatedGame.lastStartTime === null || updatedGame.lastStartTime === undefined)
+            ) {
+              manuallyPausedRef.current = false;
+            }
+
+            // Don't update time if timer is currently running in this component.
           // Use isRunningRef (not the captured closure) so this check is always
           // fresh without requiring the subscription to recreate on every tick.
           if (isRunningRef.current) {
