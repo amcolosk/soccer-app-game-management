@@ -99,3 +99,11 @@ coordinator-agent → coding-agent → validation-agent → commit gate
 4. `npm run gate:commit` must pass before committing
 
 > For defect fixes spanning more than two files, or that require architectural changes, use the full New Feature Pipeline instead. Mark issue as fixed using github hash.
+
+### MCP GitHub Issue Lookup
+
+- Use `mcp_github_issue_read` with `method: get` to read issue details.
+- Use `mcp_github_issue_read` with `method: get_comments` to fetch discussion context.
+- Optionally use `mcp_github_list_issues` for discovery and prioritization.
+- For updates, use `mcp_github_add_issue_comment`; if labels are needed and an MCP label tool is unavailable, use `gh issue edit` in terminal as a fallback.
+- Always include owner, repo, and issue number explicitly, and summarize key findings: severity, repro, root cause hypothesis, and next step.

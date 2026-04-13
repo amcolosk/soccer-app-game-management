@@ -7,7 +7,7 @@
  * We verify:
  *  - The fallback '1.1.0' is shown when VITE_APP_VERSION is absent/empty.
  *  - A plain semver value (e.g. '1.2.3') is shown when set.
- *  - A build-ID-suffixed version (e.g. '1.1.0-42') is shown when set.
+ *  - Hash-bearing versions (e.g. '1.1.0+abc123ef' and '1.1.0-42+abc123ef') are shown when set.
  */
 
 import { describe, it, expect, vi, afterEach } from "vitest";
@@ -108,14 +108,20 @@ describe("UserProfile – version display", () => {
     expect(screen.getByText(/Version 1\.2\.3/)).toBeInTheDocument();
   });
 
-  it("shows the version with build-ID suffix when VITE_APP_VERSION includes a build ID", async () => {
-    // This reflects the vite.config.ts behaviour when AWS_JOB_ID is set:
-    // fullVersion = `${version}-${buildId}`  →  e.g. "1.1.0-42"
-    setViteAppVersion("1.1.0-42");
+  it("shows the version with hash suffix when VITE_APP_VERSION includes a commit hash", async () => {
+    setViteAppVersion("1.1.0+abc123ef");
     await act(async () => {
       render(<UserProfile />);
     });
-    expect(screen.getByText(/Version 1\.1\.0-42/)).toBeInTheDocument();
+    expect(screen.getByText(/Version 1\.1\.0\+abc123ef/)).toBeInTheDocument();
+  });
+
+  it("shows the version with build and hash suffixes when both are present", async () => {
+    setViteAppVersion("1.1.0-42+abc123ef");
+    await act(async () => {
+      render(<UserProfile />);
+    });
+    expect(screen.getByText(/Version 1\.1\.0-42\+abc123ef/)).toBeInTheDocument();
   });
 
   it("does not show the old '1.0.0' fallback string anywhere in the version area", async () => {
