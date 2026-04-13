@@ -4,7 +4,7 @@
  * Key behaviours covered:
  *  - Version in systemInfo uses VITE_APP_VERSION || '1.1.0'
  *  - Fallback '1.1.0' when VITE_APP_VERSION is absent/empty
- *  - Version with build-ID suffix (e.g. '1.1.0-42') is passed through
+ *  - Hash-bearing versions (e.g. '1.1.0+abc123ef' and '1.1.0-42+abc123ef') are passed through
  *  - UI renders correctly (form fields, severity options, char-count labels)
  *  - Empty description shows a warning and does NOT call the API
  *  - Successful submission shows the success screen
@@ -105,9 +105,8 @@ describe("BugReport – version in systemInfo", () => {
     expect(systemInfo.version).toBe("1.2.3");
   });
 
-  it("passes the build-ID-suffixed version when VITE_APP_VERSION includes AWS_JOB_ID", async () => {
-    // Reflects vite.config.ts: fullVersion = `${version}-${buildId}` when AWS_JOB_ID is set.
-    setViteAppVersion("1.1.0-42");
+  it("passes the hash-suffixed version when VITE_APP_VERSION includes a commit hash", async () => {
+    setViteAppVersion("1.1.0+abc123ef");
     const user = userEvent.setup();
     renderBugReport();
 
@@ -118,7 +117,22 @@ describe("BugReport – version in systemInfo", () => {
 
     const callArg = mockCreateGitHubIssue.mock.calls[0][0];
     const systemInfo = JSON.parse(callArg.systemInfo);
-    expect(systemInfo.version).toBe("1.1.0-42");
+    expect(systemInfo.version).toBe("1.1.0+abc123ef");
+  });
+
+  it("passes build-and-hash version when both suffixes are present", async () => {
+    setViteAppVersion("1.1.0-42+abc123ef");
+    const user = userEvent.setup();
+    renderBugReport();
+
+    await user.type(screen.getByRole("textbox", { name: /what went wrong/i }), "Something broke");
+    await user.click(screen.getByRole("button", { name: /submit report/i }));
+
+    await waitFor(() => expect(mockCreateGitHubIssue).toHaveBeenCalled());
+
+    const callArg = mockCreateGitHubIssue.mock.calls[0][0];
+    const systemInfo = JSON.parse(callArg.systemInfo);
+    expect(systemInfo.version).toBe("1.1.0-42+abc123ef");
   });
 
   it("does not include the old fallback '1.0.0' anywhere in systemInfo", async () => {
