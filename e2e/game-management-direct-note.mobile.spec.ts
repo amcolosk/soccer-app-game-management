@@ -44,6 +44,13 @@ const SEED_DATA = {
     halfLength: '5',
     maxPlayers: '5',
   },
+  players: [
+    { firstName: 'Mobile', lastName: 'One', number: '1' },
+    { firstName: 'Mobile', lastName: 'Two', number: '2' },
+    { firstName: 'Mobile', lastName: 'Three', number: '3' },
+    { firstName: 'Mobile', lastName: 'Four', number: '4' },
+    { firstName: 'Mobile', lastName: 'Five', number: '5' },
+  ],
   inProgressOpponent: 'E2E Mobile Notes In Progress',
 } as const;
 
@@ -59,6 +66,11 @@ async function scheduleSeedGame(page: Page, opponent: string): Promise<void> {
   await page.locator('a.nav-item', { hasText: 'Games' }).click();
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
 
+  const existingGameCard = page.locator('.game-card').filter({ hasText: opponent }).first();
+  if (await existingGameCard.isVisible({ timeout: 1500 }).catch(() => false)) {
+    return;
+  }
+
   await page.getByRole('button', { name: '+ Schedule New Game', exact: true }).click();
   await page.waitForTimeout(UI_TIMING.STANDARD);
 
@@ -72,7 +84,7 @@ async function scheduleSeedGame(page: Page, opponent: string): Promise<void> {
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 
-  await expect(page.getByText(opponent)).toBeVisible();
+  await expect(page.locator('.game-card').filter({ hasText: opponent }).first()).toBeVisible({ timeout: 5000 });
 }
 
 async function openGameByOpponent(page: Page, opponent: string): Promise<boolean> {
@@ -89,20 +101,108 @@ async function openGameByOpponent(page: Page, opponent: string): Promise<boolean
   return true;
 }
 
+async function ensureSeedPlayers(page: Page): Promise<void> {
+  await clickManagementTab(page, 'Players');
+
+  for (const player of SEED_DATA.players) {
+    const fullName = `${player.firstName} ${player.lastName}`;
+    const existingPlayer = page.locator('.item-card').filter({ hasText: fullName }).first();
+    if (await existingPlayer.isVisible({ timeout: 1000 }).catch(() => false)) {
+      continue;
+    }
+
+    await clickButton(page, '+ Add Player');
+    await waitForPageLoad(page);
+    await fillInput(page, 'input[placeholder*="First"]', player.firstName);
+    await fillInput(page, 'input[placeholder*="Last"]', player.lastName);
+    await clickButton(page, 'Add');
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
+    await expect(page.locator('.item-card').filter({ hasText: fullName }).first()).toBeVisible({ timeout: 5000 });
+  }
+}
+
+async function ensureSeedRoster(page: Page): Promise<void> {
+  await clickManagementTab(page, 'Teams');
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+
+  const teamCard = page.locator('.item-card').filter({ hasText: SEED_DATA.team.name }).first();
+  await expect(teamCard).toBeVisible({ timeout: 5000 });
+
+  const rosterToggle = teamCard.locator('button[aria-label*="roster"]').first();
+  const rosterToggleLabel = (await rosterToggle.getAttribute('aria-label')) ?? '';
+  if (/show/i.test(rosterToggleLabel)) {
+    await rosterToggle.click();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+  }
+
+  for (const player of SEED_DATA.players) {
+    const rosterEntry = `#${player.number} ${player.firstName} ${player.lastName}`;
+    if (await page.getByText(rosterEntry).first().isVisible({ timeout: 1000 }).catch(() => false)) {
+      continue;
+    }
+
+    await clickButton(page, '+ Add Player to Roster');
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    const rosterForm = page.locator('.team-roster-section .create-form').first();
+    await expect(rosterForm).toBeVisible({ timeout: 5000 });
+    await rosterForm.locator('select').first().selectOption({ label: `${player.firstName} ${player.lastName}` });
+    await rosterForm.locator('input[placeholder*="Player Number"]').fill(player.number);
+    await rosterForm.locator('.form-actions button.btn-primary', { hasText: 'Add' }).first().click();
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    await expect(page.getByText(rosterEntry).first()).toBeVisible({ timeout: 5000 });
+  }
+}
+
+async function ensureStartingLineup(page: Page): Promise<void> {
+  const lineupSelects = page.getByRole('combobox');
+  const slotCount = await lineupSelects.count();
+  if (slotCount === 0) {
+    return;
+  }
+
+  for (let index = 0; index < Math.min(slotCount, SEED_DATA.players.length); index += 1) {
+    const select = lineupSelects.nth(index);
+    const optionCount = await select.locator('option').count();
+    if (optionCount < 2) {
+      continue;
+    }
+
+    const selectedValue = await select.inputValue().catch(() => '');
+    if (selectedValue) {
+      continue;
+    }
+
+    await select.selectOption({ index: Math.min(index + 1, optionCount - 1) });
+    await page.waitForTimeout(UI_TIMING.QUICK);
+  }
+}
+
 async function startGameFromScheduledCard(page: Page, opponent: string, finishAtHalftime: boolean): Promise<void> {
   const opened = await openGameByOpponent(page, opponent);
   expect(opened).toBeTruthy();
 
-  await clickButton(page, 'Start Game');
-  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  await ensureStartingLineup(page);
 
-  const availabilityHeading = page.getByRole('heading', { name: 'Player Availability Check' });
-  if (await availabilityHeading.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await page.getByRole('button', { name: 'Start Game' }).nth(1).click();
-    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await clickButton(page, 'Start Game');
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
+
+    const availabilityHeading = page.getByRole('heading', { name: 'Player Availability Check' });
+    if (await availabilityHeading.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await page.getByRole('button', { name: 'Start Game' }).last().click();
+      await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    }
+
+    const addNoteButton = page.getByRole('button', { name: 'Add note' });
+    if (await addNoteButton.isVisible({ timeout: 1500 }).catch(() => false)) {
+      break;
+    }
+
+    await ensureStartingLineup(page);
   }
 
-  await expect(page.locator('.command-band__timer')).toBeVisible({ timeout: 5000 });
+  await expect(page.getByRole('button', { name: 'Add note' })).toBeVisible({ timeout: 5000 });
 
   if (finishAtHalftime) {
     await clickButton(page, '+5 min');
@@ -116,18 +216,27 @@ async function seedDeterministicMobileGameStates(page: Page): Promise<void> {
   await navigateToManagement(page);
   await clickManagementTab(page, 'Formations');
 
-  const existingFormation = page.locator('.item-card').filter({ hasText: SEED_DATA.formation.name }).first();
-  if (!(await existingFormation.isVisible({ timeout: 2000 }).catch(() => false))) {
+  const existingFormationCount = await page
+    .locator('.item-card h3')
+    .filter({ hasText: SEED_DATA.formation.name })
+    .count();
+  if (existingFormationCount === 0) {
     await createFormation(page, SEED_DATA.formation);
   }
 
   const formationLabel = `${SEED_DATA.formation.name} (${SEED_DATA.formation.playerCount} players)`;
   await clickManagementTab(page, 'Teams');
 
-  const existingTeam = page.locator('.item-card').filter({ hasText: SEED_DATA.team.name }).first();
-  if (!(await existingTeam.isVisible({ timeout: 2000 }).catch(() => false))) {
+  const existingTeamCount = await page
+    .locator('.item-card h3')
+    .filter({ hasText: SEED_DATA.team.name })
+    .count();
+  if (existingTeamCount === 0) {
     await createTeam(page, SEED_DATA.team, formationLabel);
   }
+
+  await ensureSeedPlayers(page);
+  await ensureSeedRoster(page);
 
   await scheduleSeedGame(page, SEED_DATA.inProgressOpponent);
   await startGameFromScheduledCard(page, SEED_DATA.inProgressOpponent, false);
@@ -160,9 +269,9 @@ async function navigateToInProgressGame(page: Page): Promise<boolean> {
   await ensureSeededState(page);
 
   // If localStorage restored the game management view on page load, the CommandBand
-  // timer may already be (or become) visible — wait up to 2s before falling back.
-  const timer = page.locator('.command-band__timer');
-  if (await timer.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+  // note trigger should already be visible when a game is in-progress.
+  const addNoteButton = page.getByRole('button', { name: 'Add note' });
+  if (await addNoteButton.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
     return true;
   }
 
@@ -180,8 +289,8 @@ async function navigateToInProgressGame(page: Page): Promise<boolean> {
     await waitForPageLoad(page);
   }
 
-  // The game is "in-progress" when the CommandBand timer is visible
-  return timer.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false);
+  // The game is "in-progress" when the note trigger is visible in the CommandBand.
+  return addNoteButton.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false);
 }
 
 // ─── single viewport ──────────────────────────────────────────────────────────

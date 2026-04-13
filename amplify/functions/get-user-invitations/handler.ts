@@ -83,26 +83,33 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    // Scan the table with filter expression
-    // Note: In a production environment with many invitations, a GSI on email would be more efficient
-    // But for this use case, a Scan with filter is acceptable as the table volume is expected to be low
-    // and we're filtering by a specific user's email.
-    const command = new ScanCommand({
-      TableName: tableName,
-      FilterExpression: '(#email = :email OR #email = :email_lower) AND #status = :status',
-      ExpressionAttributeNames: {
-        '#email': 'email',
-        '#status': 'status',
-      },
-      ExpressionAttributeValues: {
-        ':email': userEmail,
-        ':email_lower': userEmail.toLowerCase(),
-        ':status': 'PENDING',
-      },
-    });
+    // Scan all pages with filter expression; a single Scan response can miss
+    // matching items when table data spans multiple pages.
+    const invitations: Record<string, unknown>[] = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
 
-    const result = await docClient.send(command);
-    const invitations = result.Items || [];
+    do {
+      const command = new ScanCommand({
+        TableName: tableName,
+        FilterExpression: '(#email = :email OR #email = :email_lower) AND #status = :status',
+        ExpressionAttributeNames: {
+          '#email': 'email',
+          '#status': 'status',
+        },
+        ExpressionAttributeValues: {
+          ':email': userEmail,
+          ':email_lower': userEmail.toLowerCase(),
+          ':status': 'PENDING',
+        },
+        ExclusiveStartKey: exclusiveStartKey,
+      });
+
+      const result = await docClient.send(command);
+      if (result.Items && result.Items.length > 0) {
+        invitations.push(...result.Items);
+      }
+      exclusiveStartKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (exclusiveStartKey);
 
     console.log(`Found ${invitations.length} valid invitations for ${userEmail}`);
 
