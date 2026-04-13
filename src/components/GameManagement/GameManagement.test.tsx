@@ -1521,6 +1521,94 @@ describe("GameManagement – handleRecalculateRotations uses live lineup", () =>
       plannedSubstitutions: JSON.stringify(halftimeGoalieSwap),
     });
   });
+
+  it("post-halftime: only future second-half rotations are updated; index alignment is preserved", async () => {
+    const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
+    const mockedFn = vi.mocked(mockedCalc);
+
+    const secondHalfSub1 = [{ playerOutId: 'p3', playerInId: 'p8', positionId: 'pos-f3' }];
+    const secondHalfSub2 = [{ playerOutId: 'p4', playerInId: 'p9', positionId: 'pos-f4' }];
+
+    mockedFn.mockReturnValue({
+      warnings: [],
+      rotations: [
+        { substitutions: [{ playerOutId: 'p1', playerInId: 'p6', positionId: 'pos-f1' }] }, // index 0 → rot-10 (past)
+        { substitutions: [{ playerOutId: 'p2', playerInId: 'p7', positionId: 'pos-f2' }] }, // index 1 → rot-20 (past)
+        { substitutions: [] },                                                                // index 2 → rot-30/halftime (past)
+        { substitutions: secondHalfSub1 },                                                   // index 3 → rot-40
+        { substitutions: secondHalfSub2 },                                                   // index 4 → rot-50
+      ],
+    });
+
+    mockUseTeamData.mockReturnValue({
+      players: [
+        { id: 'gk', playerNumber: 1, firstName: 'Goalie', lastName: 'One', isActive: true, preferredPositions: 'pos-gk' },
+        { id: 'p2', playerNumber: 2, firstName: 'Two', lastName: 'A', isActive: true, preferredPositions: 'pos-f1' },
+        { id: 'p3', playerNumber: 3, firstName: 'Three', lastName: 'B', isActive: true, preferredPositions: 'pos-f2' },
+      ],
+      positions: [
+        { id: 'pos-gk', abbreviation: 'GK' },
+        { id: 'pos-f1', abbreviation: 'CB' },
+        { id: 'pos-f2', abbreviation: 'CM' },
+      ],
+    });
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: {
+        ...defaultSubscription.gameState,
+        status: 'in-progress',
+        elapsedSeconds: 35 * 60,
+        halfLengthMinutes: 30,
+      },
+      lineup: [
+        { id: 'la-gk', gameId: 'game-1', playerId: 'gk', positionId: 'pos-gk', isStarter: true },
+        { id: 'la-2',  gameId: 'game-1', playerId: 'p2', positionId: 'pos-f1', isStarter: true },
+        { id: 'la-3',  gameId: 'game-1', playerId: 'p3', positionId: 'pos-f2', isStarter: true },
+      ],
+      gamePlan: {
+        id: 'gp-1',
+        rotationIntervalMinutes: 10,
+        startingLineup: '[]',
+      } as any,
+      plannedRotations: [
+        { id: 'rot-10', rotationNumber: 1, gameMinute: 10, half: 1, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-20', rotationNumber: 2, gameMinute: 20, half: 1, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-30', rotationNumber: 3, gameMinute: 30, half: 2, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-40', rotationNumber: 4, gameMinute: 40, half: 2, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-50', rotationNumber: 5, gameMinute: 50, half: 2, plannedSubstitutions: '[]' } as any,
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress', elapsedSeconds: 35 * 60 }} team={mockTeam} onBack={vi.fn()} />);
+
+    await act(async () => {
+      await mockCaptures.rotationWidgetProps?.onRecalculateRotations?.();
+    });
+
+    // Only rot-40 and rot-50 are in the future (gameMinute > 35); expect 2 updates
+    await waitFor(() => {
+      expect(mockPlannedRotationUpdate).toHaveBeenCalledTimes(2);
+    });
+
+    const updateCalls = mockPlannedRotationUpdate.mock.calls.map(([payload]) => payload);
+
+    // Index-aligned substitutions must land on the correct future rotations
+    expect(updateCalls).toContainEqual({
+      id: 'rot-40',
+      plannedSubstitutions: JSON.stringify(secondHalfSub1),
+    });
+    expect(updateCalls).toContainEqual({
+      id: 'rot-50',
+      plannedSubstitutions: JSON.stringify(secondHalfSub2),
+    });
+
+    // Past rotations (including the halftime slot at minute 30) must NOT be touched
+    const updatedIds = updateCalls.map((c: any) => c.id);
+    expect(updatedIds).not.toContain('rot-10');
+    expect(updatedIds).not.toContain('rot-20');
+    expect(updatedIds).not.toContain('rot-30');
+  });
 });
 
 // ---------------------------------------------------------------------------
