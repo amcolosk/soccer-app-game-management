@@ -369,4 +369,34 @@ test.describe('Direct Note Entry — Mobile', () => {
     // Close modal
     await page.getByRole('button', { name: 'Cancel' }).click();
   }, TEST_CONFIG.timeout.short);
+
+  // ── Regression: issue #84 — saved note must appear immediately ────────────
+  // ref: https://github.com/amcolosk/soccer-app-game-management/issues/84
+
+  test('saved note appears in notes list immediately without page reload (regression #84)', async ({ page }) => {
+    const isReady = await navigateToInProgressGame(page);
+    expect(isReady).toBeTruthy();
+
+    // Navigate to the Notes tab
+    await page.getByRole('tab', { name: 'Notes' }).click();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    // Open the Gold Star note modal from the notes-tab buttons
+    await page.getByRole('button', { name: 'Gold Star' }).first().click();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    // Fill in note text
+    await page.locator('#noteText').fill('Regression #84 check');
+
+    // Save the note
+    await page.getByRole('button', { name: 'Save Note' }).click();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    // The note card MUST appear without a page reload — this is the failing assertion for issue #84.
+    // Currently FAILS because handleSaveNote does not trigger a notes refresh after the mutation.
+    await expect(page.locator('.note-card').first()).toBeVisible({ timeout: 5000 });
+  }, TEST_CONFIG.timeout.short);
 });

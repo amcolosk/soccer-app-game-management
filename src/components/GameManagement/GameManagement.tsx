@@ -1100,6 +1100,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     gameNotes,
     currentTime,
     mutations,
+    onNoteSaved: () => setNotesRefreshKey(k => k + 1),
   };
 
   const preGameNotes = gameNotes.filter(
