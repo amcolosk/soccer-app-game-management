@@ -16,6 +16,11 @@ import { useNetworkStatus } from './useNetworkStatus';
 
 const client = generateClient<Schema>();
 
+type LineupAssignmentCreateInput = Parameters<typeof client.models.LineupAssignment.create>[0];
+type GoalCreateInput = Parameters<typeof client.models.Goal.create>[0];
+type PlayerAvailabilityCreateInput = Parameters<typeof client.models.PlayerAvailability.create>[0];
+type PlayerAvailabilityUpdateInput = Parameters<typeof client.models.PlayerAvailability.update>[0];
+
 // ── Typed input fields for each live-game mutation ──────────────────────────
 
 export interface GameUpdateFields {
@@ -158,6 +163,41 @@ function getSafeErrorMessage(error: unknown): string {
 function getGraphQLErrorMessage(result: { errors?: Array<{ message?: string | null }> } | undefined, fallback: string): string {
   const message = result?.errors?.[0]?.message;
   return message && message.length > 0 ? message : fallback;
+}
+
+function assertNoGraphQLErrors(
+  result: { errors?: Array<{ message?: string | null }> } | undefined,
+  context: string
+): void {
+  if (result?.errors && result.errors.length > 0) {
+    const message = getGraphQLErrorMessage(result, context);
+    throw new Error(`${context}: ${message}`);
+  }
+}
+
+type GraphQLErrorLike = { message?: string | null };
+
+function normalizeErrorMessage(error: GraphQLErrorLike): string {
+  return (error.message ?? '').trim().toLowerCase();
+}
+
+function isLastStartTimeUnauthorizedError(error: GraphQLErrorLike): boolean {
+  const message = normalizeErrorMessage(error);
+  return message.includes('unauthorized') && message.includes('laststarttime');
+}
+
+function hasLastStartTimeField(fields: GameUpdateFields): boolean {
+  return Object.prototype.hasOwnProperty.call(fields, 'lastStartTime');
+}
+
+function shouldRetryUpdateWithoutLastStartTime(fields: GameUpdateFields, errors: GraphQLErrorLike[]): boolean {
+  return hasLastStartTimeField(fields) && errors.length > 0 && errors.every(isLastStartTimeUnauthorizedError);
+}
+
+function isCriticalLastStartTimeTransition(fields: GameUpdateFields): boolean {
+  const hasNonEmptyLastStartTime =
+    typeof fields.lastStartTime === 'string' && fields.lastStartTime.trim().length > 0;
+  return hasNonEmptyLastStartTime && (fields.status === 'in-progress' || fields.currentHalf === 2);
 }
 
 type SecureGameNoteCreatePayload = {
@@ -374,7 +414,45 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       await enqueueOrRun(
         'Game', 'update',
         { id, ...fields } as Record<string, unknown>,
-        () => client.models.Game.update({ id, ...fields }).then(() => undefined)
+        async () => {
+          const result = await client.models.Game.update({ id, ...fields });
+          const errors = result.errors ?? [];
+
+          if (errors.length > 0) {
+            if (shouldRetryUpdateWithoutLastStartTime(fields, errors)) {
+              const isCriticalTransition = isCriticalLastStartTimeTransition(fields);
+              if (isCriticalTransition) {
+                const msg =
+                  '[updateGame] lastStartTime unauthorized on critical start/resume transition; fallback blocked.';
+                console.error(`${msg} game=${id}`);
+                throw new Error(msg);
+              }
+
+              const { lastStartTime: _droppedLastStartTime, ...fieldsWithoutLastStartTime } = fields;
+              void _droppedLastStartTime;
+
+              console.warn(
+                `[updateGame] lastStartTime unauthorized; fallback allowed for game=${id}; retrying without lastStartTime.`
+              );
+
+              const retryResult = await client.models.Game.update({ id, ...fieldsWithoutLastStartTime });
+              const retryErrors = retryResult.errors ?? [];
+
+              if (retryErrors.length > 0) {
+                const retryMessage = getGraphQLErrorMessage(retryResult, 'Failed to update game after retry');
+                throw new Error(
+                  `[updateGame] Retry without lastStartTime failed for game ${id}: ${retryMessage}`
+                );
+              }
+
+              return;
+            }
+
+            const msg = getGraphQLErrorMessage(result, 'Failed to update game');
+            console.error(`[updateGame] GraphQL error for game ${id}: ${msg}`);
+            throw new Error(`[updateGame] ${msg}`);
+          }
+        }
       );
     },
     [enqueueOrRun]
@@ -385,7 +463,10 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       await enqueueOrRun(
         'PlayTimeRecord', 'create',
         fields as unknown as Record<string, unknown>,
-        () => client.models.PlayTimeRecord.create(fields).then(() => undefined)
+        async () => {
+          const result = await client.models.PlayTimeRecord.create(fields);
+          assertNoGraphQLErrors(result, 'Failed to create play time record');
+        }
       );
     },
     [enqueueOrRun]
@@ -396,7 +477,10 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       await enqueueOrRun(
         'PlayTimeRecord', 'update',
         { id, ...fields } as Record<string, unknown>,
-        () => client.models.PlayTimeRecord.update({ id, ...fields }).then(() => undefined)
+        async () => {
+          const result = await client.models.PlayTimeRecord.update({ id, ...fields });
+          assertNoGraphQLErrors(result, 'Failed to update play time record');
+        }
       );
     },
     [enqueueOrRun]
@@ -407,7 +491,10 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       await enqueueOrRun(
         'Substitution', 'create',
         fields as unknown as Record<string, unknown>,
-        () => client.models.Substitution.create(fields).then(() => undefined)
+        async () => {
+          const result = await client.models.Substitution.create(fields);
+          assertNoGraphQLErrors(result, 'Failed to create substitution');
+        }
       );
     },
     [enqueueOrRun]
@@ -418,8 +505,10 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       await enqueueOrRun(
         'LineupAssignment', 'create',
         fields as unknown as Record<string, unknown>,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        () => client.models.LineupAssignment.create(fields as any).then(() => undefined)
+        async () => {
+          const result = await client.models.LineupAssignment.create(fields as LineupAssignmentCreateInput);
+          assertNoGraphQLErrors(result, 'Failed to create lineup assignment');
+        }
       );
     },
     [enqueueOrRun]
@@ -430,7 +519,10 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       await enqueueOrRun(
         'LineupAssignment', 'delete',
         { id },
-        () => client.models.LineupAssignment.delete({ id }).then(() => undefined)
+        async () => {
+          const result = await client.models.LineupAssignment.delete({ id });
+          assertNoGraphQLErrors(result, 'Failed to delete lineup assignment');
+        }
       );
     },
     [enqueueOrRun]
@@ -441,7 +533,10 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       await enqueueOrRun(
         'LineupAssignment', 'update',
         { id, ...fields } as Record<string, unknown>,
-        () => client.models.LineupAssignment.update({ id, ...fields }).then(() => undefined)
+        async () => {
+          const result = await client.models.LineupAssignment.update({ id, ...fields });
+          assertNoGraphQLErrors(result, 'Failed to update lineup assignment');
+        }
       );
     },
     [enqueueOrRun]
@@ -452,8 +547,10 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       await enqueueOrRun(
         'Goal', 'create',
         fields as unknown as Record<string, unknown>,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        () => client.models.Goal.create(fields as any).then(() => undefined)
+        async () => {
+          const result = await client.models.Goal.create(fields as GoalCreateInput);
+          assertNoGraphQLErrors(result, 'Failed to create goal');
+        }
       );
     },
     [enqueueOrRun]
@@ -520,7 +617,10 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       await enqueueOrRun(
         'GameNote', 'delete',
         { id },
-        () => client.models.GameNote.delete({ id }).then(() => undefined)
+        async () => {
+          const result = await client.models.GameNote.delete({ id });
+          assertNoGraphQLErrors(result, 'Failed to delete game note');
+        }
       );
     },
     [enqueueOrRun]
@@ -531,8 +631,10 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       await enqueueOrRun(
         'PlayerAvailability', 'create',
         fields as unknown as Record<string, unknown>,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        () => client.models.PlayerAvailability.create(fields as any).then(() => undefined)
+        async () => {
+          const result = await client.models.PlayerAvailability.create(fields as PlayerAvailabilityCreateInput);
+          assertNoGraphQLErrors(result, 'Failed to create player availability');
+        }
       );
     },
     [enqueueOrRun]
@@ -543,8 +645,10 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       await enqueueOrRun(
         'PlayerAvailability', 'update',
         { id, ...fields } as Record<string, unknown>,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        () => client.models.PlayerAvailability.update({ id, ...fields } as any).then(() => undefined)
+        async () => {
+          const result = await client.models.PlayerAvailability.update({ id, ...fields } as PlayerAvailabilityUpdateInput);
+          assertNoGraphQLErrors(result, 'Failed to update player availability');
+        }
       );
     },
     [enqueueOrRun]

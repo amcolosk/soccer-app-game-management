@@ -9,6 +9,7 @@ import { HelpFab } from "./HelpFab";
 import { useEffect } from "react";
 import { trackPageView } from "../utils/analytics";
 import { useOfflineMutations } from "../hooks/useOfflineMutations";
+import { useOfflineQueueDrain } from "../hooks/useOfflineQueueDrain";
 
 export function AppLayout() {
   const location = useLocation();
@@ -23,6 +24,10 @@ export function AppLayout() {
   // changes queued while offline). Runs once on mount; safe alongside the
   // instance used in GameManagement/GamePlanner — dequeueAll() is atomic.
   useOfflineMutations();
+
+  // Drain the offline queue on startup and reconnect for all model types
+  // except GameNote, even when GameManagement is not mounted.
+  useOfflineQueueDrain();
 
   return (
     <OnboardingProvider>

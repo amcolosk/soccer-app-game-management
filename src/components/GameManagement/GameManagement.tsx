@@ -49,6 +49,24 @@ interface GameManagementProps {
   onBack: () => void;
 }
 
+class StarterCountError extends Error {
+  readonly userMessage: string;
+
+  constructor(handler: 'handleStartGame' | 'handleStartSecondHalf', expected: number, chosen: number) {
+    super(
+      `[${handler}] starter count below expected before play-time record creation (expected=${expected}, chosen=${chosen})`
+    );
+    this.name = 'StarterCountError';
+    this.userMessage = handler === 'handleStartSecondHalf'
+      ? `Assign ${expected} starters before starting the second half. Currently assigned: ${chosen}.`
+      : `Assign ${expected} starters before starting the game. Currently assigned: ${chosen}.`;
+  }
+}
+
+function isStarterCountError(error: unknown): error is StarterCountError {
+  return error instanceof StarterCountError;
+}
+
 export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const confirm = useConfirm();
   // Load team roster and formation positions with real-time updates
@@ -101,6 +119,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   // auto-trigger (from useGameTimer) and a manual button click fire concurrently.
   const halftimeInProgressRef = useRef(false);
   const endGameInProgressRef = useRef(false);
+  const halftimePtrClosePendingRef = useRef(false);
   const injuryModalRef = useRef<HTMLDivElement | null>(null);
   const injuryModalHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const injuryModalReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -499,6 +518,36 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }
 
     try {
+      const resolvedLocalStarters = lineup.filter(
+        (l): l is typeof l & { playerId: string; positionId: string } =>
+          l.isStarter && !!l.playerId && !!l.positionId
+      );
+      const resolvedLocalStarterCount = resolvedLocalStarters.length;
+      const expectedStarterCount = team.maxPlayersOnField ?? resolvedLocalStarterCount;
+
+      let starters = resolvedLocalStarters;
+
+      if (resolvedLocalStarterCount < expectedStarterCount) {
+        const fallbackAssignments = await client.models.LineupAssignment.list({
+          filter: {
+            gameId: { eq: game.id },
+            isStarter: { eq: true },
+          },
+        });
+
+        const dbStarters = fallbackAssignments.data.filter(
+          (l): l is typeof l & { playerId: string; positionId: string } => !!l.playerId && !!l.positionId
+        );
+
+        if (dbStarters.length > resolvedLocalStarters.length) {
+          starters = dbStarters;
+        }
+      }
+
+      if (starters.length < expectedStarterCount) {
+        throw new StarterCountError('handleStartGame', expectedStarterCount, starters.length);
+      }
+
       const startTime = new Date().toISOString();
       
       await mutations.updateGame(game.id, {
@@ -506,13 +555,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         lastStartTime: startTime,
       });
 
-      // Create play time records for all starters using game time
-      // Only create if they don't already have an active record (no endGameSeconds)
-      const startersWithoutActiveRecords = lineup
-        .filter(l => l.isStarter)
+      // Create play time records for resolved starters using game time.
+      // Only create if they don't already have an active record for this game.
+      const startersWithoutActiveRecords = starters
         .filter(l => {
           const hasActiveRecord = playTimeRecords.some(
-            r => r.playerId === l.playerId && r.endGameSeconds === null
+            r => r.gameId === game.id && r.playerId === l.playerId && r.endGameSeconds === null
           );
           return !hasActiveRecord;
         });
@@ -533,7 +581,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       setIsRunning(true);
       trackEvent(AnalyticsEvents.GAME_STARTED.category, AnalyticsEvents.GAME_STARTED.action);
     } catch (error) {
-      handleApiError(error, 'Failed to start game');
+      handleApiError(
+        error,
+        isStarterCountError(error) ? error.userMessage : 'Failed to start game'
+      );
     }
   };
 
@@ -545,8 +596,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         elapsedSeconds: currentTime,
         lastStartTime: null, // Clear lastStartTime to prevent auto-resume from observeQuery
       });
-      // Clear the manual pause flag after DB update completes
-      manuallyPausedRef.current = false;
+        // Do NOT reset manuallyPausedRef.current here.
+        // A stale game-start subscription event (lastStartTime: T_start) may be buffered
+        // in the AppSync pipeline and could arrive seconds after the pause write completes.
+        // If manuallyPausedRef is false when that event arrives, the timer auto-resumes.
+        // Instead, observeQuery resets manuallyPausedRef when it sees the confirmed
+        // pause event (lastStartTime: null) from DynamoDB.
     } catch (error) {
       handleApiError(error, 'Failed to pause game');
       manuallyPausedRef.current = false;
@@ -555,6 +610,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
   const handleResumeTimer = async () => {
     setIsRunning(true);
+      manuallyPausedRef.current = false; // Explicit resume clears the manual-pause flag
     try {
       await mutations.updateGame(game.id, {
         lastStartTime: new Date().toISOString(),
@@ -568,37 +624,40 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const handleHalftime = async () => {
     // Guard: prevent duplicate calls from auto-trigger + manual button click
     if (halftimeInProgressRef.current) {
-      console.log('handleHalftime: already in progress, skipping duplicate call');
       return;
     }
     halftimeInProgressRef.current = true;
     manuallyPausedRef.current = true; // Prevent observeQuery from auto-resuming during halftime transition (fixes #49)
     setIsRunning(false);
-    
-    try {
-      const halftimeSeconds = currentTime; // Capture current time before any async operations
-      
-      // End all active play time records
-      // Close all active play time records at halftime
-      // Pass game.id so DB is queried for records not yet in React state
-      await closeActivePlayTimeRecords(playTimeRecords, halftimeSeconds, undefined, game.id, mutations);
 
-      // Update game status - preserve the exact halftime seconds
+    const halftimeSeconds = currentTime; // Capture current time before any async operations
+
+    // CRITICAL: Write 'halftime' status to DynamoDB FIRST, before the
+    // potentially-slow PTR closing pass. If PTR closing throws, the game
+    // status must still be persisted so the coach is not stuck in-progress.
+    try {
       await mutations.updateGame(game.id, {
         status: 'halftime',
         elapsedSeconds: halftimeSeconds,
         lastStartTime: null, // Clear so stale observeQuery cannot auto-resume
       });
-      
-      // Update local state immediately so the UI reflects halftime
       setGameState(prev => ({ ...prev, status: 'halftime', elapsedSeconds: halftimeSeconds }));
-      
-      // Ensure current time stays at halftime value
       setCurrentTime(halftimeSeconds);
       trackEvent(AnalyticsEvents.GAME_HALFTIME.category, AnalyticsEvents.GAME_HALFTIME.action);
     } catch (error) {
       handleApiError(error, 'Failed to set halftime');
       halftimeInProgressRef.current = false; // Reset on error so user can retry
+      manuallyPausedRef.current = false;
+      return;
+    }
+
+    // Close play time records after status is safely persisted.
+    try {
+      await closeActivePlayTimeRecords(playTimeRecords, halftimeSeconds, undefined, game.id, mutations);
+      halftimePtrClosePendingRef.current = false;
+    } catch (error) {
+      halftimePtrClosePendingRef.current = true;
+      console.warn('[handleHalftime] PTR closing failed; marked pending retry before second half start.', error);
     } finally {
       manuallyPausedRef.current = false;
     }
@@ -636,7 +695,16 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     try {
       const startTime = new Date().toISOString();
       const resumeTime = currentTime; // Capture current time to continue from
-      console.log(`Starting second half at time ${resumeTime}s`);
+
+      if (halftimePtrClosePendingRef.current) {
+        try {
+          await closeActivePlayTimeRecords(playTimeRecords, resumeTime, undefined, game.id, mutations);
+          halftimePtrClosePendingRef.current = false;
+        } catch (error) {
+          handleApiError(error, 'Failed to close halftime play-time records before second half start');
+          return;
+        }
+      }
       
       // CRITICAL: Update gameState.currentHalf BEFORE starting the timer.
       // Without this, the timer hook may see currentHalf===1 and re-trigger
@@ -647,11 +715,37 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       halftimeInProgressRef.current = false;
       
       // Create play time records for all players currently in lineup for second half
-      const starters = lineup.filter(l => l.isStarter);
-      console.log(`Starting second half: Creating ${starters.length} play time records`);
+      const resolvedLocalStarters = lineup.filter(
+        (l): l is typeof l & { playerId: string; positionId: string } =>
+          l.isStarter && !!l.playerId && !!l.positionId
+      );
+      const resolvedLocalStarterCount = resolvedLocalStarters.length;
+      const expectedStarterCount = team.maxPlayersOnField ?? resolvedLocalStarterCount;
+
+      let starters = resolvedLocalStarters;
+
+      if (resolvedLocalStarterCount < expectedStarterCount) {
+        const fallbackAssignments = await client.models.LineupAssignment.list({
+          filter: {
+            gameId: { eq: game.id },
+            isStarter: { eq: true },
+          },
+        });
+
+        const dbStarters = fallbackAssignments.data.filter(
+          (l): l is typeof l & { playerId: string; positionId: string } => !!l.playerId && !!l.positionId
+        );
+
+        if (dbStarters.length > resolvedLocalStarters.length) {
+          starters = dbStarters;
+        }
+      }
+
+      if (starters.length < expectedStarterCount) {
+        throw new StarterCountError('handleStartSecondHalf', expectedStarterCount, starters.length);
+      }
       
       const starterPromises = starters.map(l => {
-        console.log(`Creating record for player ${l.playerId} at position ${l.positionId}`);
         return mutations.createPlayTimeRecord({
           gameId: game.id,
           playerId: l.playerId,
@@ -662,7 +756,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       });
 
       await Promise.all(starterPromises);
-      console.log('All second half play time records created');
 
       // Update game status - keep resumeTime to continue from halftime
       await mutations.updateGame(game.id, {
@@ -674,47 +767,52 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
       // Explicitly set current time and start running
       setCurrentTime(resumeTime);
-      console.log(`Resuming game at time ${resumeTime}s`);
       setIsRunning(true);
       trackEvent(AnalyticsEvents.GAME_SECOND_HALF_STARTED.category, AnalyticsEvents.GAME_SECOND_HALF_STARTED.action);
     } catch (error) {
-      handleApiError(error, 'Failed to start second half');
+      handleApiError(
+        error,
+        isStarterCountError(error) ? error.userMessage : 'Failed to start second half'
+      );
     }
   };
 
   const handleEndGame = async () => {
     // Guard: prevent duplicate calls from auto-trigger + manual button click
     if (endGameInProgressRef.current) {
-      console.log('handleEndGame: already in progress, skipping duplicate call');
       return;
     }
     endGameInProgressRef.current = true;
     manuallyPausedRef.current = true; // Prevent observeQuery from auto-resuming during end-game transition (fixes #49)
 
+    const endGameTime = currentTime;
+    setIsRunning(false);
+
+    // CRITICAL: Write 'completed' status to DynamoDB FIRST, before the
+    // potentially-slow PTR closing pass. If PTR closing throws, the game
+    // status must still be persisted so the coach is not stuck in-progress.
     try {
-      const endGameTime = currentTime;
-      
-      // Stop the timer first and capture the final time
-      setIsRunning(false);
-      
-      // End all active play time records
-      // Pass game.id so DB is queried for records not yet in React state
-      await closeActivePlayTimeRecords(playTimeRecords, endGameTime, undefined, game.id, mutations);
-      
-      // Update game with final time - use endGameTime to ensure consistency
       await mutations.updateGame(game.id, {
         status: 'completed',
         elapsedSeconds: endGameTime,
         lastStartTime: null, // Clear so stale observeQuery cannot auto-resume
       });
-      
-      // Update local state with the exact end time
-      setGameState({ ...gameState, status: 'completed', elapsedSeconds: endGameTime });
+      setGameState(prev => ({ ...prev, status: 'completed', elapsedSeconds: endGameTime }));
       setCurrentTime(endGameTime);
       trackEvent(AnalyticsEvents.GAME_COMPLETED.category, AnalyticsEvents.GAME_COMPLETED.action);
     } catch (error) {
       handleApiError(error, 'Failed to end game');
       endGameInProgressRef.current = false; // Reset on error so user can retry
+      manuallyPausedRef.current = false;
+      return;
+    }
+
+    // Close play time records after status is safely persisted.
+    // Failures here are non-fatal — SeasonReport already handles unclosed PTRs as a fallback.
+    try {
+      await closeActivePlayTimeRecords(playTimeRecords, endGameTime, undefined, game.id, mutations);
+    } catch (error) {
+      console.error('[handleEndGame] PTR closing failed (non-fatal, game already completed):', error);
     } finally {
       manuallyPausedRef.current = false;
     }
@@ -1002,6 +1100,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     gameNotes,
     currentTime,
     mutations,
+    onNoteSaved: () => setNotesRefreshKey(k => k + 1),
   };
 
   const preGameNotes = gameNotes.filter(

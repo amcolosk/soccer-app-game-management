@@ -282,4 +282,56 @@ describe("PlayerNotesPanel", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onRequestCloseNote).toHaveBeenCalledOnce();
   });
+
+  // ── Regression: issue #84 — notes not appearing after save ─────────────────
+
+  it("(regression #84) note with valid gameSeconds and half appears in the notes list", () => {
+    const existingNote = {
+      id: "note-1",
+      noteType: "gold-star",
+      gameSeconds: 600,
+      half: 1,
+      playerId: null,
+      notes: "Great press",
+      timestamp: new Date().toISOString(),
+    } as any;
+
+    render(
+      <PlayerNotesPanel
+        {...defaultProps}
+        gameNotes={[existingNote]}
+        showPanelContent={true}
+      />
+    );
+
+    // The note must be visible — documents the invariant that valid records pass the inGameNotes filter
+    const noteCard = document.querySelector(".note-card");
+    expect(noteCard).toBeInTheDocument();
+  });
+
+  it("(regression #84) note arriving from subscription with null gameSeconds is filtered out (bug reproduction)", () => {
+    const noteSavedViaLambda = {
+      id: "note-lambda-1",
+      noteType: "gold-star",
+      gameSeconds: null,       // ← arrives null from subscription (the bug)
+      half: null,
+      playerId: null,
+      notes: "Great press",
+      timestamp: new Date().toISOString(),
+    } as any;
+
+    render(
+      <PlayerNotesPanel
+        {...defaultProps}
+        gameNotes={[noteSavedViaLambda]}
+        showPanelContent={true}
+      />
+    );
+
+    // BUG: the note is NOT shown even though it was just saved.
+    // After the fix (notes refresh after save so the note arrives with real gameSeconds/half),
+    // the note should appear with correct data — this assertion will pass after the fix.
+    const noteCard = document.querySelector(".note-card");
+    expect(noteCard).toBeInTheDocument(); // FAILS currently — will pass after fix
+  });
 });

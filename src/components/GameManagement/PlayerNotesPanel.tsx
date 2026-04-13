@@ -31,6 +31,7 @@ interface PlayerNotesPanelProps {
   noteModalIntent?: OpenLiveNoteIntent | null;
   onRequestOpenNote?: (intent: OpenLiveNoteIntent, trigger: HTMLElement | null) => void;
   onRequestCloseNote?: () => void;
+  onNoteSaved?: () => void;
 }
 
 export function PlayerNotesPanel({
@@ -47,6 +48,7 @@ export function PlayerNotesPanel({
   noteModalIntent,
   onRequestOpenNote,
   onRequestCloseNote,
+  onNoteSaved,
 }: PlayerNotesPanelProps) {
   const isExternallyControlled =
     typeof isNoteModalOpen === "boolean" &&
@@ -123,12 +125,7 @@ export function PlayerNotesPanel({
     onSessionEnd: handleSessionEnd,
   });
   const inGameNotes = gameNotes.filter(
-    (note): note is GameNote & { gameSeconds: number; half: number } => (
-      note.gameSeconds !== null
-      && note.gameSeconds !== undefined
-      && note.half !== null
-      && note.half !== undefined
-    )
+    (note) => note.noteType !== 'coaching-point'
   );
 
   const getCurrentGameTime = () => currentTime;
@@ -183,6 +180,7 @@ export function PlayerNotesPanel({
       });
 
       closeNoteModal();
+      onNoteSaved?.();
     } catch (error) {
       handleApiError(error, 'Failed to save note');
     }
@@ -364,7 +362,7 @@ export function PlayerNotesPanel({
                   <div className="note-info">
                     <div className="note-header">
                       <span className="note-type">{getNoteLabel(noteTypeValue)}</span>
-                      <span className="note-time">{Math.floor(note.gameSeconds / 60)}' ({note.half === 1 ? '1st' : '2nd'} Half)</span>
+                      <span className="note-time">{note.gameSeconds != null ? `${Math.floor(note.gameSeconds / 60)}'` : '--'} ({note.half === 1 ? '1st' : '2nd'} Half)</span>
                     </div>
                     {notePlayer && (
                       <div className="note-player">

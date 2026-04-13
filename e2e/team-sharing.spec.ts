@@ -265,7 +265,8 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     console.log(`✓ Invitation sent to ${TEST_USERS.user2.email}`);
     
     // Extract invitation ID from the data attribute
-    const invitationLink = page.locator('.invitation-link').first();
+    const invitationItem = page.locator('.invitation-item').filter({ hasText: TEST_USERS.user2.email }).first();
+    const invitationLink = invitationItem.locator('.invitation-link').first();
     const invitationIdAttr = await invitationLink.getAttribute('data-invitation-id');
     if (invitationIdAttr) {
       invitationId = invitationIdAttr;
@@ -500,7 +501,8 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     // Go back to Teams tab and click the shared team
     await clickManagementTab(page, 'Teams');
     await page.waitForTimeout(UI_TIMING.STANDARD);
-    
+
+    const rosterToggle = sharedTeam.first().locator('button[aria-label*="roster"]').first();
     const rosterLabelForEditStep = (await rosterToggle.getAttribute('aria-label')) ?? '';
     if (/show/i.test(rosterLabelForEditStep)) {
       await rosterToggle.click();
