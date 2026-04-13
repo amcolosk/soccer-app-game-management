@@ -160,46 +160,68 @@ export function calculateFairRotations(
     benchCandidates: Array<{ id: string; time: number }>,
     gkLocked = false
   ): Array<{ playerId: string; positionId: string }> => {
-    const assignments: Array<{ playerId: string; positionId: string }> = [];
-    const usedPlayers = new Set<string>();
-    const usedPositions = new Set<string>();
-
     const canFillPosition = (candidateId: string, posId: string): boolean => {
       if (gkLocked && posId === goaliePositionId && !isGkPreferred(candidateId)) return false;
       return true;
     };
 
-    // Pass 1: preferred positions
-    for (const candidate of benchCandidates) {
-      if (usedPlayers.size >= positionsToFill.length) break;
-      if (usedPlayers.has(candidate.id)) continue;
-      for (const posId of positionsToFill) {
-        if (usedPositions.has(posId)) continue;
-        if (!canFillPosition(candidate.id, posId)) continue;
-        if (prefersPosition(candidate.id, posId)) {
-          assignments.push({ playerId: candidate.id, positionId: posId });
-          usedPlayers.add(candidate.id);
-          usedPositions.add(posId);
-          break;
+    let bestAssignments: Array<{ playerId: string; positionId: string }> = [];
+    let bestFilledCount = -1;
+    let bestPreferredCount = -1;
+    let bestPriorityScore = -1;
+    const usedPlayers = new Set<string>();
+    const currentAssignments: Array<{ playerId: string; positionId: string }> = [];
+
+    const search = (
+      positionIndex: number,
+      filledCount: number,
+      preferredCount: number,
+      priorityScore: number,
+    ) => {
+      if (positionIndex >= positionsToFill.length) {
+        const isBetter =
+          filledCount > bestFilledCount ||
+          (filledCount === bestFilledCount && preferredCount > bestPreferredCount) ||
+          (filledCount === bestFilledCount && preferredCount === bestPreferredCount && priorityScore > bestPriorityScore);
+
+        if (isBetter) {
+          bestAssignments = [...currentAssignments];
+          bestFilledCount = filledCount;
+          bestPreferredCount = preferredCount;
+          bestPriorityScore = priorityScore;
         }
+        return;
       }
-    }
 
-    // Pass 2: any remaining position
-    for (const candidate of benchCandidates) {
-      if (usedPlayers.size >= positionsToFill.length) break;
-      if (usedPlayers.has(candidate.id)) continue;
-      for (const posId of positionsToFill) {
-        if (usedPositions.has(posId)) continue;
-        if (!canFillPosition(candidate.id, posId)) continue;
-        assignments.push({ playerId: candidate.id, positionId: posId });
+      const remainingPositions = positionsToFill.length - positionIndex;
+      if (filledCount + remainingPositions < bestFilledCount) {
+        return;
+      }
+
+      const positionId = positionsToFill[positionIndex];
+
+      for (let candidateIndex = 0; candidateIndex < benchCandidates.length; candidateIndex++) {
+        const candidate = benchCandidates[candidateIndex];
+        if (usedPlayers.has(candidate.id)) continue;
+        if (!canFillPosition(candidate.id, positionId)) continue;
+
         usedPlayers.add(candidate.id);
-        usedPositions.add(posId);
-        break;
+        currentAssignments.push({ playerId: candidate.id, positionId });
+        search(
+          positionIndex + 1,
+          filledCount + 1,
+          preferredCount + (prefersPosition(candidate.id, positionId) ? 1 : 0),
+          priorityScore + (benchCandidates.length - candidateIndex),
+        );
+        currentAssignments.pop();
+        usedPlayers.delete(candidate.id);
       }
-    }
 
-    return assignments;
+      search(positionIndex + 1, filledCount, preferredCount, priorityScore);
+    };
+
+    search(0, 0, 0, 0);
+    return bestAssignments;
   };
 
   // Track current field state

@@ -1441,6 +1441,86 @@ describe("GameManagement – handleRecalculateRotations uses live lineup", () =>
     // p1 has 600 seconds (10 minutes) in playTimeRecords
     expect(options?.initialPlayTimeMinutes?.get('p1')).toBeCloseTo(10, 1);
   });
+
+  it("reproduces issue #83: mid-game recalculation can write a halftime GK swap into a later regular rotation", async () => {
+    const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
+    const mockedFn = vi.mocked(mockedCalc);
+    const halftimeGoalieSwap = [
+      { playerOutId: 'gk', playerInId: 'bench-gk', positionId: 'pos-gk' },
+    ];
+
+    mockedFn.mockReturnValue({
+      warnings: [],
+      rotations: [
+        { substitutions: [{ playerOutId: 'p2', playerInId: 'p8', positionId: 'pos-f1' }] },
+        { substitutions: [{ playerOutId: 'p3', playerInId: 'p9', positionId: 'pos-f2' }] },
+        { substitutions: halftimeGoalieSwap },
+        { substitutions: [{ playerOutId: 'p4', playerInId: 'p10', positionId: 'pos-f3' }] },
+        { substitutions: [{ playerOutId: 'p5', playerInId: 'p11', positionId: 'pos-f4' }] },
+      ],
+    });
+
+    mockUseTeamData.mockReturnValue({
+      players: [
+        { id: 'gk', playerNumber: 1, firstName: 'Goalie', lastName: 'One', isActive: true, preferredPositions: 'pos-gk' },
+        { id: 'p2', playerNumber: 2, firstName: 'Two', lastName: 'A', isActive: true, preferredPositions: 'pos-f1' },
+        { id: 'p3', playerNumber: 3, firstName: 'Three', lastName: 'B', isActive: true, preferredPositions: 'pos-f2' },
+      ],
+      positions: [
+        { id: 'pos-gk', abbreviation: 'GK' },
+        { id: 'pos-f1', abbreviation: 'CB' },
+        { id: 'pos-f2', abbreviation: 'CM' },
+      ],
+    });
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: {
+        ...defaultSubscription.gameState,
+        status: 'in-progress',
+        elapsedSeconds: 11 * 60,
+        halfLengthMinutes: 30,
+      },
+      lineup: [
+        { id: 'la-gk', gameId: 'game-1', playerId: 'gk', positionId: 'pos-gk', isStarter: true },
+        { id: 'la-2', gameId: 'game-1', playerId: 'p2', positionId: 'pos-f1', isStarter: true },
+        { id: 'la-3', gameId: 'game-1', playerId: 'p3', positionId: 'pos-f2', isStarter: true },
+      ],
+      gamePlan: {
+        id: 'gp-1',
+        rotationIntervalMinutes: 10,
+        startingLineup: '[]',
+      } as any,
+      plannedRotations: [
+        { id: 'rot-10', rotationNumber: 1, gameMinute: 10, half: 1, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-20', rotationNumber: 2, gameMinute: 20, half: 1, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-30', rotationNumber: 3, gameMinute: 30, half: 2, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-40', rotationNumber: 4, gameMinute: 40, half: 2, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-50', rotationNumber: 5, gameMinute: 50, half: 2, plannedSubstitutions: '[]' } as any,
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress', elapsedSeconds: 11 * 60 }} team={mockTeam} onBack={vi.fn()} />);
+
+    await act(async () => {
+      await mockCaptures.rotationWidgetProps?.onRecalculateRotations?.();
+    });
+
+    await waitFor(() => {
+      expect(mockPlannedRotationUpdate).toHaveBeenCalledTimes(4);
+    });
+
+    const updateCalls = mockPlannedRotationUpdate.mock.calls.map(([payload]) => payload);
+
+    expect(updateCalls).toContainEqual({
+      id: 'rot-30',
+      plannedSubstitutions: JSON.stringify(halftimeGoalieSwap),
+    });
+    expect(updateCalls).not.toContainEqual({
+      id: 'rot-40',
+      plannedSubstitutions: JSON.stringify(halftimeGoalieSwap),
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

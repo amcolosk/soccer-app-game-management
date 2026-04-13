@@ -434,9 +434,9 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       // Update only future rotations with generated substitutions
       const currentMinutes = Math.floor(currentTime / 60);
       const updates = plannedRotations
-        .filter(rotation => rotation.gameMinute > currentMinutes)
-        .map((rotation, idx) => {
-          const generated = generatedRotations[idx];
+        .map((rotation, index) => ({ rotation, generated: generatedRotations[index] }))
+        .filter(({ rotation }) => rotation.gameMinute > currentMinutes)
+        .map(({ rotation, generated }) => {
           return client.models.PlannedRotation.update({
             id: rotation.id,
             plannedSubstitutions: JSON.stringify(generated?.substitutions || []),
