@@ -27,6 +27,7 @@ const {
   mockCreatePlayerAvailability,
   mockUpdatePlayerAvailability,
   mockSetHelpContext,
+  mockSetDebugContext,
   mockRefetchCoachProfiles,
   mockPlannedRotationUpdate,
 } = vi.hoisted(() => ({
@@ -42,6 +43,7 @@ const {
   mockCreatePlayerAvailability: vi.fn().mockResolvedValue(undefined),
   mockUpdatePlayerAvailability: vi.fn().mockResolvedValue(undefined),
   mockSetHelpContext:    vi.fn(),
+  mockSetDebugContext:   vi.fn(),
   mockRefetchCoachProfiles: vi.fn().mockResolvedValue(undefined),
   mockPlannedRotationUpdate: vi.fn().mockResolvedValue({ data: {} }),
 }));
@@ -225,7 +227,7 @@ vi.mock("../../contexts/HelpFabContext", () => ({
     setHelpContext: mockSetHelpContext,
     helpContext: null,
     debugContext: null,
-    setDebugContext: vi.fn(),
+    setDebugContext: mockSetDebugContext,
   }),
 }));
 
@@ -497,6 +499,151 @@ describe("GameManagement – help context wiring", () => {
     await waitFor(() => {
       expect(mockRefetchCoachProfiles.mock.calls.length).toBeGreaterThan(baselineCalls);
     });
+  });
+});
+
+describe("GameManagement – debug snapshot details", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+  });
+
+  const getDebugSnapshot = () =>
+    mockSetDebugContext.mock.calls
+      .map(args => args[0])
+      .find((value): value is string => typeof value === 'string' && value.includes('Game Management Debug Snapshot'));
+
+  it("includes compact lineup and next rotation substitution details in debug context", async () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+      lineup: [
+        { id: 'la-2', gameId: 'game-1', playerId: 'p2', positionId: 'pos2', isStarter: true },
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+      ],
+      plannedRotations: [
+        {
+          id: 'rot-past',
+          gameId: 'game-1',
+          rotationNumber: 1,
+          gameMinute: 20,
+          half: 1,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p-old', playerInId: 'p-new', positionId: 'pos9' },
+          ]),
+          coaches: ['coach-1'],
+        },
+        {
+          id: 'rot-next',
+          gameId: 'game-1',
+          rotationNumber: 3,
+          gameMinute: 40,
+          half: 2,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p2', playerInId: 'p8', positionId: 'pos2' },
+            { playerOutId: 'p1', playerInId: 'p7', positionId: 'pos1' },
+          ]),
+          coaches: ['coach-1'],
+        },
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(mockSetDebugContext).toHaveBeenCalled();
+    });
+
+    const snapshot = getDebugSnapshot();
+
+    expect(snapshot).toBeDefined();
+    expect(snapshot).toContain('lineupDetail: p1@pos1|p2@pos2');
+    expect(snapshot).toContain('nextPlannedRotationMeta: rotation=3,minute=40,half=2');
+    expect(snapshot).toContain('nextPlannedRotationSubstitutions: p1>p7@pos1|p2>p8@pos2');
+  });
+
+  it("shows invalid-json marker when next rotation plannedSubstitutions is invalid JSON", async () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+      plannedRotations: [
+        {
+          id: 'rot-next-invalid-json',
+          gameId: 'game-1',
+          rotationNumber: 2,
+          gameMinute: 40,
+          half: 2,
+          plannedSubstitutions: '{not-valid-json}',
+          coaches: ['coach-1'],
+        },
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(mockSetDebugContext).toHaveBeenCalled();
+    });
+
+    const snapshot = getDebugSnapshot();
+    expect(snapshot).toBeDefined();
+    expect(snapshot).toContain('nextPlannedRotationSubstitutions: (invalid-json)');
+  });
+
+  it("shows invalid-json-shape marker when next rotation plannedSubstitutions parses to a non-array", async () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+      plannedRotations: [
+        {
+          id: 'rot-next-invalid-shape',
+          gameId: 'game-1',
+          rotationNumber: 2,
+          gameMinute: 40,
+          half: 2,
+          plannedSubstitutions: JSON.stringify({ playerOutId: 'p1', playerInId: 'p2', positionId: 'pos1' }),
+          coaches: ['coach-1'],
+        },
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(mockSetDebugContext).toHaveBeenCalled();
+    });
+
+    const snapshot = getDebugSnapshot();
+    expect(snapshot).toBeDefined();
+    expect(snapshot).toContain('nextPlannedRotationSubstitutions: (invalid-json-shape)');
+  });
+
+  it("shows none marker when next rotation plannedSubstitutions is an empty string", async () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+      plannedRotations: [
+        {
+          id: 'rot-next-blank',
+          gameId: 'game-1',
+          rotationNumber: 2,
+          gameMinute: 40,
+          half: 2,
+          plannedSubstitutions: '',
+          coaches: ['coach-1'],
+        },
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(mockSetDebugContext).toHaveBeenCalled();
+    });
+
+    const snapshot = getDebugSnapshot();
+    expect(snapshot).toBeDefined();
+    expect(snapshot).toContain('nextPlannedRotationSubstitutions: (none)');
   });
 });
 
@@ -1440,6 +1587,174 @@ describe("GameManagement – handleRecalculateRotations uses live lineup", () =>
     expect(options?.initialPlayTimeMinutes).toBeInstanceOf(Map);
     // p1 has 600 seconds (10 minutes) in playTimeRecords
     expect(options?.initialPlayTimeMinutes?.get('p1')).toBeCloseTo(10, 1);
+  });
+
+  it("reproduces issue #83: mid-game recalculation can write a halftime GK swap into a later regular rotation", async () => {
+    const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
+    const mockedFn = vi.mocked(mockedCalc);
+    const halftimeGoalieSwap = [
+      { playerOutId: 'gk', playerInId: 'bench-gk', positionId: 'pos-gk' },
+    ];
+
+    mockedFn.mockReturnValue({
+      warnings: [],
+      rotations: [
+        { substitutions: [{ playerOutId: 'p2', playerInId: 'p8', positionId: 'pos-f1' }] },
+        { substitutions: [{ playerOutId: 'p3', playerInId: 'p9', positionId: 'pos-f2' }] },
+        { substitutions: halftimeGoalieSwap },
+        { substitutions: [{ playerOutId: 'p4', playerInId: 'p10', positionId: 'pos-f3' }] },
+        { substitutions: [{ playerOutId: 'p5', playerInId: 'p11', positionId: 'pos-f4' }] },
+      ],
+    });
+
+    mockUseTeamData.mockReturnValue({
+      players: [
+        { id: 'gk', playerNumber: 1, firstName: 'Goalie', lastName: 'One', isActive: true, preferredPositions: 'pos-gk' },
+        { id: 'p2', playerNumber: 2, firstName: 'Two', lastName: 'A', isActive: true, preferredPositions: 'pos-f1' },
+        { id: 'p3', playerNumber: 3, firstName: 'Three', lastName: 'B', isActive: true, preferredPositions: 'pos-f2' },
+      ],
+      positions: [
+        { id: 'pos-gk', abbreviation: 'GK' },
+        { id: 'pos-f1', abbreviation: 'CB' },
+        { id: 'pos-f2', abbreviation: 'CM' },
+      ],
+    });
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: {
+        ...defaultSubscription.gameState,
+        status: 'in-progress',
+        elapsedSeconds: 11 * 60,
+        halfLengthMinutes: 30,
+      },
+      lineup: [
+        { id: 'la-gk', gameId: 'game-1', playerId: 'gk', positionId: 'pos-gk', isStarter: true },
+        { id: 'la-2', gameId: 'game-1', playerId: 'p2', positionId: 'pos-f1', isStarter: true },
+        { id: 'la-3', gameId: 'game-1', playerId: 'p3', positionId: 'pos-f2', isStarter: true },
+      ],
+      gamePlan: {
+        id: 'gp-1',
+        rotationIntervalMinutes: 10,
+        startingLineup: '[]',
+      } as any,
+      plannedRotations: [
+        { id: 'rot-10', rotationNumber: 1, gameMinute: 10, half: 1, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-20', rotationNumber: 2, gameMinute: 20, half: 1, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-30', rotationNumber: 3, gameMinute: 30, half: 2, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-40', rotationNumber: 4, gameMinute: 40, half: 2, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-50', rotationNumber: 5, gameMinute: 50, half: 2, plannedSubstitutions: '[]' } as any,
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress', elapsedSeconds: 11 * 60 }} team={mockTeam} onBack={vi.fn()} />);
+
+    await act(async () => {
+      await mockCaptures.rotationWidgetProps?.onRecalculateRotations?.();
+    });
+
+    await waitFor(() => {
+      expect(mockPlannedRotationUpdate).toHaveBeenCalledTimes(4);
+    });
+
+    const updateCalls = mockPlannedRotationUpdate.mock.calls.map(([payload]) => payload);
+
+    expect(updateCalls).toContainEqual({
+      id: 'rot-30',
+      plannedSubstitutions: JSON.stringify(halftimeGoalieSwap),
+    });
+    expect(updateCalls).not.toContainEqual({
+      id: 'rot-40',
+      plannedSubstitutions: JSON.stringify(halftimeGoalieSwap),
+    });
+  });
+
+  it("post-halftime: only future second-half rotations are updated; index alignment is preserved", async () => {
+    const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
+    const mockedFn = vi.mocked(mockedCalc);
+
+    const secondHalfSub1 = [{ playerOutId: 'p3', playerInId: 'p8', positionId: 'pos-f3' }];
+    const secondHalfSub2 = [{ playerOutId: 'p4', playerInId: 'p9', positionId: 'pos-f4' }];
+
+    mockedFn.mockReturnValue({
+      warnings: [],
+      rotations: [
+        { substitutions: [{ playerOutId: 'p1', playerInId: 'p6', positionId: 'pos-f1' }] }, // index 0 → rot-10 (past)
+        { substitutions: [{ playerOutId: 'p2', playerInId: 'p7', positionId: 'pos-f2' }] }, // index 1 → rot-20 (past)
+        { substitutions: [] },                                                                // index 2 → rot-30/halftime (past)
+        { substitutions: secondHalfSub1 },                                                   // index 3 → rot-40
+        { substitutions: secondHalfSub2 },                                                   // index 4 → rot-50
+      ],
+    });
+
+    mockUseTeamData.mockReturnValue({
+      players: [
+        { id: 'gk', playerNumber: 1, firstName: 'Goalie', lastName: 'One', isActive: true, preferredPositions: 'pos-gk' },
+        { id: 'p2', playerNumber: 2, firstName: 'Two', lastName: 'A', isActive: true, preferredPositions: 'pos-f1' },
+        { id: 'p3', playerNumber: 3, firstName: 'Three', lastName: 'B', isActive: true, preferredPositions: 'pos-f2' },
+      ],
+      positions: [
+        { id: 'pos-gk', abbreviation: 'GK' },
+        { id: 'pos-f1', abbreviation: 'CB' },
+        { id: 'pos-f2', abbreviation: 'CM' },
+      ],
+    });
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: {
+        ...defaultSubscription.gameState,
+        status: 'in-progress',
+        elapsedSeconds: 35 * 60,
+        halfLengthMinutes: 30,
+      },
+      lineup: [
+        { id: 'la-gk', gameId: 'game-1', playerId: 'gk', positionId: 'pos-gk', isStarter: true },
+        { id: 'la-2',  gameId: 'game-1', playerId: 'p2', positionId: 'pos-f1', isStarter: true },
+        { id: 'la-3',  gameId: 'game-1', playerId: 'p3', positionId: 'pos-f2', isStarter: true },
+      ],
+      gamePlan: {
+        id: 'gp-1',
+        rotationIntervalMinutes: 10,
+        startingLineup: '[]',
+      } as any,
+      plannedRotations: [
+        { id: 'rot-10', rotationNumber: 1, gameMinute: 10, half: 1, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-20', rotationNumber: 2, gameMinute: 20, half: 1, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-30', rotationNumber: 3, gameMinute: 30, half: 2, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-40', rotationNumber: 4, gameMinute: 40, half: 2, plannedSubstitutions: '[]' } as any,
+        { id: 'rot-50', rotationNumber: 5, gameMinute: 50, half: 2, plannedSubstitutions: '[]' } as any,
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress', elapsedSeconds: 35 * 60 }} team={mockTeam} onBack={vi.fn()} />);
+
+    await act(async () => {
+      await mockCaptures.rotationWidgetProps?.onRecalculateRotations?.();
+    });
+
+    // Only rot-40 and rot-50 are in the future (gameMinute > 35); expect 2 updates
+    await waitFor(() => {
+      expect(mockPlannedRotationUpdate).toHaveBeenCalledTimes(2);
+    });
+
+    const updateCalls = mockPlannedRotationUpdate.mock.calls.map(([payload]) => payload);
+
+    // Index-aligned substitutions must land on the correct future rotations
+    expect(updateCalls).toContainEqual({
+      id: 'rot-40',
+      plannedSubstitutions: JSON.stringify(secondHalfSub1),
+    });
+    expect(updateCalls).toContainEqual({
+      id: 'rot-50',
+      plannedSubstitutions: JSON.stringify(secondHalfSub2),
+    });
+
+    // Past rotations (including the halftime slot at minute 30) must NOT be touched
+    const updatedIds = updateCalls.map((c: any) => c.id);
+    expect(updatedIds).not.toContain('rot-10');
+    expect(updatedIds).not.toContain('rot-20');
+    expect(updatedIds).not.toContain('rot-30');
   });
 });
 

@@ -183,6 +183,48 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     // planConflictCount: computed via getPlanConflicts() which is a plain function above.
     // We keep it at 0 here to avoid duplicating complex conflict logic in a useMemo.
     const planConflictCount = 0;
+    const lineupDetail = lineup.length === 0
+      ? '(none)'
+      : lineup
+          .map(l => `${l.playerId ?? '(unknown-player)'}@${l.positionId ?? '(unknown-position)'}`)
+          .sort()
+          .join('|');
+
+    const currentGameMinute = Math.floor(currentTime / 60);
+    const nextPlannedRotation = plannedRotations
+      .filter(r => (r.gameMinute ?? -1) > currentGameMinute)
+      .sort((a, b) => {
+        const minuteDiff = (a.gameMinute ?? Number.MAX_SAFE_INTEGER) - (b.gameMinute ?? Number.MAX_SAFE_INTEGER);
+        if (minuteDiff !== 0) return minuteDiff;
+        return (a.rotationNumber ?? Number.MAX_SAFE_INTEGER) - (b.rotationNumber ?? Number.MAX_SAFE_INTEGER);
+      })[0];
+
+    let nextPlannedRotationMeta = '(none)';
+    let nextPlannedRotationSubstitutions = '(none)';
+    if (nextPlannedRotation) {
+      nextPlannedRotationMeta = [
+        `rotation=${nextPlannedRotation.rotationNumber ?? '(unknown)'}`,
+        `minute=${nextPlannedRotation.gameMinute ?? '(unknown)'}`,
+        `half=${nextPlannedRotation.half ?? '(unknown)'}`,
+      ].join(',');
+
+      try {
+        const rawSubstitutions = nextPlannedRotation.plannedSubstitutions;
+        const parsed = typeof rawSubstitutions === 'string'
+          ? JSON.parse(rawSubstitutions || '[]')
+          : rawSubstitutions;
+        if (Array.isArray(parsed)) {
+          const parsedSubs = (parsed as Array<Partial<PlannedSubstitution>>)
+            .map(s => `${s.playerOutId ?? '(unknown-out)'}>${s.playerInId ?? '(unknown-in)'}@${s.positionId ?? '(unknown-position)'}`)
+            .sort();
+          nextPlannedRotationSubstitutions = parsedSubs.length > 0 ? parsedSubs.join('|') : '(none)';
+        } else {
+          nextPlannedRotationSubstitutions = '(invalid-json-shape)';
+        }
+      } catch {
+        nextPlannedRotationSubstitutions = '(invalid-json)';
+      }
+    }
 
     return {
       gameIdPrefix: gameState.id?.slice(0, 8) ?? '(none)',
@@ -206,6 +248,9 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       plannedRotationCount: plannedRotations.length,
       planConflictCount,
       substitutionQueueLength: substitutionQueue.length,
+      lineupDetail,
+      nextPlannedRotationMeta,
+      nextPlannedRotationSubstitutions,
     };
   }, [gameState, currentTime, halfLengthSeconds, isRunning, activeTab, players, lineup,
       playTimeRecords, goals, gameNotes, playerAvailabilities, gamePlan, plannedRotations,
@@ -434,9 +479,9 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       // Update only future rotations with generated substitutions
       const currentMinutes = Math.floor(currentTime / 60);
       const updates = plannedRotations
-        .filter(rotation => rotation.gameMinute > currentMinutes)
-        .map((rotation, idx) => {
-          const generated = generatedRotations[idx];
+        .map((rotation, index) => ({ rotation, generated: generatedRotations[index] }))
+        .filter(({ rotation }) => rotation.gameMinute > currentMinutes)
+        .map(({ rotation, generated }) => {
           return client.models.PlannedRotation.update({
             id: rotation.id,
             plannedSubstitutions: JSON.stringify(generated?.substitutions || []),

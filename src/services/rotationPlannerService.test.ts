@@ -391,6 +391,37 @@ describe('rotationPlannerService', () => {
       expect(halftimeSubs.length).toBeGreaterThan(0);
     });
 
+    it('reproduces issue #83: halftime recalculation can miss an available all-preferred assignment', () => {
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' },
+        { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: 'pos2' },
+        { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: 'pos3' },
+        { id: 'r4', playerId: 'p4', playerNumber: 4, preferredPositions: 'pos1, pos2' },
+        { id: 'r5', playerId: 'p5', playerNumber: 5, preferredPositions: 'pos1' },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+      ];
+
+      const { rotations } = calculateFairRotations(
+        players,
+        startingLineup,
+        1,
+        0,
+        3,
+      );
+
+      expect(rotations[0].substitutions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ playerInId: 'p4', positionId: 'pos2' }),
+          expect.objectContaining({ playerInId: 'p5', positionId: 'pos1' }),
+        ]),
+      );
+    });
+
     it('should use coach-set halftime lineup and plan second-half rotations from it', () => {
       // Use rotationsPerHalf = 0 so there are no first-half rotations; the only
       // rotation is the halftime (rotNum 1 = rotationsPerHalf + 1 = 1).
