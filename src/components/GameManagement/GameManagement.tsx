@@ -49,6 +49,24 @@ interface GameManagementProps {
   onBack: () => void;
 }
 
+class StarterCountError extends Error {
+  readonly userMessage: string;
+
+  constructor(handler: 'handleStartGame' | 'handleStartSecondHalf', expected: number, chosen: number) {
+    super(
+      `[${handler}] starter count below expected before play-time record creation (expected=${expected}, chosen=${chosen})`
+    );
+    this.name = 'StarterCountError';
+    this.userMessage = handler === 'handleStartSecondHalf'
+      ? `Assign ${expected} starters before starting the second half. Currently assigned: ${chosen}.`
+      : `Assign ${expected} starters before starting the game. Currently assigned: ${chosen}.`;
+  }
+}
+
+function isStarterCountError(error: unknown): error is StarterCountError {
+  return error instanceof StarterCountError;
+}
+
 export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const confirm = useConfirm();
   // Load team roster and formation positions with real-time updates
@@ -527,9 +545,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       }
 
       if (starters.length < expectedStarterCount) {
-        throw new Error(
-          `[handleStartGame] starter count below expected before start-game PTR creation (expected=${expectedStarterCount}, chosen=${starters.length})`
-        );
+        throw new StarterCountError('handleStartGame', expectedStarterCount, starters.length);
       }
 
       const startTime = new Date().toISOString();
@@ -565,7 +581,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       setIsRunning(true);
       trackEvent(AnalyticsEvents.GAME_STARTED.category, AnalyticsEvents.GAME_STARTED.action);
     } catch (error) {
-      handleApiError(error, 'Failed to start game');
+      handleApiError(
+        error,
+        isStarterCountError(error) ? error.userMessage : 'Failed to start game'
+      );
     }
   };
 
@@ -723,9 +742,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       }
 
       if (starters.length < expectedStarterCount) {
-        throw new Error(
-          `[handleStartSecondHalf] starter count below expected before second-half PTR creation (expected=${expectedStarterCount}, chosen=${starters.length})`
-        );
+        throw new StarterCountError('handleStartSecondHalf', expectedStarterCount, starters.length);
       }
       
       const starterPromises = starters.map(l => {
@@ -753,7 +770,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       setIsRunning(true);
       trackEvent(AnalyticsEvents.GAME_SECOND_HALF_STARTED.category, AnalyticsEvents.GAME_SECOND_HALF_STARTED.action);
     } catch (error) {
-      handleApiError(error, 'Failed to start second half');
+      handleApiError(
+        error,
+        isStarterCountError(error) ? error.userMessage : 'Failed to start second half'
+      );
     }
   };
 

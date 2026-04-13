@@ -954,6 +954,48 @@ describe("GameManagement – starter fallback uses resolved starters", () => {
     mockUseTeamData.mockReturnValue({ players: [], positions: [] });
   });
 
+  it("handleStartGame sends friendly starter message when fallback is still insufficient", async () => {
+    const { handleApiError } = await import("../../utils/errorHandler");
+    const user = userEvent.setup();
+    const gameState = { ...defaultSubscription.gameState, status: 'scheduled' };
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState,
+      lineup: [
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+        { id: 'la-2', gameId: 'game-1', playerId: null, positionId: 'pos2', isStarter: true },
+      ],
+    });
+    mockLineupList.mockResolvedValueOnce({
+      data: [
+        { id: 'db-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+        { id: 'db-2', gameId: 'game-1', playerId: null, positionId: 'pos2', isStarter: true },
+      ],
+    });
+
+    renderWithRouter(
+      <GameManagement
+        game={{ ...mockGame, status: 'scheduled' }}
+        team={{ ...mockTeam, maxPlayersOnField: 2 }}
+        onBack={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /start game/i }));
+
+    await waitFor(() => {
+      expect(mockLineupList).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(handleApiError).toHaveBeenCalledWith(
+        expect.any(Error),
+        'Assign 2 starters before starting the game. Currently assigned: 1.'
+      );
+    });
+    expect(mockGameUpdate).not.toHaveBeenCalled();
+    expect(mockPlayTimeCreate).not.toHaveBeenCalled();
+  });
+
   it("handleStartGame falls back to DB when resolved local starters are below expected", async () => {
     const user = userEvent.setup();
     const gameState = { ...defaultSubscription.gameState, status: 'scheduled' };
@@ -1024,6 +1066,49 @@ describe("GameManagement – starter fallback uses resolved starters", () => {
     await waitFor(() => {
       expect(mockPlayTimeCreate).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it("handleStartSecondHalf sends friendly starter message when DB fallback is still insufficient", async () => {
+    const { handleApiError } = await import("../../utils/errorHandler");
+    const user = userEvent.setup();
+    const gameState = { ...defaultSubscription.gameState, status: 'halftime' };
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState,
+      lineup: [
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+        { id: 'la-2', gameId: 'game-1', playerId: null, positionId: 'pos2', isStarter: true },
+      ],
+    });
+    // DB fallback also only has 1 valid starter (playerId null is not counted)
+    mockLineupList.mockResolvedValueOnce({
+      data: [
+        { id: 'db-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+        { id: 'db-2', gameId: 'game-1', playerId: null, positionId: 'pos2', isStarter: true },
+      ],
+    });
+
+    renderWithRouter(
+      <GameManagement
+        game={{ ...mockGame, status: 'halftime' }}
+        team={{ ...mockTeam, maxPlayersOnField: 2 }}
+        onBack={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /start second half/i }));
+
+    await waitFor(() => {
+      expect(mockLineupList).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(handleApiError).toHaveBeenCalledWith(
+        expect.any(Error),
+        'Assign 2 starters before starting the second half. Currently assigned: 1.'
+      );
+    });
+    expect(mockGameUpdate).not.toHaveBeenCalled();
+    expect(mockPlayTimeCreate).not.toHaveBeenCalled();
   });
 });
 
