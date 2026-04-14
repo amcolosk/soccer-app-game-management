@@ -1460,6 +1460,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               playTimeRecords={playTimeRecords}
               gameEndSeconds={gameState.elapsedSeconds ?? 0}
             />
+            <GoalTracker {...sharedGoalTrackerProps} />
             <PreGameNotesPanel
               gameStatus={gameState.status}
               notes={preGameNotes}
@@ -1470,8 +1471,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               isReadOnly={false}
               profileMap={profileMap}
             />
-            <GoalTracker {...sharedGoalTrackerProps} />
-            {deleteGameButton}
           </div>
         )}
 
@@ -1489,10 +1488,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         />
 
         {gameState.status === 'completed' && (
-          <div className="completed-report-link">
+          <div className="completed-footer">
             <Link to={`/reports/${team.id}`} className="btn-link completed-report-link__anchor">
               View Full Season Report →
             </Link>
+            {deleteGameButton}
           </div>
         )}
 
