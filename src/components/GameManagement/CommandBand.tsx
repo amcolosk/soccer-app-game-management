@@ -123,7 +123,7 @@ export function CommandBand({
         >
           ←
         </button>
-        <div className="command-band__score-block">
+        <div className="command-band__score-block" aria-live="polite" aria-atomic="true">
           <div className="command-band__score">
             {gameState.ourScore ?? 0}{" "}
             <span className="command-band__score-dash">–</span>{" "}

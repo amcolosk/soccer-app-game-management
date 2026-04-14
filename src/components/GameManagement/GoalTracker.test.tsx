@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { showSuccess } from "../../utils/toast";
 import { GoalTracker } from "./GoalTracker";
 
 vi.mock("aws-amplify/data", () => ({
@@ -16,6 +17,11 @@ vi.mock("aws-amplify/data", () => ({
 const mockConfirm = vi.fn().mockResolvedValue(false);
 vi.mock("../ConfirmModal", () => ({
   useConfirm: () => mockConfirm,
+}));
+
+vi.mock("../../utils/toast", () => ({
+  showWarning: vi.fn(),
+  showSuccess: vi.fn(),
 }));
 
 vi.mock("../PlayerSelect", () => ({
@@ -51,7 +57,6 @@ const mockCreateGoal = vi.fn().mockResolvedValue(undefined);
 const mockUpdateGame = vi.fn().mockResolvedValue(undefined);
 const mockDeleteGoal = vi.fn().mockResolvedValue(undefined);
 const mockUpdateGoal = vi.fn().mockResolvedValue(undefined);
-const mockOnScoreUpdate = vi.fn();
 
 const makeMutations = (overrides: Record<string, any> = {}) => ({
   updateGame: mockUpdateGame,
@@ -79,7 +84,6 @@ const defaultProps = {
   players,
   goals: [] as any[],
   currentTime: 600,
-  onScoreUpdate: mockOnScoreUpdate,
   mutations: makeMutations() as any,
   playTimeRecords: [] as any[],
   lineup: [] as any[],
@@ -92,7 +96,7 @@ describe("GoalTracker", () => {
     mockUpdateGame.mockReset().mockResolvedValue(undefined);
     mockDeleteGoal.mockReset().mockResolvedValue(undefined);
     mockUpdateGoal.mockReset().mockResolvedValue(undefined);
-    mockOnScoreUpdate.mockReset();
+    vi.mocked(showSuccess).mockClear();
   });
   describe("goal buttons visibility", () => {
     it("shows goal buttons when in-progress", () => {
@@ -121,14 +125,15 @@ describe("GoalTracker", () => {
       expect(screen.queryByText(/Goal - Us/)).not.toBeInTheDocument();
     });
 
-    it("hides goal buttons when completed", () => {
+    it("shows goal buttons when completed", () => {
       render(
         <GoalTracker
           {...defaultProps}
           gameState={makeGameState({ status: "completed" }) as any}
         />
       );
-      expect(screen.queryByText(/Goal - Us/)).not.toBeInTheDocument();
+      expect(screen.getByText(/Goal - Us/)).toBeInTheDocument();
+      expect(screen.getByText(/Goal - Eagles/)).toBeInTheDocument();
     });
 
     it("shows opponent name on opponent goal button", () => {
@@ -190,6 +195,14 @@ describe("GoalTracker", () => {
       await user.click(screen.getByText("Cancel"));
       expect(screen.queryByRole("heading", { level: 2 })).not.toBeInTheDocument();
     });
+
+    it("has correct aria-labelledby on record goal modal", async () => {
+      const user = userEvent.setup();
+      render(<GoalTracker {...defaultProps} />);
+      await user.click(screen.getByText(/Goal - Us/));
+      const modal = screen.getByRole("dialog", { hidden: true });
+      expect(modal).toHaveAttribute("aria-labelledby", "record-goal-modal-title");
+    });
   });
 
   describe("goals list", () => {
@@ -245,6 +258,17 @@ describe("GoalTracker", () => {
       render(<GoalTracker {...defaultProps} goals={[]} />);
       expect(screen.queryByText("Goals")).not.toBeInTheDocument();
     });
+
+    it("shows empty state in completed when no goals", () => {
+      render(
+        <GoalTracker
+          {...defaultProps}
+          gameState={makeGameState({ status: "completed" }) as any}
+          goals={[]}
+        />
+      );
+      expect(screen.getByText(/No goals recorded yet/)).toBeInTheDocument();
+    });
   });
 
   const goalsForEditDelete = [
@@ -290,55 +314,76 @@ describe("GoalTracker", () => {
     });
   });
 
+  describe("goal record", () => {
+    it("calls createGoal and does NOT call updateGame in active states", async () => {
+      const user = userEvent.setup();
+      render(<GoalTracker {...defaultProps} />);
+      await user.click(screen.getByText(/Goal - Us/));
+      await user.selectOptions(screen.getByTestId("goalScorer"), "p1");
+      await user.click(screen.getByRole("button", { name: /^Record Goal$/ }));
+      await waitFor(() => expect(mockCreateGoal).toHaveBeenCalledWith(expect.objectContaining({
+        gameId: "game-1",
+        scoredByUs: true,
+      })));
+      // Critical: updateGame should NOT be called for active-state goal records
+      expect(mockUpdateGame).not.toHaveBeenCalled();
+    });
+
+    it("shows success toast with final score when completed", async () => {
+      const user = userEvent.setup();
+      render(
+        <GoalTracker
+          {...defaultProps}
+          gameState={makeGameState({ status: "completed", ourScore: 1, opponentScore: 0 }) as any}
+        />
+      );
+      await user.click(screen.getByText(/Goal - Us/));
+      await user.selectOptions(screen.getByTestId("goalScorer"), "p1");
+      await user.click(screen.getByRole("button", { name: /^Record Goal$/ }));
+      await waitFor(() => expect(showSuccess).toHaveBeenCalledWith(
+        expect.stringContaining("Goal added")
+      ));
+      // updateGame NOT called - GameManagement will auto-reconcile
+      expect(mockUpdateGame).not.toHaveBeenCalled();
+    });
+
+    it("requires scorer when recording our goal", async () => {
+      const user = userEvent.setup();
+      render(<GoalTracker {...defaultProps} />);
+      await user.click(screen.getByText(/Goal - Us/));
+      // Don't select a scorer
+      await user.click(screen.getByRole("button", { name: /^Record Goal$/ }));
+      expect(mockCreateGoal).not.toHaveBeenCalled();
+    });
+  });
+
   describe("goal delete", () => {
-    it("calls deleteGoal and updateGame with decremented ourScore when scoredByUs=true", async () => {
+    it("calls deleteGoal and does NOT call updateGame in active states", async () => {
       mockConfirm.mockResolvedValue(true);
       const user = userEvent.setup();
       render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
       await user.click(screen.getByRole("button", { name: /Delete Us goal at 10'/ }));
       await waitFor(() => expect(mockDeleteGoal).toHaveBeenCalledWith("g1"));
-      expect(mockUpdateGame).toHaveBeenCalledWith("game-1", { ourScore: 0, opponentScore: 0 });
-      expect(mockOnScoreUpdate).toHaveBeenCalledWith(0, 0);
+      // UpdateGame should NOT be called - score is derived from goals
+      expect(mockUpdateGame).not.toHaveBeenCalled();
     });
 
-    it("decrements opponentScore when scoredByUs=false", async () => {
+    it("shows success toast with final score when completed", async () => {
       mockConfirm.mockResolvedValue(true);
       const user = userEvent.setup();
       render(
         <GoalTracker
           {...defaultProps}
-          gameState={makeGameState({ ourScore: 1, opponentScore: 2 }) as any}
-          goals={goalsForEditDelete}
-        />
-      );
-      await user.click(screen.getByRole("button", { name: /Delete Eagles goal at 20'/ }));
-      await waitFor(() => expect(mockDeleteGoal).toHaveBeenCalledWith("g2"));
-      expect(mockUpdateGame).toHaveBeenCalledWith("game-1", { ourScore: 1, opponentScore: 1 });
-      expect(mockOnScoreUpdate).toHaveBeenCalledWith(1, 1);
-    });
-
-    it("uses Math.max(0, score-1) and does not go below 0", async () => {
-      mockConfirm.mockResolvedValue(true);
-      const user = userEvent.setup();
-      render(
-        <GoalTracker
-          {...defaultProps}
-          gameState={makeGameState({ ourScore: 0, opponentScore: 0 }) as any}
+          gameState={makeGameState({ status: "completed", ourScore: 1, opponentScore: 0 }) as any}
           goals={goalsForEditDelete}
         />
       );
       await user.click(screen.getByRole("button", { name: /Delete Us goal at 10'/ }));
       await waitFor(() => expect(mockDeleteGoal).toHaveBeenCalledWith("g1"));
-      expect(mockUpdateGame).toHaveBeenCalledWith("game-1", { ourScore: 0, opponentScore: 0 });
-    });
-
-    it("does not call updateGame if deleteGoal throws", async () => {
-      mockConfirm.mockResolvedValue(true);
-      mockDeleteGoal.mockRejectedValue(new Error("Network error"));
-      const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
-      await user.click(screen.getByRole("button", { name: /Delete Us goal at 10'/ }));
-      await waitFor(() => expect(mockDeleteGoal).toHaveBeenCalledWith("g1"));
+      await waitFor(() => expect(showSuccess).toHaveBeenCalledWith(
+        expect.stringContaining("Goal deleted")
+      ));
+      // updateGame NOT called - GameManagement will auto-reconcile
       expect(mockUpdateGame).not.toHaveBeenCalled();
     });
 
@@ -373,6 +418,23 @@ describe("GoalTracker", () => {
         assistId: "p2",
         notes: "Great shot",
       }));
+      expect(mockUpdateGame).not.toHaveBeenCalled();
+    });
+
+    it("shows success toast with final score when completed", async () => {
+      const user = userEvent.setup();
+      render(
+        <GoalTracker
+          {...defaultProps}
+          gameState={makeGameState({ status: "completed", ourScore: 1, opponentScore: 0 }) as any}
+          goals={goalsForEditDelete}
+        />
+      );
+      await user.click(screen.getByRole("button", { name: /Edit Us goal at 10'/ }));
+      await user.click(screen.getByText("Save Changes"));
+      await waitFor(() => expect(showSuccess).toHaveBeenCalledWith(
+        expect.stringContaining("Goal updated")
+      ));
       expect(mockUpdateGame).not.toHaveBeenCalled();
     });
 
