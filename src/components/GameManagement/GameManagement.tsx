@@ -210,6 +210,25 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     return () => setHelpContext(null);
   }, [gameState.status, setHelpContext]);
 
+    // Active-state score derivation: derive score from goals in real-time
+    // (for scheduled, in-progress, halftime states). Updates gameState locally
+    // without writing to database. Database gets final snapshot on game completion.
+    useEffect(() => {
+      // Only update score in active states; completed state uses separate reconciliation
+      if (gameState.status === 'completed') return;
+
+      // Derive score from current goals
+      const { ourScore, opponentScore } = computeScoreFromGoals(goals);
+
+      // Update gameState if score has changed (triggers CommandBand re-render)
+      setGameState(prev => {
+        if (prev.ourScore === ourScore && prev.opponentScore === opponentScore) {
+          return prev; // No change, avoid re-render
+        }
+        return { ...prev, ourScore, opponentScore };
+      });
+      }, [goals, gameState.status, setGameState]);
+
   // Completed-state reconciliation: auto-update score snapshot when goals change
   // (triggered by user goal mutations in completed state).
   // Uses in-flight guard, fingerprint dedup, and persistent pending marker.
