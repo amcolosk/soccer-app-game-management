@@ -96,17 +96,7 @@ describe('useGameTimer', () => {
     expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 500);
   });
 
-  it('creates a 5000ms save interval when timer starts', () => {
-    const setIntervalSpy = vi.spyOn(global, 'setInterval');
-    const props = createDefaultProps();
-    props.isRunning = true;
-    props.gameState.status = 'in-progress';
 
-    renderHook(() => useGameTimer(props));
-
-    // Second call is the save interval
-    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
-  });
 
   it('setCurrentTime is called with wall-clock derived time (increments each second)', () => {
     const mockSetCurrentTime = vi.fn();
@@ -283,7 +273,7 @@ describe('useGameTimer', () => {
     expect(mockOnEndGame).toHaveBeenCalledTimes(1);
   });
 
-  it('clears both intervals when isRunning becomes false', () => {
+  it('clears the interval when isRunning becomes false', () => {
     const clearIntervalSpy = vi.spyOn(global, 'clearInterval');
     const props = createDefaultProps();
     props.isRunning = true;
@@ -294,11 +284,11 @@ describe('useGameTimer', () => {
     props.isRunning = false;
     rerender();
 
-    // 2 intervals created, both should be cleared
-    expect(clearIntervalSpy).toHaveBeenCalledTimes(2);
+    // 1 interval created, should be cleared
+    expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('clears both intervals on unmount', () => {
+  it('clears the interval on unmount', () => {
     const clearIntervalSpy = vi.spyOn(global, 'clearInterval');
     const props = createDefaultProps();
     props.isRunning = true;
@@ -308,7 +298,7 @@ describe('useGameTimer', () => {
 
     unmount();
 
-    expect(clearIntervalSpy).toHaveBeenCalledTimes(2);
+    expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
   });
 
   it('marks PlannedRotation as viewed when timer reaches rotationMinute - 1 and rotation is not yet viewed', () => {
@@ -423,57 +413,9 @@ describe('useGameTimer', () => {
     expect(lastArg).toBe(501);
   });
 
-  it('persists elapsed time to the database every 5 seconds', () => {
-    const props = createDefaultProps();
-    props.isRunning = true;
-    props.gameState.status = 'in-progress';
-    props.currentTime = 0;
-    props.setCurrentTime = vi.fn();
 
-    renderHook(() => useGameTimer(props));
 
-    act(() => {
-      vi.advanceTimersByTime(5000); // trigger the save interval
-    });
 
-    expect(mockGameUpdate).toHaveBeenCalledWith({
-      id: 'game-1',
-      elapsedSeconds: 5,
-      lastStartTime: expect.any(String),
-    });
-  });
-
-  it('effect cleanup prevents saveInterval from firing after gameState.status changes to completed', () => {
-    // What this test actually verifies: when gameState.status changes to 'completed',
-    // the effect dep array ([isRunning, gameState.status, ...]) triggers React's cleanup
-    // function, which calls clearInterval on both intervals BEFORE advanceTimersByTime
-    // can fire them. The intervals are therefore never executed.
-    //
-    // Note: the gameStatusRef guard at line ~126 of useGameTimer.ts is a defense-in-depth
-    // measure for a narrower race condition (interval fires in the same render cycle
-    // before cleanup runs). That guard is NOT what this test exercises — the cleanup
-    // fires first, making the guard unreachable in this scenario.
-    const props = createDefaultProps();
-    props.isRunning = true;
-    props.gameState.status = 'in-progress';
-    props.currentTime = 0;
-    props.setCurrentTime = vi.fn();
-
-    const { rerender } = renderHook(() => useGameTimer(props));
-
-    // Simulate game completing — changing gameState.status triggers effect cleanup,
-    // which clears both intervals before they can fire.
-    props.gameState = { ...props.gameState, status: 'completed' };
-    rerender();
-
-    // Advance past the 5-second save interval threshold; intervals are already cleared.
-    act(() => {
-      vi.advanceTimersByTime(5000);
-    });
-
-    // No DB write should have occurred because the interval was cleared by cleanup.
-    expect(mockGameUpdate).not.toHaveBeenCalled();
-  });
 
   // ── Callback ref correctness ─────────────────────────────────────────────
 

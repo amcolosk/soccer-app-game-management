@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../../amplify/data/resource";
 import type { Game, GamePlan, PlannedRotation } from "../types";
-import { handleApiError } from "../../../utils/errorHandler";
 
 const client = generateClient<Schema>();
 
@@ -59,10 +58,7 @@ export function useGameTimer({
   const onEndGameRef = useRef(onEndGame);
   onEndGameRef.current = onEndGame;
 
-  // Track the current game status via a ref so the saveInterval callback
-  // can guard against writing lastStartTime after the game is no longer in-progress.
-  const gameStatusRef = useRef(gameState.status);
-  gameStatusRef.current = gameState.status;
+
 
   // Capture anchor whenever isRunning transitions.
   // currentTime is intentionally excluded from deps so we only read it at the
@@ -79,7 +75,6 @@ export function useGameTimer({
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    let saveInterval: NodeJS.Timeout;
 
     if (isRunning && gameState.status === 'in-progress') {
       // 500 ms tick — derives game time from wall clock so iOS backgrounding
@@ -118,26 +113,10 @@ export function useGameTimer({
 
         setCurrentTime(derived);
       }, 500);
-
-      // Save elapsed time to database every 5 seconds
-      saveInterval = setInterval(() => {
-        // Guard: skip if the game is no longer in-progress (e.g., handleEndGame was called
-        // but the effect cleanup hasn't run yet due to the React re-render cycle).
-        if (gameStatusRef.current !== 'in-progress') return;
-        const derivedNow = startMsRef.current !== null
-          ? startElapsedRef.current + Math.floor((Date.now() - startMsRef.current) / 1000)
-          : startElapsedRef.current;
-        client.models.Game.update({
-          id: game.id,
-          elapsedSeconds: derivedNow,
-          lastStartTime: new Date().toISOString(),
-        }).catch(err => handleApiError(err, 'Failed to save game time'));
-      }, 5000);
     }
 
     return () => {
       if (interval) clearInterval(interval);
-      if (saveInterval) clearInterval(saveInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning, gameState.status, gameState.currentHalf, halfLengthSeconds, game.id]);
