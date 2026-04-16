@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useGameSubscriptions } from './useGameSubscriptions';
 import type { Game, Team } from '../types';
 
@@ -17,6 +17,23 @@ const { mockGameObserveQuery, mockGamePlanObserveQuery, mockPlannedRotationObser
     mockPlannedRotationObserveQuery: vi.fn(),
   }));
 
+const { mockPlannedRotationList } = vi.hoisted(() => ({
+  mockPlannedRotationList: vi.fn().mockResolvedValue({ data: [] }),
+}));
+
+const { mockLineupList, mockLineupCreate } = vi.hoisted(() => ({
+  mockLineupList: vi.fn().mockResolvedValue({ data: [] }),
+  mockLineupCreate: vi.fn().mockResolvedValue({ data: {} }),
+}));
+
+const { mockUseAmplifyQuery } = vi.hoisted(() => ({
+  mockUseAmplifyQuery: vi.fn(),
+}));
+
+const { mockHandleApiError } = vi.hoisted(() => ({
+  mockHandleApiError: vi.fn(),
+}));
+
 vi.mock('aws-amplify/data', () => ({
   generateClient: vi.fn(() => ({
     models: {
@@ -28,11 +45,11 @@ vi.mock('aws-amplify/data', () => ({
       },
       PlannedRotation: {
         observeQuery: mockPlannedRotationObserveQuery,
-        list: vi.fn().mockResolvedValue({ data: [] }),
+        list: mockPlannedRotationList,
       },
       LineupAssignment: {
-        list: vi.fn().mockResolvedValue({ data: [] }),
-        create: vi.fn().mockResolvedValue({ data: {} }),
+        list: mockLineupList,
+        create: mockLineupCreate,
       },
     },
   })),
@@ -41,11 +58,11 @@ vi.mock('aws-amplify/data', () => ({
 // Mock useAmplifyQuery so the secondary subscriptions (LineupAssignment,
 // PlayTimeRecord, Goal, GameNote, PlayerAvailability) don't interfere.
 vi.mock('../../../hooks/useAmplifyQuery', () => ({
-  useAmplifyQuery: vi.fn().mockReturnValue({ data: [], isSynced: false }),
+  useAmplifyQuery: mockUseAmplifyQuery,
 }));
 
 vi.mock('../../../utils/errorHandler', () => ({
-  handleApiError: vi.fn(),
+  handleApiError: (...args: unknown[]) => mockHandleApiError(...args),
 }));
 
 // ---------------------------------------------------------------------------
@@ -98,6 +115,11 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     capturedGameNext = null;
+    mockUseAmplifyQuery.mockReturnValue({ data: [], isSynced: false });
+    mockLineupList.mockResolvedValue({ data: [] });
+    mockLineupCreate.mockResolvedValue({ data: {} });
+    mockHandleApiError.mockReset();
+    mockPlannedRotationList.mockResolvedValue({ data: [] });
 
     // Game.observeQuery captures the `next` callback so tests can trigger events.
     mockGameObserveQuery.mockReturnValue({
@@ -403,5 +425,207 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     unmount();
 
     expect(unsubscribeSpy).toHaveBeenCalled();
+  });
+
+  it('syncs lineup from scheduled gamePlan when lineup is empty locally and in DB', async () => {
+    const game = createDefaultGame({ status: 'scheduled' });
+    const props = createDefaultProps({ game });
+
+    let capturedGamePlanNext: ((data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void) | null = null;
+    mockGamePlanObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void }) => {
+        capturedGamePlanNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+
+    renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      capturedGamePlanNext?.({
+        items: [{
+          id: 'plan-1',
+          startingLineup: JSON.stringify([
+            { playerId: 'p1', positionId: 'pos1' },
+            { playerId: 'p2', positionId: 'pos2' },
+          ]),
+        }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockLineupList).toHaveBeenCalled();
+      expect(mockLineupCreate).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('does not sync lineup from gamePlan when local lineup already exists', async () => {
+    const game = createDefaultGame({ status: 'scheduled' });
+    const props = createDefaultProps({ game });
+
+    mockUseAmplifyQuery.mockImplementation((model: string) => {
+      if (model === 'LineupAssignment') {
+        return { data: [{ id: 'la-1', positionId: 'pos1', playerId: 'p1' }], isSynced: true };
+      }
+      return { data: [], isSynced: false };
+    });
+
+    let capturedGamePlanNext: ((data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void) | null = null;
+    mockGamePlanObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void }) => {
+        capturedGamePlanNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+
+    renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      capturedGamePlanNext?.({
+        items: [{ id: 'plan-1', startingLineup: JSON.stringify([{ playerId: 'p1', positionId: 'pos1' }]) }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockLineupList).not.toHaveBeenCalled();
+      expect(mockLineupCreate).not.toHaveBeenCalled();
+    });
+  });
+
+  it('does not sync lineup from gamePlan when DB already has assignments', async () => {
+    const game = createDefaultGame({ status: 'scheduled' });
+    const props = createDefaultProps({ game });
+
+    mockLineupList.mockResolvedValue({
+      data: [{ id: 'la-existing', gameId: 'game-1', playerId: 'p1', positionId: 'pos1' }],
+    });
+
+    let capturedGamePlanNext: ((data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void) | null = null;
+    mockGamePlanObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void }) => {
+        capturedGamePlanNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+
+    renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      capturedGamePlanNext?.({
+        items: [{ id: 'plan-1', startingLineup: JSON.stringify([{ playerId: 'p1', positionId: 'pos1' }]) }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockLineupList).toHaveBeenCalled();
+      expect(mockLineupCreate).not.toHaveBeenCalled();
+    });
+  });
+
+  it('does not sync lineup from gamePlan when game is not scheduled', async () => {
+    const game = createDefaultGame({ status: 'in-progress' });
+    const props = createDefaultProps({ game });
+
+    let capturedGamePlanNext: ((data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void) | null = null;
+    mockGamePlanObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void }) => {
+        capturedGamePlanNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+
+    renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      capturedGamePlanNext?.({
+        items: [{ id: 'plan-1', startingLineup: JSON.stringify([{ playerId: 'p1', positionId: 'pos1' }]) }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockLineupList).not.toHaveBeenCalled();
+      expect(mockLineupCreate).not.toHaveBeenCalled();
+    });
+  });
+
+  it('does not sync lineup when gamePlan has no startingLineup payload', async () => {
+    const game = createDefaultGame({ status: 'scheduled' });
+    const props = createDefaultProps({ game });
+
+    let capturedGamePlanNext: ((data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void) | null = null;
+    mockGamePlanObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void }) => {
+        capturedGamePlanNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+
+    renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      capturedGamePlanNext?.({ items: [{ id: 'plan-1', startingLineup: null }] });
+    });
+
+    await waitFor(() => {
+      expect(mockLineupList).not.toHaveBeenCalled();
+      expect(mockLineupCreate).not.toHaveBeenCalled();
+      expect(mockHandleApiError).not.toHaveBeenCalled();
+    });
+  });
+
+  it('reports error when startingLineup is invalid JSON', async () => {
+    const game = createDefaultGame({ status: 'scheduled' });
+    const props = createDefaultProps({ game });
+
+    let capturedGamePlanNext: ((data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void) | null = null;
+    mockGamePlanObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void }) => {
+        capturedGamePlanNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+
+    renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      capturedGamePlanNext?.({
+        items: [{ id: 'plan-1', startingLineup: '{bad-json' }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockHandleApiError).toHaveBeenCalled();
+      expect(mockLineupCreate).not.toHaveBeenCalled();
+    });
+  });
+
+  it('keeps planned rotations sorted by rotationNumber from list', async () => {
+    const props = createDefaultProps();
+
+    let capturedGamePlanNext: ((data: { items: Array<{ id: string }> }) => void) | null = null;
+
+    mockGamePlanObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Array<{ id: string }> }) => void }) => {
+        capturedGamePlanNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+
+    mockPlannedRotationList.mockResolvedValue({
+      data: [
+        { id: 'r2', gamePlanId: 'gp-1', rotationNumber: 2 },
+        { id: 'r1', gamePlanId: 'gp-1', rotationNumber: 1 },
+      ],
+    });
+
+    const { result } = renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      capturedGamePlanNext?.({ items: [{ id: 'gp-1' }] });
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannedRotations.map(r => r.rotationNumber)).toEqual([1, 2]);
+    });
   });
 });
