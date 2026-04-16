@@ -805,6 +805,13 @@ async function runGame(page: Page, gameNumber: number = 1) {
   // and briefly revert the state before the halftime event is fully applied.
   // Additional time needed for authorization delays and DynamoDB operations.
   await expect(startBtn).toBeVisible({ timeout: 30000 });
+
+  // Regression guard: clock must NOT silently continue during halftime.
+  const halftimeSecondsBeforeWait = await getDisplayedGameSeconds(page);
+  await page.waitForTimeout(1500);
+  const halftimeSecondsAfterWait = await getDisplayedGameSeconds(page);
+  expect(halftimeSecondsAfterWait).toBe(halftimeSecondsBeforeWait);
+
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   await startBtn.scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
@@ -824,6 +831,14 @@ async function runGame(page: Page, gameNumber: number = 1) {
       throw new Error('Failed to start second half after 3 attempts');
     }
   }
+
+  // Regression guard: clock must resume once second half starts.
+  await expect
+    .poll(async () => getDisplayedGameSeconds(page), {
+      timeout: 8000,
+      message: 'Expected timer to resume after starting second half',
+    })
+    .toBeGreaterThan(halftimeSecondsAfterWait);
 
   await pauseGameClock(page);
   
