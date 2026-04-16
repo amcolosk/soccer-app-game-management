@@ -287,6 +287,7 @@ async function _getInvitationLink(page: Page): Promise<string | null> {
 
 test.describe.serial('Team Sharing and Collaboration', () => {
   let invitationId: string = '';
+  let syncedScoreAfterCollab: string | null = null;
   
   test('User 1 creates team, adds data, and sends invitation to User 2', async ({ page }) => {
     test.setTimeout(TEST_CONFIG.timeout.medium);
@@ -931,6 +932,15 @@ test.describe.serial('Team Sharing and Collaboration', () => {
   test('Executed substitutions are visible to the other coach', async ({ page }) => {
     test.setTimeout(TEST_CONFIG.timeout.long);
 
+    const readCommandBandScore = async (): Promise<string> => {
+      const scoreText = ((await page.locator('.command-band__score').first().textContent()) ?? '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const match = scoreText.match(/(\d+)\s*[–-]\s*(\d+)/);
+      expect(match).toBeTruthy();
+      return `${match![1]}-${match![2]}`;
+    };
+
     await loginUser(page, TEST_USERS.user2.email, TEST_USERS.user2.password);
 
     await ensureSharedTeamRosterDepth(page, 8);
@@ -950,6 +960,23 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     }
 
     expect(gameStarted).toBe(true);
+
+    const goalsTab = page.getByRole('tab', { name: 'Goals' });
+    if (await goalsTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await goalsTab.click();
+      await page.waitForTimeout(UI_TIMING.QUICK);
+    }
+
+    const opponentGoalButton = page.locator('button.btn-goal-opponent').first();
+    await expect(opponentGoalButton).toBeVisible({ timeout: 10000 });
+    await opponentGoalButton.click({ force: true });
+    await expect(page.getByRole('heading', { name: 'Record Goal' })).toBeVisible({ timeout: 5000 });
+    await page.locator('.modal-content .form-actions .btn-primary', { hasText: 'Record Goal' }).click({ force: true });
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+    await expect(page.locator('.goal-card').first()).toBeVisible({ timeout: 10000 });
+    const coach2Score = await readCommandBandScore();
+    expect(coach2Score).toBe('0-1');
 
     const fieldTab = page.getByRole('tab', { name: 'Field' });
     if (await fieldTab.isVisible({ timeout: 2000 }).catch(() => false)) {
@@ -1004,11 +1031,20 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       await page.waitForTimeout(UI_TIMING.QUICK);
     }
 
+    await expect
+      .poll(async () => readCommandBandScore(), {
+        timeout: 15000,
+        message: 'Coach 1 score should converge to Coach 2 score',
+      })
+      .toBe(coach2Score);
+    const coach1Score = await readCommandBandScore();
+    syncedScoreAfterCollab = coach1Score;
+
     expect(incomingPlayerName.length).toBeGreaterThan(0);
 
     await expect(page.locator('.position-lineup-grid')).toContainText(incomingPlayerName, { timeout: 10000 });
 
-    console.log(`✓ Executed substitution synced for ${resolvedOpponent}; ${incomingPlayerName} visible to the other coach`);
+    console.log(`✓ Executed substitution and score synced for ${resolvedOpponent}; lineup includes ${incomingPlayerName}, score ${coach1Score}`);
   });
 
   test('User 1 verifies changes and cleans up', async ({ page }) => {
@@ -1032,6 +1068,33 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       const gameCard = page.locator('.game-card, .item-card').filter({ hasText: GAME_OPPONENT });
       await expect(gameCard.first()).toBeVisible({ timeout: 5000 });
       console.log(`✓ User 1 can see game created by User 2: ${GAME_OPPONENT}`);
+
+      const openButton = gameCard.first().locator('.open-game-button').first();
+      if (await openButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await openButton.click();
+      } else {
+        await gameCard.first().click();
+      }
+      await waitForPageLoad(page);
+
+      const readCommandBandScore = async (): Promise<string> => {
+        const scoreText = ((await page.locator('.command-band__score').first().textContent()) ?? '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        const match = scoreText.match(/(\d+)\s*[–-]\s*(\d+)/);
+        expect(match).toBeTruthy();
+        return `${match![1]}-${match![2]}`;
+      };
+
+      const expectedCleanupScore = syncedScoreAfterCollab ?? '0-1';
+      await expect
+        .poll(async () => readCommandBandScore(), {
+          timeout: 15000,
+          message: 'Cleanup score should match previously synchronized score',
+        })
+        .toBe(expectedCleanupScore);
+      const cleanupScore = await readCommandBandScore();
+      console.log(`✓ User 1 still sees synchronized score: ${cleanupScore}`);
     } else {
       console.log('⚠ Game not created in Test 2, skipping game visibility check in Test 3');
     }
