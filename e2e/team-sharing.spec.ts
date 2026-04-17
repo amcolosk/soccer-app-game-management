@@ -236,8 +236,8 @@ async function ensureSharedTeamRosterDepth(page: Page, targetPlayers: number): P
   await expandRosterIfNeeded();
 
   for (const player of seedPlayers) {
-    const rosterEntryMatcher = new RegExp(`${player.firstName}\\s+${player.lastName}`, 'i');
-    const existingRosterEntry = sharedTeamCard.locator('.roster-list, .item-card, .team-roster-section').filter({ hasText: rosterEntryMatcher }).first();
+    const fullName = `${player.firstName} ${player.lastName}`;
+    const existingRosterEntry = sharedTeamCard.locator('.roster-list, .item-card, .team-roster-section').filter({ hasText: fullName }).first();
     if (await existingRosterEntry.isVisible({ timeout: 800 }).catch(() => false)) {
       continue;
     }
