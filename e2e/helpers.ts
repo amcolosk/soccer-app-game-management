@@ -8,7 +8,10 @@ import { Page, expect } from '@playwright/test';
  * Wait for navigation and any loading states to complete
  */
 export async function waitForPageLoad(page: Page) {
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
+  // Some routes keep long-lived network activity (subscriptions / SW), so
+  // treat networkidle as best-effort instead of a hard requirement.
+  await page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => undefined);
   await closePWAPrompt(page);
   await closeWelcomeModal(page);
 }

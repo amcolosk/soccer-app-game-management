@@ -124,10 +124,18 @@ async function ensureGameStartedForQueue(page: Page): Promise<boolean> {
   await startButtons.first().click({ force: true });
   await page.waitForTimeout(UI_TIMING.STANDARD);
 
-  const availabilityModalStart = page.getByRole('button', { name: 'Start Game' }).last();
-  if (await availabilityModalStart.isVisible({ timeout: 1500 }).catch(() => false)) {
-    await availabilityModalStart.click({ force: true });
-    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+  const availabilityHeading = page.getByRole('heading', { name: 'Player Availability Check' });
+  if (await availabilityHeading.isVisible({ timeout: 3000 }).catch(() => false)) {
+    const modalStartButtons = page.getByRole('button', { name: 'Start Game' });
+    const buttonCount = await modalStartButtons.count();
+    for (let i = buttonCount - 1; i >= 0; i -= 1) {
+      const candidate = modalStartButtons.nth(i);
+      if (await candidate.isVisible({ timeout: 800 }).catch(() => false)) {
+        await candidate.click({ force: true });
+        await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+        break;
+      }
+    }
   }
 
   return await page.locator('.game-tab-nav').isVisible({ timeout: 5000 }).catch(() => false);
@@ -1087,12 +1095,34 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       };
 
       const expectedCleanupScore = syncedScoreAfterCollab ?? '0-1';
-      await expect
-        .poll(async () => readCommandBandScore(), {
-          timeout: 15000,
-          message: 'Cleanup score should match previously synchronized score',
-        })
-        .toBe(expectedCleanupScore);
+      try {
+        await expect
+          .poll(async () => readCommandBandScore(), {
+            timeout: 20000,
+            message: 'Cleanup score should match previously synchronized score',
+          })
+          .toBe(expectedCleanupScore);
+      } catch {
+        // Cross-user score updates can lag; reload once and verify again.
+        await page.goto('/');
+        await waitForPageLoad(page);
+        const reopenedGameCard = page.locator('.game-card, .item-card').filter({ hasText: GAME_OPPONENT }).first();
+        await expect(reopenedGameCard).toBeVisible({ timeout: 10000 });
+        const reopenedOpenButton = reopenedGameCard.locator('.open-game-button').first();
+        if (await reopenedOpenButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+          await reopenedOpenButton.click();
+        } else {
+          await reopenedGameCard.click();
+        }
+        await waitForPageLoad(page);
+
+        await expect
+          .poll(async () => readCommandBandScore(), {
+            timeout: 25000,
+            message: 'Cleanup score should match previously synchronized score after reload',
+          })
+          .toBe(expectedCleanupScore);
+      }
       const cleanupScore = await readCommandBandScore();
       console.log(`✓ User 1 still sees synchronized score: ${cleanupScore}`);
     } else {

@@ -187,9 +187,20 @@ async function createGame(page: Page, gameData: { opponent: string; date: string
   await page.getByRole('button', { name: '+ Schedule New Game', exact: true }).click();
   await page.waitForTimeout(UI_TIMING.STANDARD);
   await waitForPageLoad(page);
-  
+
+  // Scope to the schedule form so we do not hit unrelated selects elsewhere on the page.
+  const scheduleForm = page.locator('.create-form').filter({ has: page.getByRole('heading', { name: 'Schedule New Game' }) }).first();
+  await expect(scheduleForm).toBeVisible({ timeout: 10000 });
+  const teamSelect = scheduleForm.locator('select').first();
+  await expect
+    .poll(async () => teamSelect.locator('option').count(), {
+      timeout: 15000,
+      message: 'Expected schedule-game team options to be hydrated',
+    })
+    .toBeGreaterThan(1);
+
   // Select team from dropdown
-  await page.selectOption('select', { label: TEST_DATA.team.name });
+  await teamSelect.selectOption({ label: TEST_DATA.team.name });
   await page.waitForTimeout(UI_TIMING.STANDARD);
   
   // Fill game form
@@ -277,12 +288,20 @@ async function setupLineup(page: Page, opponent: string) {
       }
       
       if (!matched) {
-        // Try selecting by partial text match
-        try {
-          // eslint-disable-next-line security/detect-non-literal-regexp
-          await select.selectOption({ label: new RegExp(playerLabel) });
-          console.log(`  ✓ ${player.firstName} ${player.lastName} assigned to position ${i + 1} (regex match)`);
-        } catch {
+        // Fallback: find the first option whose text contains the player label.
+        let fallbackLabel: string | null = null;
+        for (let j = 1; j < optionCount; j++) {
+          const optionText = (await options.nth(j).textContent())?.trim() ?? '';
+          if (optionText.includes(playerLabel)) {
+            fallbackLabel = optionText;
+            break;
+          }
+        }
+
+        if (fallbackLabel) {
+          await select.selectOption({ label: fallbackLabel });
+          console.log(`  ✓ ${player.firstName} ${player.lastName} assigned to position ${i + 1} (label fallback)`);
+        } else {
           console.log(`  ⚠️ Could not find option for ${player.firstName} ${player.lastName}`);
         }
       }
@@ -381,12 +400,14 @@ async function createGamePlan(page: Page, opponent: string) {
   const backButton = page.locator('button.planner-back-btn');
   await backButton.click();
   await waitForPageLoad(page);
-  
-  // Wait for game cards to appear
-  await page.waitForSelector('.game-card', { timeout: 10000 });
-  
+
+  // Ensure we're on Games and wait for the target opponent card specifically.
+  await page.goto('/');
+  await waitForPageLoad(page);
+  const gameCardForPlay = page.locator('.game-card').filter({ hasText: opponent }).first();
+  await expect(gameCardForPlay).toBeVisible({ timeout: 20000 });
+
   // Now click on the game card to enter GameManagement for running the game
-  const gameCardForPlay = page.locator('.game-card', { hasText: opponent });
   await gameCardForPlay.click();
   await waitForPageLoad(page);
   
