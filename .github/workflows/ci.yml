@@ -189,6 +189,11 @@ jobs:
       (needs.detect-risk.outputs.e2e_risk == 'true' || needs.calc-mode.outputs.smoke_label == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    concurrency:
+      # Single-sandbox lock: prevent smoke/full jobs (including from other runs)
+      # from deleting or mutating each other's test data concurrently.
+      group: e2e-sandbox-lock-${{ vars.AMPLIFY_OUTPUTS_S3_URI || 'default' }}
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
@@ -310,6 +315,11 @@ jobs:
       )
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    concurrency:
+      # Single-sandbox lock: prevent smoke/full jobs (including from other runs)
+      # from deleting or mutating each other's test data concurrently.
+      group: e2e-sandbox-lock-${{ vars.AMPLIFY_OUTPUTS_S3_URI || 'default' }}
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
