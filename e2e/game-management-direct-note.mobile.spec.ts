@@ -40,7 +40,7 @@ const SEED_DATA = {
     ],
   },
   team: {
-    name: 'E2E Mobile Notes Team',
+    name: `E2E Mobile Notes Team ${Date.now().toString(36)}`,
     halfLength: '5',
     maxPlayers: '5',
   },
@@ -51,8 +51,8 @@ const SEED_DATA = {
     { firstName: 'Mobile', lastName: 'Four', number: '4' },
     { firstName: 'Mobile', lastName: 'Five', number: '5' },
   ],
-  inProgressOpponent: 'E2E Mobile Notes In Progress',
-} as const;
+  inProgressOpponent: `E2E Mobile Notes In Progress ${Date.now().toString(36)}`,
+};
 
 const MAX_SEED_ATTEMPTS = 2;
 let seededStateReady = false;
@@ -74,7 +74,17 @@ async function scheduleSeedGame(page: Page, opponent: string): Promise<void> {
   await page.getByRole('button', { name: '+ Schedule New Game', exact: true }).click();
   await page.waitForTimeout(UI_TIMING.STANDARD);
 
-  await page.selectOption('select', { label: SEED_DATA.team.name });
+  const scheduleForm = page.locator('.create-form').filter({ has: page.getByRole('heading', { name: 'Schedule New Game' }) }).first();
+  await expect(scheduleForm).toBeVisible({ timeout: 10000 });
+  const teamSelect = scheduleForm.locator('select').first();
+  await expect
+    .poll(async () => teamSelect.locator('option').count(), {
+      timeout: 15000,
+      message: 'Expected schedule-game team options to be hydrated for mobile seeding',
+    })
+    .toBeGreaterThan(1);
+
+  await teamSelect.selectOption({ label: SEED_DATA.team.name });
   await fillInput(page, 'input[placeholder*="Opponent"]', opponent);
 
   const scheduledDate = new Date();

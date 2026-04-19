@@ -59,7 +59,10 @@ test.describe.serial('Data isolation smoke wiring', () => {
     await navigateToManagement(page);
     await clickManagementTab(page, 'Teams');
     await swipeToDelete(page, `.item-card:has-text("${teamName}")`);
-    await clickConfirmModalConfirm(page);
+    const confirmOverlay = page.locator('.confirm-overlay');
+    if (await confirmOverlay.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await clickConfirmModalConfirm(page);
+    }
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await expect(page.locator('.item-card').filter({ hasText: teamName })).toHaveCount(0);
   });
