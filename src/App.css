@@ -5447,7 +5447,6 @@
   flex-direction: column;
   gap: 1.5rem;
   padding: 1rem;
-  padding-bottom: 5rem;
 }
 
 /* ── Mobile Game Planner Redesign ── */
@@ -6564,6 +6563,15 @@
 
 .completed-report-link__anchor {
   /* Inherits .btn-link base styles */
+}
+
+.completed-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem;
+  padding-bottom: 5rem;
+  gap: 1rem;
 }
 
 /* ===== Responsive overrides ===== */
