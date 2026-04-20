@@ -4,6 +4,7 @@ import { getUserInvitations } from "../functions/get-user-invitations/resource";
 import { createGitHubIssue } from "../functions/create-github-issue/resource";
 import { createGameNote } from "../functions/create-game-note/resource";
 import { updateGameNote } from "../functions/update-game-note/resource";
+import { deleteGameNote } from "../functions/delete-game-note/resource";
 import { upsertCoachProfile } from "../functions/upsert-coach-profile/resource";
 import { getTeamCoachProfiles } from "../functions/get-team-coach-profiles/resource";
 import { deleteFormationSafe } from "../functions/delete-formation-safe/resource";
@@ -287,13 +288,15 @@ const schema = a.schema({
       //   2. Server: createSecureGameNote / updateSecureGameNote Lambda handlers
       //      reject payloads where notes.length > 500.
       notes: a.string(), // The actual note text (max 500 chars — see comment above)
+      editedAt: a.datetime(),
+      editedById: a.string(),
       timestamp: a.datetime().required(), // Real-world timestamp when note was created
       coaches: a.string().array(), // Team coaches who can access this note
     })
     .authorization((allow) => [
       // Create/update are routed through custom Lambda-backed mutations so
       // author and payload integrity are enforced server-side.
-      allow.ownersDefinedIn('coaches').to(['read', 'delete']),
+      allow.ownersDefinedIn('coaches').to(['read']),
     ]),
 
   // Secure custom mutation for creating game notes with server-side validation.
@@ -328,6 +331,15 @@ const schema = a.schema({
     .returns(a.ref('GameNote'))
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(updateGameNote)),
+
+  deleteSecureGameNote: a
+    .mutation()
+    .arguments({
+      id: a.string().required(),
+    })
+    .returns(a.json())
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(deleteGameNote)),
 
   TeamInvitation: a
     .model({

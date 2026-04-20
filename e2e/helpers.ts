@@ -471,7 +471,9 @@ export async function createFormation(
   await clickButton(page, 'Create');
   
   // Verify formation was created
-  await expect(page.getByText(formationData.name)).toBeVisible();
+  await expect(
+    page.locator('.item-card, .formation-card').filter({ hasText: formationData.name }).first()
+  ).toBeVisible({ timeout: 10000 });
   
   // Extended wait to ensure positions propagate to DynamoDB replicas
   // Formation positions are written asynchronously and may not be immediately

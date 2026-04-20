@@ -79,6 +79,7 @@ test.describe('Safe Delete Guards', () => {
     await swipeToDelete(page, `.item-card:has-text("${teamName}")`);
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    await expect(page.locator('.item-card').filter({ hasText: teamName })).toHaveCount(0);
 
     await clickManagementTab(page, 'Formations');
     await swipeToDelete(page, `.item-card:has-text("${formationName}")`);

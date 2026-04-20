@@ -54,7 +54,7 @@ const SEED_DATA = {
   inProgressOpponent: `E2E Mobile Notes In Progress ${Date.now().toString(36)}`,
 };
 
-const MAX_SEED_ATTEMPTS = 2;
+const MAX_SEED_ATTEMPTS = 3;
 let seededStateReady = false;
 
 function toLocalDateTimeInputValue(date: Date): string {
@@ -78,11 +78,14 @@ async function scheduleSeedGame(page: Page, opponent: string): Promise<void> {
   await expect(scheduleForm).toBeVisible({ timeout: 10000 });
   const teamSelect = scheduleForm.locator('select').first();
   await expect
-    .poll(async () => teamSelect.locator('option').count(), {
-      timeout: 15000,
-      message: 'Expected schedule-game team options to be hydrated for mobile seeding',
+    .poll(async () => {
+      const options = await teamSelect.locator('option').allTextContents();
+      return options.some((text) => text.trim() === SEED_DATA.team.name);
+    }, {
+      timeout: 20000,
+      message: `Expected schedule-game team option to include ${SEED_DATA.team.name}`,
     })
-    .toBeGreaterThan(1);
+    .toBe(true);
 
   await teamSelect.selectOption({ label: SEED_DATA.team.name });
   await fillInput(page, 'input[placeholder*="Opponent"]', opponent);
@@ -116,7 +119,7 @@ async function ensureSeedPlayers(page: Page): Promise<void> {
 
   for (const player of SEED_DATA.players) {
     const fullName = `${player.firstName} ${player.lastName}`;
-    const existingPlayer = page.locator('.item-card').filter({ hasText: fullName }).first();
+    const existingPlayer = page.locator('.item-card, .player-card, .player-item').filter({ hasText: fullName }).first();
     if (await existingPlayer.isVisible({ timeout: 1000 }).catch(() => false)) {
       continue;
     }
@@ -127,7 +130,27 @@ async function ensureSeedPlayers(page: Page): Promise<void> {
     await fillInput(page, 'input[placeholder*="Last"]', player.lastName);
     await clickButton(page, 'Add');
     await page.waitForTimeout(UI_TIMING.NAVIGATION);
-    await expect(page.locator('.item-card').filter({ hasText: fullName }).first()).toBeVisible({ timeout: 5000 });
+
+    const isPlayerVisible = await expect
+      .poll(async () => {
+        return page.locator('.item-card, .player-card, .player-item').filter({ hasText: fullName }).count();
+      }, {
+        timeout: 15000,
+        message: `Expected player ${fullName} to appear in Players list after creation`,
+      })
+      .toBeGreaterThan(0)
+      .then(() => true)
+      .catch(() => false);
+
+    if (!isPlayerVisible) {
+      // One recovery attempt: force-tab refresh and re-check for eventual consistency lag.
+      await clickManagementTab(page, 'Teams');
+      await page.waitForTimeout(UI_TIMING.NAVIGATION);
+      await clickManagementTab(page, 'Players');
+      await page.waitForTimeout(UI_TIMING.NAVIGATION);
+      await expect(page.locator('.item-card, .player-card, .player-item').filter({ hasText: fullName }).first())
+        .toBeVisible({ timeout: 10000 });
+    }
   }
 }
 
@@ -165,26 +188,59 @@ async function ensureSeedRoster(page: Page): Promise<void> {
 }
 
 async function ensureStartingLineup(page: Page): Promise<void> {
-  const lineupSelects = page.getByRole('combobox');
-  const slotCount = await lineupSelects.count();
-  if (slotCount === 0) {
-    return;
+  const maxPasses = 6;
+
+  for (let pass = 0; pass < maxPasses; pass += 1) {
+    const lineupSelects = page.getByRole('combobox');
+    const slotCount = await lineupSelects.count();
+    if (slotCount === 0) {
+      return;
+    }
+
+    let unassigned = 0;
+    let changed = 0;
+
+    for (let index = 0; index < slotCount; index += 1) {
+      const select = lineupSelects.nth(index);
+      const selectedLabel = (await select.locator('option:checked').textContent().catch(() => '')) ?? '';
+      if (!/select player/i.test(selectedLabel)) {
+        continue;
+      }
+
+      unassigned += 1;
+      const optionCount = await select.locator('option').count();
+      if (optionCount < 2) {
+        continue;
+      }
+
+      await select.selectOption({ index: 1 });
+      changed += 1;
+      await page.waitForTimeout(UI_TIMING.QUICK);
+    }
+
+    if (unassigned === 0) {
+      return;
+    }
+
+    if (changed === 0) {
+      break;
+    }
+
+    await page.waitForTimeout(UI_TIMING.QUICK);
   }
 
-  for (let index = 0; index < Math.min(slotCount, SEED_DATA.players.length); index += 1) {
-    const select = lineupSelects.nth(index);
-    const optionCount = await select.locator('option').count();
-    if (optionCount < 2) {
-      continue;
+  const remainingSelects = page.getByRole('combobox');
+  const remainingCount = await remainingSelects.count();
+  let remainingUnassigned = 0;
+  for (let index = 0; index < remainingCount; index += 1) {
+    const selectedLabel = (await remainingSelects.nth(index).locator('option:checked').textContent().catch(() => '')) ?? '';
+    if (/select player/i.test(selectedLabel)) {
+      remainingUnassigned += 1;
     }
+  }
 
-    const selectedValue = await select.inputValue().catch(() => '');
-    if (selectedValue) {
-      continue;
-    }
-
-    await select.selectOption({ index: Math.min(index + 1, optionCount - 1) });
-    await page.waitForTimeout(UI_TIMING.QUICK);
+  if (remainingUnassigned > 0) {
+    throw new Error(`Expected all starting lineup slots to be assigned before starting game (remaining: ${remainingUnassigned})`);
   }
 }
 
@@ -193,9 +249,19 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
   expect(opened).toBeTruthy();
 
   const addNoteButton = page.getByRole('button', { name: 'Add note' });
+  const notesTab = page.getByRole('tab', { name: 'Notes' });
+
+  const isInProgressUiReady = async (timeoutMs: number): Promise<boolean> => {
+    const addNoteVisible = await addNoteButton.isVisible({ timeout: timeoutMs }).catch(() => false);
+    if (addNoteVisible) return true;
+
+    const notesTabVisible = await notesTab.isVisible({ timeout: timeoutMs }).catch(() => false);
+    if (notesTabVisible) return true;
+    return false;
+  };
 
   // If game already in-progress (e.g., serial-mode retry), skip the start-game flow.
-  if (!(await addNoteButton.isVisible({ timeout: 2000 }).catch(() => false))) {
+  if (!(await isInProgressUiReady(2000))) {
     await ensureStartingLineup(page);
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -209,7 +275,7 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
       }
 
       // Increased timeout (3000ms) for CI environments where game state updates may be slower
-      if (await addNoteButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await isInProgressUiReady(3000)) {
         break;
       }
 
@@ -221,8 +287,20 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
       await ensureStartingLineup(page);
     }
 
+    // If the initial transition did not settle, reopen the seeded game card
+    // and re-check readiness to recover from stale route state.
+    if (!(await isInProgressUiReady(1500))) {
+      await openGameByOpponent(page, opponent);
+      await page.waitForTimeout(UI_TIMING.NAVIGATION);
+    }
+
     // Final wait with extended timeout for game state propagation on CI
-    await expect(addNoteButton).toBeVisible({ timeout: 8000 });
+    await expect
+      .poll(async () => isInProgressUiReady(1000), {
+        timeout: 15000,
+        message: 'Expected in-progress UI controls to become visible after game start',
+      })
+      .toBe(true);
   }
 
   if (finishAtHalftime) {
@@ -241,8 +319,7 @@ async function seedDeterministicMobileGameStates(page: Page): Promise<void> {
   console.log(`  ✓ Opened Formations tab`);
 
   const existingFormationCount = await page
-    .locator('.item-card h3')
-    .filter({ hasText: SEED_DATA.formation.name })
+    .getByRole('heading', { name: SEED_DATA.formation.name })
     .count();
   if (existingFormationCount === 0) {
     await createFormation(page, SEED_DATA.formation);
@@ -447,5 +524,66 @@ test.describe('Direct Note Entry — Mobile', () => {
     // The note card MUST appear without a page reload — this is the failing assertion for issue #84.
     // Currently FAILS because handleSaveNote does not trigger a notes refresh after the mutation.
     await expect(page.locator('.note-card').first()).toBeVisible({ timeout: 5000 });
+  }, TEST_CONFIG.timeout.short);
+
+  test('note row keeps visible Edit/Delete controls after save (swipe is additive)', async ({ page }) => {
+    const isReady = await navigateToInProgressGame(page);
+    expect(isReady).toBeTruthy();
+
+    await page.getByRole('tab', { name: 'Notes' }).click();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    await page.getByRole('button', { name: 'Gold Star' }).first().click();
+    const noteDialog = page.getByRole('dialog');
+    await expect(noteDialog).toBeVisible();
+
+    await page.locator('#noteText').fill('Mobile additive action coverage');
+    await page.getByRole('button', { name: 'Save Note' }).click();
+    await expect(noteDialog).not.toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+    const newestNote = page.locator('.note-card').first();
+    await expect(newestNote).toBeVisible({ timeout: 10000 });
+    await expect(newestNote.getByRole('button', { name: 'Edit note' })).toBeVisible();
+    await expect(newestNote.getByRole('button', { name: 'Delete note' })).toBeVisible();
+  }, TEST_CONFIG.timeout.short);
+});
+
+test.describe('Action row parity — tablet/desktop', () => {
+  test.use({ viewport: { width: 1024, height: 768 }, isMobile: false, hasTouch: false });
+
+  test.beforeEach(async ({ page }) => {
+    await navigateToApp(page);
+  });
+
+  test('notes action order and keyboard focus remain accessible on tablet width', async ({ page }) => {
+    const isReady = await navigateToInProgressGame(page);
+    expect(isReady).toBeTruthy();
+
+    await page.getByRole('tab', { name: 'Notes' }).click();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    await page.getByRole('button', { name: 'Gold Star' }).first().click();
+    const noteDialog = page.getByRole('dialog');
+    await expect(noteDialog).toBeVisible();
+
+    await page.locator('#noteText').fill('Tablet parity action row check');
+    await page.getByRole('button', { name: 'Save Note' }).click();
+    await expect(noteDialog).not.toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+    const newestNote = page.locator('.note-card').first();
+    await expect(newestNote).toBeVisible({ timeout: 10000 });
+
+    const actionButtons = newestNote.locator('.game-action-row button');
+    await expect(actionButtons.nth(0)).toBeVisible();
+    await expect(actionButtons.nth(1)).toBeVisible();
+    await expect(actionButtons.nth(0)).toHaveAccessibleName('Edit note');
+    await expect(actionButtons.nth(1)).toHaveAccessibleName('Delete note');
+
+    await actionButtons.nth(0).focus();
+    await expect(actionButtons.nth(0)).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(actionButtons.nth(1)).toBeFocused();
   }, TEST_CONFIG.timeout.short);
 });

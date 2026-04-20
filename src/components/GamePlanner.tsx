@@ -551,6 +551,7 @@ export function GamePlanner({ game, team, onBack }: GamePlannerProps) {
 
       try {
         await mutations.deleteGameNote(note.id);
+        setNotesRefreshKey(k => k + 1);
         showSuccess('Coaching point deleted');
       } catch (error) {
         handleApiError(error, 'Failed to delete coaching point');

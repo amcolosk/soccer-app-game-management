@@ -1,28 +1,13 @@
 import type { Schema } from '../../data/resource';
 import type { AppSyncIdentityCognito } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { getGameNoteActionDecision } from '../../../shared/policies/gameNoteActionPolicy';
 
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 
-const VALID_NOTE_TYPES = new Set([
-  'coaching-point',
-  'gold-star',
-  'yellow-card',
-  'red-card',
-  'other',
-]);
-
 const MAX_NOTES_LENGTH = 500;
-
-function hasNullTiming(gameSeconds: number | null | undefined, half: number | null | undefined): boolean {
-  return gameSeconds == null && half == null;
-}
-
-function hasInGameTiming(gameSeconds: number | null | undefined, half: number | null | undefined): boolean {
-  return gameSeconds != null && half != null;
-}
 
 type Handler = Schema['updateSecureGameNote']['functionHandler'];
 
@@ -31,43 +16,37 @@ export const handler: Handler = async (event) => {
 
   const callerId = identity?.sub;
   if (!callerId) {
-    throw new Error('User not authenticated');
+    throw new Error('AUTH_UNAUTHENTICATED');
   }
 
   const args = event.arguments;
 
-  if (args.authorId !== undefined && args.authorId !== null) {
-    throw new Error('authorId cannot be updated');
-  }
-
-  // Validate noteType when provided.
-  if (args.noteType && !VALID_NOTE_TYPES.has(args.noteType)) {
-    throw new Error(`Invalid noteType: ${args.noteType}`);
+  if (args.authorId !== undefined || args.noteType !== undefined || args.playerId !== undefined) {
+    throw new Error('VALIDATION_NOTES_ONLY_EDIT');
   }
 
   // Server-side max-length enforcement for notes (500 chars).
   if (args.notes && args.notes.length > MAX_NOTES_LENGTH) {
-    throw new Error(`notes exceeds maximum length of ${MAX_NOTES_LENGTH} characters`);
+    throw new Error('VALIDATION_NOTES_TOO_LONG');
   }
 
   const gameNoteTable = process.env.GAME_NOTE_TABLE;
   const gameTable = process.env.GAME_TABLE;
-  const teamRosterTable = process.env.TEAM_ROSTER_TABLE;
+  const teamTable = process.env.TEAM_TABLE;
 
-  if (!gameNoteTable) {
-    throw new Error('Required environment variable GAME_NOTE_TABLE is not set');
+  if (!gameNoteTable || !gameTable || !teamTable) {
+    throw new Error('Missing required environment variables for update-game-note handler');
   }
 
-  // Fetch the existing note to verify caller authorization.
   const noteResponse = await docClient.send(new GetCommand({
     TableName: gameNoteTable,
     Key: { id: args.id },
+    ProjectionExpression: 'id, gameId, noteType, authorId, notes, timestamp, gameSeconds, half, playerId, createdAt, coaches, editedAt, editedById',
   }));
 
   const existing = noteResponse.Item as {
     id: string;
     authorId?: string;
-    coaches?: string[];
     gameId?: string;
     noteType?: string;
     playerId?: string | null;
@@ -76,107 +55,83 @@ export const handler: Handler = async (event) => {
     notes?: string | null;
     timestamp?: string;
     createdAt?: string;
+    coaches?: string[];
+    editedAt?: string | null;
+    editedById?: string | null;
   } | undefined;
 
   if (!existing) {
-    throw new Error(`GameNote not found: ${args.id}`);
+    throw new Error('NOT_FOUND_GAME_NOTE');
   }
 
-  // Only coaches on this game may update notes.
-  if (!existing.coaches?.includes(callerId)) {
-    throw new Error('Access denied: caller is not a coach on this game');
+  if (!existing.gameId) {
+    throw new Error('NOT_FOUND_GAME');
   }
 
-  const resultingNoteType = args.noteType ?? existing.noteType;
-  if (!resultingNoteType || !VALID_NOTE_TYPES.has(resultingNoteType)) {
-    throw new Error(`Invalid noteType: ${String(resultingNoteType)}`);
+  const gameResponse = await docClient.send(new GetCommand({
+    TableName: gameTable,
+    Key: { id: existing.gameId },
+    ProjectionExpression: 'id, teamId',
+  }));
+  const game = gameResponse.Item as { id: string; teamId?: string } | undefined;
+  if (!game) {
+    throw new Error('NOT_FOUND_GAME');
   }
 
-  // Timing fields are immutable in this secure update path, so validate noteType
-  // changes against the existing persisted timing values.
-  if (resultingNoteType === 'coaching-point') {
-    if (!hasNullTiming(existing.gameSeconds, existing.half)) {
-      throw new Error('coaching-point notes must retain null gameSeconds and half');
-    }
-  } else if (!hasInGameTiming(existing.gameSeconds, existing.half)) {
-    throw new Error('non-coaching notes must retain both gameSeconds and half');
+  if (!game.teamId) {
+    throw new Error('NOT_FOUND_TEAM');
   }
 
-  if (args.playerId) {
-    if (!existing.gameId) {
-      throw new Error('GameNote is missing gameId');
-    }
-
-    if (!gameTable || !teamRosterTable) {
-      throw new Error('Required environment variables GAME_TABLE and TEAM_ROSTER_TABLE are not set');
-    }
-
-    const gameResponse = await docClient.send(new GetCommand({
-      TableName: gameTable,
-      Key: { id: existing.gameId },
-      ProjectionExpression: 'id, teamId',
-    }));
-
-    const game = gameResponse.Item as { id: string; teamId: string } | undefined;
-
-    if (!game) {
-      throw new Error(`Game not found: ${existing.gameId}`);
-    }
-
-    const rosterResponse = await docClient.send(new ScanCommand({
-      TableName: teamRosterTable,
-      FilterExpression: 'teamId = :teamId AND playerId = :playerId',
-      ExpressionAttributeValues: {
-        ':teamId': game.teamId,
-        ':playerId': args.playerId,
-      },
-      ProjectionExpression: 'id',
-      Limit: 1,
-    }));
-
-    if (!rosterResponse.Items || rosterResponse.Items.length === 0) {
-      throw new Error('playerId must belong to the game team roster');
-    }
+  const teamResponse = await docClient.send(new GetCommand({
+    TableName: teamTable,
+    Key: { id: game.teamId },
+    ProjectionExpression: 'id, coaches',
+  }));
+  const team = teamResponse.Item as { id: string; coaches?: string[] } | undefined;
+  if (!team) {
+    throw new Error('NOT_FOUND_TEAM');
   }
 
-  // Build update expression — authorId is NEVER updated regardless of what was supplied.
-  // Any caller-supplied authorId argument value in args is ignored here.
-  const expressionParts: string[] = ['#updatedAt = :updatedAt'];
-  const removeParts: string[] = [];
-  const expressionNames: Record<string, string> = { '#updatedAt': 'updatedAt' };
-  const expressionValues: Record<string, unknown> = { ':updatedAt': new Date().toISOString() };
-
-  if (args.noteType !== undefined && args.noteType !== null) {
-    expressionParts.push('#noteType = :noteType');
-    expressionNames['#noteType'] = 'noteType';
-    expressionValues[':noteType'] = args.noteType;
+  if (!team.coaches?.includes(callerId)) {
+    throw new Error('AUTH_COACH_REQUIRED');
   }
 
-  if (args.playerId !== undefined) {
-    if (args.playerId) {
-      expressionParts.push('#playerId = :playerId');
-      expressionNames['#playerId'] = 'playerId';
-      expressionValues[':playerId'] = args.playerId;
-    } else {
-      // null/empty: REMOVE attribute so the GSI key is never set to NULL
-      removeParts.push('#playerId');
-      expressionNames['#playerId'] = 'playerId';
-    }
+  const policyDecision = getGameNoteActionDecision({
+    noteType: (existing.noteType ?? 'other') as 'coaching-point' | 'gold-star' | 'yellow-card' | 'red-card' | 'other',
+    isTeamCoach: true,
+    isAuthor: existing.authorId === callerId,
+  });
+  if (!policyDecision.canEdit) {
+    throw new Error('AUTH_COACH_REQUIRED');
   }
 
-  if (args.notes !== undefined) {
-    expressionParts.push('#notes = :notes');
-    expressionNames['#notes'] = 'notes';
-    expressionValues[':notes'] = args.notes ?? null;
-  }
+  const incomingNotes = args.notes ?? null;
+  const previousNotes = existing.notes ?? null;
+  const notesChanged = incomingNotes !== previousNotes;
 
-  const setClause = `SET ${expressionParts.join(', ')}`;
-  const removeClause = removeParts.length > 0 ? ` REMOVE ${removeParts.join(', ')}` : '';
+  const now = new Date().toISOString();
+  const expressionParts: string[] = ['#updatedAt = :updatedAt', '#notes = :notes'];
+  const expressionNames: Record<string, string> = {
+    '#updatedAt': 'updatedAt',
+    '#notes': 'notes',
+  };
+  const expressionValues: Record<string, unknown> = {
+    ':updatedAt': now,
+    ':notes': incomingNotes,
+  };
+
+  if (notesChanged) {
+    expressionParts.push('#editedAt = :editedAt', '#editedById = :editedById');
+    expressionNames['#editedAt'] = 'editedAt';
+    expressionNames['#editedById'] = 'editedById';
+    expressionValues[':editedAt'] = now;
+    expressionValues[':editedById'] = callerId;
+  }
 
   const updateResponse = await docClient.send(new UpdateCommand({
     TableName: gameNoteTable,
     Key: { id: args.id },
-    UpdateExpression: setClause + removeClause,
+    UpdateExpression: `SET ${expressionParts.join(', ')}`,
     ExpressionAttributeNames: expressionNames,
     ExpressionAttributeValues: expressionValues,
     ReturnValues: 'ALL_NEW',
@@ -194,9 +149,11 @@ export const handler: Handler = async (event) => {
     gameSeconds: updated?.gameSeconds ?? null,
     half: updated?.half ?? null,
     notes: updated?.notes ?? null,
+    editedAt: updated?.editedAt ?? null,
+    editedById: updated?.editedById ?? null,
     timestamp: updated?.timestamp ?? existing.timestamp ?? new Date().toISOString(),
     coaches: existing.coaches ?? [],
     createdAt: existing.createdAt ?? new Date().toISOString(),
-    updatedAt: expressionValues[':updatedAt'] as string,
+    updatedAt: now,
   };
 };

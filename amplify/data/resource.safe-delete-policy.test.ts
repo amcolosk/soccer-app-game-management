@@ -6,8 +6,8 @@ describe('safe-delete authorization policy', () => {
   const filePath = resolve(__dirname, 'resource.ts');
   const source = readFileSync(filePath, 'utf-8');
 
-  it('does not grant model delete to Formation, Team, Player, or Game', () => {
-    const blockedDeleteModels = ['Formation', 'Team', 'Player', 'Game'];
+  it('does not grant model delete to Formation, Team, Player, Game, or GameNote', () => {
+    const blockedDeleteModels = ['Formation', 'Team', 'Player', 'Game', 'GameNote'];
 
     for (const modelName of blockedDeleteModels) {
       const modelStart = source.indexOf(`${modelName}: a`);
@@ -15,7 +15,11 @@ describe('safe-delete authorization policy', () => {
       const nextModel = source.indexOf('\n\n  ', modelStart + 1);
       const block = source.slice(modelStart, nextModel > modelStart ? nextModel : undefined);
 
-      expect(block).toMatch(/allow\.ownersDefinedIn\('coaches'\)\.to\(\['create', 'read', 'update'\]\)/);
+      if (modelName === 'GameNote') {
+        expect(block).toMatch(/allow\.ownersDefinedIn\('coaches'\)\.to\(\['read'\]\)/);
+      } else {
+        expect(block).toMatch(/allow\.ownersDefinedIn\('coaches'\)\.to\(\['create', 'read', 'update'\]\)/);
+      }
     }
   });
 
@@ -24,5 +28,6 @@ describe('safe-delete authorization policy', () => {
     expect(source).toContain('deleteTeamSafe: a');
     expect(source).toContain('deletePlayerSafe: a');
     expect(source).toContain('deleteGameSafe: a');
+    expect(source).toContain('deleteSecureGameNote: a');
   });
 });

@@ -75,8 +75,10 @@ describe('create-game-note handler', () => {
     await invoke(createEvent());
 
     const putCall = mockSend.mock.calls.find(([command]) => command.__type === 'PutCommand');
-    const item = putCall?.[0].input.Item as { authorId?: string };
+    const item = putCall?.[0].input.Item as { authorId?: string; editedAt?: string | null; editedById?: string | null };
     expect(item.authorId).toBe('coach-1');
+    expect(item.editedAt).toBeNull();
+    expect(item.editedById).toBeNull();
   });
 
   it('rejects coaching-point notes with non-null timing', async () => {

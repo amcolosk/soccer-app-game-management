@@ -1,14 +1,15 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 import { showWarning, showSuccess } from "../../utils/toast";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
 import { handleApiError } from "../../utils/errorHandler";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { PlayerSelect } from "../PlayerSelect";
-import { useConfirm } from "../ConfirmModal";
 import { isPlayerCurrentlyPlaying } from "../../utils/playTimeCalculations";
 import { isPlayerInLineup } from "../../utils/lineupUtils";
 import type { GameMutationInput, GoalUpdateFields } from "../../hooks/useOfflineMutations";
 import type { Game, Team, PlayerWithRoster, Goal, PlayTimeRecord, LineupAssignment } from "./types";
+import { GameActionRow } from "./actions/GameActionRow";
+import type { GameActionDescriptor } from "./actions/actionContract";
 
 interface GoalTrackerProps {
   gameState: Game;
@@ -46,9 +47,6 @@ export function GoalTracker({
   const [editNotes, setEditNotes] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [error, setError] = useState('');
-  const editTriggerRef = useRef<HTMLButtonElement | null>(null);
-
-  const confirm = useConfirm();
 
   const onFieldPlayerIds = players
     .filter(p =>
@@ -101,8 +99,7 @@ export function GoalTracker({
     }
   };
 
-  const handleOpenEditGoalModal = useCallback((goal: Goal, triggerEl: HTMLButtonElement) => {
-    editTriggerRef.current = triggerEl;
+  const handleOpenEditGoalModal = useCallback((goal: Goal) => {
     setEditGoal(goal);
     setEditScorerId(goal.scorerId ?? '');
     setEditAssistId(goal.assistId ?? '');
@@ -114,7 +111,6 @@ export function GoalTracker({
   const handleCloseEditGoalModal = useCallback(() => {
     setShowEditGoalModal(false);
     setEditGoal(null);
-    requestAnimationFrame(() => editTriggerRef.current?.focus());
   }, []);
 
   const handleSaveEditGoal = useCallback(async () => {
@@ -142,15 +138,6 @@ export function GoalTracker({
   }, [editGoal, editScorerId, editAssistId, editNotes, mutations, handleCloseEditGoalModal]);
 
   const handleDeleteGoal = useCallback(async (goal: Goal) => {
-    const minute = Math.floor((goal.gameSeconds ?? 0) / 60);
-    const teamLabel = goal.scoredByUs ? 'Us' : (gameState.opponent ?? 'Opponent');
-    const confirmed = await confirm({
-      title: 'Delete Goal',
-      message: `Remove the ${teamLabel} goal at ${minute}'? This cannot be undone.`,
-      confirmText: 'Delete',
-      variant: 'danger',
-    });
-    if (!confirmed) return;
     try {
       await mutations.deleteGoal(goal.id);
       
@@ -167,8 +154,9 @@ export function GoalTracker({
       }
     } catch (err) {
       handleApiError(err, 'Failed to delete goal');
+      throw err;
     }
-  }, [confirm, gameState, mutations]);
+  }, [gameState, mutations]);
 
   return (
     <>
@@ -194,13 +182,39 @@ export function GoalTracker({
       {/* Goals List */}
       {goals.length > 0 && (
         <div className="goals-section">
-          <h3>Goals</h3>
+          <h3 id="goals-heading" tabIndex={-1}>Goals</h3>
           <div className="goals-list">
             {goals.map((goal) => {
               const scorer = goal.scorerId ? players.find(p => p.id === goal.scorerId) : null;
               const assist = goal.assistId ? players.find(p => p.id === goal.assistId) : null;
               const minute = Math.floor((goal.gameSeconds ?? 0) / 60);
               const teamLabel = goal.scoredByUs ? 'Us' : (gameState.opponent ?? 'Opponent');
+              const actionDescriptors: GameActionDescriptor[] = [
+                {
+                  id: 'edit',
+                  label: 'Edit',
+                  kind: 'primary',
+                  ariaLabel: `Edit ${teamLabel} goal at ${minute}'`,
+                  onAction: async () => {
+                    handleOpenEditGoalModal(goal);
+                  },
+                },
+                {
+                  id: 'delete',
+                  label: 'Delete',
+                  kind: 'destructive',
+                  ariaLabel: `Delete ${teamLabel} goal at ${minute}'`,
+                  confirmDialog: {
+                    title: 'Delete goal?',
+                    body: 'This permanently removes this goal event from the game timeline.',
+                    confirmText: 'Delete',
+                    cancelText: 'Cancel',
+                  },
+                  onAction: async () => {
+                    await handleDeleteGoal(goal);
+                  },
+                },
+              ];
               return (
                 <div key={goal.id} className={`goal-card ${goal.scoredByUs ? 'goal-us' : 'goal-opponent'}`}>
                   <div className="goal-icon">⚽</div>
@@ -228,22 +242,7 @@ export function GoalTracker({
                     {goal.notes && <div className="goal-notes">{goal.notes}</div>}
                   </div>
                   <div className="goal-card-actions">
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      aria-label={`Edit ${teamLabel} goal at ${minute}'`}
-                      onClick={(e) => handleOpenEditGoalModal(goal, e.currentTarget)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-delete"
-                      aria-label={`Delete ${teamLabel} goal at ${minute}'`}
-                      onClick={() => handleDeleteGoal(goal)}
-                    >
-                      Delete
-                    </button>
+                    <GameActionRow actions={actionDescriptors} headingIdForDeleteSuccessFocus="goals-heading" />
                   </div>
                 </div>
               );

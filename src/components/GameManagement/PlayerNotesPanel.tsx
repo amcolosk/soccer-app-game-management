@@ -2,10 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { handleApiError } from "../../utils/errorHandler";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { showWarning } from "../../utils/toast";
+import { resolveAttributionLabel, type TeamCoachProfileDTO } from "../../services/coachDisplayNameService";
 import { PlayerSelect } from "../PlayerSelect";
 import type { GameMutationInput } from "../../hooks/useOfflineMutations";
+import { useSwipeActions } from "../../hooks/useSwipeDelete";
+import { getGameNoteActionDecision } from "../../../shared/policies/gameNoteActionPolicy";
 import type { Game, Team, PlayerWithRoster, GameNote } from "./types";
 import { useSpeechToText, type StopReason } from "./hooks/useSpeechToText";
+import type { GameActionDescriptor } from "./actions/actionContract";
+import { GameActionRow } from "./actions/GameActionRow";
 
 const MAX_NOTE_LENGTH = 500;
 
@@ -32,6 +37,8 @@ interface PlayerNotesPanelProps {
   onRequestOpenNote?: (intent: OpenLiveNoteIntent, trigger: HTMLElement | null) => void;
   onRequestCloseNote?: () => void;
   onNoteSaved?: () => void;
+  currentUserId?: string;
+  profileMap?: Map<string, TeamCoachProfileDTO>;
 }
 
 export function PlayerNotesPanel({
@@ -49,6 +56,8 @@ export function PlayerNotesPanel({
   onRequestOpenNote,
   onRequestCloseNote,
   onNoteSaved,
+  currentUserId,
+  profileMap = new Map(),
 }: PlayerNotesPanelProps) {
   const isExternallyControlled =
     typeof isNoteModalOpen === "boolean" &&
@@ -63,13 +72,21 @@ export function PlayerNotesPanel({
   const [showEndCue, setShowEndCue] = useState(false);
   const [politeMessage, setPoliteMessage] = useState("");
   const [assertiveMessage, setAssertiveMessage] = useState("");
+  const [actionPoliteMessage, setActionPoliteMessage] = useState("");
+  const [actionAssertiveMessage, setActionAssertiveMessage] = useState("");
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [lastStopReason, setLastStopReason] = useState<StopReason | null>(null);
   const [lastErrorCode, setLastErrorCode] = useState<string | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  const { getSwipeProps, getSwipeStyle, close: closeSwipe } = useSwipeActions({ openWidthPx: 156, maxDistancePx: 180 });
 
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const modalTextRef = useRef<HTMLTextAreaElement | null>(null);
   const modalTitleRef = useRef<HTMLHeadingElement | null>(null);
+  const notesSectionRef = useRef<HTMLDivElement | null>(null);
   const prevOpenRef = useRef(false);
 
   const showNoteModal = isExternallyControlled ? Boolean(isNoteModalOpen) : internalModalOpen;
@@ -129,6 +146,84 @@ export function PlayerNotesPanel({
   );
 
   const getCurrentGameTime = () => currentTime;
+
+  const formatEditedTime = (isoTimestamp: string | null | undefined): string => {
+    if (!isoTimestamp) return '';
+    const parsed = new Date(isoTimestamp);
+    if (Number.isNaN(parsed.getTime())) return '';
+
+    const now = new Date();
+    const sameDay =
+      parsed.getFullYear() === now.getFullYear() &&
+      parsed.getMonth() === now.getMonth() &&
+      parsed.getDate() === now.getDate();
+
+    if (sameDay) {
+      return parsed.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }
+
+    return parsed.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  };
+
+  const getEditedAttribution = (editedById: string | null | undefined): string => {
+    if (!editedById) return 'Coach';
+    if (currentUserId && editedById === currentUserId) return 'You';
+    const resolved = resolveAttributionLabel(editedById, currentUserId, profileMap);
+    if (!resolved || resolved === 'Unknown Author' || resolved === 'Former Coach') return 'Coach';
+    return resolved;
+  };
+
+  const getEditedIndicatorText = (note: GameNote): string | null => {
+    if (!note.editedById) return null;
+
+    const attribution = getEditedAttribution(note.editedById);
+    const editedTime = formatEditedTime(note.editedAt);
+    if (!editedTime) {
+      return `Edited by ${attribution}`;
+    }
+    return `Edited by ${attribution} at ${editedTime}`;
+  };
+
+  const startEditingNote = (note: GameNote) => {
+    closeSwipe();
+    setEditingNoteId(note.id);
+    setEditingNoteText(note.notes ?? '');
+  };
+
+  const cancelEditingNote = () => {
+    setEditingNoteId(null);
+    setEditingNoteText('');
+    setIsSavingEdit(false);
+  };
+
+  const saveEditedNote = async () => {
+    if (!editingNoteId) return;
+    setIsSavingEdit(true);
+    try {
+      await mutations.updateGameNote(editingNoteId, { notes: clampToLimit(editingNoteText.trim()) });
+      const attribution = getEditedAttribution(currentUserId ?? null);
+      const time = formatEditedTime(new Date().toISOString());
+      setActionPoliteMessage(`Note updated. Note edited by ${attribution} at ${time}`);
+      setActionAssertiveMessage('');
+      cancelEditingNote();
+      onNoteSaved?.();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update note';
+      setActionAssertiveMessage(message);
+      setActionPoliteMessage('');
+      handleApiError(error, 'Failed to update note');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const deleteNote = async (note: GameNote) => {
+    closeSwipe();
+    await mutations.deleteGameNote(note.id);
+    setActionPoliteMessage('Note deleted');
+    setActionAssertiveMessage('');
+    onNoteSaved?.();
+  };
 
   const isTransientVoiceState = status === "starting" || status === "stopping" || isFinalizing;
 
@@ -247,6 +342,21 @@ export function PlayerNotesPanel({
   }, [interimTranscript, showNoteModal]);
 
   useEffect(() => {
+    if (!notesSectionRef.current) return;
+
+    // Defensive accessibility guard: hidden swipe-reveal controls must not receive keyboard focus.
+    const hiddenSwipeButtons = notesSectionRef.current.querySelectorAll<HTMLButtonElement>(
+      '.game-card-swipe-reveal button, .delete-action button, .btn-edit-swipe, .btn-delete-swipe, .btn-delete-swipe-game'
+    );
+
+    hiddenSwipeButtons.forEach((button) => {
+      button.tabIndex = -1;
+      button.setAttribute('aria-hidden', 'true');
+      button.setAttribute('inert', '');
+    });
+  }, [inGameNotes.length]);
+
+  useEffect(() => {
     if (!showNoteModal) return;
     const code = errorCode ?? lastErrorCode;
     if (!code) return;
@@ -350,30 +460,122 @@ export function PlayerNotesPanel({
 
       {/* Game Notes List */}
       {inGameNotes.length > 0 && (
-        <div className="notes-section">
-          <h3>Game Notes</h3>
+        <div className="notes-section" ref={notesSectionRef}>
+          <h3 id="game-notes-heading" tabIndex={-1}>Game Notes</h3>
+          <div className="sr-only" aria-live="polite">{actionPoliteMessage}</div>
+          <div className="sr-only" aria-live="assertive">{actionAssertiveMessage}</div>
           <div className="notes-list">
             {inGameNotes.map((note) => {
-              const noteTypeValue = note.noteType ?? 'other';
+              const noteTypeValue = (note.noteType ?? 'other') as 'gold-star' | 'yellow-card' | 'red-card' | 'other' | 'coaching-point';
               const notePlayer = note.playerId ? players.find(p => p.id === note.playerId) : null;
+              const decision = getGameNoteActionDecision({
+                noteType: noteTypeValue,
+                isTeamCoach: Boolean(currentUserId && team.coaches?.includes(currentUserId)),
+                isAuthor: Boolean(currentUserId && note.authorId === currentUserId),
+              });
+
+              const deleteDisabledReason =
+                noteTypeValue === 'yellow-card'
+                  ? 'Yellow card notes cannot be deleted.'
+                  : noteTypeValue === 'red-card'
+                    ? 'Red card notes cannot be deleted.'
+                    : 'Only the author can delete this note.';
+
+              const actionDescriptors: GameActionDescriptor[] = [
+                {
+                  id: 'edit',
+                  label: 'Edit',
+                  kind: 'primary',
+                  ariaLabel: 'Edit note',
+                  disabled: !decision.canEdit,
+                  srStatusText: decision.canEdit ? 'Edit note available.' : 'Edit note unavailable.',
+                  onAction: async () => {
+                    startEditingNote(note);
+                  },
+                },
+                {
+                  id: 'delete',
+                  label: 'Delete',
+                  kind: 'destructive',
+                  ariaLabel: 'Delete note',
+                  disabled: !decision.canDelete,
+                  disabledReason: !decision.canDelete ? deleteDisabledReason : undefined,
+                  srStatusText: decision.canDelete
+                    ? 'Delete note available.'
+                    : `Delete note unavailable: ${deleteDisabledReason}`,
+                  confirmDialog: {
+                    title: 'Delete note?',
+                    body: 'This permanently removes this note from the game timeline.',
+                    authorReminder: 'Only the original author can confirm this delete.',
+                    confirmText: 'Delete',
+                    cancelText: 'Cancel',
+                  },
+                  onAction: async () => {
+                    await deleteNote(note);
+                  },
+                },
+              ];
+
+              const editedIndicator = getEditedIndicatorText(note);
               return (
-                <div key={note.id} className={`note-card note-${noteTypeValue}`}>
-                  <div className="note-icon">{getNoteIcon(noteTypeValue)}</div>
-                  <div className="note-info">
-                    <div className="note-header">
-                      <span className="note-type">{getNoteLabel(noteTypeValue)}</span>
-                      <span className="note-time">{note.gameSeconds != null ? `${Math.floor(note.gameSeconds / 60)}'` : '--'} ({note.half === 1 ? '1st' : '2nd'} Half)</span>
-                    </div>
-                    {notePlayer && (
-                      <div className="note-player">
-                        #{notePlayer.playerNumber} {notePlayer.firstName} {notePlayer.lastName}
+                <div key={note.id} className="swipeable-item-container">
+                  <div className={`note-card note-${noteTypeValue}`} {...getSwipeProps(note.id)} style={getSwipeStyle(note.id)}>
+                    <div className="note-icon">{getNoteIcon(noteTypeValue)}</div>
+                    <div className="note-info">
+                      <div className="note-header">
+                        <span className="note-type">{getNoteLabel(noteTypeValue)}</span>
+                        <span className="note-time">{note.gameSeconds != null ? `${Math.floor(note.gameSeconds / 60)}'` : '--'} ({note.half === 1 ? '1st' : '2nd'} Half)</span>
                       </div>
-                    )}
-                    {note.notes && <div className="note-text">{note.notes}</div>}
+                      {notePlayer && (
+                        <div className="note-player">
+                          #{notePlayer.playerNumber} {notePlayer.firstName} {notePlayer.lastName}
+                        </div>
+                      )}
+                      {note.notes && <div className="note-text">{note.notes}</div>}
+                      {editedIndicator && <div className="note-edited-meta">{editedIndicator}</div>}
+                      <GameActionRow
+                        actions={actionDescriptors}
+                        headingIdForDeleteSuccessFocus="game-notes-heading"
+                        onActionError={(message) => {
+                          setActionAssertiveMessage(message);
+                          setActionPoliteMessage('');
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {editingNoteId && (
+        <div className="modal-overlay" onClick={cancelEditingNote} role="dialog" aria-modal="true" aria-labelledby="edit-note-modal-title">
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2 id="edit-note-modal-title">Edit Note</h2>
+            <p className="modal-subtitle">Text-only edit</p>
+            <div className="form-group">
+              <label htmlFor="editNoteText">Note</label>
+              <textarea
+                id="editNoteText"
+                value={editingNoteText}
+                maxLength={MAX_NOTE_LENGTH}
+                onChange={(e) => setEditingNoteText(clampToLimit(e.target.value))}
+                placeholder="Update note text"
+                rows={4}
+                autoFocus
+              />
+              <div className="char-counter">{editingNoteText.length} / {MAX_NOTE_LENGTH}</div>
+            </div>
+            <div className="form-actions">
+              <button type="button" className="btn-primary" onClick={() => void saveEditedNote()} disabled={isSavingEdit}>
+                {isSavingEdit ? 'Saving…' : 'Save Changes'}
+              </button>
+              <button type="button" className="btn-secondary" onClick={cancelEditingNote} disabled={isSavingEdit}>
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

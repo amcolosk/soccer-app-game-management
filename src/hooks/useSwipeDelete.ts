@@ -6,7 +6,25 @@ interface SwipeConfig {
   maxDistancePx?: number;
 }
 
-export function useSwipeDelete(config?: SwipeConfig) {
+export interface SwipeActionState {
+  getSwipeProps: (itemId: string) => {
+    onTouchStart: (e: React.TouchEvent) => void;
+    onTouchMove: (e: React.TouchEvent) => void;
+    onTouchEnd: () => void;
+    onMouseDown: (e: React.MouseEvent) => void;
+    onMouseMove: (e: React.MouseEvent) => void;
+    onMouseUp: () => void;
+    onMouseLeave: () => void;
+  };
+  getSwipeStyle: (itemId: string) => {
+    transform: string;
+    transition: string;
+  };
+  close: () => void;
+  swipedItemId: string | null;
+}
+
+export function useSwipeActions(config?: SwipeConfig): SwipeActionState {
   const openWidthPx = config?.openWidthPx ?? UI_CONSTANTS.SWIPE.OPEN_WIDTH_PX;
   const maxDistancePx = config?.maxDistancePx ?? UI_CONSTANTS.SWIPE.MAX_DISTANCE_PX;
 
@@ -86,4 +104,8 @@ export function useSwipeDelete(config?: SwipeConfig) {
   });
 
   return { getSwipeProps, getSwipeStyle, close, swipedItemId };
+}
+
+export function useSwipeDelete(config?: SwipeConfig): SwipeActionState {
+  return useSwipeActions(config);
 }
