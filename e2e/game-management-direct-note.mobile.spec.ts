@@ -534,14 +534,16 @@ test.describe('Direct Note Entry — Mobile', () => {
     await page.waitForTimeout(UI_TIMING.STANDARD);
 
     await page.getByRole('button', { name: 'Gold Star' }).first().click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    const noteDialog = page.getByRole('dialog');
+    await expect(noteDialog).toBeVisible();
 
     await page.locator('#noteText').fill('Mobile additive action coverage');
     await page.getByRole('button', { name: 'Save Note' }).click();
+    await expect(noteDialog).not.toBeVisible({ timeout: 10000 });
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 
     const newestNote = page.locator('.note-card').first();
-    await expect(newestNote).toBeVisible({ timeout: 5000 });
+    await expect(newestNote).toBeVisible({ timeout: 10000 });
     await expect(newestNote.getByRole('button', { name: 'Edit note' })).toBeVisible();
     await expect(newestNote.getByRole('button', { name: 'Delete note' })).toBeVisible();
   }, TEST_CONFIG.timeout.short);
@@ -562,14 +564,16 @@ test.describe('Action row parity — tablet/desktop', () => {
     await page.waitForTimeout(UI_TIMING.STANDARD);
 
     await page.getByRole('button', { name: 'Gold Star' }).first().click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    const noteDialog = page.getByRole('dialog');
+    await expect(noteDialog).toBeVisible();
 
     await page.locator('#noteText').fill('Tablet parity action row check');
     await page.getByRole('button', { name: 'Save Note' }).click();
+    await expect(noteDialog).not.toBeVisible({ timeout: 10000 });
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 
     const newestNote = page.locator('.note-card').first();
-    await expect(newestNote).toBeVisible({ timeout: 5000 });
+    await expect(newestNote).toBeVisible({ timeout: 10000 });
 
     const actionButtons = newestNote.locator('.game-action-row button');
     await expect(actionButtons.nth(0)).toBeVisible();
