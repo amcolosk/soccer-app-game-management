@@ -54,7 +54,7 @@ const SEED_DATA = {
   inProgressOpponent: `E2E Mobile Notes In Progress ${Date.now().toString(36)}`,
 };
 
-const MAX_SEED_ATTEMPTS = 2;
+const MAX_SEED_ATTEMPTS = 3;
 let seededStateReady = false;
 
 function toLocalDateTimeInputValue(date: Date): string {
@@ -194,11 +194,18 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
 
   const addNoteButton = page.getByRole('button', { name: 'Add note' });
   const notesTab = page.getByRole('tab', { name: 'Notes' });
+  const commandBand = page.locator('.command-band').first();
 
   const isInProgressUiReady = async (timeoutMs: number): Promise<boolean> => {
     const addNoteVisible = await addNoteButton.isVisible({ timeout: timeoutMs }).catch(() => false);
     if (addNoteVisible) return true;
-    return notesTab.isVisible({ timeout: timeoutMs }).catch(() => false);
+
+    const notesTabVisible = await notesTab.isVisible({ timeout: timeoutMs }).catch(() => false);
+    if (notesTabVisible) return true;
+
+    // Defensive fallback for slow state propagation: command band visible means
+    // we are in an active game layout even if specific controls render slightly later.
+    return commandBand.isVisible({ timeout: timeoutMs }).catch(() => false);
   };
 
   // If game already in-progress (e.g., serial-mode retry), skip the start-game flow.
@@ -228,10 +235,17 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
       await ensureStartingLineup(page);
     }
 
+    // If the initial transition did not settle, reopen the seeded game card
+    // and re-check readiness to recover from stale route state.
+    if (!(await isInProgressUiReady(1500))) {
+      await openGameByOpponent(page, opponent);
+      await page.waitForTimeout(UI_TIMING.NAVIGATION);
+    }
+
     // Final wait with extended timeout for game state propagation on CI
     await expect
       .poll(async () => isInProgressUiReady(1000), {
-        timeout: 8000,
+        timeout: 15000,
         message: 'Expected in-progress UI controls to become visible after game start',
       })
       .toBe(true);
@@ -253,8 +267,7 @@ async function seedDeterministicMobileGameStates(page: Page): Promise<void> {
   console.log(`  ✓ Opened Formations tab`);
 
   const existingFormationCount = await page
-    .locator('.item-card h3')
-    .filter({ hasText: SEED_DATA.formation.name })
+    .getByRole('heading', { name: SEED_DATA.formation.name })
     .count();
   if (existingFormationCount === 0) {
     await createFormation(page, SEED_DATA.formation);

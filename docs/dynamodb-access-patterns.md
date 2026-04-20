@@ -15,7 +15,7 @@ TeamTrack accesses DynamoDB exclusively through AWS AppSync GraphQL, generated b
 | `observeQuery` | Real-time subscriptions for live UI state | Eventual |
 | `.list()` | One-time paginated reads, fallback queries | Eventual |
 | `.get()` | Single-item lookup by primary key | Eventual |
-| `consistentRead: true` | Not currently used anywhere in the codebase | Strong |
+| Custom Lambda or custom AppSync resolver | Server-authoritative reads or write workflows | Can use strong reads internally |
 
 AppSync resolves all queries against DynamoDB using **eventually consistent reads by default**. Strong consistency is available at the DynamoDB level but **cannot be requested through the Amplify Gen2 GraphQL client**. AppSync resolvers control consistency internally. To use strong consistency, a custom Lambda resolver with direct DynamoDB SDK access is required.
 
@@ -94,7 +94,7 @@ When `executeSubstitution` runs, it creates a `PlayTimeRecord` and immediately n
 **End-of-game record closure (currently mitigated with 500ms retry):**  
 `closeActivePlayTimeRecords` uses a 500ms sleep + retry scan to catch records missed by eventual consistency. This is a fragile pattern — on slow connections or under load, 500ms may not be sufficient.
 
-**Recommendation:** The Amplify Gen2 GraphQL client does not expose a `consistentRead` option — AppSync controls DynamoDB consistency internally and does not pass this through to the client. The fallback `.list()` pattern is the correct mitigation. To improve reliability, increase the retry delay or use optimistic in-memory state (see Section 4, Issue 3).
+**Recommendation:** The Amplify Gen2 GraphQL client does not expose a `consistentRead` option, so the fix must come from application design rather than a frontend read flag. Keep the race-condition mitigation, but make it more deterministic by favoring idempotent writes, optimistic in-memory state, and server-authoritative mutations where the outcome must be exact (see Section 4, Issues 3 and 4).
 
 ---
 
@@ -141,7 +141,7 @@ client.models.PlayTimeRecord.list({ filter: { gameId: { eq: gameId } } })
 client.models.PlayTimeRecord.listPlayTimeRecordsByGameId({ gameId })
 ```
 
-**Tradeoff:** GSI queries are eventually consistent by default. For the substitution fallback case, you still want `consistentRead: true`. GSI reads do **not** support strong consistency — only the base table does. This means for the substitution fallback, you must query the base table with `consistentRead: true` rather than the GSI.
+**Tradeoff:** GSI queries are eventually consistent. That means this change improves efficiency, but it does not by itself eliminate race windows in substitution fallback. In this stack, the way to close that gap is to combine the GSI query with idempotent write design and local state reconciliation, or move the authoritative close-out logic to a server-side Lambda/custom resolver when exact read-after-write behavior is required.
 
 **Cost impact:** GSI queries consume fewer RCUs than scans on large tables. For a typical game with 20-50 play time records, the difference is small today but will grow with data volume.
 
@@ -175,14 +175,14 @@ For `Player`, the current approach is acceptable given the AppSync filter limit 
 **Current behavior:**  
 After closing active play time records at end-of-game, the code waits 500ms and re-scans to catch records missed by eventual consistency.
 
-**Recommendation:**  
-The Amplify Gen2 client does not support `consistentRead` — this must be handled at the AppSync resolver level via a custom Lambda. The practical alternatives are:
+**Recommendation:**
+The Amplify Gen2 client does not support `consistentRead`, so the retry loop should be treated as a temporary compensation pattern rather than the target design. The practical alternatives are:
 
-- **Increase the retry delay** from 500ms to 1500-2000ms to give DynamoDB more time to propagate writes before the retry scan.
-- **Track newly created records in memory** within `executeSubstitution` and merge them into the records passed to `closeActivePlayTimeRecords`, eliminating the need to re-query at all.
-- **Custom Lambda resolver** — implement `closeActivePlayTimeRecords` as a server-side mutation using the DynamoDB SDK with `ConsistentRead: true`. Highest correctness, highest complexity.
+- **Track newly created records in memory** within `executeSubstitution` and merge them into the records passed to `closeActivePlayTimeRecords`, reducing dependence on a follow-up read.
+- **Make close-out idempotent** so repeated attempts safely converge on the same final record state if a retry is still needed.
+- **Custom Lambda resolver** — implement `closeActivePlayTimeRecords` as a server-side mutation using DynamoDB SDK reads plus conditional/atomic write logic. This is the most authoritative option when end-of-game closure must be exact.
 
-The in-memory merge approach is the best balance of correctness and simplicity.
+The in-memory merge plus idempotent write approach is the best balance of correctness and simplicity on the current stack. A longer retry delay is only a stopgap; it may reduce failures but does not remove the underlying race.
 
 ---
 
@@ -199,28 +199,36 @@ const existingAssignments = await client.models.LineupAssignment.list({
 
 If this read returns stale data (empty) due to eventual consistency, duplicate lineup assignments will be created.
 
-**Recommendation:**  
-`consistentRead` is not available through the Amplify Gen2 client. The better fix is to use the `lineupSyncInProgressRef` guard that already exists in the code, combined with checking local `lineup` state before querying the DB (which the code already does as a fast path). The DB query is only a safety net — the ref guard is the primary protection against duplicate creation.
+**Recommendation:**
+`consistentRead` is not available through the Amplify Gen2 client. The better fix is to make duplicate creation impossible or harmless:
+
+- Keep `lineupSyncInProgressRef` as the first-line client guard.
+- Continue checking local `lineup` state before querying the backend.
+- Make the sync write path idempotent, for example by using deterministic assignment identities or a server-side mutation that conditionally creates missing assignments only.
+- If duplicate prevention must be authoritative across devices, move lineup sync into a Lambda/custom resolver that performs the check-and-create logic atomically on the server.
+
+The DB query should be treated as a best-effort safety net, not as the sole correctness mechanism.
 
 ---
 
-## 5. Consistency vs. Cost Decision Framework
+## 5. Consistency Decision Framework for This Stack
 
-Use this framework when deciding whether to add `consistentRead: true` to a query:
+Use this framework when deciding how to handle eventual consistency in Amplify Gen2:
 
-| Criteria | Use Eventual (default) | Use Strong (`consistentRead: true`) |
-|---|---|---|
-| Data freshness requirement | Seconds of lag acceptable | Must reflect the most recent write |
-| Operation frequency | High frequency (per-tick, per-render) | Low frequency (per-game, per-substitution) |
-| Failure mode | Stale UI, self-corrects via subscription | Duplicate records, data loss, incorrect game state |
-| GSI involved | N/A — GSIs never support strong reads | Must use base table query |
-| Cost sensitivity | Default — 0.5 RCU per KB | 2x cost — 1 RCU per KB |
+| Criteria | Prefer Client Eventual Read | Prefer Idempotent/Merged Client Design | Prefer Server-Authoritative Lambda or Custom Resolver |
+|---|---|---|---|
+| Data freshness requirement | Seconds of lag acceptable | Recent writes may be missing briefly, but client can safely merge local knowledge | Must reflect the latest committed state before proceeding |
+| Operation frequency | High frequency, UI-driven reads | Per-substitution or per-transition workflows | Lower-frequency but correctness-critical transitions |
+| Failure mode | Stale UI that self-corrects | Temporary read gaps without duplicate or conflicting writes | Duplicate records, missed close-out, incorrect final game state |
+| Cross-device coordination | Not required | Limited; local tab/session can reconcile its own writes | Required across coaches/devices |
+| Implementation cost | Lowest | Moderate | Highest |
 
-**Rule of thumb for TeamTrack:**  
-- `observeQuery` subscriptions: always eventual — correct pattern, self-healing
-- Fallback `.list()` queries triggered by missing data: use `consistentRead: true`
-- Guard queries before write operations: use `consistentRead: true`
-- Report/analytics reads: always eventual — data is stable post-game
+**Rule of thumb for TeamTrack:**
+- `observeQuery` subscriptions: keep eventual reads on the client; this is the correct default.
+- Fallback queries triggered by missing data: use them as best-effort diagnostics or recovery, not as the sole correctness mechanism.
+- Write flows that must tolerate stale reads: prefer idempotent mutations and local in-memory merge of freshly written state.
+- Write flows that must be authoritative across devices: use Lambda/custom resolver logic with conditional or atomic server-side behavior.
+- Report/analytics reads: keep eventual reads; the data is stable post-game.
 
 ---
 
@@ -229,8 +237,8 @@ Use this framework when deciding whether to add `consistentRead: true` to a quer
 | Location | Change | Priority | Cost Impact |
 |---|---|---|---|
 | `substitutionService.ts` — fallback `.list()` | Already correct pattern; `consistentRead` not available via Amplify client | N/A | — |
-| `substitutionService.ts` — end-of-game retry | Merge newly created records in-memory instead of relying on retry scan | Medium | Eliminates extra scan |
-| `useGameSubscriptions.ts` — lineup sync guard | Rely on `lineupSyncInProgressRef` + local state fast path; DB query is safety net only | Low | — |
+| `substitutionService.ts` — end-of-game retry | Merge newly created records in-memory and make close-out idempotent instead of relying on retry timing | Medium | Eliminates or reduces extra scan |
+| `useGameSubscriptions.ts` — lineup sync guard | Rely on `lineupSyncInProgressRef` + local state fast path, and make lineup sync idempotent or server-authoritative if duplicates must be impossible | Low | — |
 | `substitutionService.ts` — PlayTimeRecord lookup | Use `listPlayTimeRecordsByGameId` GSI query field | Medium | Reduces RCU on large datasets |
 | `useGameSubscriptions.ts` — PlannedRotation subscription | Add `gamePlanId` filter | Low | Reduces subscription data transfer |
 
