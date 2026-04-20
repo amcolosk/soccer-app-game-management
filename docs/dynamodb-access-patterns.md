@@ -17,7 +17,7 @@ TeamTrack accesses DynamoDB exclusively through AWS AppSync GraphQL, generated b
 | `.get()` | Single-item lookup by primary key | Eventual |
 | `consistentRead: true` | Not currently used anywhere in the codebase | Strong |
 
-AppSync resolves all queries against DynamoDB using **eventually consistent reads by default**. Strong consistency is available but must be explicitly requested per operation and carries a 2x read cost.
+AppSync resolves all queries against DynamoDB using **eventually consistent reads by default**. Strong consistency is available at the DynamoDB level but **cannot be requested through the Amplify Gen2 GraphQL client**. AppSync resolvers control consistency internally. To use strong consistency, a custom Lambda resolver with direct DynamoDB SDK access is required.
 
 ---
 
@@ -94,16 +94,7 @@ When `executeSubstitution` runs, it creates a `PlayTimeRecord` and immediately n
 **End-of-game record closure (currently mitigated with 500ms retry):**  
 `closeActivePlayTimeRecords` uses a 500ms sleep + retry scan to catch records missed by eventual consistency. This is a fragile pattern — on slow connections or under load, 500ms may not be sufficient.
 
-**Recommendation:** Use `consistentRead: true` on the fallback `.list()` calls in `substitutionService.ts`. These are low-frequency operations (one per substitution event) and the 2x read cost is negligible compared to the correctness risk.
-
-```typescript
-// substitutionService.ts — fallback query
-const response = await client.models.PlayTimeRecord.list({
-  filter: { gameId: { eq: gameId } },
-  limit: 1000,
-  consistentRead: true,  // Add this
-});
-```
+**Recommendation:** The Amplify Gen2 GraphQL client does not expose a `consistentRead` option — AppSync controls DynamoDB consistency internally and does not pass this through to the client. The fallback `.list()` pattern is the correct mitigation. To improve reliability, increase the retry delay or use optimistic in-memory state (see Section 4, Issue 3).
 
 ---
 
@@ -185,19 +176,13 @@ For `Player`, the current approach is acceptable given the AppSync filter limit 
 After closing active play time records at end-of-game, the code waits 500ms and re-scans to catch records missed by eventual consistency.
 
 **Recommendation:**  
-Replace the sleep+retry with a single strongly consistent read:
+The Amplify Gen2 client does not support `consistentRead` — this must be handled at the AppSync resolver level via a custom Lambda. The practical alternatives are:
 
-```typescript
-const response = await client.models.PlayTimeRecord.list({
-  filter: { gameId: { eq: gameId } },
-  limit: 1000,
-  consistentRead: true,
-});
-```
+- **Increase the retry delay** from 500ms to 1500-2000ms to give DynamoDB more time to propagate writes before the retry scan.
+- **Track newly created records in memory** within `executeSubstitution` and merge them into the records passed to `closeActivePlayTimeRecords`, eliminating the need to re-query at all.
+- **Custom Lambda resolver** — implement `closeActivePlayTimeRecords` as a server-side mutation using the DynamoDB SDK with `ConsistentRead: true`. Highest correctness, highest complexity.
 
-This eliminates the 500ms delay, removes the fragile timing assumption, and guarantees correctness. The 2x RCU cost applies only to this one end-of-game operation.
-
-**Tradeoff:** Strong consistency is only available on the base table, not GSIs. The `gameId` filter on the base table will still be a scan. This is acceptable for an end-of-game operation that runs once per game.
+The in-memory merge approach is the best balance of correctness and simplicity.
 
 ---
 
@@ -215,16 +200,7 @@ const existingAssignments = await client.models.LineupAssignment.list({
 If this read returns stale data (empty) due to eventual consistency, duplicate lineup assignments will be created.
 
 **Recommendation:**  
-Add `consistentRead: true` to this guard query:
-
-```typescript
-const existingAssignments = await client.models.LineupAssignment.list({
-  filter: { gameId: { eq: game.id } },
-  consistentRead: true,
-});
-```
-
-**Tradeoff:** This is a one-time check on game load. The 2x RCU cost is negligible. The correctness benefit (preventing duplicate lineup assignments) is high.
+`consistentRead` is not available through the Amplify Gen2 client. The better fix is to use the `lineupSyncInProgressRef` guard that already exists in the code, combined with checking local `lineup` state before querying the DB (which the code already does as a fast path). The DB query is only a safety net — the ref guard is the primary protection against duplicate creation.
 
 ---
 
@@ -252,9 +228,9 @@ Use this framework when deciding whether to add `consistentRead: true` to a quer
 
 | Location | Change | Priority | Cost Impact |
 |---|---|---|---|
-| `substitutionService.ts` — fallback `.list()` | Add `consistentRead: true` | High | Negligible (per-substitution) |
-| `substitutionService.ts` — end-of-game retry | Replace 500ms sleep+retry with `consistentRead: true` | High | Negligible (once per game) |
-| `useGameSubscriptions.ts` — lineup sync guard | Add `consistentRead: true` | High | Negligible (once per game load) |
+| `substitutionService.ts` — fallback `.list()` | Already correct pattern; `consistentRead` not available via Amplify client | N/A | — |
+| `substitutionService.ts` — end-of-game retry | Merge newly created records in-memory instead of relying on retry scan | Medium | Eliminates extra scan |
+| `useGameSubscriptions.ts` — lineup sync guard | Rely on `lineupSyncInProgressRef` + local state fast path; DB query is safety net only | Low | — |
 | `substitutionService.ts` — PlayTimeRecord lookup | Use `listPlayTimeRecordsByGameId` GSI query field | Medium | Reduces RCU on large datasets |
 | `useGameSubscriptions.ts` — PlannedRotation subscription | Add `gamePlanId` filter | Low | Reduces subscription data transfer |
 
