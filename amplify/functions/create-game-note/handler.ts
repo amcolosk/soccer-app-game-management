@@ -150,6 +150,8 @@ export const handler: Handler = async (event) => {
     gameSeconds: args.gameSeconds ?? null,
     half: args.half ?? null,
     notes: args.notes ?? null,
+    editedAt: null,
+    editedById: null,
     timestamp: args.timestamp ?? now,
     coaches: game.coaches ?? [],
     createdAt: now,

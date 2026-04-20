@@ -11,7 +11,16 @@ vi.mock("../../utils/toast", () => ({
   showInfo: vi.fn(),
 }));
 
-const speechState = {
+const speechState: {
+  isSupported: boolean;
+  status: string;
+  isListening: boolean;
+  interimTranscript: string;
+  errorCode: string | null;
+  lowConfidenceDetected: boolean;
+  start: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+} = {
   isSupported: true,
   status: "idle",
   isListening: false,
@@ -333,5 +342,138 @@ describe("PlayerNotesPanel", () => {
     // the note should appear with correct data — this assertion will pass after the fix.
     const noteCard = document.querySelector(".note-card");
     expect(noteCard).toBeInTheDocument(); // FAILS currently — will pass after fix
+  });
+
+  it("shows delete disabled reason for yellow card notes", () => {
+    const yellowCardNote = {
+      id: "note-yellow",
+      noteType: "yellow-card",
+      gameSeconds: 300,
+      half: 1,
+      authorId: "coach-1",
+      notes: "Persistent caution",
+      timestamp: new Date().toISOString(),
+    } as any;
+
+    render(
+      <PlayerNotesPanel
+        {...defaultProps}
+        currentUserId="coach-1"
+        gameNotes={[yellowCardNote]}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Delete note" })).toBeDisabled();
+    expect(screen.getByText("Yellow card notes cannot be deleted.")).toBeInTheDocument();
+  });
+
+  it("shows author-only delete disabled reason for non-author notes", () => {
+    const otherAuthorNote = {
+      id: "note-other-author",
+      noteType: "other",
+      gameSeconds: 420,
+      half: 1,
+      authorId: "coach-2",
+      notes: "General note",
+      timestamp: new Date().toISOString(),
+    } as any;
+
+    render(
+      <PlayerNotesPanel
+        {...defaultProps}
+        currentUserId="coach-1"
+        gameNotes={[otherAuthorNote]}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Delete note" })).toBeDisabled();
+    expect(screen.getByText("Only the author can delete this note.")).toBeInTheDocument();
+  });
+
+  it("shows delete disabled reason for red card notes", () => {
+    const redCardNote = {
+      id: "note-red",
+      noteType: "red-card",
+      gameSeconds: 360,
+      half: 1,
+      authorId: "coach-1",
+      notes: "Serious foul",
+      timestamp: new Date().toISOString(),
+    } as any;
+
+    render(
+      <PlayerNotesPanel
+        {...defaultProps}
+        currentUserId="coach-1"
+        gameNotes={[redCardNote]}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Delete note" })).toBeDisabled();
+    expect(screen.getByText("Red card notes cannot be deleted.")).toBeInTheDocument();
+  });
+
+  it("renders edited indicator with Coach fallback when profile and current-user attribution are unavailable", () => {
+    const editedNote = {
+      id: "note-edited",
+      noteType: "other",
+      gameSeconds: 360,
+      half: 1,
+      authorId: "coach-1",
+      editedById: "missing-profile-coach",
+      editedAt: null,
+      notes: "Updated copy",
+      timestamp: new Date().toISOString(),
+    } as any;
+
+    render(<PlayerNotesPanel {...defaultProps} gameNotes={[editedNote]} />);
+
+    expect(screen.getByText("Edited by Coach")).toBeInTheDocument();
+  });
+
+  it("keeps a single visible keyboard-focusable Edit/Delete action set per note card", () => {
+    const note = {
+      id: "note-focus-set",
+      noteType: "other",
+      gameSeconds: 180,
+      half: 1,
+      authorId: "coach-1",
+      notes: "Action row parity",
+      timestamp: new Date().toISOString(),
+    } as any;
+
+    render(
+      <PlayerNotesPanel
+        {...defaultProps}
+        currentUserId="coach-1"
+        gameNotes={[note]}
+      />
+    );
+
+    expect(screen.getAllByRole("button", { name: "Edit note" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Delete note" })).toHaveLength(1);
+  });
+
+  it("does not expose hidden duplicate swipe action controls to keyboard navigation", () => {
+    const note = {
+      id: "note-no-hidden-actions",
+      noteType: "other",
+      gameSeconds: 180,
+      half: 1,
+      authorId: "coach-1",
+      notes: "Hidden action guard",
+      timestamp: new Date().toISOString(),
+    } as any;
+
+    render(
+      <PlayerNotesPanel
+        {...defaultProps}
+        currentUserId="coach-1"
+        gameNotes={[note]}
+      />
+    );
+
+    expect(screen.getAllByRole("button", { name: "Edit note", hidden: true })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Delete note", hidden: true })).toHaveLength(1);
   });
 });

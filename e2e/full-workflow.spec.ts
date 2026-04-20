@@ -889,6 +889,9 @@ async function runGame(page: Page, gameNumber: number = 1) {
 
     if (!noteCardVisible) {
       console.log(`⚠ Note modal closed but note card not visible in time: "${expectedNoteText}"`);
+    } else {
+      await expect(savedNoteCard.getByRole('button', { name: 'Edit note' })).toBeVisible();
+      await expect(savedNoteCard.getByRole('button', { name: 'Delete note' })).toBeVisible();
     }
   }
   

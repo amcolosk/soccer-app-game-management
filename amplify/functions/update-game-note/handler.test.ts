@@ -13,7 +13,6 @@ vi.mock('@aws-sdk/lib-dynamodb', () => ({
     from: vi.fn(() => ({ send: mockSend })),
   },
   GetCommand: vi.fn(function (input) { return { __type: 'GetCommand', input }; }),
-  ScanCommand: vi.fn(function (input) { return { __type: 'ScanCommand', input }; }),
   UpdateCommand: vi.fn(function (input) { return { __type: 'UpdateCommand', input }; }),
 }));
 
@@ -28,8 +27,6 @@ function createEvent(overrides: Partial<HandlerEvent['arguments']> = {}): Handle
   return {
     arguments: {
       id: 'note-1',
-      noteType: 'coaching-point',
-      playerId: null,
       notes: 'Updated note',
       ...overrides,
     },
@@ -42,10 +39,25 @@ describe('update-game-note handler', () => {
     vi.clearAllMocks();
     process.env.GAME_NOTE_TABLE = 'GameNoteTable';
     process.env.GAME_TABLE = 'GameTable';
-    process.env.TEAM_ROSTER_TABLE = 'TeamRosterTable';
+    process.env.TEAM_TABLE = 'TeamTable';
 
     mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
       if (command.__type === 'GetCommand') {
+        if (command.input.TableName === 'GameNoteTable') {
+          return {
+            Item: {
+              id: 'note-1',
+              gameId: 'game-1',
+              noteType: 'other',
+              authorId: 'coach-1',
+              notes: 'Original note',
+              timestamp: '2026-03-29T12:00:00.000Z',
+              createdAt: '2026-03-29T12:00:00.000Z',
+              gameSeconds: 600,
+              half: 2,
+            },
+          };
+        }
         if (command.input.TableName === 'GameTable') {
           return {
             Item: {
@@ -54,42 +66,30 @@ describe('update-game-note handler', () => {
             },
           };
         }
-
-        return {
-          Item: {
-            id: 'note-1',
-            authorId: 'coach-1',
-            coaches: ['coach-1'],
-            gameId: 'game-1',
-            noteType: 'coaching-point',
-            playerId: null,
-            gameSeconds: null,
-            half: null,
-            notes: 'Original note',
-            timestamp: '2026-03-29T12:00:00.000Z',
-            createdAt: '2026-03-29T12:00:00.000Z',
-          },
-        };
-      }
-
-      if (command.__type === 'ScanCommand') {
-        return { Items: [{ id: 'roster-1' }] };
+        if (command.input.TableName === 'TeamTable') {
+          return {
+            Item: {
+              id: 'team-1',
+              coaches: ['coach-1', 'coach-2'],
+            },
+          };
+        }
       }
 
       if (command.__type === 'UpdateCommand') {
         return {
           Attributes: {
             id: 'note-1',
-            authorId: 'coach-1',
-            coaches: ['coach-1'],
             gameId: 'game-1',
-            noteType: 'coaching-point',
-            playerId: null,
-            gameSeconds: null,
-            half: null,
+            noteType: 'other',
+            authorId: 'coach-1',
             notes: 'Updated note',
             timestamp: '2026-03-29T12:00:00.000Z',
             createdAt: '2026-03-29T12:00:00.000Z',
+            gameSeconds: 600,
+            half: 2,
+            editedAt: '2026-03-29T13:00:00.000Z',
+            editedById: 'coach-1',
           },
         };
       }
@@ -98,158 +98,54 @@ describe('update-game-note handler', () => {
     });
   });
 
-  it('rejects spoofed authorId updates', async () => {
-    await expect(invoke(createEvent({ authorId: 'attacker-id' }))).rejects.toThrow('authorId cannot be updated');
+  it('updates notes text and sets edited attribution when notes changes', async () => {
+    const result = await invoke(createEvent({ notes: 'Updated note' }));
+    expect(result).toMatchObject({
+      id: 'note-1',
+      notes: 'Updated note',
+      editedById: 'coach-1',
+    });
   });
 
-  it('rejects changing a timed note into a coaching-point note', async () => {
+  it('rejects non-notes fields with canonical validation code', async () => {
+    await expect(invoke(createEvent({ noteType: 'gold-star' as never }))).rejects.toThrow('VALIDATION_NOTES_ONLY_EDIT');
+    await expect(invoke(createEvent({ playerId: 'p1' as never }))).rejects.toThrow('VALIDATION_NOTES_ONLY_EDIT');
+    await expect(invoke(createEvent({ authorId: 'spoofed' as never }))).rejects.toThrow('VALIDATION_NOTES_ONLY_EDIT');
+  });
+
+  it('rejects oversized notes with canonical validation code', async () => {
+    await expect(invoke(createEvent({ notes: 'a'.repeat(501) }))).rejects.toThrow('VALIDATION_NOTES_TOO_LONG');
+  });
+
+  it('rejects non-coaches with AUTH_COACH_REQUIRED', async () => {
     mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
-      if (command.__type === 'GetCommand') {
+      if (command.__type === 'GetCommand' && command.input.TableName === 'GameNoteTable') {
         return {
           Item: {
-            id: 'note-1',
-            authorId: 'coach-1',
-            coaches: ['coach-1'],
-            gameId: 'game-1',
-            noteType: 'gold-star',
-            playerId: 'player-1',
-            gameSeconds: 45,
-            half: 1,
-            notes: 'Original note',
-            timestamp: '2026-03-29T12:00:00.000Z',
-            createdAt: '2026-03-29T12:00:00.000Z',
+            id: 'note-1', gameId: 'game-1', noteType: 'other', authorId: 'coach-1', notes: 'Original note',
           },
         };
       }
-
+      if (command.__type === 'GetCommand' && command.input.TableName === 'GameTable') {
+        return { Item: { id: 'game-1', teamId: 'team-1' } };
+      }
+      if (command.__type === 'GetCommand' && command.input.TableName === 'TeamTable') {
+        return { Item: { id: 'team-1', coaches: ['coach-9'] } };
+      }
       return {};
     });
 
-    await expect(invoke(createEvent({ noteType: 'coaching-point' }))).rejects.toThrow(
-      'coaching-point notes must retain null gameSeconds and half'
-    );
+    await expect(invoke(createEvent())).rejects.toThrow('AUTH_COACH_REQUIRED');
   });
 
-  it('rejects updates to non-coaching notes when persisted timing is malformed', async () => {
+  it('returns NOT_FOUND_GAME_NOTE when note does not exist', async () => {
     mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
-      if (command.__type === 'GetCommand') {
-        return {
-          Item: {
-            id: 'note-1',
-            authorId: 'coach-1',
-            coaches: ['coach-1'],
-            gameId: 'game-1',
-            noteType: 'gold-star',
-            playerId: 'player-1',
-            gameSeconds: null,
-            half: null,
-            notes: 'Original note',
-            timestamp: '2026-03-29T12:00:00.000Z',
-            createdAt: '2026-03-29T12:00:00.000Z',
-          },
-        };
+      if (command.__type === 'GetCommand' && command.input.TableName === 'GameNoteTable') {
+        return { Item: undefined };
       }
-
       return {};
     });
 
-    await expect(invoke(createEvent({ noteType: 'gold-star' }))).rejects.toThrow(
-      'non-coaching notes must retain both gameSeconds and half'
-    );
-  });
-
-  it('rejects arbitrary playerId updates that are not on the game team roster', async () => {
-    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
-      if (command.__type === 'GetCommand') {
-        if (command.input.TableName === 'GameTable') {
-          return {
-            Item: {
-              id: 'game-1',
-              teamId: 'team-1',
-            },
-          };
-        }
-
-        return {
-          Item: {
-            id: 'note-1',
-            authorId: 'coach-1',
-            coaches: ['coach-1'],
-            gameId: 'game-1',
-            noteType: 'gold-star',
-            playerId: 'player-1',
-            gameSeconds: 45,
-            half: 1,
-            notes: 'Original note',
-            timestamp: '2026-03-29T12:00:00.000Z',
-            createdAt: '2026-03-29T12:00:00.000Z',
-          },
-        };
-      }
-
-      if (command.__type === 'ScanCommand') {
-        return { Items: [] };
-      }
-
-      return {};
-    });
-
-    await expect(invoke(createEvent({ noteType: 'gold-star', playerId: 'player-404' }))).rejects.toThrow(
-      'playerId must belong to the game team roster'
-    );
-  });
-
-  it('rejects cross-team playerId updates', async () => {
-    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
-      if (command.__type === 'GetCommand') {
-        if (command.input.TableName === 'GameTable') {
-          return {
-            Item: {
-              id: 'game-1',
-              teamId: 'team-1',
-            },
-          };
-        }
-
-        return {
-          Item: {
-            id: 'note-1',
-            authorId: 'coach-1',
-            coaches: ['coach-1'],
-            gameId: 'game-1',
-            noteType: 'gold-star',
-            playerId: 'player-1',
-            gameSeconds: 45,
-            half: 1,
-            notes: 'Original note',
-            timestamp: '2026-03-29T12:00:00.000Z',
-            createdAt: '2026-03-29T12:00:00.000Z',
-          },
-        };
-      }
-
-      if (command.__type === 'ScanCommand') {
-        expect(command.input.ExpressionAttributeValues).toEqual({
-          ':teamId': 'team-1',
-          ':playerId': 'player-cross-team',
-        });
-        return { Items: [] };
-      }
-
-      return {};
-    });
-
-    await expect(invoke(createEvent({ noteType: 'gold-star', playerId: 'player-cross-team' }))).rejects.toThrow(
-      'playerId must belong to the game team roster'
-    );
-  });
-
-  it('uses REMOVE expression for playerId when playerId is set to null', async () => {
-    await invoke(createEvent({ playerId: null }));
-
-    const updateCall = mockSend.mock.calls.find(([command]) => command.__type === 'UpdateCommand');
-    const updateExpression = updateCall?.[0].input.UpdateExpression as string;
-    expect(updateExpression).toContain('REMOVE #playerId');
-    expect(updateExpression).not.toMatch(/SET[^R]*#playerId/);
+    await expect(invoke(createEvent())).rejects.toThrow('NOT_FOUND_GAME_NOTE');
   });
 });

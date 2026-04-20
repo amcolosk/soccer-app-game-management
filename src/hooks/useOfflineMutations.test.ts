@@ -9,7 +9,7 @@ const {
   mockPlayTimeRecordCreate,
   mockCreateSecureGameNote,
   mockUpdateSecureGameNote,
-  mockGameNoteDelete,
+  mockDeleteSecureGameNote,
   mockPlayerAvailabilityCreate,
   mockPlayerAvailabilityUpdate,
   mockEnqueue,
@@ -26,7 +26,7 @@ const {
   mockPlayTimeRecordCreate: vi.fn(),
   mockCreateSecureGameNote: vi.fn(),
   mockUpdateSecureGameNote: vi.fn(),
-  mockGameNoteDelete: vi.fn(),
+  mockDeleteSecureGameNote: vi.fn(),
   mockPlayerAvailabilityCreate: vi.fn(),
   mockPlayerAvailabilityUpdate: vi.fn(),
   mockEnqueue: vi.fn(),
@@ -56,7 +56,7 @@ vi.mock('aws-amplify/data', () => ({
       },
       Goal: { create: vi.fn().mockResolvedValue({ data: {} }) },
       GameNote: {
-        delete: mockGameNoteDelete,
+        delete: vi.fn(),
       },
       PlayerAvailability: {
         create: mockPlayerAvailabilityCreate,
@@ -66,6 +66,7 @@ vi.mock('aws-amplify/data', () => ({
     mutations: {
       createSecureGameNote: mockCreateSecureGameNote,
       updateSecureGameNote: mockUpdateSecureGameNote,
+      deleteSecureGameNote: mockDeleteSecureGameNote,
     },
   })),
 }));
@@ -140,7 +141,7 @@ describe('useOfflineMutations', () => {
     mockPlayTimeRecordCreate.mockResolvedValue({ data: {} });
     mockCreateSecureGameNote.mockResolvedValue({ data: {} });
     mockUpdateSecureGameNote.mockResolvedValue({ data: {} });
-    mockGameNoteDelete.mockResolvedValue({ data: {} });
+    mockDeleteSecureGameNote.mockResolvedValue({ data: {} });
     mockPlayerAvailabilityCreate.mockResolvedValue({ data: {} });
     mockPlayerAvailabilityUpdate.mockResolvedValue({ data: {} });
     mockFetchAuthSession.mockResolvedValue(DEFAULT_SESSION);
@@ -299,7 +300,7 @@ describe('useOfflineMutations', () => {
         await result.current.mutations.deleteGameNote('note-1');
       });
 
-      expect(mockGameNoteDelete).toHaveBeenCalledWith({ id: 'note-1' });
+      expect(mockDeleteSecureGameNote).toHaveBeenCalledWith({ id: 'note-1' });
     });
   });
 
@@ -386,7 +387,7 @@ describe('useOfflineMutations', () => {
         expect.objectContaining({ model: 'GameNote', operation: 'delete' })
       );
       expect(mockUpdateSecureGameNote).not.toHaveBeenCalled();
-      expect(mockGameNoteDelete).not.toHaveBeenCalled();
+      expect(mockDeleteSecureGameNote).not.toHaveBeenCalled();
     });
 
     it('still enqueues even when fetchAuthSession fails (no ownerSub)', async () => {
@@ -463,6 +464,17 @@ describe('useOfflineMutations', () => {
           retryCount: 0,
           ownerSub: DEFAULT_SUB,
         },
+        {
+          id: 'q3',
+          model: 'GameNote',
+          operation: 'delete',
+          payload: {
+            gameNoteId: 'legacy-note-id',
+          },
+          enqueuedAt: 3,
+          retryCount: 0,
+          ownerSub: DEFAULT_SUB,
+        },
       ]);
 
       renderHook(() => useOfflineMutations());
@@ -483,6 +495,33 @@ describe('useOfflineMutations', () => {
         id: 'note-1',
         notes: 'Queued update',
       });
+      expect(mockDeleteSecureGameNote).toHaveBeenCalledWith({ id: 'legacy-note-id' });
+    });
+
+    it('requeues malformed legacy GameNote delete payloads with canonical validation code', async () => {
+      mockDequeueAll.mockResolvedValue([
+        {
+          id: 'q1',
+          model: 'GameNote',
+          operation: 'delete',
+          payload: {},
+          enqueuedAt: 1,
+          retryCount: 0,
+          ownerSub: DEFAULT_SUB,
+        },
+      ]);
+
+      renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        capturedOnReconnect?.();
+      });
+      await flush();
+
+      expect(mockRequeueFailed).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ id: 'q1' })])
+      );
+      expect(mockDeleteSecureGameNote).not.toHaveBeenCalled();
     });
 
     it('replays queued PlayerAvailability updates via the Amplify client', async () => {

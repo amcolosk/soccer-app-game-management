@@ -193,9 +193,16 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
   expect(opened).toBeTruthy();
 
   const addNoteButton = page.getByRole('button', { name: 'Add note' });
+  const notesTab = page.getByRole('tab', { name: 'Notes' });
+
+  const isInProgressUiReady = async (timeoutMs: number): Promise<boolean> => {
+    const addNoteVisible = await addNoteButton.isVisible({ timeout: timeoutMs }).catch(() => false);
+    if (addNoteVisible) return true;
+    return notesTab.isVisible({ timeout: timeoutMs }).catch(() => false);
+  };
 
   // If game already in-progress (e.g., serial-mode retry), skip the start-game flow.
-  if (!(await addNoteButton.isVisible({ timeout: 2000 }).catch(() => false))) {
+  if (!(await isInProgressUiReady(2000))) {
     await ensureStartingLineup(page);
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -209,7 +216,7 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
       }
 
       // Increased timeout (3000ms) for CI environments where game state updates may be slower
-      if (await addNoteButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await isInProgressUiReady(3000)) {
         break;
       }
 
@@ -222,7 +229,12 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
     }
 
     // Final wait with extended timeout for game state propagation on CI
-    await expect(addNoteButton).toBeVisible({ timeout: 8000 });
+    await expect
+      .poll(async () => isInProgressUiReady(1000), {
+        timeout: 8000,
+        message: 'Expected in-progress UI controls to become visible after game start',
+      })
+      .toBe(true);
   }
 
   if (finishAtHalftime) {
@@ -447,5 +459,62 @@ test.describe('Direct Note Entry — Mobile', () => {
     // The note card MUST appear without a page reload — this is the failing assertion for issue #84.
     // Currently FAILS because handleSaveNote does not trigger a notes refresh after the mutation.
     await expect(page.locator('.note-card').first()).toBeVisible({ timeout: 5000 });
+  }, TEST_CONFIG.timeout.short);
+
+  test('note row keeps visible Edit/Delete controls after save (swipe is additive)', async ({ page }) => {
+    const isReady = await navigateToInProgressGame(page);
+    expect(isReady).toBeTruthy();
+
+    await page.getByRole('tab', { name: 'Notes' }).click();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    await page.getByRole('button', { name: 'Gold Star' }).first().click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    await page.locator('#noteText').fill('Mobile additive action coverage');
+    await page.getByRole('button', { name: 'Save Note' }).click();
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+    const newestNote = page.locator('.note-card').first();
+    await expect(newestNote).toBeVisible({ timeout: 5000 });
+    await expect(newestNote.getByRole('button', { name: 'Edit note' })).toBeVisible();
+    await expect(newestNote.getByRole('button', { name: 'Delete note' })).toBeVisible();
+  }, TEST_CONFIG.timeout.short);
+});
+
+test.describe('Action row parity — tablet/desktop', () => {
+  test.use({ viewport: { width: 1024, height: 768 }, isMobile: false, hasTouch: false });
+
+  test.beforeEach(async ({ page }) => {
+    await navigateToApp(page);
+  });
+
+  test('notes action order and keyboard focus remain accessible on tablet width', async ({ page }) => {
+    const isReady = await navigateToInProgressGame(page);
+    expect(isReady).toBeTruthy();
+
+    await page.getByRole('tab', { name: 'Notes' }).click();
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    await page.getByRole('button', { name: 'Gold Star' }).first().click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    await page.locator('#noteText').fill('Tablet parity action row check');
+    await page.getByRole('button', { name: 'Save Note' }).click();
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+    const newestNote = page.locator('.note-card').first();
+    await expect(newestNote).toBeVisible({ timeout: 5000 });
+
+    const actionButtons = newestNote.locator('.game-action-row button');
+    await expect(actionButtons.nth(0)).toBeVisible();
+    await expect(actionButtons.nth(1)).toBeVisible();
+    await expect(actionButtons.nth(0)).toHaveAccessibleName('Edit note');
+    await expect(actionButtons.nth(1)).toHaveAccessibleName('Delete note');
+
+    await actionButtons.nth(0).focus();
+    await expect(actionButtons.nth(0)).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(actionButtons.nth(1)).toBeFocused();
   }, TEST_CONFIG.timeout.short);
 });

@@ -14,11 +14,6 @@ vi.mock("aws-amplify/data", () => ({
   }),
 }));
 
-const mockConfirm = vi.fn().mockResolvedValue(false);
-vi.mock("../ConfirmModal", () => ({
-  useConfirm: () => mockConfirm,
-}));
-
 vi.mock("../../utils/toast", () => ({
   showWarning: vi.fn(),
   showSuccess: vi.fn(),
@@ -91,7 +86,6 @@ const defaultProps = {
 
 describe("GoalTracker", () => {
   beforeEach(() => {
-    mockConfirm.mockReset().mockResolvedValue(false);
     mockCreateGoal.mockReset().mockResolvedValue(undefined);
     mockUpdateGame.mockReset().mockResolvedValue(undefined);
     mockDeleteGoal.mockReset().mockResolvedValue(undefined);
@@ -358,18 +352,28 @@ describe("GoalTracker", () => {
   });
 
   describe("goal delete", () => {
+    it("uses goal-specific delete confirmation copy without note author reminder", async () => {
+      const user = userEvent.setup();
+      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
+
+      await user.click(screen.getByRole("button", { name: /Delete Us goal at 10'/ }));
+
+      expect(screen.getByRole("heading", { name: "Delete goal?" })).toBeInTheDocument();
+      expect(screen.getByText("This permanently removes this goal event from the game timeline.")).toBeInTheDocument();
+      expect(screen.queryByText("Only the original author can confirm this delete.")).not.toBeInTheDocument();
+    });
+
     it("calls deleteGoal and does NOT call updateGame in active states", async () => {
-      mockConfirm.mockResolvedValue(true);
       const user = userEvent.setup();
       render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
       await user.click(screen.getByRole("button", { name: /Delete Us goal at 10'/ }));
+      await user.click(screen.getByRole("button", { name: /^Delete$/ }));
       await waitFor(() => expect(mockDeleteGoal).toHaveBeenCalledWith("g1"));
       // UpdateGame should NOT be called - score is derived from goals
       expect(mockUpdateGame).not.toHaveBeenCalled();
     });
 
     it("shows success toast with final score when completed", async () => {
-      mockConfirm.mockResolvedValue(true);
       const user = userEvent.setup();
       render(
         <GoalTracker
@@ -379,6 +383,7 @@ describe("GoalTracker", () => {
         />
       );
       await user.click(screen.getByRole("button", { name: /Delete Us goal at 10'/ }));
+      await user.click(screen.getByRole("button", { name: /^Delete$/ }));
       await waitFor(() => expect(mockDeleteGoal).toHaveBeenCalledWith("g1"));
       await waitFor(() => expect(showSuccess).toHaveBeenCalledWith(
         expect.stringContaining("Goal deleted")
@@ -388,12 +393,41 @@ describe("GoalTracker", () => {
     });
 
     it("does not delete when confirm is cancelled", async () => {
-      mockConfirm.mockResolvedValue(false);
       const user = userEvent.setup();
       render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
       await user.click(screen.getByRole("button", { name: /Delete Us goal at 10'/ }));
-      await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
       expect(mockDeleteGoal).not.toHaveBeenCalled();
+    });
+
+    it("returns focus to delete action button when confirmation is cancelled", async () => {
+      const user = userEvent.setup();
+      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
+
+      const deleteButton = screen.getByRole("button", { name: /Delete Us goal at 10'/ });
+      await user.click(deleteButton);
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      await waitFor(() => {
+        expect(document.activeElement).toBe(deleteButton);
+      });
+    });
+
+    it("returns focus to delete action button when delete succeeds", async () => {
+      const user = userEvent.setup();
+      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
+
+      const deleteButton = screen.getByRole("button", { name: /Delete Us goal at 10'/ });
+      await user.click(deleteButton);
+      await user.click(screen.getByRole("button", { name: /^Delete$/ }));
+
+      await waitFor(() => {
+        expect(mockDeleteGoal).toHaveBeenCalledWith("g1");
+      });
+      await waitFor(() => {
+        expect(document.activeElement).toBe(deleteButton);
+      });
     });
   });
 

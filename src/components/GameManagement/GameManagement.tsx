@@ -1285,6 +1285,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     gameNotes,
     currentTime,
     mutations,
+    currentUserId: userId,
+    profileMap,
     onNoteSaved: () => setNotesRefreshKey(k => k + 1),
   };
 

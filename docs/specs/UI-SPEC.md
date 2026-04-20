@@ -1042,6 +1042,67 @@ A separate **Help Content Specification** document will define the help content,
 
 ## 12. Issue #7 Fix — Pinch-to-Zoom Disabled
 
+---
+
+## 13. Note And Goal Actions (Post-Game)
+
+### 13.1 Additive Swipe Requirement
+
+- Swipe-reveal actions on touch devices are additive only.
+- Every note and goal row must keep visible, keyboard-focusable Edit/Delete controls even when swipe is not performed.
+- Hidden swipe-only controls must never receive keyboard focus.
+
+### 13.2 Unified Action Contract
+
+- Notes and goals share one action renderer and action ordering.
+- Order is always Edit then Delete.
+- Action buttons are trailing-aligned across phone, tablet, and desktop.
+- Tap targets are at least 44x44 px.
+
+### 13.3 Delete Confirmation Contract
+
+- Note delete modal:
+  - Title: Delete note?
+  - Body: This permanently removes this note from the game timeline.
+  - Reminder: Only the original author can confirm this delete.
+  - Actions: Cancel (initial focus), Delete.
+- Goal delete modal:
+  - Title: Delete goal?
+  - Body: This permanently removes this goal event from the game timeline.
+  - Actions: Cancel (initial focus), Delete.
+- Escape key cancels.
+- Cancel returns focus to the invoking action.
+
+### 13.4 Permission-State UX Matrix (In-Game Notes)
+
+- Any team coach can edit note text.
+- Only original author can delete for gold-star and other note types.
+- Yellow-card and red-card notes are editable but non-deletable for all users.
+- Disabled delete controls must surface clear helper copy:
+  - Only the author can delete this note.
+  - Yellow card notes cannot be deleted.
+  - Red card notes cannot be deleted.
+
+### 13.5 Edited Indicator
+
+- Edited state is shown when editedById exists.
+- Render pattern: Edited by {displayName} at {time}.
+- Attribution fallback order:
+  - You when editedById matches current user.
+  - Coach display name from profile map.
+  - Coach fallback label.
+- Time formatting:
+  - Same day: local short time.
+  - Prior days: abbreviated date plus time.
+
+### 13.6 Accessibility Announcements
+
+- aria-live polite announcements:
+  - Note updated.
+  - Note deleted.
+- aria-live assertive announcements:
+  - Mapped canonical backend error on save/delete failure.
+
 **Issue:** Coaches accidentally zoomed in while managing a live game, making the UI unusable.
 
 **Solution:** Set `user-scalable=no` and `maximum-scale=1.0` on the viewport meta tag in `index.html`. This is the standard approach for native-feel PWAs.

@@ -11,6 +11,7 @@ import { getUserInvitations } from './functions/get-user-invitations/resource';
 import { createGitHubIssue } from './functions/create-github-issue/resource';
 import { createGameNote } from './functions/create-game-note/resource';
 import { updateGameNote } from './functions/update-game-note/resource';
+import { deleteGameNote } from './functions/delete-game-note/resource';
 import { upsertCoachProfile } from './functions/upsert-coach-profile/resource';
 import { getTeamCoachProfiles } from './functions/get-team-coach-profiles/resource';
 import { deleteFormationSafe } from './functions/delete-formation-safe/resource';
@@ -28,6 +29,7 @@ const backend = defineBackend({
   createGitHubIssue,
   createGameNote,
   updateGameNote,
+  deleteGameNote,
   upsertCoachProfile,
   getTeamCoachProfiles,
   deleteFormationSafe,
@@ -175,10 +177,20 @@ backend.createGameNote.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.table
 // Grant table access for updateGameNote Lambda (secure custom mutation)
 gameNoteTable.grantReadWriteData(backend.updateGameNote.resources.lambda);
 gameTable.grantReadData(backend.updateGameNote.resources.lambda);
+teamTable.grantReadData(backend.updateGameNote.resources.lambda);
 teamRosterTable.grantReadData(backend.updateGameNote.resources.lambda);
 backend.updateGameNote.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
 backend.updateGameNote.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.updateGameNote.addEnvironment('TEAM_TABLE', teamTable.tableName);
 backend.updateGameNote.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);
+
+// Grant table access for deleteGameNote Lambda (authoritative secure delete)
+gameNoteTable.grantReadWriteData(backend.deleteGameNote.resources.lambda);
+gameTable.grantReadData(backend.deleteGameNote.resources.lambda);
+teamTable.grantReadData(backend.deleteGameNote.resources.lambda);
+backend.deleteGameNote.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
+backend.deleteGameNote.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.deleteGameNote.addEnvironment('TEAM_TABLE', teamTable.tableName);
 
 // Grant table access for upsertCoachProfile Lambda (least-privilege: CoachProfile only)
 const coachProfileTable = backend.data.resources.tables['CoachProfile'];

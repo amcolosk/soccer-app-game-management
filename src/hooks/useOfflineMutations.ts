@@ -165,6 +165,26 @@ function getGraphQLErrorMessage(result: { errors?: Array<{ message?: string | nu
   return message && message.length > 0 ? message : fallback;
 }
 
+const CANONICAL_GAME_NOTE_ERRORS: Record<string, string> = {
+  AUTH_UNAUTHENTICATED: 'Please sign in and try again.',
+  NOT_FOUND_GAME_NOTE: 'This note no longer exists.',
+  NOT_FOUND_GAME: 'The related game could not be found.',
+  NOT_FOUND_TEAM: 'The related team could not be found.',
+  AUTH_COACH_REQUIRED: 'Only team coaches can perform this action.',
+  AUTH_DELETE_AUTHOR_REQUIRED: 'Only the original author can delete this note.',
+  RULE_DELETE_DISALLOWED_NOTE_TYPE: 'Yellow and red card notes cannot be deleted.',
+  VALIDATION_NOTES_ONLY_EDIT: 'Only note text can be edited for this note.',
+  VALIDATION_NOTES_TOO_LONG: 'Notes must be 500 characters or fewer.',
+  VALIDATION_INVALID_DELETE_PAYLOAD: 'Stored offline note delete payload is invalid.',
+};
+
+function mapCanonicalGameNoteError(message: string): string {
+  const normalized = message.trim();
+  const friendly = CANONICAL_GAME_NOTE_ERRORS[normalized];
+  if (!friendly) return message;
+  return `${normalized}: ${friendly}`;
+}
+
 function assertNoGraphQLErrors(
   result: { errors?: Array<{ message?: string | null }> } | undefined,
   context: string
@@ -237,7 +257,7 @@ async function executeSecureCreateGameNote(
 
   const result = await client.mutations.createSecureGameNote(safePayload);
   if (result.errors && result.errors.length > 0) {
-    throw new Error(getGraphQLErrorMessage(result, 'Failed to create game note'));
+    throw new Error(mapCanonicalGameNoteError(getGraphQLErrorMessage(result, 'Failed to create game note')));
   }
 }
 
@@ -249,7 +269,30 @@ async function executeSecureUpdateGameNote(
 
   const result = await client.mutations.updateSecureGameNote(safePayload);
   if (result.errors && result.errors.length > 0) {
-    throw new Error(getGraphQLErrorMessage(result, 'Failed to update game note'));
+    throw new Error(mapCanonicalGameNoteError(getGraphQLErrorMessage(result, 'Failed to update game note')));
+  }
+}
+
+function translateLegacyGameNoteDeletePayload(payload: unknown): { id: string } {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('VALIDATION_INVALID_DELETE_PAYLOAD');
+  }
+
+  const candidate = payload as { id?: unknown; gameNoteId?: unknown };
+  if (typeof candidate.id === 'string' && candidate.id.trim().length > 0) {
+    return { id: candidate.id };
+  }
+  if (typeof candidate.gameNoteId === 'string' && candidate.gameNoteId.trim().length > 0) {
+    return { id: candidate.gameNoteId };
+  }
+
+  throw new Error('VALIDATION_INVALID_DELETE_PAYLOAD');
+}
+
+async function executeSecureDeleteGameNote(payload: { id: string }): Promise<void> {
+  const result = await client.mutations.deleteSecureGameNote({ id: payload.id });
+  if (result.errors && result.errors.length > 0) {
+    throw new Error(mapCanonicalGameNoteError(getGraphQLErrorMessage(result, 'Failed to delete game note')));
   }
 }
 
@@ -263,6 +306,11 @@ async function executeSingleMutation(item: QueuedMutation): Promise<void> {
   }
   if (item.model === 'GameNote' && item.operation === 'update') {
     await executeSecureUpdateGameNote(item.payload as unknown as { id: string } & GameNoteUpdateFields & { authorId?: unknown });
+    return;
+  }
+  if (item.model === 'GameNote' && item.operation === 'delete') {
+    const translatedPayload = translateLegacyGameNoteDeletePayload(item.payload);
+    await executeSecureDeleteGameNote(translatedPayload);
     return;
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -617,10 +665,7 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       await enqueueOrRun(
         'GameNote', 'delete',
         { id },
-        async () => {
-          const result = await client.models.GameNote.delete({ id });
-          assertNoGraphQLErrors(result, 'Failed to delete game note');
-        }
+        () => executeSecureDeleteGameNote({ id })
       );
     },
     [enqueueOrRun]

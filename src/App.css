@@ -2406,10 +2406,27 @@
 
 .goal-card-actions {
   display: flex;
-  gap: 0.5rem;
+  justify-content: flex-end;
   margin-top: 0.5rem;
-  flex-wrap: wrap;
   align-self: flex-start;
+}
+
+.game-action-row {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.game-action-btn {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.game-action-disabled-reason {
+  margin: 0.25rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
 }
 
 .goal-header {
@@ -2555,6 +2572,12 @@
   border-radius: 8px;
   border-left: 4px solid;
   background: rgba(255, 255, 255, 0.5);
+}
+
+.note-edited-meta {
+  margin-top: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
 }
 
 .note-card.note-gold-star {
