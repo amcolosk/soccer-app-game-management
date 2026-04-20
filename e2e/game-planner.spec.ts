@@ -117,22 +117,30 @@ async function createGame(page: Page) {
 
   const scheduleButton = page.getByRole('button', { name: /\+\s*Schedule New Game/i }).first();
   const scheduleButtonFallback = page.getByRole('button', { name: /Schedule New Game/i }).first();
-  const teamSelect = page.locator('select').first();
 
   await expect(scheduleButton).toBeVisible({ timeout: 10000 });
   await closeWelcomeModal(page);
   await scheduleButton.click({ force: true });
   await page.waitForTimeout(UI_TIMING.STANDARD);
 
-  const isFormVisible = await teamSelect.isVisible({ timeout: 2500 }).catch(() => false);
+  let scheduleForm = page.locator('.create-form').filter({ has: page.getByRole('heading', { name: 'Schedule New Game' }) }).first();
+  const isFormVisible = await scheduleForm.isVisible({ timeout: 2500 }).catch(() => false);
   if (!isFormVisible) {
     await closeWelcomeModal(page);
     await scheduleButtonFallback.click({ force: true });
     await scheduleButtonFallback.dispatchEvent('click');
     await page.waitForTimeout(UI_TIMING.STANDARD);
+    scheduleForm = page.locator('.create-form').filter({ has: page.getByRole('heading', { name: 'Schedule New Game' }) }).first();
   }
 
-  await expect(teamSelect).toBeVisible({ timeout: 5000 });
+  const teamSelect = scheduleForm.locator('select').first();
+  await expect(scheduleForm).toBeVisible({ timeout: 10000 });
+  await expect
+    .poll(async () => teamSelect.locator('option').count(), {
+      timeout: 15000,
+      message: 'Expected schedule-game team options to be hydrated in game planner setup',
+    })
+    .toBeGreaterThan(1);
   await teamSelect.selectOption({ label: TEST_DATA.team.name });
   await page.waitForTimeout(300);
 

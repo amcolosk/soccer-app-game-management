@@ -43,6 +43,237 @@ async function logout(page: Page) {
   }
 }
 
+async function openSharedGame(page: Page): Promise<string | null> {
+  await page.goto('/');
+  await waitForPageLoad(page);
+
+  const preferredOpponents = [GAME_OPPONENT, GAME_OPPONENT_PRE_INVITE];
+  for (const opponent of preferredOpponents) {
+    const card = page.locator('.game-card').filter({ hasText: opponent }).first();
+    if (await card.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const openButton = card.locator('.open-game-button').first();
+      if (await openButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await openButton.click();
+      } else {
+        await card.click();
+      }
+      await waitForPageLoad(page);
+      return opponent;
+    }
+  }
+
+  return null;
+}
+
+async function ensureGameStartedForQueue(page: Page): Promise<boolean> {
+  const inProgressUiVisible = await page.locator('.game-tab-nav').isVisible({ timeout: 1500 }).catch(() => false);
+  if (inProgressUiVisible) {
+    return true;
+  }
+
+  const parseLineupCounts = async (): Promise<{ chosen: number; expected: number } | null> => {
+    const heading = page.locator('.lineup-header h2').first();
+    if (!await heading.isVisible({ timeout: 1000 }).catch(() => false)) {
+      return null;
+    }
+    const text = (await heading.textContent()) ?? '';
+    const match = text.match(/\((\d+)\s*\/\s*(\d+)\)/);
+    if (!match) return null;
+    return {
+      chosen: Number(match[1]),
+      expected: Number(match[2]),
+    };
+  };
+
+  // In scheduled state, LineupBuilder replaces each select once assigned.
+  // Keep retrying while roster/availability data hydrates to avoid false negatives.
+  for (let attempts = 0; attempts < 40; attempts += 1) {
+    const counts = await parseLineupCounts();
+    if (counts && counts.chosen >= counts.expected) {
+      break;
+    }
+
+    const lineupSelect = page.locator('.starting-lineup-container .player-select').first();
+    const hasVisibleSelect = await lineupSelect.isVisible({ timeout: 800 }).catch(() => false);
+
+    if (!hasVisibleSelect) {
+      await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+      continue;
+    }
+
+    const optionCount = await lineupSelect.locator('option').count();
+    if (optionCount <= 1) {
+      await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+      continue;
+    }
+
+    await lineupSelect.selectOption({ index: 1 });
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+  }
+
+  const postFillCounts = await parseLineupCounts();
+  if (postFillCounts && postFillCounts.chosen < postFillCounts.expected) {
+    return false;
+  }
+
+  const startButtons = page.getByRole('button', { name: 'Start Game' });
+  if (!await startButtons.first().isVisible({ timeout: 2000 }).catch(() => false)) {
+    return await page.locator('.game-tab-nav').isVisible({ timeout: 1500 }).catch(() => false);
+  }
+
+  await startButtons.first().click({ force: true });
+  await page.waitForTimeout(UI_TIMING.STANDARD);
+
+  const availabilityHeading = page.getByRole('heading', { name: 'Player Availability Check' });
+  if (await availabilityHeading.isVisible({ timeout: 3000 }).catch(() => false)) {
+    const modalStartButtons = page.getByRole('button', { name: 'Start Game' });
+    const buttonCount = await modalStartButtons.count();
+    for (let i = buttonCount - 1; i >= 0; i -= 1) {
+      const candidate = modalStartButtons.nth(i);
+      if (await candidate.isVisible({ timeout: 800 }).catch(() => false)) {
+        await candidate.click({ force: true });
+        await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+        break;
+      }
+    }
+  }
+
+  return await page.locator('.game-tab-nav').isVisible({ timeout: 5000 }).catch(() => false);
+}
+
+async function ensurePlannedStartingLineupForOpponent(page: Page, opponent: string): Promise<void> {
+  await page.goto('/');
+  await waitForPageLoad(page);
+
+  const gameCard = page.locator('.game-card').filter({ hasText: opponent }).first();
+  await expect(gameCard).toBeVisible({ timeout: 10000 });
+
+  const planButton = gameCard.locator('.plan-button').first();
+  await expect(planButton).toBeVisible({ timeout: 5000 });
+  await planButton.click();
+  await waitForPageLoad(page);
+
+  await expect(page.locator('.game-planner-container')).toBeVisible({ timeout: 10000 });
+
+  const rotationsTab = page.getByRole('tab', { name: /Rotations/i });
+  if (await rotationsTab.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await rotationsTab.click();
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  }
+
+  const startTab = page.getByRole('tab', { name: 'Start' });
+  if (await startTab.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await startTab.click();
+    await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  }
+
+  let lineupSelects = page.locator('.rotation-details-panel .position-slot select');
+  let slotCount = await lineupSelects.count();
+  if (slotCount === 0) {
+    lineupSelects = page.getByRole('combobox');
+    slotCount = await lineupSelects.count();
+  }
+
+  expect(slotCount).toBeGreaterThan(0);
+
+  for (let idx = 0; idx < slotCount; idx += 1) {
+    const select = lineupSelects.nth(idx);
+    const selectedValue = await select.inputValue().catch(() => '');
+    if (selectedValue) continue;
+
+    const optionCount = await select.locator('option').count();
+    if (optionCount > 1) {
+      await select.selectOption({ index: Math.min(idx + 1, optionCount - 1) });
+      await page.waitForTimeout(UI_TIMING.QUICK);
+    }
+  }
+
+  const createOrUpdatePlanButton = page.locator('button').filter({ hasText: /Create Game Plan|Update Plan/ }).first();
+  await expect(createOrUpdatePlanButton).toBeVisible({ timeout: 10000 });
+  await createOrUpdatePlanButton.click();
+  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+}
+
+async function ensureSharedTeamRosterDepth(page: Page, targetPlayers: number): Promise<void> {
+  const seedPlayers = Array.from({ length: targetPlayers }, (_, idx) => ({
+    firstName: `QueueSeed${idx + 1}`,
+    lastName: 'Coach',
+    number: `${30 + idx}`,
+  }));
+
+  await navigateToManagement(page);
+
+  await clickManagementTab(page, 'Players');
+  await page.waitForTimeout(UI_TIMING.STANDARD);
+
+  for (const player of seedPlayers) {
+    const fullName = `${player.firstName} ${player.lastName}`;
+    const existingPlayerCard = page.locator('.item-card').filter({ hasText: fullName }).first();
+    if (await existingPlayerCard.isVisible({ timeout: 1000 }).catch(() => false)) {
+      continue;
+    }
+
+    await clickButton(page, '+ Add Player');
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+    await fillInput(page, 'input[placeholder*="First Name"]', player.firstName);
+    await fillInput(page, 'input[placeholder*="Last Name"]', player.lastName);
+    await clickButton(page, 'Add');
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    await expect(page.locator('.item-card').filter({ hasText: fullName }).first()).toBeVisible({ timeout: 5000 });
+  }
+
+  await clickManagementTab(page, 'Teams');
+  await page.waitForTimeout(UI_TIMING.STANDARD);
+
+  const sharedTeamCard = page.locator('.item-card').filter({ hasText: SHARED_TEAM_NAME }).first();
+  await expect(sharedTeamCard).toBeVisible({ timeout: 10000 });
+
+  const expandRosterIfNeeded = async () => {
+    const rosterToggle = sharedTeamCard.locator('button[aria-label*="roster" i]').first();
+    if (await rosterToggle.isVisible({ timeout: 1000 }).catch(() => false)) {
+      const rosterLabel = (await rosterToggle.getAttribute('aria-label')) ?? '';
+      if (/show/i.test(rosterLabel)) {
+        await rosterToggle.click({ force: true });
+        await page.waitForTimeout(UI_TIMING.STANDARD);
+      }
+    }
+  };
+
+  await sharedTeamCard.click();
+  await page.waitForTimeout(UI_TIMING.QUICK);
+  await expandRosterIfNeeded();
+
+  for (const player of seedPlayers) {
+    const fullName = `${player.firstName} ${player.lastName}`;
+    const existingRosterEntry = sharedTeamCard.locator('.roster-list, .item-card, .team-roster-section').filter({ hasText: fullName }).first();
+    if (await existingRosterEntry.isVisible({ timeout: 800 }).catch(() => false)) {
+      continue;
+    }
+
+    await sharedTeamCard.click();
+    await page.waitForTimeout(UI_TIMING.QUICK);
+    await expandRosterIfNeeded();
+
+    const addToRosterButton = sharedTeamCard.locator('button:visible', { hasText: /Add Player to Roster/i }).first();
+    if (await addToRosterButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await addToRosterButton.click({ force: true });
+    } else {
+      const fallbackAddToRosterButton = page.getByRole('button', { name: /Add Player to Roster/i }).first();
+      await expect(fallbackAddToRosterButton).toBeVisible({ timeout: 10000 });
+      await fallbackAddToRosterButton.click();
+    }
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    const rosterForm = page.locator('.team-roster-section .create-form').first();
+    await expect(rosterForm).toBeVisible({ timeout: 5000 });
+    await rosterForm.locator('select').first().selectOption({ label: `${player.firstName} ${player.lastName}` });
+    await rosterForm.locator('input[placeholder*="Player Number"], input[placeholder*="number"], input[type="number"]').first().fill(player.number);
+
+    await rosterForm.locator('.form-actions button.btn-primary', { hasText: 'Add' }).first().click();
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+  }
+}
+
 // Helper to get invitation link from email
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function _getInvitationLink(page: Page): Promise<string | null> {
@@ -64,6 +295,7 @@ async function _getInvitationLink(page: Page): Promise<string | null> {
 
 test.describe.serial('Team Sharing and Collaboration', () => {
   let invitationId: string = '';
+  let syncedScoreAfterCollab: string | null = null;
   
   test('User 1 creates team, adds data, and sends invitation to User 2', async ({ page }) => {
     test.setTimeout(TEST_CONFIG.timeout.medium);
@@ -705,6 +937,148 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     console.log('✓ User 2 has full edit permissions on shared team\n');
   });
 
+  test('Executed substitutions are visible to the other coach', async ({ page }) => {
+    test.setTimeout(TEST_CONFIG.timeout.long);
+
+    const readCommandBandScore = async (): Promise<string> => {
+      const scoreText = ((await page.locator('.command-band__score').first().textContent()) ?? '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const match = scoreText.match(/(\d+)\s*[–-]\s*(\d+)/);
+      expect(match).toBeTruthy();
+      return `${match![1]}-${match![2]}`;
+    };
+
+    await loginUser(page, TEST_USERS.user2.email, TEST_USERS.user2.password);
+
+    await ensureSharedTeamRosterDepth(page, 8);
+
+    const openedOpponent = await openSharedGame(page);
+    expect(openedOpponent).toBeTruthy();
+    const resolvedOpponent = openedOpponent as string;
+
+    let gameStarted = await ensureGameStartedForQueue(page);
+    if (!gameStarted) {
+      await ensurePlannedStartingLineupForOpponent(page, resolvedOpponent);
+
+      const reopenedOpponent = await openSharedGame(page);
+      expect(reopenedOpponent).toBeTruthy();
+
+      gameStarted = await ensureGameStartedForQueue(page);
+    }
+
+    expect(gameStarted).toBe(true);
+
+    const goalsTab = page.getByRole('tab', { name: 'Goals' });
+    if (await goalsTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await goalsTab.click();
+      await page.waitForTimeout(UI_TIMING.QUICK);
+    }
+
+    const opponentGoalButton = page.locator('button.btn-goal-opponent').first();
+    await expect(opponentGoalButton).toBeVisible({ timeout: 10000 });
+    await opponentGoalButton.click({ force: true });
+    await expect(page.getByRole('heading', { name: 'Record Goal' })).toBeVisible({ timeout: 5000 });
+    await page.locator('.modal-content .form-actions .btn-primary', { hasText: 'Record Goal' }).click({ force: true });
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+    await expect(page.locator('.goal-card').first()).toBeVisible({ timeout: 10000 });
+    const coach2Score = await readCommandBandScore();
+    expect(coach2Score).toBe('0-1');
+
+    const fieldTab = page.getByRole('tab', { name: 'Field' });
+    if (await fieldTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await fieldTab.click();
+      await page.waitForTimeout(UI_TIMING.QUICK);
+    }
+
+    const substituteButton = page.locator('button.btn-substitute').first();
+    await expect(substituteButton).toBeVisible({ timeout: 10000 });
+
+    await substituteButton.click({ force: true });
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    const queueAction = page
+      .locator('.sub-player-item button, .sub-player-item .btn-primary, .sub-player-item .btn-secondary')
+      .filter({ hasText: /Queue/i })
+      .first();
+
+    await expect(queueAction).toBeVisible({ timeout: 10000 });
+
+    await queueAction.click({ force: true });
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    await expect(page.locator('.sub-queue-section')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.sub-queue-section')).toContainText('Substitution Queue (1)');
+
+    const queuedIncomingTextRaw = ((await page.locator('.sub-queue-item .sub-player-row--in').first().textContent()) ?? '').replace(/\s+/g, ' ').trim();
+    const incomingPlayerName = queuedIncomingTextRaw
+      .replace(/^IN\s*/i, '')
+      .replace(/^#\d+\s*/, '')
+      .replace(/\s*\(.+\)$/, '')
+      .trim();
+
+    const executeNowButton = page.locator('.sub-queue-item .btn-execute-sub').first();
+    await expect(executeNowButton).toBeVisible({ timeout: 10000 });
+
+    await executeNowButton.click({ force: true });
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+    const queueItemsAfterExecution = page.locator('.sub-queue-item');
+    await expect(queueItemsAfterExecution).toHaveCount(0);
+
+    await logout(page);
+    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+
+    const user1OpenedOpponent = await openSharedGame(page);
+    expect(user1OpenedOpponent).toBeTruthy();
+
+    const user1FieldTab = page.getByRole('tab', { name: 'Field' });
+    if (await user1FieldTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await user1FieldTab.click();
+      await page.waitForTimeout(UI_TIMING.QUICK);
+    }
+
+    try {
+      await expect
+        .poll(async () => readCommandBandScore(), {
+          timeout: 25000,
+          message: 'Coach 1 score should converge to Coach 2 score',
+        })
+        .toBe(coach2Score);
+    } catch {
+      // Subscription delivery between coaches can lag on CI; reload and re-open once.
+      await page.goto('/');
+      await waitForPageLoad(page);
+
+      const expectedOpponent = user1OpenedOpponent ?? GAME_OPPONENT;
+      const reopenedCard = page.locator('.game-card, .item-card').filter({ hasText: expectedOpponent }).first();
+      await expect(reopenedCard).toBeVisible({ timeout: 15000 });
+      const reopenedOpenButton = reopenedCard.locator('.open-game-button').first();
+      if (await reopenedOpenButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await reopenedOpenButton.click();
+      } else {
+        await reopenedCard.click();
+      }
+      await waitForPageLoad(page);
+
+      await expect
+        .poll(async () => readCommandBandScore(), {
+          timeout: 30000,
+          message: 'Coach 1 score should converge to Coach 2 score after reload',
+        })
+        .toBe(coach2Score);
+    }
+    const coach1Score = await readCommandBandScore();
+    syncedScoreAfterCollab = coach1Score;
+
+    expect(incomingPlayerName.length).toBeGreaterThan(0);
+
+    await expect(page.locator('.position-lineup-grid')).toContainText(incomingPlayerName, { timeout: 10000 });
+
+    console.log(`✓ Executed substitution and score synced for ${resolvedOpponent}; lineup includes ${incomingPlayerName}, score ${coach1Score}`);
+  });
+
   test('User 1 verifies changes and cleans up', async ({ page }) => {
     test.setTimeout(TEST_CONFIG.timeout.medium);
     
@@ -726,6 +1100,55 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       const gameCard = page.locator('.game-card, .item-card').filter({ hasText: GAME_OPPONENT });
       await expect(gameCard.first()).toBeVisible({ timeout: 5000 });
       console.log(`✓ User 1 can see game created by User 2: ${GAME_OPPONENT}`);
+
+      const openButton = gameCard.first().locator('.open-game-button').first();
+      if (await openButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await openButton.click();
+      } else {
+        await gameCard.first().click();
+      }
+      await waitForPageLoad(page);
+
+      const readCommandBandScore = async (): Promise<string> => {
+        const scoreText = ((await page.locator('.command-band__score').first().textContent()) ?? '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        const match = scoreText.match(/(\d+)\s*[–-]\s*(\d+)/);
+        expect(match).toBeTruthy();
+        return `${match![1]}-${match![2]}`;
+      };
+
+      const expectedCleanupScore = syncedScoreAfterCollab ?? '0-1';
+      try {
+        await expect
+          .poll(async () => readCommandBandScore(), {
+            timeout: 20000,
+            message: 'Cleanup score should match previously synchronized score',
+          })
+          .toBe(expectedCleanupScore);
+      } catch {
+        // Cross-user score updates can lag; reload once and verify again.
+        await page.goto('/');
+        await waitForPageLoad(page);
+        const reopenedGameCard = page.locator('.game-card, .item-card').filter({ hasText: GAME_OPPONENT }).first();
+        await expect(reopenedGameCard).toBeVisible({ timeout: 10000 });
+        const reopenedOpenButton = reopenedGameCard.locator('.open-game-button').first();
+        if (await reopenedOpenButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+          await reopenedOpenButton.click();
+        } else {
+          await reopenedGameCard.click();
+        }
+        await waitForPageLoad(page);
+
+        await expect
+          .poll(async () => readCommandBandScore(), {
+            timeout: 25000,
+            message: 'Cleanup score should match previously synchronized score after reload',
+          })
+          .toBe(expectedCleanupScore);
+      }
+      const cleanupScore = await readCommandBandScore();
+      console.log(`✓ User 1 still sees synchronized score: ${cleanupScore}`);
     } else {
       console.log('⚠ Game not created in Test 2, skipping game visibility check in Test 3');
     }

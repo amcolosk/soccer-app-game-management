@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { showWarning } from "../../utils/toast";
+import { showWarning, showSuccess } from "../../utils/toast";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
 import { handleApiError } from "../../utils/errorHandler";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
@@ -17,7 +17,6 @@ interface GoalTrackerProps {
   players: PlayerWithRoster[];
   goals: Goal[];
   currentTime: number;
-  onScoreUpdate: (ourScore: number, opponentScore: number) => void;
   mutations: GameMutationInput;
   playTimeRecords: PlayTimeRecord[];
   lineup: LineupAssignment[];
@@ -30,7 +29,6 @@ export function GoalTracker({
   players,
   goals,
   currentTime,
-  onScoreUpdate,
   mutations,
   playTimeRecords,
   lineup,
@@ -88,15 +86,14 @@ export function GoalTracker({
         coaches: team.coaches,
       });
 
-      const newOurScore = goalScoredByUs ? (gameState.ourScore || 0) + 1 : (gameState.ourScore || 0);
-      const newOpponentScore = !goalScoredByUs ? (gameState.opponentScore || 0) + 1 : (gameState.opponentScore || 0);
+      // In completed state, GameManagement will auto-reconcile score from goals.
+      // In active states, score is derived from goals array (no manual write).
+      if (gameState.status === 'completed') {
+        const newOurScore = goalScoredByUs ? (gameState.ourScore || 0) + 1 : (gameState.ourScore || 0);
+        const newOpponentScore = !goalScoredByUs ? (gameState.opponentScore || 0) + 1 : (gameState.opponentScore || 0);
+        showSuccess(`Goal added. Final score updated to ${newOurScore}–${newOpponentScore}.`);
+      }
 
-      await mutations.updateGame(game.id, {
-        ourScore: newOurScore,
-        opponentScore: newOpponentScore,
-      });
-
-      onScoreUpdate(newOurScore, newOpponentScore);
       setShowGoalModal(false);
       trackEvent(AnalyticsEvents.GOAL_RECORDED.category, AnalyticsEvents.GOAL_RECORDED.action, goalScoredByUs ? 'own' : 'opponent');
     } catch (error) {
@@ -133,6 +130,9 @@ export function GoalTracker({
         assistId: editAssistId || undefined,
         notes: editNotes || undefined,
       } as GoalUpdateFields);
+      
+      showSuccess('Goal updated.');
+      
       handleCloseEditGoalModal();
     } catch (err) {
       handleApiError(err, 'Failed to save goal');
@@ -153,26 +153,27 @@ export function GoalTracker({
     if (!confirmed) return;
     try {
       await mutations.deleteGoal(goal.id);
-      const newOurScore = goal.scoredByUs
-        ? Math.max(0, (gameState.ourScore ?? 0) - 1)
-        : (gameState.ourScore ?? 0);
-      const newOpponentScore = goal.scoredByUs
-        ? (gameState.opponentScore ?? 0)
-        : Math.max(0, (gameState.opponentScore ?? 0) - 1);
-      await mutations.updateGame(gameState.id, {
-        ourScore: newOurScore,
-        opponentScore: newOpponentScore,
-      });
-      onScoreUpdate(newOurScore, newOpponentScore);
+      
+      // In completed state, GameManagement will auto-reconcile score from remaining goals.
+      // In active states, score is derived from goals array (no manual write).
+      if (gameState.status === 'completed') {
+        const newOurScore = goal.scoredByUs
+          ? Math.max(0, (gameState.ourScore ?? 0) - 1)
+          : (gameState.ourScore ?? 0);
+        const newOpponentScore = goal.scoredByUs
+          ? (gameState.opponentScore ?? 0)
+          : Math.max(0, (gameState.opponentScore ?? 0) - 1);
+        showSuccess(`Goal deleted. Final score updated to ${newOurScore}–${newOpponentScore}.`);
+      }
     } catch (err) {
       handleApiError(err, 'Failed to delete goal');
     }
-  }, [confirm, gameState, mutations, onScoreUpdate]);
+  }, [confirm, gameState, mutations]);
 
   return (
     <>
       {/* Goal Buttons */}
-      {gameState.status !== 'scheduled' && gameState.status !== 'completed' && (
+      {gameState.status !== 'scheduled' && (
         <div className="goal-buttons">
           <button onClick={() => handleOpenGoalModal(true)} className="btn-goal btn-goal-us">
             ⚽ Goal - Us
@@ -180,6 +181,13 @@ export function GoalTracker({
           <button onClick={() => handleOpenGoalModal(false)} className="btn-goal btn-goal-opponent">
             ⚽ Goal - {gameState.opponent}
           </button>
+        </div>
+      )}
+
+      {/* Empty State for Completed */}
+      {gameState.status === 'completed' && goals.length === 0 && (
+        <div className="goals-empty-state">
+          <p>No goals recorded yet. Add a goal to correct the final score.</p>
         </div>
       )}
 
@@ -246,9 +254,9 @@ export function GoalTracker({
 
       {/* Goal Recording Modal */}
       {showGoalModal && (
-        <div className="modal-overlay" onClick={() => setShowGoalModal(false)}>
+        <div className="modal-overlay" onClick={() => setShowGoalModal(false)} role="dialog" aria-modal="true" aria-labelledby="record-goal-modal-title">
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>Record Goal</h2>
+            <h2 id="record-goal-modal-title">Record Goal</h2>
             <p className="modal-subtitle">
               {goalScoredByUs ? 'Our Goal' : `${gameState.opponent} Goal`} - {formatGameTimeDisplay(getCurrentGameTime(), gameState.currentHalf || 1)}
             </p>

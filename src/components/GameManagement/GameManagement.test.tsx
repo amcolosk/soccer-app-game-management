@@ -1093,6 +1093,22 @@ describe("GameManagement – handleQueueSubstitution batching", () => {
     // Queue should still be length 1 — no duplicate added
     await waitFor(() => expect(mockCaptures.latestSubstitutionQueue).toHaveLength(1));
   });
+
+  it("resets substitution queue on remount (queue is local-only draft state)", async () => {
+    const view = renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    act(() => {
+      mockCaptures.onQueueSubstitution!("player-1", "pos-1");
+    });
+    await waitFor(() => expect(mockCaptures.latestSubstitutionQueue).toHaveLength(1));
+
+    view.unmount();
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    await waitFor(() => {
+      expect(mockCaptures.latestSubstitutionQueue ?? []).toHaveLength(0);
+    });
+  });
 });
 
 describe("GameManagement – starter fallback uses resolved starters", () => {

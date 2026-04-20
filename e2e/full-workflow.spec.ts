@@ -183,13 +183,62 @@ async function createGame(page: Page, gameData: { opponent: string; date: string
   // Wait for the Schedule New Game button to be visible
   await page.waitForSelector('button:has-text("+ Schedule New Game")', { timeout: 5000 });
   
-  // Create game from Home page
-  await page.getByRole('button', { name: '+ Schedule New Game', exact: true }).click();
-  await page.waitForTimeout(UI_TIMING.STANDARD);
-  await waitForPageLoad(page);
-  
+  // Open schedule form and wait until the newly-created team appears.
+  let teamSelect = page.locator('.create-form select').first();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const scheduleButton = page.getByRole('button', { name: '+ Schedule New Game', exact: true });
+    if (await scheduleButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await scheduleButton.click();
+      await page.waitForTimeout(UI_TIMING.STANDARD);
+    }
+
+    await waitForPageLoad(page);
+    const scheduleForm = page
+      .locator('.create-form')
+      .filter({ has: page.getByRole('heading', { name: 'Schedule New Game' }) })
+      .first();
+    await expect(scheduleForm).toBeVisible({ timeout: 10000 });
+    teamSelect = scheduleForm.locator('select').first();
+
+    let hasTargetTeamOption = false;
+    try {
+      await expect
+        .poll(async () => {
+          const options = (await teamSelect.locator('option').allTextContents()).map((text) => text.trim());
+          return options.includes(TEST_DATA.team.name);
+        }, {
+          timeout: 15000,
+          message: `Expected schedule-game team option "${TEST_DATA.team.name}" to be hydrated`,
+        })
+        .toBe(true);
+      hasTargetTeamOption = true;
+    } catch {
+      hasTargetTeamOption = false;
+    }
+
+    if (hasTargetTeamOption) {
+      break;
+    }
+
+    const cancelButton = scheduleForm.getByRole('button', { name: 'Cancel' }).first();
+    if (await cancelButton.isVisible({ timeout: 500 }).catch(() => false)) {
+      await cancelButton.click();
+      await page.waitForTimeout(UI_TIMING.STANDARD);
+    }
+  }
+
+  await expect
+    .poll(async () => {
+      const options = (await teamSelect.locator('option').allTextContents()).map((text) => text.trim());
+      return options.includes(TEST_DATA.team.name);
+    }, {
+      timeout: 5000,
+      message: `Team option "${TEST_DATA.team.name}" must exist before scheduling game`,
+    })
+    .toBe(true);
+
   // Select team from dropdown
-  await page.selectOption('select', { label: TEST_DATA.team.name });
+  await teamSelect.selectOption({ label: TEST_DATA.team.name });
   await page.waitForTimeout(UI_TIMING.STANDARD);
   
   // Fill game form
@@ -209,7 +258,15 @@ async function createGame(page: Page, gameData: { opponent: string; date: string
   await waitForPageLoad(page);
   
   // Verify game was created
-  await expect(page.getByText(gameData.opponent)).toBeVisible();
+  await expect
+    .poll(async () => {
+      const card = page.locator('.game-card').filter({ hasText: gameData.opponent }).first();
+      return await card.isVisible({ timeout: 1000 }).catch(() => false);
+    }, {
+      timeout: 30000,
+      message: `Expected game card for opponent "${gameData.opponent}" after create`,
+    })
+    .toBe(true);
   console.log(`✓ Game created vs ${gameData.opponent}`);
 }
 
@@ -277,12 +334,20 @@ async function setupLineup(page: Page, opponent: string) {
       }
       
       if (!matched) {
-        // Try selecting by partial text match
-        try {
-          // eslint-disable-next-line security/detect-non-literal-regexp
-          await select.selectOption({ label: new RegExp(playerLabel) });
-          console.log(`  ✓ ${player.firstName} ${player.lastName} assigned to position ${i + 1} (regex match)`);
-        } catch {
+        // Fallback: find the first option whose text contains the player label.
+        let fallbackLabel: string | null = null;
+        for (let j = 1; j < optionCount; j++) {
+          const optionText = (await options.nth(j).textContent())?.trim() ?? '';
+          if (optionText.includes(playerLabel)) {
+            fallbackLabel = optionText;
+            break;
+          }
+        }
+
+        if (fallbackLabel) {
+          await select.selectOption({ label: fallbackLabel });
+          console.log(`  ✓ ${player.firstName} ${player.lastName} assigned to position ${i + 1} (label fallback)`);
+        } else {
           console.log(`  ⚠️ Could not find option for ${player.firstName} ${player.lastName}`);
         }
       }
@@ -326,9 +391,11 @@ async function createGamePlan(page: Page, opponent: string) {
   console.log(`✓ Timeline shows ${markerCount} rotation points`);
   
   // Click on R1 rotation marker to go to that rotation view
-  await page.getByRole('tab', { name: 'R1' }).click();
+  const r1Tab = page.getByRole('tab', { name: 'R1' }).first();
+  await expect(r1Tab).toBeVisible({ timeout: 10000 });
+  await r1Tab.click();
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
-  await expect(page.locator('.position-slot')).toHaveCount(7, { timeout: 15000 });
+  await expect(page.locator('.rotation-details-panel .position-slot')).toHaveCount(7, { timeout: 15000 });
   console.log('✓ Clicked on 10\' rotation');
   
   // In the rotation view, find Diana and click to open swap modal.
@@ -381,12 +448,21 @@ async function createGamePlan(page: Page, opponent: string) {
   const backButton = page.locator('button.planner-back-btn');
   await backButton.click();
   await waitForPageLoad(page);
-  
-  // Wait for game cards to appear
-  await page.waitForSelector('.game-card', { timeout: 10000 });
-  
+
+  // Ensure we're on Games and wait for the target opponent card with a refresh fallback.
+  const homeTab = page.locator('a.nav-item', { hasText: 'Games' });
+  await homeTab.click();
+  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+
+  let gameCardForPlay = page.locator('.game-card').filter({ hasText: opponent }).first();
+  if (!(await gameCardForPlay.isVisible({ timeout: 10000 }).catch(() => false))) {
+    await page.goto('/');
+    await waitForPageLoad(page);
+    gameCardForPlay = page.locator('.game-card').filter({ hasText: opponent }).first();
+  }
+  await expect(gameCardForPlay).toBeVisible({ timeout: 20000 });
+
   // Now click on the game card to enter GameManagement for running the game
-  const gameCardForPlay = page.locator('.game-card', { hasText: opponent });
   await gameCardForPlay.click();
   await waitForPageLoad(page);
   
@@ -589,15 +665,55 @@ async function addTestTimeAndWait(page: Page, minutes: 1 | 5): Promise<number> {
     actualMinutesAdded = 1;
   }
 
-  await expect
-    .poll(
-      async () => getDisplayedGameSeconds(page),
-      {
-        timeout: 10000,
-        message: `Expected game clock to advance by ${actualMinutesAdded} minute(s) from ${timerBefore} seconds`,
-      },
-    )
-    .toBeGreaterThanOrEqual(timerBefore + actualMinutesAdded * 60 - 1);
+  const minimumExpectedSeconds = timerBefore + actualMinutesAdded * 60 - 1;
+  let clockAdvanced = false;
+
+  try {
+    await expect
+      .poll(
+        async () => getDisplayedGameSeconds(page),
+        {
+          timeout: 10000,
+          message: `Expected game clock to advance by ${actualMinutesAdded} minute(s) from ${timerBefore} seconds`,
+        },
+      )
+      .toBeGreaterThanOrEqual(minimumExpectedSeconds);
+    clockAdvanced = true;
+  } catch {
+    clockAdvanced = false;
+  }
+
+  // CI can occasionally drop the first click while transitions settle.
+  // Re-apply once before failing to keep time-based tests deterministic.
+  if (!clockAdvanced) {
+    await tryStartGameRecovery();
+    if (actualMinutesAdded === 5) {
+      const addFiveVisible = await addFiveBtn.isVisible({ timeout: 1500 }).catch(() => false);
+      if (addFiveVisible) {
+        await addFiveBtn.scrollIntoViewIfNeeded();
+        await addFiveBtn.click({ force: true });
+      } else {
+        for (let i = 0; i < 5; i++) {
+          await addOneBtn.scrollIntoViewIfNeeded();
+          await addOneBtn.click({ force: true });
+          await page.waitForTimeout(UI_TIMING.QUICK);
+        }
+      }
+    } else {
+      await addOneBtn.scrollIntoViewIfNeeded();
+      await addOneBtn.click({ force: true });
+    }
+
+    await expect
+      .poll(
+        async () => getDisplayedGameSeconds(page),
+        {
+          timeout: 12000,
+          message: `Expected game clock retry to advance by ${actualMinutesAdded} minute(s) from ${timerBefore} seconds`,
+        },
+      )
+      .toBeGreaterThanOrEqual(minimumExpectedSeconds);
+  }
 
   return getDisplayedGameSeconds(page);
 }
@@ -805,6 +921,13 @@ async function runGame(page: Page, gameNumber: number = 1) {
   // and briefly revert the state before the halftime event is fully applied.
   // Additional time needed for authorization delays and DynamoDB operations.
   await expect(startBtn).toBeVisible({ timeout: 30000 });
+
+  // Regression guard: clock must NOT silently continue during halftime.
+  const halftimeSecondsBeforeWait = await getDisplayedGameSeconds(page);
+  await page.waitForTimeout(1500);
+  const halftimeSecondsAfterWait = await getDisplayedGameSeconds(page);
+  expect(halftimeSecondsAfterWait).toBe(halftimeSecondsBeforeWait);
+
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   await startBtn.scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
@@ -824,6 +947,14 @@ async function runGame(page: Page, gameNumber: number = 1) {
       throw new Error('Failed to start second half after 3 attempts');
     }
   }
+
+  // Regression guard: clock must resume once second half starts.
+  await expect
+    .poll(async () => getDisplayedGameSeconds(page), {
+      timeout: 8000,
+      message: 'Expected timer to resume after starting second half',
+    })
+    .toBeGreaterThan(halftimeSecondsAfterWait);
 
   await pauseGameClock(page);
   

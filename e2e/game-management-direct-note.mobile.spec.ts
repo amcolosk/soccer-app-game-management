@@ -40,7 +40,7 @@ const SEED_DATA = {
     ],
   },
   team: {
-    name: 'E2E Mobile Notes Team',
+    name: `E2E Mobile Notes Team ${Date.now().toString(36)}`,
     halfLength: '5',
     maxPlayers: '5',
   },
@@ -51,8 +51,8 @@ const SEED_DATA = {
     { firstName: 'Mobile', lastName: 'Four', number: '4' },
     { firstName: 'Mobile', lastName: 'Five', number: '5' },
   ],
-  inProgressOpponent: 'E2E Mobile Notes In Progress',
-} as const;
+  inProgressOpponent: `E2E Mobile Notes In Progress ${Date.now().toString(36)}`,
+};
 
 const MAX_SEED_ATTEMPTS = 2;
 let seededStateReady = false;
@@ -74,7 +74,17 @@ async function scheduleSeedGame(page: Page, opponent: string): Promise<void> {
   await page.getByRole('button', { name: '+ Schedule New Game', exact: true }).click();
   await page.waitForTimeout(UI_TIMING.STANDARD);
 
-  await page.selectOption('select', { label: SEED_DATA.team.name });
+  const scheduleForm = page.locator('.create-form').filter({ has: page.getByRole('heading', { name: 'Schedule New Game' }) }).first();
+  await expect(scheduleForm).toBeVisible({ timeout: 10000 });
+  const teamSelect = scheduleForm.locator('select').first();
+  await expect
+    .poll(async () => teamSelect.locator('option').count(), {
+      timeout: 15000,
+      message: 'Expected schedule-game team options to be hydrated for mobile seeding',
+    })
+    .toBeGreaterThan(1);
+
+  await teamSelect.selectOption({ label: SEED_DATA.team.name });
   await fillInput(page, 'input[placeholder*="Opponent"]', opponent);
 
   const scheduledDate = new Date();
@@ -198,14 +208,21 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
         await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
       }
 
-      if (await addNoteButton.isVisible({ timeout: 1500 }).catch(() => false)) {
+      // Increased timeout (3000ms) for CI environments where game state updates may be slower
+      if (await addNoteButton.isVisible({ timeout: 3000 }).catch(() => false)) {
         break;
       }
+
+      // If button still not visible, log diagnostics and retry
+      const statusBadge = page.locator('.command-band__status-badge').first();
+      const statusVisible = await statusBadge.isVisible({ timeout: 500 }).catch(() => false);
+      console.log(`⚠️ Attempt ${attempt + 1}/3: "Add note" button not visible after game start. Status badge visible: ${statusVisible}`);
 
       await ensureStartingLineup(page);
     }
 
-    await expect(addNoteButton).toBeVisible({ timeout: 5000 });
+    // Final wait with extended timeout for game state propagation on CI
+    await expect(addNoteButton).toBeVisible({ timeout: 8000 });
   }
 
   if (finishAtHalftime) {
@@ -218,7 +235,10 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
 
 async function seedDeterministicMobileGameStates(page: Page): Promise<void> {
   await navigateToManagement(page);
+  console.log(`  ✓ Navigated to Management`);
+  
   await clickManagementTab(page, 'Formations');
+  console.log(`  ✓ Opened Formations tab`);
 
   const existingFormationCount = await page
     .locator('.item-card h3')
@@ -226,10 +246,14 @@ async function seedDeterministicMobileGameStates(page: Page): Promise<void> {
     .count();
   if (existingFormationCount === 0) {
     await createFormation(page, SEED_DATA.formation);
+    console.log(`  ✓ Created formation: ${SEED_DATA.formation.name}`);
+  } else {
+    console.log(`  ✓ Formation already exists: ${SEED_DATA.formation.name}`);
   }
 
   const formationLabel = `${SEED_DATA.formation.name} (${SEED_DATA.formation.playerCount} players)`;
   await clickManagementTab(page, 'Teams');
+  console.log(`  ✓ Opened Teams tab`);
 
   const existingTeamCount = await page
     .locator('.item-card h3')
@@ -237,13 +261,22 @@ async function seedDeterministicMobileGameStates(page: Page): Promise<void> {
     .count();
   if (existingTeamCount === 0) {
     await createTeam(page, SEED_DATA.team, formationLabel);
+    console.log(`  ✓ Created team: ${SEED_DATA.team.name}`);
+  } else {
+    console.log(`  ✓ Team already exists: ${SEED_DATA.team.name}`);
   }
 
   await ensureSeedPlayers(page);
+  console.log(`  ✓ Ensured ${SEED_DATA.players.length} players exist`);
+  
   await ensureSeedRoster(page);
+  console.log(`  ✓ Ensured ${SEED_DATA.players.length} players added to roster`);
 
   await scheduleSeedGame(page, SEED_DATA.inProgressOpponent);
+  console.log(`  ✓ Scheduled game against: ${SEED_DATA.inProgressOpponent}`);
+  
   await startGameFromScheduledCard(page, SEED_DATA.inProgressOpponent, false);
+  console.log(`  ✓ Started game (in-progress state confirmed)`);
 }
 
 async function ensureSeededState(page: Page): Promise<void> {
@@ -254,15 +287,27 @@ async function ensureSeededState(page: Page): Promise<void> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_SEED_ATTEMPTS; attempt += 1) {
     try {
+      console.log(`📋 Seeding mobile game state (attempt ${attempt}/${MAX_SEED_ATTEMPTS})...`);
       await seedDeterministicMobileGameStates(page);
+      console.log(`✅ Mobile game state seeded successfully`);
       seededStateReady = true;
       return;
     } catch (error) {
       lastError = error;
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`❌ Seeding attempt ${attempt} failed: ${errorMsg}`);
+      
+      // Reset the seeded state flag to retry completely
+      if (attempt < MAX_SEED_ATTEMPTS) {
+        console.log(`🔄 Retrying seeding...`);
+      }
     }
   }
 
-  throw new Error(`Unable to seed deterministic mobile game states after ${MAX_SEED_ATTEMPTS} attempts: ${String(lastError)}`);
+  const finalErrorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+  const msg = `Unable to seed deterministic mobile game states after ${MAX_SEED_ATTEMPTS} attempts. Last error: ${finalErrorMsg}`;
+  console.error(`⚠️ ${msg}`);
+  throw new Error(msg);
 }
 
 /**

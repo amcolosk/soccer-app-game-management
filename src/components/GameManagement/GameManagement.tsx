@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { getCurrentUser } from "aws-amplify/auth";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
@@ -67,6 +68,26 @@ function isStarterCountError(error: unknown): error is StarterCountError {
   return error instanceof StarterCountError;
 }
 
+/**
+ * Compute final score from Goal records.
+ * Used for deriving scores during active game and writing snapshots on completion.
+ */
+function computeScoreFromGoals(goals: Array<{ scoredByUs: boolean }>) {
+  return {
+    ourScore: goals.filter(g => g.scoredByUs).length,
+    opponentScore: goals.filter(g => !g.scoredByUs).length,
+  };
+}
+
+/**
+ * Build a stable fingerprint of goals for deduplication.
+ * Sort by id and hash to detect changes.
+ */
+function buildGoalsFingerprint(goals: Array<{ id: string }>): string {
+  const sorted = [...goals].sort((a, b) => a.id.localeCompare(b.id));
+  return JSON.stringify(sorted.map(g => g.id));
+}
+
 export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const confirm = useConfirm();
   // Load team roster and formation positions with real-time updates
@@ -80,6 +101,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [currentTime, setCurrentTime] = useState(game.elapsedSeconds || 0);
   const [isRunning, setIsRunning] = useState(false);
   const [substitutionRequest, setSubstitutionRequest] = useState<FormationPosition | null>(null);
+  const [userId, setUserId] = useState<string>('');
 
   // Mobile tab navigation (in-progress state only)
   const [activeTab, setActiveTab] = useState<GameTab>("field");
@@ -125,6 +147,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const injuryModalReturnFocusRef = useRef<HTMLElement | null>(null);
   const liveNoteModalReturnFocusRef = useRef<HTMLElement | null>(null);
 
+  // Completed-state reconciliation: prevent concurrent writes and detect goal changes
+  const completedReconcileInFlightRef = useRef(false);
+  const completedGoalsFingerprintRef = useRef<string>('');
+  const completedReconcileTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Subscriptions hook - manages game observation, data subscriptions, and lineup sync
   const {
     gameState,
@@ -156,6 +183,18 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
   const { setHelpContext, setDebugContext } = useHelpFab();
 
+  // Load current user ID for user-scoped localStorage keys (security fix)
+  useEffect(() => {
+    void (async () => {
+      try {
+        const user = await getCurrentUser();
+        setUserId(user.userId);
+      } catch (error) {
+        console.error('[GameManagement] Failed to load current user:', error);
+      }
+    })();
+  }, []);
+
   // Map game status → help key. Reactive: re-runs when game status transitions.
   // @help-content: game-scheduled, game-in-progress, game-halftime, game-completed
   useEffect(() => {
@@ -170,6 +209,105 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     if (key) setHelpContext(key);
     return () => setHelpContext(null);
   }, [gameState.status, setHelpContext]);
+
+    // Active-state score derivation: derive score from goals in real-time
+    // (for scheduled, in-progress, halftime states). Updates gameState locally
+    // without writing to database. Database gets final snapshot on game completion.
+    useEffect(() => {
+      // Only update score in active states; completed state uses separate reconciliation
+      if (gameState.status === 'completed') return;
+
+      // Derive score from current goals
+      const { ourScore, opponentScore } = computeScoreFromGoals(goals);
+
+      // Update gameState if score has changed (triggers CommandBand re-render)
+      setGameState(prev => {
+        if (prev.ourScore === ourScore && prev.opponentScore === opponentScore) {
+          return prev; // No change, avoid re-render
+        }
+        return { ...prev, ourScore, opponentScore };
+      });
+      }, [goals, gameState.status, setGameState]);
+
+  // Completed-state reconciliation: auto-update score snapshot when goals change
+  // (triggered by user goal mutations in completed state).
+  // Uses in-flight guard, fingerprint dedup, and persistent pending marker.
+  useEffect(() => {
+    if (gameState.status !== 'completed') return;
+
+    const reconcile = async () => {
+      // Guard: prevent concurrent writes
+      if (completedReconcileInFlightRef.current) return;
+
+      // Compute score from current goals
+      const { ourScore, opponentScore } = computeScoreFromGoals(goals);
+      const currentFingerprint = buildGoalsFingerprint(goals);
+
+      // Check if goals haven't changed since last attempt (dedup)
+      if (currentFingerprint === completedGoalsFingerprintRef.current) return;
+
+      // Check if score already matches snapshot (no reconcile needed)
+      if (ourScore === gameState.ourScore && opponentScore === gameState.opponentScore) {
+        // Clear pending marker if present
+        const markerKey = `game-score-reconcile:${userId}:${game.id}`;
+        localStorage.removeItem(markerKey);
+        completedGoalsFingerprintRef.current = currentFingerprint;
+        return;
+      }
+
+      // Score mismatch: initiate reconcile
+      completedReconcileInFlightRef.current = true;
+      try {
+        await mutations.updateGame(game.id, {
+          ourScore,
+          opponentScore,
+        });
+        // Success: update state and clear marker
+        setGameState(prev => ({ ...prev, ourScore, opponentScore }));
+        const markerKey = `game-score-reconcile:${userId}:${game.id}`;
+        localStorage.removeItem(markerKey);
+        completedGoalsFingerprintRef.current = currentFingerprint;
+      } catch (error) {
+        // Failure: persist marker for retry on next mount
+        const markerKey = `game-score-reconcile:${userId}:${game.id}`;
+        localStorage.setItem(markerKey, JSON.stringify({ ourScore, opponentScore, timestamp: Date.now() }));
+        console.error('[Completed reconcile] Failed to update score snapshot:', error);
+      } finally {
+        completedReconcileInFlightRef.current = false;
+      }
+    };
+
+    // Debounce reconcile (300ms) to batch rapid goal changes
+    if (completedReconcileTimeoutRef.current) {
+      clearTimeout(completedReconcileTimeoutRef.current);
+    }
+    completedReconcileTimeoutRef.current = setTimeout(() => {
+      void reconcile();
+    }, 300);
+
+    return () => {
+      if (completedReconcileTimeoutRef.current) {
+        clearTimeout(completedReconcileTimeoutRef.current);
+      }
+    };
+  }, [gameState.status, goals, gameState.ourScore, gameState.opponentScore, game.id, userId, mutations, setGameState]);
+
+  // On completed-state activation, check for pending marker and retry
+  useEffect(() => {
+    if (gameState.status !== 'completed') return;
+
+    const markerKey = `game-score-reconcile:${userId}:${game.id}`;
+    const markerData = localStorage.getItem(markerKey);
+    if (!markerData) return;
+
+    // Retry reconcile on next tick
+    const timeoutId = setTimeout(() => {
+      completedReconcileInFlightRef.current = false;
+      completedGoalsFingerprintRef.current = ''; // Force retry
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [gameState.status, game.id, userId]);
 
   const gameManagementDebugContext = useMemo((): GameManagementDebugContext => {
     const availMap: Record<string, number> = {};
@@ -833,7 +971,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     const endGameTime = currentTime;
     setIsRunning(false);
 
-    // CRITICAL: Write 'completed' status to DynamoDB FIRST, before the
+    // Compute final score from goals at time of completion
+    const { ourScore, opponentScore } = computeScoreFromGoals(goals);
+
+    // CRITICAL: Write 'completed' status + score snapshot to DynamoDB FIRST, before the
     // potentially-slow PTR closing pass. If PTR closing throws, the game
     // status must still be persisted so the coach is not stuck in-progress.
     try {
@@ -841,8 +982,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         status: 'completed',
         elapsedSeconds: endGameTime,
         lastStartTime: null, // Clear so stale observeQuery cannot auto-resume
+        ourScore,
+        opponentScore,
       });
-      setGameState(prev => ({ ...prev, status: 'completed', elapsedSeconds: endGameTime }));
+      setGameState(prev => ({ ...prev, status: 'completed', elapsedSeconds: endGameTime, ourScore, opponentScore }));
       setCurrentTime(endGameTime);
       trackEvent(AnalyticsEvents.GAME_COMPLETED.category, AnalyticsEvents.GAME_COMPLETED.action);
     } catch (error) {
@@ -1131,9 +1274,6 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     currentTime,
     playTimeRecords,
     lineup,
-    onScoreUpdate: (ourScore: number, opponentScore: number) => {
-      setGameState({ ...gameState, ourScore, opponentScore });
-    },
     mutations,
   };
 
