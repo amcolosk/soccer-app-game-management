@@ -78,11 +78,14 @@ async function scheduleSeedGame(page: Page, opponent: string): Promise<void> {
   await expect(scheduleForm).toBeVisible({ timeout: 10000 });
   const teamSelect = scheduleForm.locator('select').first();
   await expect
-    .poll(async () => teamSelect.locator('option').count(), {
-      timeout: 15000,
-      message: 'Expected schedule-game team options to be hydrated for mobile seeding',
+    .poll(async () => {
+      const options = await teamSelect.locator('option').allTextContents();
+      return options.some((text) => text.trim() === SEED_DATA.team.name);
+    }, {
+      timeout: 20000,
+      message: `Expected schedule-game team option to include ${SEED_DATA.team.name}`,
     })
-    .toBeGreaterThan(1);
+    .toBe(true);
 
   await teamSelect.selectOption({ label: SEED_DATA.team.name });
   await fillInput(page, 'input[placeholder*="Opponent"]', opponent);
@@ -116,7 +119,7 @@ async function ensureSeedPlayers(page: Page): Promise<void> {
 
   for (const player of SEED_DATA.players) {
     const fullName = `${player.firstName} ${player.lastName}`;
-    const existingPlayer = page.locator('.item-card').filter({ hasText: fullName }).first();
+    const existingPlayer = page.locator('.item-card, .player-card, .player-item').filter({ hasText: fullName }).first();
     if (await existingPlayer.isVisible({ timeout: 1000 }).catch(() => false)) {
       continue;
     }
@@ -127,7 +130,27 @@ async function ensureSeedPlayers(page: Page): Promise<void> {
     await fillInput(page, 'input[placeholder*="Last"]', player.lastName);
     await clickButton(page, 'Add');
     await page.waitForTimeout(UI_TIMING.NAVIGATION);
-    await expect(page.locator('.item-card').filter({ hasText: fullName }).first()).toBeVisible({ timeout: 5000 });
+
+    const isPlayerVisible = await expect
+      .poll(async () => {
+        return page.locator('.item-card, .player-card, .player-item').filter({ hasText: fullName }).count();
+      }, {
+        timeout: 15000,
+        message: `Expected player ${fullName} to appear in Players list after creation`,
+      })
+      .toBeGreaterThan(0)
+      .then(() => true)
+      .catch(() => false);
+
+    if (!isPlayerVisible) {
+      // One recovery attempt: force-tab refresh and re-check for eventual consistency lag.
+      await clickManagementTab(page, 'Teams');
+      await page.waitForTimeout(UI_TIMING.NAVIGATION);
+      await clickManagementTab(page, 'Players');
+      await page.waitForTimeout(UI_TIMING.NAVIGATION);
+      await expect(page.locator('.item-card, .player-card, .player-item').filter({ hasText: fullName }).first())
+        .toBeVisible({ timeout: 10000 });
+    }
   }
 }
 
@@ -165,26 +188,59 @@ async function ensureSeedRoster(page: Page): Promise<void> {
 }
 
 async function ensureStartingLineup(page: Page): Promise<void> {
-  const lineupSelects = page.getByRole('combobox');
-  const slotCount = await lineupSelects.count();
-  if (slotCount === 0) {
-    return;
+  const maxPasses = 6;
+
+  for (let pass = 0; pass < maxPasses; pass += 1) {
+    const lineupSelects = page.getByRole('combobox');
+    const slotCount = await lineupSelects.count();
+    if (slotCount === 0) {
+      return;
+    }
+
+    let unassigned = 0;
+    let changed = 0;
+
+    for (let index = 0; index < slotCount; index += 1) {
+      const select = lineupSelects.nth(index);
+      const selectedLabel = (await select.locator('option:checked').textContent().catch(() => '')) ?? '';
+      if (!/select player/i.test(selectedLabel)) {
+        continue;
+      }
+
+      unassigned += 1;
+      const optionCount = await select.locator('option').count();
+      if (optionCount < 2) {
+        continue;
+      }
+
+      await select.selectOption({ index: 1 });
+      changed += 1;
+      await page.waitForTimeout(UI_TIMING.QUICK);
+    }
+
+    if (unassigned === 0) {
+      return;
+    }
+
+    if (changed === 0) {
+      break;
+    }
+
+    await page.waitForTimeout(UI_TIMING.QUICK);
   }
 
-  for (let index = 0; index < Math.min(slotCount, SEED_DATA.players.length); index += 1) {
-    const select = lineupSelects.nth(index);
-    const optionCount = await select.locator('option').count();
-    if (optionCount < 2) {
-      continue;
+  const remainingSelects = page.getByRole('combobox');
+  const remainingCount = await remainingSelects.count();
+  let remainingUnassigned = 0;
+  for (let index = 0; index < remainingCount; index += 1) {
+    const selectedLabel = (await remainingSelects.nth(index).locator('option:checked').textContent().catch(() => '')) ?? '';
+    if (/select player/i.test(selectedLabel)) {
+      remainingUnassigned += 1;
     }
+  }
 
-    const selectedValue = await select.inputValue().catch(() => '');
-    if (selectedValue) {
-      continue;
-    }
-
-    await select.selectOption({ index: Math.min(index + 1, optionCount - 1) });
-    await page.waitForTimeout(UI_TIMING.QUICK);
+  if (remainingUnassigned > 0) {
+    throw new Error(`Expected all starting lineup slots to be assigned before starting game (remaining: ${remainingUnassigned})`);
   }
 }
 
@@ -194,7 +250,6 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
 
   const addNoteButton = page.getByRole('button', { name: 'Add note' });
   const notesTab = page.getByRole('tab', { name: 'Notes' });
-  const commandBand = page.locator('.command-band').first();
 
   const isInProgressUiReady = async (timeoutMs: number): Promise<boolean> => {
     const addNoteVisible = await addNoteButton.isVisible({ timeout: timeoutMs }).catch(() => false);
@@ -202,10 +257,7 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
 
     const notesTabVisible = await notesTab.isVisible({ timeout: timeoutMs }).catch(() => false);
     if (notesTabVisible) return true;
-
-    // Defensive fallback for slow state propagation: command band visible means
-    // we are in an active game layout even if specific controls render slightly later.
-    return commandBand.isVisible({ timeout: timeoutMs }).catch(() => false);
+    return false;
   };
 
   // If game already in-progress (e.g., serial-mode retry), skip the start-game flow.
