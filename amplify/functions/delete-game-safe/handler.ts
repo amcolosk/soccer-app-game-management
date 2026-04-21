@@ -87,8 +87,9 @@ export const handler: Handler = async (event) => {
   const playerAvailabilityTable = process.env.PLAYER_AVAILABILITY_TABLE;
   const gamePlanTable = process.env.GAME_PLAN_TABLE;
   const plannedRotationTable = process.env.PLANNED_ROTATION_TABLE;
+  const queuedSubstitutionTable = process.env.QUEUED_SUBSTITUTION_TABLE;
 
-  if (!gameTable || !playTimeRecordTable || !goalTable || !gameNoteTable || !substitutionTable || !lineupAssignmentTable || !playerAvailabilityTable || !gamePlanTable || !plannedRotationTable) {
+  if (!gameTable || !playTimeRecordTable || !goalTable || !gameNoteTable || !substitutionTable || !lineupAssignmentTable || !playerAvailabilityTable || !gamePlanTable || !plannedRotationTable || !queuedSubstitutionTable) {
     throw new Error('Required environment variables are not set');
   }
 
@@ -110,7 +111,7 @@ export const handler: Handler = async (event) => {
   const rollbackStack: SnapshotRecord[] = [];
 
   try {
-    const [playTimeRecords, goals, gameNotes, substitutions, lineupAssignments, playerAvailabilities, gamePlans] = await Promise.all([
+    const [playTimeRecords, goals, gameNotes, substitutions, lineupAssignments, playerAvailabilities, gamePlans, queuedSubstitutions] = await Promise.all([
       scanAll(playTimeRecordTable, 'gameId = :gameId', { ':gameId': gameId }),
       scanAll(goalTable, 'gameId = :gameId', { ':gameId': gameId }),
       scanAll(gameNoteTable, 'gameId = :gameId', { ':gameId': gameId }),
@@ -118,6 +119,7 @@ export const handler: Handler = async (event) => {
       scanAll(lineupAssignmentTable, 'gameId = :gameId', { ':gameId': gameId }),
       scanAll(playerAvailabilityTable, 'gameId = :gameId', { ':gameId': gameId }),
       scanAll(gamePlanTable, 'gameId = :gameId', { ':gameId': gameId }),
+      scanAll(queuedSubstitutionTable, 'gameId = :gameId', { ':gameId': gameId }),
     ]);
 
     const plannedRotations: DbItem[] = [];
@@ -128,6 +130,9 @@ export const handler: Handler = async (event) => {
 
     for (const item of plannedRotations) {
       await deleteWithSnapshot(plannedRotationTable, item, rollbackStack);
+    }
+    for (const item of queuedSubstitutions) {
+      await deleteWithSnapshot(queuedSubstitutionTable, item, rollbackStack);
     }
     for (const item of playTimeRecords) {
       await deleteWithSnapshot(playTimeRecordTable, item, rollbackStack);
@@ -157,6 +162,7 @@ export const handler: Handler = async (event) => {
       success: true,
       deletedCounts: {
         plannedRotations: plannedRotations.length,
+        queuedSubstitutions: queuedSubstitutions.length,
         playTimeRecords: playTimeRecords.length,
         goals: goals.length,
         gameNotes: gameNotes.length,

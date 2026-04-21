@@ -95,6 +95,17 @@ export function useGameSubscriptions({
     filter: { gameId: { eq: game.id } },
   }, [game.id]);
 
+  const { data: queuedSubstitutionsRaw } = useAmplifyQuery('QueuedSubstitution', {
+    filter: { gameId: { eq: game.id } },
+  }, [game.id]);
+
+  // FIFO order by createdAt ascending
+  const queuedSubstitutions = useMemo(() => {
+    return [...queuedSubstitutionsRaw].sort((a, b) =>
+      (a.createdAt ?? '').localeCompare(b.createdAt ?? '')
+    );
+  }, [queuedSubstitutionsRaw]);
+
   // Ref to track manual pause - prevents race condition with observeQuery auto-resume
   const manuallyPausedRef = useRef(false);
 
@@ -330,6 +341,7 @@ export function useGameSubscriptions({
     gamePlan,
     plannedRotations,
     playerAvailabilities,
+    queuedSubstitutions,
     manuallyPausedRef,
   };
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { showWarning } from "../../utils/toast";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
 import { handleApiError } from "../../utils/errorHandler";
@@ -34,7 +34,8 @@ interface SubstitutionPanelProps {
   playTimeRecords: PlayTimeRecord[];
   currentTime: number;
   substitutionQueue: SubQueue[];
-  onQueueChange: (queue: SubQueue[]) => void;
+  onQueueAdd: (playerId: string, positionId: string) => void;
+  onQueueRemove: (queueId: string) => void;
   substitutionRequest: FormationPosition | null;
   onSubstitutionRequestHandled: () => void;
   mutations: GameMutationInput;
@@ -50,7 +51,8 @@ export function SubstitutionPanel({
   playTimeRecords,
   currentTime,
   substitutionQueue,
-  onQueueChange,
+  onQueueAdd,
+  onQueueRemove,
   substitutionRequest,
   onSubstitutionRequestHandled,
   mutations,
@@ -60,6 +62,9 @@ export function SubstitutionPanel({
   const [showSubstitution, setShowSubstitution] = useState(false);
   const [substitutionPosition, setSubstitutionPosition] = useState<FormationPosition | null>(null);
   const [liveAnnouncement, setLiveAnnouncement] = useState("");
+  // Prevent double-tap execution per queue item
+  const executingIdsRef = useRef<Set<string>>(new Set());
+  const [isExecutingAll, setIsExecutingAll] = useState(false);
   const shouldFilterInjured = gameState.status === 'in-progress' || gameState.status === 'halftime';
 
   // Pick up substitution requests from the orchestrator (triggered by LineupPanel)
@@ -76,16 +81,18 @@ export function SubstitutionPanel({
       return;
     }
 
-    const filteredQueue = substitutionQueue.filter(
-      (queuedSubstitution) => getPlayerAvailability(queuedSubstitution.playerId) !== 'injured',
+    const injuredItems = substitutionQueue.filter(
+      (queuedSubstitution) => getPlayerAvailability(queuedSubstitution.playerId) === 'injured',
     );
 
-    if (filteredQueue.length !== substitutionQueue.length) {
-      onQueueChange(filteredQueue);
+    if (injuredItems.length > 0) {
+      for (const item of injuredItems) {
+        onQueueRemove(item.id);
+      }
       setLiveAnnouncement('Removed from queue: player marked injured.');
       showWarning('Removed from queue: player marked injured.');
     }
-  }, [getPlayerAvailability, onQueueChange, shouldFilterInjured, substitutionQueue]);
+  }, [getPlayerAvailability, onQueueRemove, shouldFilterInjured, substitutionQueue]);
 
   const isInLineup = (playerId: string) => isPlayerInLineup(playerId, lineup);
   const isCurrentlyPlaying = (playerId: string) => isPlayerCurrentlyPlaying(playerId, playTimeRecords);
@@ -106,19 +113,18 @@ export function SubstitutionPanel({
       return;
     }
 
-    onQueueChange([...substitutionQueue, { playerId, positionId }]);
+    onQueueAdd(playerId, positionId);
     setShowSubstitution(false);
     setSubstitutionPosition(null);
   };
 
-  const handleRemoveFromQueue = (playerId: string, positionId: string) => {
-    onQueueChange(substitutionQueue.filter(
-      q => !(q.playerId === playerId && q.positionId === positionId)
-    ));
+  const handleRemoveFromQueue = (queueItem: SubQueue) => {
+    onQueueRemove(queueItem.id);
   };
 
   const handleExecuteAllSubstitutions = async () => {
     if (substitutionQueue.length === 0) return;
+    if (isExecutingAll) return;
 
     const confirmMessage = `Execute all ${substitutionQueue.length} queued substitutions?`;
     const confirmed = await confirm({
@@ -129,6 +135,7 @@ export function SubstitutionPanel({
     });
     if (!confirmed) return;
 
+    setIsExecutingAll(true);
     try {
       for (const queueItem of substitutionQueue) {
         const { playerId: newPlayerId, positionId } = queueItem;
@@ -136,7 +143,18 @@ export function SubstitutionPanel({
         const currentAssignment = lineup.find(
           l => l.positionId === positionId && l.isStarter
         );
-        if (!currentAssignment) continue;
+        if (!currentAssignment) {
+          // Stale lineup: position changed since queueing — remove item and warn
+          onQueueRemove(queueItem.id);
+          showWarning(`Queued substitution removed: no player currently in ${positionId} position.`);
+          continue;
+        }
+
+        // Skip if already the queued player (sub already applied)
+        if (currentAssignment.playerId === newPlayerId) {
+          onQueueRemove(queueItem.id);
+          continue;
+        }
 
         const oldPlayerId = currentAssignment.playerId;
 
@@ -152,23 +170,39 @@ export function SubstitutionPanel({
           team.coaches || [],
           mutations
         );
+        onQueueRemove(queueItem.id);
       }
 
-      onQueueChange([]);
       trackEvent(AnalyticsEvents.ALL_SUBSTITUTIONS_EXECUTED.category, AnalyticsEvents.ALL_SUBSTITUTIONS_EXECUTED.action);
     } catch (error) {
       handleApiError(error, 'Failed to execute all substitutions. Some may have been completed.');
+    } finally {
+      setIsExecutingAll(false);
     }
   };
 
   const handleExecuteSubstitution = async (queueItem: SubQueue) => {
+    // Double-tap guard
+    if (executingIdsRef.current.has(queueItem.id)) return;
+    executingIdsRef.current.add(queueItem.id);
+
     const { playerId: newPlayerId, positionId } = queueItem;
 
     const currentAssignment = lineup.find(
       l => l.positionId === positionId && l.isStarter
     );
     if (!currentAssignment) {
-      showWarning("No player currently in this position");
+      // Stale lineup guard: position changed since queueing
+      executingIdsRef.current.delete(queueItem.id);
+      onQueueRemove(queueItem.id);
+      showWarning("Queued substitution removed: position lineup was changed by another coach.");
+      return;
+    }
+
+    // Skip if already the queued player (sub already applied by another coach)
+    if (currentAssignment.playerId === newPlayerId) {
+      executingIdsRef.current.delete(queueItem.id);
+      onQueueRemove(queueItem.id);
       return;
     }
 
@@ -188,10 +222,12 @@ export function SubstitutionPanel({
         mutations
       );
 
-      handleRemoveFromQueue(newPlayerId, positionId);
+      onQueueRemove(queueItem.id);
       trackEvent(AnalyticsEvents.SUBSTITUTION_MADE.category, AnalyticsEvents.SUBSTITUTION_MADE.action);
     } catch (error) {
       handleApiError(error, 'Failed to make substitution');
+    } finally {
+      executingIdsRef.current.delete(queueItem.id);
     }
   };
 
@@ -265,6 +301,7 @@ export function SubstitutionPanel({
             <button
               onClick={handleExecuteAllSubstitutions}
               className="btn-sub-all"
+              disabled={isExecutingAll}
               title="Execute all queued substitutions at once"
             >
               ⚽ Sub All Now
@@ -282,7 +319,7 @@ export function SubstitutionPanel({
 
               return (
                 <div
-                  key={`${queueItem.playerId}-${queueItem.positionId}`}
+                  key={queueItem.id}
                   className="sub-queue-item"
                   aria-label={`Queued sub: ${position.abbreviation}, ${currentPlayer?.firstName ?? 'open'} off, ${player.firstName} ${player.lastName} on`}
                 >
@@ -310,14 +347,16 @@ export function SubstitutionPanel({
                     <button
                       onClick={() => handleExecuteSubstitution(queueItem)}
                       className="btn-execute-sub"
+                      disabled={isExecutingAll}
                       aria-label={`Execute sub now: ${currentPlayer?.firstName ?? 'open'} off, ${player.firstName} on for ${position.abbreviation}`}
                       title="Execute substitution now"
                     >
                       ✓ Sub Now
                     </button>
                     <button
-                      onClick={() => handleRemoveFromQueue(queueItem.playerId, queueItem.positionId)}
+                      onClick={() => handleRemoveFromQueue(queueItem)}
                       className="btn-remove-queue"
+                      disabled={isExecutingAll}
                       aria-label={`Remove ${player.firstName} from queue`}
                       title="Remove from queue"
                     >

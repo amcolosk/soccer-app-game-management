@@ -210,9 +210,29 @@ const defaultProps = {
   playTimeRecords: [] as PlayTimeRecord[],
   currentTime: 600,
   substitutionQueue: [] as SubQueue[],
-  onQueueChange: vi.fn(),
+  onQueueAdd: vi.fn(),
+  onQueueRemove: vi.fn(),
   substitutionRequest: null as FormationPosition | null,
   onSubstitutionRequestHandled: vi.fn(),
+  mutations: {
+    createLineupAssignment: vi.fn(),
+    createPlayTimeRecord: vi.fn(),
+    updatePlayTimeRecord: vi.fn(),
+    createSubstitution: vi.fn(),
+    deleteLineupAssignment: vi.fn(),
+    updateLineupAssignment: vi.fn(),
+    updateGame: vi.fn(),
+    createGoal: vi.fn(),
+    updateGoal: vi.fn(),
+    deleteGoal: vi.fn(),
+    createGameNote: vi.fn(),
+    updateGameNote: vi.fn(),
+    deleteGameNote: vi.fn(),
+    createPlayerAvailability: vi.fn(),
+    updatePlayerAvailability: vi.fn(),
+    createQueuedSubstitution: vi.fn(),
+    deleteQueuedSubstitution: vi.fn(),
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -242,7 +262,7 @@ describe('SubstitutionPanel', () => {
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
-        substitutionQueue={[{ playerId: 'player-2', positionId: 'pos-1' }]}
+        substitutionQueue={[{ id: 'q-1', playerId: 'player-2', positionId: 'pos-1' }]}
       />,
     );
     expect(screen.queryByText(/sub all now/i)).not.toBeInTheDocument();
@@ -252,32 +272,32 @@ describe('SubstitutionPanel', () => {
     render(
       <SubstitutionPanel
         {...defaultProps}
-        substitutionQueue={[{ playerId: 'player-2', positionId: 'pos-1' }]}
+        substitutionQueue={[{ id: 'q-1', playerId: 'player-2', positionId: 'pos-1' }]}
       />,
     );
     // Section heading should show queue count
     expect(screen.getByRole('heading', { name: /substitution queue/i })).toBeInTheDocument();
   });
 
-  it('remove from queue (✕) calls onQueueChange without the removed item', async () => {
+  it('remove from queue (✕) calls onQueueRemove with the removed queue id', async () => {
     const user = userEvent.setup();
-    const onQueueChange = vi.fn();
-    const queue: SubQueue[] = [{ playerId: 'player-2', positionId: 'pos-1' }];
+    const onQueueRemove = vi.fn();
+    const queue: SubQueue[] = [{ id: 'q-1', playerId: 'player-2', positionId: 'pos-1' }];
     render(
       <SubstitutionPanel
         {...defaultProps}
         substitutionQueue={queue}
-        onQueueChange={onQueueChange}
+        onQueueRemove={onQueueRemove}
       />,
     );
 
     await user.click(screen.getByTitle('Remove from queue'));
-    expect(onQueueChange).toHaveBeenCalledWith([]);
+    expect(onQueueRemove).toHaveBeenCalledWith('q-1');
   });
 
   it('"Sub All Now" → confirm → executeSubstitution called for queued item', async () => {
     const user = userEvent.setup();
-    const queue: SubQueue[] = [{ playerId: 'player-2', positionId: 'pos-1' }];
+    const queue: SubQueue[] = [{ id: 'q-1', playerId: 'player-2', positionId: 'pos-1' }];
     render(
       <SubstitutionPanel
         {...defaultProps}
@@ -293,7 +313,7 @@ describe('SubstitutionPanel', () => {
   it('"Sub All Now" cancel → executeSubstitution NOT called', async () => {
     mockConfirm.mockResolvedValue(false);
     const user = userEvent.setup();
-    const queue: SubQueue[] = [{ playerId: 'player-2', positionId: 'pos-1' }];
+    const queue: SubQueue[] = [{ id: 'q-1', playerId: 'player-2', positionId: 'pos-1' }];
     render(
       <SubstitutionPanel
         {...defaultProps}
@@ -360,15 +380,15 @@ describe('SubstitutionPanel', () => {
 
   // ── Player actions in modal ---------------------------------------------
 
-  it('"Queue" button adds player to queue via onQueueChange', async () => {
+  it('"Queue" button adds player to queue via onQueueAdd', async () => {
     const user = userEvent.setup();
-    const onQueueChange = vi.fn();
+    const onQueueAdd = vi.fn();
     // Alice is currently playing (pos-1), so only Bob appears as available
     mockIsPlayerCurrentlyPlaying.mockImplementation((playerId: string) => playerId === 'player-1');
     render(
       <SubstitutionPanel
         {...defaultProps}
-        onQueueChange={onQueueChange}
+        onQueueAdd={onQueueAdd}
         substitutionRequest={pos1}
       />,
     );
@@ -376,11 +396,7 @@ describe('SubstitutionPanel', () => {
     await waitFor(() => expect(screen.getAllByTitle('Add to substitution queue')).toHaveLength(1));
     await user.click(screen.getByTitle('Add to substitution queue'));
 
-    expect(onQueueChange).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ positionId: 'pos-1' }),
-      ]),
-    );
+    expect(onQueueAdd).toHaveBeenCalledWith('player-2', 'pos-1');
   });
 
   it('"Sub Now" button in modal calls executeSubstitution', async () => {
@@ -427,18 +443,18 @@ describe('SubstitutionPanel', () => {
     mockGetPlayerAvailability.mockImplementation((playerId: string) =>
       playerId === 'player-2' ? 'injured' : 'available',
     );
-    const onQueueChange = vi.fn();
+    const onQueueRemove = vi.fn();
 
     render(
       <SubstitutionPanel
         {...defaultProps}
-        substitutionQueue={[{ playerId: 'player-2', positionId: 'pos-1' }]}
-        onQueueChange={onQueueChange}
+        substitutionQueue={[{ id: 'q-1', playerId: 'player-2', positionId: 'pos-1' }]}
+        onQueueRemove={onQueueRemove}
       />,
     );
 
     await waitFor(() => {
-      expect(onQueueChange).toHaveBeenCalledWith([]);
+      expect(onQueueRemove).toHaveBeenCalledWith('q-1');
       expect(mockShowWarning).toHaveBeenCalledWith('Removed from queue: player marked injured.');
     });
   });

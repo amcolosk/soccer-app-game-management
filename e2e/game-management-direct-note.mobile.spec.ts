@@ -436,17 +436,19 @@ test.describe('Direct Note Entry — Mobile', () => {
   // ── Icon-only trigger accessibility ────────────────────────────────────────
 
   test('CommandBand note button exists and has accessible name "Add note"', async ({ page }) => {
+    test.setTimeout(TEST_CONFIG.timeout.short);
     const isReady = await navigateToInProgressGame(page);
     expect(isReady).toBeTruthy();
 
     const noteBtn = page.getByRole('button', { name: 'Add note' });
     await expect(noteBtn).toBeVisible();
     await expect(noteBtn).toHaveAccessibleName('Add note');
-  }, TEST_CONFIG.timeout.short);
+  });
 
   // ── Open → Cancel wiring ───────────────────────────────────────────────────
 
   test('Tap Add note → dialog visible → Cancel → dismissed', async ({ page }) => {
+    test.setTimeout(TEST_CONFIG.timeout.short);
     const isReady = await navigateToInProgressGame(page);
     expect(isReady).toBeTruthy();
 
@@ -459,11 +461,12 @@ test.describe('Direct Note Entry — Mobile', () => {
     await page.getByRole('button', { name: 'Cancel' }).click();
     await page.waitForTimeout(UI_TIMING.STANDARD);
     await expect(dialog).not.toBeVisible();
-  }, TEST_CONFIG.timeout.short);
+  });
 
   // ── Save button accessible with keyboard open ──────────────────────────────
 
   test('Save button remains within viewport when note textarea is focused (narrow keyboard-open simulation)', async ({ page }) => {
+    test.setTimeout(TEST_CONFIG.timeout.short);
     const isReady = await navigateToInProgressGame(page);
     expect(isReady).toBeTruthy();
 
@@ -494,12 +497,13 @@ test.describe('Direct Note Entry — Mobile', () => {
 
     // Close modal
     await page.getByRole('button', { name: 'Cancel' }).click();
-  }, TEST_CONFIG.timeout.short);
+  });
 
   // ── Regression: issue #84 — saved note must appear immediately ────────────
   // ref: https://github.com/amcolosk/soccer-app-game-management/issues/84
 
   test.fixme('saved note appears in notes list immediately without page reload (regression #84)', async ({ page }) => {
+    test.setTimeout(TEST_CONFIG.timeout.short);
     const isReady = await navigateToInProgressGame(page);
     expect(isReady).toBeTruthy();
 
@@ -524,9 +528,10 @@ test.describe('Direct Note Entry — Mobile', () => {
     // The note card MUST appear without a page reload — this is the failing assertion for issue #84.
     // Currently FAILS because handleSaveNote does not trigger a notes refresh after the mutation.
     await expect(page.locator('.note-card').first()).toBeVisible({ timeout: 5000 });
-  }, TEST_CONFIG.timeout.short);
+  });
 
   test('note row keeps visible Edit/Delete controls after save (swipe is additive)', async ({ page }) => {
+    test.setTimeout(TEST_CONFIG.timeout.short);
     const isReady = await navigateToInProgressGame(page);
     expect(isReady).toBeTruthy();
 
@@ -546,7 +551,7 @@ test.describe('Direct Note Entry — Mobile', () => {
     await expect(newestNote).toBeVisible({ timeout: 10000 });
     await expect(newestNote.getByRole('button', { name: 'Edit note' })).toBeVisible();
     await expect(newestNote.getByRole('button', { name: 'Delete note' })).toBeVisible();
-  }, TEST_CONFIG.timeout.short);
+  });
 });
 
 test.describe('Action row parity — tablet/desktop', () => {
@@ -557,6 +562,7 @@ test.describe('Action row parity — tablet/desktop', () => {
   });
 
   test('notes action order and keyboard focus remain accessible on tablet width', async ({ page }) => {
+    test.setTimeout(TEST_CONFIG.timeout.short);
     const isReady = await navigateToInProgressGame(page);
     expect(isReady).toBeTruthy();
 
@@ -585,5 +591,5 @@ test.describe('Action row parity — tablet/desktop', () => {
     await expect(actionButtons.nth(0)).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(actionButtons.nth(1)).toBeFocused();
-  }, TEST_CONFIG.timeout.short);
+  });
 });
