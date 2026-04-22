@@ -88,6 +88,10 @@ vi.mock('../LineupBuilder', () => ({
   ),
 }));
 
+vi.mock('./shape/LineupShapeView', () => ({
+  LineupShapeView: () => <div data-testid="lineup-shape-view" />,
+}));
+
 // ---------------------------------------------------------------------------
 // Component under test
 // ---------------------------------------------------------------------------
@@ -307,6 +311,31 @@ describe('LineupPanel', () => {
       />,
     );
     expect(screen.queryByText(/available players/i)).not.toBeInTheDocument();
+  });
+
+  it('renders shape view when viewMode is shape', () => {
+    render(
+      <LineupPanel
+        {...defaultProps}
+        viewMode="shape"
+      />,
+    );
+    expect(screen.getByTestId('lineup-shape-view')).toBeInTheDocument();
+  });
+
+  it('calls onViewModeChange when shape toggle is clicked', async () => {
+    const user = userEvent.setup();
+    const onViewModeChange = vi.fn();
+
+    render(
+      <LineupPanel
+        {...defaultProps}
+        onViewModeChange={onViewModeChange}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /shape/i }));
+    expect(onViewModeChange).toHaveBeenCalledWith('shape');
   });
 
   // ── Substitute button triggers onSubstitute --------------------------------

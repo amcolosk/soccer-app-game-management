@@ -11,6 +11,8 @@ import {
   isPlayerInLineup,
 } from "../../utils/lineupUtils";
 import { LineupBuilder } from "../LineupBuilder";
+import { LineupShapeView } from "./shape/LineupShapeView";
+import { createLineupInteractionAdapter } from "./shape/lineupInteractionAdapter";
 import type { GameMutationInput } from "../../hooks/useOfflineMutations";
 import type {
   Game,
@@ -34,6 +36,10 @@ interface LineupPanelProps {
   hideAvailablePlayers?: boolean;
   onSubstitute: (position: FormationPosition) => void;
   mutations: GameMutationInput;
+  currentUserId?: string;
+  viewMode?: "list" | "shape";
+  onViewModeChange?: (mode: "list" | "shape") => void;
+  onResetViewPreference?: () => void;
 }
 
 export function LineupPanel({
@@ -48,6 +54,9 @@ export function LineupPanel({
   hideAvailablePlayers = false,
   onSubstitute,
   mutations,
+  viewMode = "list",
+  onViewModeChange,
+  onResetViewPreference,
 }: LineupPanelProps) {
   const confirm = useConfirm();
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -56,6 +65,17 @@ export function LineupPanel({
   const startersCount = positions.filter(pos =>
     lineup.some(l => l.positionId === pos.id && l.isStarter)
   ).length;
+
+  const shapeEnabled = gameState.status === "scheduled" || gameState.status === "in-progress" || gameState.status === "halftime";
+  const resolvedViewMode = shapeEnabled ? viewMode : "list";
+
+  const interactionAdapter = createLineupInteractionAdapter({
+    gameStatus: gameState.status ?? "",
+    startersCount,
+    maxStarters: team.maxPlayersOnField,
+    onSubstitute,
+    onStarterLimitReached: showWarning,
+  });
 
   const isInLineup = (playerId: string) => isPlayerInLineup(playerId, lineup);
 
@@ -121,11 +141,7 @@ export function LineupPanel({
   };
 
   const handleEmptyPositionClick = (position: FormationPosition) => {
-    if (startersCount >= team.maxPlayersOnField) {
-      showWarning(`Maximum ${team.maxPlayersOnField} starters allowed`);
-      return;
-    }
-    onSubstitute(position);
+    interactionAdapter.getEmptyNodeInteraction(position).onTap();
   };
 
   const handleAssignPosition = async (positionId: string) => {
@@ -165,11 +181,40 @@ export function LineupPanel({
           <h2>
             {gameState.status === 'halftime' ? 'Second Half Lineup' : gameState.status === 'in-progress' ? 'Current Lineup' : 'Starting Lineup'} ({startersCount}/{team.maxPlayersOnField})
           </h2>
-          {gameState.status === 'halftime' && startersCount > 0 && (
-            <button onClick={handleClearAllPositions} className="btn-clear-lineup">
-              Clear All Positions
-            </button>
-          )}
+          <div className="lineup-header__actions">
+            {shapeEnabled && (
+              <div className="lineup-view-toggle" role="group" aria-label="Lineup view mode">
+                <button
+                  type="button"
+                  className={`btn-secondary ${resolvedViewMode === "list" ? "is-active" : ""}`}
+                  onClick={() => onViewModeChange?.("list")}
+                >
+                  List
+                </button>
+                <button
+                  type="button"
+                  className={`btn-secondary ${resolvedViewMode === "shape" ? "is-active" : ""}`}
+                  onClick={() => onViewModeChange?.("shape")}
+                >
+                  Shape
+                </button>
+                {onResetViewPreference && (
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={onResetViewPreference}
+                  >
+                    Reset View
+                  </button>
+                )}
+              </div>
+            )}
+            {gameState.status === 'halftime' && startersCount > 0 && (
+              <button onClick={handleClearAllPositions} className="btn-clear-lineup">
+                Clear All Positions
+              </button>
+            )}
+          </div>
         </div>
         {gameState.status === 'halftime' && (
           <p className="halftime-lineup-hint">
@@ -181,6 +226,19 @@ export function LineupPanel({
           <p className="empty-state">
             No positions defined. Go to the Positions tab to add field positions first.
           </p>
+        ) : resolvedViewMode === "shape" ? (
+          <LineupShapeView
+            gameState={gameState}
+            game={game}
+            positions={positions}
+            lineup={lineup}
+            players={players}
+            playTimeRecords={playTimeRecords}
+            currentTime={currentTime}
+            teamMaxPlayersOnField={team.maxPlayersOnField}
+            onSubstitute={onSubstitute}
+            onRemoveFromLineup={handleRemoveFromLineup}
+          />
         ) : gameState.status === 'scheduled' ? (
           <LineupBuilder
             positions={positions}

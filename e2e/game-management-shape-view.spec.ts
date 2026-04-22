@@ -1,0 +1,82 @@
+import { test, expect } from "@playwright/test";
+import { navigateToApp, waitForPageLoad } from "./helpers";
+
+test.describe("Game Management shape view", () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test("supports shape mode with locked bench strip and substitution parity", async ({ page }) => {
+    await navigateToApp(page);
+
+    await page.locator("a.nav-item", { hasText: "Games" }).click();
+    await waitForPageLoad(page);
+
+    const gameCardCount = await page.locator(".game-card").count();
+    test.skip(gameCardCount === 0, "No games available to validate shape view in this environment.");
+
+    await page.locator(".game-card").first().click();
+    await waitForPageLoad(page);
+
+    const shapeToggle = page.getByRole("button", { name: "Shape" });
+    const listToggle = page.getByRole("button", { name: "List" });
+    const onCompletedScreen = await page.getByRole("heading", { name: /play time summary/i }).isVisible().catch(() => false);
+    test.skip(onCompletedScreen, "Shape view is out of scope for completed games.");
+
+    await expect(shapeToggle).toBeVisible({ timeout: 10000 });
+    await expect(listToggle).toBeVisible({ timeout: 10000 });
+
+    await shapeToggle.click();
+    await expect(page.getByText("Locked bench strip")).toBeVisible({ timeout: 10000 });
+
+    const emptyNode = page.getByRole("button", { name: /empty/i }).first();
+    if (await emptyNode.isVisible().catch(() => false)) {
+      await emptyNode.click();
+      const substitutionDialog = page.getByRole("heading", { name: /assign player to position|substitution/i }).first();
+      await expect(substitutionDialog).toBeVisible({ timeout: 10000 });
+    }
+  });
+
+  test("fits narrow viewport and keeps shape controls at least 44x44", async ({ page }) => {
+    await navigateToApp(page);
+
+    await page.locator("a.nav-item", { hasText: "Games" }).click();
+    await waitForPageLoad(page);
+
+    const gameCardCount = await page.locator(".game-card").count();
+    test.skip(gameCardCount === 0, "No games available to validate shape view in this environment.");
+
+    await page.locator(".game-card").first().click();
+    await waitForPageLoad(page);
+
+    const onCompletedScreen = await page.getByRole("heading", { name: /play time summary/i }).isVisible().catch(() => false);
+    test.skip(onCompletedScreen, "Shape view is out of scope for completed games.");
+
+    const shapeToggle = page.getByRole("button", { name: "Shape" });
+    await expect(shapeToggle).toBeVisible({ timeout: 10000 });
+    await shapeToggle.click();
+
+    const pitch = page.locator(".lineup-shape-view__pitch");
+    await expect(pitch).toBeVisible({ timeout: 10000 });
+
+    const pitchHasHorizontalOverflow = await pitch.evaluate((element) => element.scrollWidth > element.clientWidth + 1);
+    expect(pitchHasHorizontalOverflow).toBe(false);
+
+    const undersizedTapTargets = await page.locator(".lineup-shape-node__tap-target").evaluateAll((elements) =>
+      elements.filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width < 44 || rect.height < 44;
+      }).length,
+    );
+    expect(undersizedTapTargets).toBe(0);
+
+    const removeButtonCount = await page.locator(".lineup-shape-node__remove").count();
+    if (removeButtonCount > 0) {
+      const undersizedRemoveButtons = await page.locator(".lineup-shape-node__remove").evaluateAll((elements) =>
+        elements.filter((element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.width < 44 || rect.height < 44;
+        }).length,
+      );
+      expect(undersizedRemoveButtons).toBe(0);
+    }
+  });
+});
