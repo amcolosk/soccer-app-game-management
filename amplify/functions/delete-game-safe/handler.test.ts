@@ -48,6 +48,7 @@ describe('delete-game-safe handler', () => {
     process.env.PLAYER_AVAILABILITY_TABLE = 'PlayerAvailabilityTable';
     process.env.GAME_PLAN_TABLE = 'GamePlanTable';
     process.env.PLANNED_ROTATION_TABLE = 'PlannedRotationTable';
+  process.env.QUEUED_SUBSTITUTION_TABLE = 'QueuedSubstitutionTable';
 
     mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
       if (command.__type === 'GetCommand') {

@@ -126,7 +126,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   // Game planner integration
   const [isRecalculating, setIsRecalculating] = useState(false);
 
-  const [substitutionQueue, setSubstitutionQueue] = useState<SubQueue[]>([]);
+  // Optimistic overlay ids pending backend confirmation (to avoid flicker on add)
+  const [optimisticAddIds, setOptimisticAddIds] = useState<Set<string>>(new Set());
+  // Items removed optimistically while delete RPC is in flight (by queue record id)
+  const [optimisticRemoveIds, setOptimisticRemoveIds] = useState<Set<string>>(new Set());
+  // Ref to store pending optimistic-add data for queue rendering before backend confirms
+  const pendingOptimisticAddsRef = useRef<Map<string, SubQueue>>(new Map());
 
   // Edit scheduled game state
   const [isEditingGame, setIsEditingGame] = useState(false);
@@ -163,6 +168,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     gamePlan,
     plannedRotations,
     playerAvailabilities,
+    queuedSubstitutions,
     manuallyPausedRef,
   } = useGameSubscriptions({
     game,
@@ -176,6 +182,54 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   // Use per-game half length override when set; fall back to team default.
   // gameState is live-updated via observeQuery so this recomputes reactively.
   const halfLengthSeconds = (gameState.halfLengthMinutes ?? team.halfLengthMinutes ?? 30) * 60;
+
+  // Merged substitution queue: backend records (FIFO) plus optimistic adds, minus optimistic removes
+  const substitutionQueue = useMemo<SubQueue[]>(() => {
+    // Start with backend records, filter optimistic removes
+    const backendItems = queuedSubstitutions
+      .filter(q => !optimisticRemoveIds.has(q.id))
+      .map(q => ({
+        id: q.id,
+        playerId: q.playerId ?? '',
+        positionId: q.positionId ?? '',
+        createdAt: q.createdAt ?? undefined,
+      }));
+
+    // Add local optimistic items not yet confirmed from backend
+    const backendIds = new Set(backendItems.map(q => q.id));
+    const optimisticItems = Array.from(optimisticAddIds)
+      .filter(id => !backendIds.has(id))
+      .map(id => pendingOptimisticAddsRef.current.get(id))
+      .filter((q): q is SubQueue => q != null);
+
+    return [...backendItems, ...optimisticItems];
+  }, [queuedSubstitutions, optimisticAddIds, optimisticRemoveIds]);
+
+  // When backend confirms an add (item appears in subscription), clear from optimistic set
+  useEffect(() => {
+    if (optimisticAddIds.size === 0) return;
+    const backendIds = new Set(queuedSubstitutions.map(q => q.id));
+    const confirmedIds = Array.from(optimisticAddIds).filter(id => backendIds.has(id));
+    if (confirmedIds.length === 0) return;
+    setOptimisticAddIds(prev => {
+      const next = new Set(prev);
+      for (const id of confirmedIds) next.delete(id);
+      return next;
+    });
+  }, [queuedSubstitutions, optimisticAddIds]);
+
+  // When backend confirms a delete (item disappears from subscription), clear from removes set
+  useEffect(() => {
+    if (optimisticRemoveIds.size === 0) return;
+    const backendIds = new Set(queuedSubstitutions.map(q => q.id));
+    const confirmedRemovals = Array.from(optimisticRemoveIds).filter(id => !backendIds.has(id));
+    if (confirmedRemovals.length === 0) return;
+    setOptimisticRemoveIds(prev => {
+      const next = new Set(prev);
+      for (const id of confirmedRemovals) next.delete(id);
+      return next;
+    });
+  }, [queuedSubstitutions, optimisticRemoveIds]);
 
   // Offline-aware mutation wrapper — routes writes to IndexedDB when offline,
   // drains automatically on reconnect (fixes issue #35).
@@ -1027,6 +1081,20 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     }
   }, [gameState.status]);
 
+  // Clean up shared queue when game completes (delete any remaining queued substitutions)
+  useEffect(() => {
+    if (gameState.status !== 'completed') return;
+    if (queuedSubstitutions.length === 0) return;
+
+    for (const item of queuedSubstitutions) {
+      void mutations.deleteQueuedSubstitution(item.id).catch((err) => {
+        console.warn('[GameManagement] Failed to clean up queued substitution on completion:', err);
+      });
+    }
+  // Only run when status transitions to 'completed'
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState.status]);
+
   useEffect(() => {
     if (gameState.status === 'in-progress' && activeTab === 'notes') {
       void refetchCoachProfiles();
@@ -1038,10 +1106,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const handleQueueSubstitution = (playerId: string, positionId: string) => {
-    // Early-return guards read the closure snapshot for immediate single-click
-    // warning feedback. In batched scenarios (e.g. Queue All) these checks see
-    // stale state and will not fire; the functional updater below is the
-    // authoritative duplicate check for all cases.
+    // Duplicate check against merged queue
     const alreadyQueued = substitutionQueue.some(
       q => q.playerId === playerId && q.positionId === positionId
     );
@@ -1056,14 +1121,39 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       return;
     }
 
-    // Use functional updater so batched calls (e.g. Queue All) each see the
-    // latest queue state instead of the stale closure captured at render time.
-    setSubstitutionQueue(prev => {
-      if (prev.some(q => q.playerId === playerId && q.positionId === positionId)) return prev;
-      if (prev.some(q => q.playerId === playerId)) return prev;
-      return [...prev, { playerId, positionId }];
+    // Generate deterministic id for this enqueue (game+player uniqueness)
+    const newId = crypto.randomUUID();
+    const newItem: SubQueue = { id: newId, playerId, positionId, createdAt: new Date().toISOString() };
+
+    // Optimistic add
+    pendingOptimisticAddsRef.current.set(newId, newItem);
+    setOptimisticAddIds(prev => new Set([...prev, newId]));
+
+    // Persist to backend; on failure, roll back optimistic add
+    void mutations.createQueuedSubstitution({
+      id: newId,
+      gameId: game.id,
+      playerId,
+      positionId,
+      coaches: team.coaches,
+    }).catch((error) => {
+      pendingOptimisticAddsRef.current.delete(newId);
+      setOptimisticAddIds(prev => { const next = new Set(prev); next.delete(newId); return next; });
+      handleApiError(error, 'Failed to queue substitution');
     });
   };
+
+  const handleRemoveFromQueue = useCallback((queueId: string) => {
+    // Optimistic remove
+    setOptimisticRemoveIds(prev => new Set([...prev, queueId]));
+    pendingOptimisticAddsRef.current.delete(queueId);
+
+    void mutations.deleteQueuedSubstitution(queueId).catch((error) => {
+      // Rollback optimistic remove on failure
+      setOptimisticRemoveIds(prev => { const next = new Set(prev); next.delete(queueId); return next; });
+      handleApiError(error, 'Failed to remove from substitution queue');
+    });
+  }, [mutations]);
 
   const openLiveNoteModal = useCallback((intent: OpenLiveNoteIntent, trigger: HTMLElement | null) => {
     liveNoteModalReturnFocusRef.current = trigger;
@@ -1346,7 +1436,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           playTimeRecords={playTimeRecords}
           currentTime={currentTime}
           substitutionQueue={substitutionQueue}
-          onQueueChange={setSubstitutionQueue}
+          onQueueAdd={handleQueueSubstitution}
+          onQueueRemove={handleRemoveFromQueue}
           substitutionRequest={substitutionRequest}
           onSubstitutionRequestHandled={() => setSubstitutionRequest(null)}
           mutations={mutations}

@@ -161,6 +161,8 @@ vi.mock("../../hooks/useOfflineMutations", () => ({
       deleteGameNote:         (...args: unknown[]) => mockDeleteGameNote(...args),
       createPlayerAvailability: (...args: unknown[]) => mockCreatePlayerAvailability(...args),
       updatePlayerAvailability: (...args: unknown[]) => mockUpdatePlayerAvailability(...args),
+      createQueuedSubstitution: vi.fn().mockResolvedValue(undefined),
+      deleteQueuedSubstitution: vi.fn().mockResolvedValue(undefined),
     },
     isOnline:     true,
     pendingCount: 0,
@@ -266,6 +268,7 @@ const defaultSubscription = {
   plannedRotations:     [],
   playerAvailabilities: [],
   manuallyPausedRef:    { current: false },
+  queuedSubstitutions:  [],
 };
 
 const renderComponent = () =>
@@ -1074,9 +1077,16 @@ describe("GameManagement – handleQueueSubstitution batching", () => {
       expect(mockCaptures.latestSubstitutionQueue).toHaveLength(3);
     });
 
-    expect(mockCaptures.latestSubstitutionQueue).toContainEqual({ playerId: "player-1", positionId: "pos-1" });
-    expect(mockCaptures.latestSubstitutionQueue).toContainEqual({ playerId: "player-2", positionId: "pos-2" });
-    expect(mockCaptures.latestSubstitutionQueue).toContainEqual({ playerId: "player-3", positionId: "pos-3" });
+    const queuedPairs = (mockCaptures.latestSubstitutionQueue ?? []).map((item) => ({
+      playerId: item.playerId,
+      positionId: item.positionId,
+    }));
+
+    expect(queuedPairs).toEqual(expect.arrayContaining([
+      { playerId: "player-1", positionId: "pos-1" },
+      { playerId: "player-2", positionId: "pos-2" },
+      { playerId: "player-3", positionId: "pos-3" },
+    ]));
   });
 
   it("does not add a duplicate entry when the same player+position is queued again", async () => {

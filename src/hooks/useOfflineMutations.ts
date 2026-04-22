@@ -120,6 +120,14 @@ export interface PlayerAvailabilityUpdateFields {
   notes?: string | null;
 }
 
+export interface QueuedSubstitutionCreateFields {
+  id: string; // client-generated deterministic id
+  gameId: string;
+  playerId: string;
+  positionId: string;
+  coaches?: string[] | null;
+}
+
 export interface GameMutationInput {
   updateGame: (id: string, fields: GameUpdateFields) => Promise<void>;
   createPlayTimeRecord: (fields: PlayTimeRecordCreateFields) => Promise<void>;
@@ -136,6 +144,8 @@ export interface GameMutationInput {
   deleteGameNote: (id: string) => Promise<void>;
   createPlayerAvailability: (fields: PlayerAvailabilityCreateFields) => Promise<void>;
   updatePlayerAvailability: (id: string, fields: PlayerAvailabilityUpdateFields) => Promise<void>;
+  createQueuedSubstitution: (fields: QueuedSubstitutionCreateFields) => Promise<void>;
+  deleteQueuedSubstitution: (id: string) => Promise<void>;
 }
 
 export interface UseOfflineMutationsResult {
@@ -147,7 +157,7 @@ export interface UseOfflineMutationsResult {
 
 // ── Replay a single queued mutation against the live API ─────────────────────
 
-const ALLOWED_MODELS = new Set(['Game', 'PlayTimeRecord', 'Substitution', 'LineupAssignment', 'Goal', 'GameNote', 'PlayerAvailability']);
+const ALLOWED_MODELS = new Set(['Game', 'PlayTimeRecord', 'Substitution', 'LineupAssignment', 'Goal', 'GameNote', 'PlayerAvailability', 'QueuedSubstitution']);
 const ALLOWED_OPS = new Set(['create', 'update', 'delete']);
 
 function getSafeErrorMessage(error: unknown): string {
@@ -699,6 +709,34 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
     [enqueueOrRun]
   );
 
+  const createQueuedSubstitution = useCallback(
+    async (fields: QueuedSubstitutionCreateFields): Promise<void> => {
+      await enqueueOrRun(
+        'QueuedSubstitution', 'create',
+        { ...fields } as Record<string, unknown>,
+        async () => {
+          const result = await client.models.QueuedSubstitution.create(fields);
+          assertNoGraphQLErrors(result, 'Failed to create queued substitution');
+        }
+      );
+    },
+    [enqueueOrRun]
+  );
+
+  const deleteQueuedSubstitution = useCallback(
+    async (id: string): Promise<void> => {
+      await enqueueOrRun(
+        'QueuedSubstitution', 'delete',
+        { id } as Record<string, unknown>,
+        async () => {
+          const result = await client.models.QueuedSubstitution.delete({ id });
+          assertNoGraphQLErrors(result, 'Failed to delete queued substitution');
+        }
+      );
+    },
+    [enqueueOrRun]
+  );
+
   const mutations = useMemo(
     (): GameMutationInput => ({
       updateGame,
@@ -716,12 +754,15 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       deleteGameNote,
       createPlayerAvailability,
       updatePlayerAvailability,
+      createQueuedSubstitution,
+      deleteQueuedSubstitution,
     }),
     [
       updateGame, createPlayTimeRecord, updatePlayTimeRecord, createSubstitution,
       createLineupAssignment, deleteLineupAssignment, updateLineupAssignment,
       createGoal, deleteGoal, updateGoal, createGameNote, updateGameNote, deleteGameNote,
       createPlayerAvailability, updatePlayerAvailability,
+      createQueuedSubstitution, deleteQueuedSubstitution,
     ]
   );
 

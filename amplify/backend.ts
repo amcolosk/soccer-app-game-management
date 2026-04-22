@@ -98,6 +98,7 @@ const lineupAssignmentTable = backend.data.resources.tables['LineupAssignment'];
 const playerAvailabilityTable = backend.data.resources.tables['PlayerAvailability'];
 const gamePlanTable = backend.data.resources.tables['GamePlan'];
 const plannedRotationTable = backend.data.resources.tables['PlannedRotation'];
+const queuedSubstitutionTable = backend.data.resources.tables['QueuedSubstitution'];
 teamTable.grantReadWriteData(backend.acceptInvitation.resources.lambda);
 teamInvitationTable.grantReadWriteData(backend.acceptInvitation.resources.lambda);
 playerTable.grantReadWriteData(backend.acceptInvitation.resources.lambda);
@@ -236,6 +237,7 @@ lineupAssignmentTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda
 playerAvailabilityTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 gamePlanTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 plannedRotationTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+queuedSubstitutionTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 backend.deleteGameSafe.addEnvironment('GAME_TABLE', gameTable.tableName);
 backend.deleteGameSafe.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
 backend.deleteGameSafe.addEnvironment('GOAL_TABLE', goalTable.tableName);
@@ -245,6 +247,7 @@ backend.deleteGameSafe.addEnvironment('LINEUP_ASSIGNMENT_TABLE', lineupAssignmen
 backend.deleteGameSafe.addEnvironment('PLAYER_AVAILABILITY_TABLE', playerAvailabilityTable.tableName);
 backend.deleteGameSafe.addEnvironment('GAME_PLAN_TABLE', gamePlanTable.tableName);
 backend.deleteGameSafe.addEnvironment('PLANNED_ROTATION_TABLE', plannedRotationTable.tableName);
+backend.deleteGameSafe.addEnvironment('QUEUED_SUBSTITUTION_TABLE', queuedSubstitutionTable.tableName);
 
 // Grant table access for deleteTeamSafe Lambda (authoritative team delete with rollback)
 teamTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);

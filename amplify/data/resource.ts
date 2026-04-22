@@ -136,6 +136,7 @@ const schema = a.schema({
       coaches: a.string().array(), // Team coaches who can access this game
       lineupAssignments: a.hasMany('LineupAssignment', 'gameId'),
       substitutions: a.hasMany('Substitution', 'gameId'),
+      queuedSubstitutions: a.hasMany('QueuedSubstitution', 'gameId'),
       playTimeRecords: a.hasMany('PlayTimeRecord', 'gameId'),
       goals: a.hasMany('Goal', 'gameId'),
       gameNotes: a.hasMany('GameNote', 'gameId'),
@@ -448,6 +449,21 @@ const schema = a.schema({
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(deletePlayerSafe)),
   
+  QueuedSubstitution: a
+    .model({
+      gameId: a.id().required(),
+      game: a.belongsTo('Game', 'gameId'),
+      playerId: a.id().required(), // Player to substitute IN
+      positionId: a.id().required(), // Position they will play
+      coaches: a.string().array(), // Team coaches who can access this record
+    })
+    .secondaryIndexes((index) => [
+      index('gameId').queryField('listQueuedSubstitutionsByGameId'),
+    ])
+    .authorization((allow) => [
+      allow.ownersDefinedIn('coaches'),
+    ]),
+
   CoachProfile: a
     .model({
       firstName: a.string(),
