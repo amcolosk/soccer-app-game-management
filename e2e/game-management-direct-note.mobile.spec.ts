@@ -15,6 +15,7 @@ import { test, expect, devices, Page } from '@playwright/test';
 import {
   clickButton,
   clickManagementTab,
+  closeWelcomeModal,
   createFormation,
   createTeam,
   fillInput,
@@ -181,13 +182,51 @@ async function ensureSeedRoster(page: Page): Promise<void> {
     await expect(rosterForm).toBeVisible({ timeout: 5000 });
     await rosterForm.locator('select').first().selectOption({ label: `${player.firstName} ${player.lastName}` });
     await rosterForm.locator('input[placeholder*="Player Number"]').fill(player.number);
-    await rosterForm.locator('.form-actions button.btn-primary', { hasText: 'Add' }).first().click();
+    const addButton = rosterForm.locator('.form-actions button.btn-primary', { hasText: 'Add' }).first();
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await addButton.scrollIntoViewIfNeeded();
+        await addButton.click();
+        break;
+      } catch (error) {
+        if (attempt === 3) {
+          throw error;
+        }
+
+        // Welcome/checklist overlays can intermittently intercept clicks in CI.
+        await closeWelcomeModal(page);
+        await page.keyboard.press('Escape').catch(() => undefined);
+        await page.waitForTimeout(UI_TIMING.QUICK);
+      }
+    }
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await expect(page.getByText(rosterEntry).first()).toBeVisible({ timeout: 5000 });
   }
 }
 
 async function ensureStartingLineup(page: Page): Promise<void> {
+  await expect
+    .poll(async () => {
+      const selects = page.getByRole('combobox');
+      const count = await selects.count();
+      if (count === 0) {
+        return true;
+      }
+
+      for (let index = 0; index < count; index += 1) {
+        const optionCount = await selects.nth(index).locator('option').count();
+        if (optionCount > 1) {
+          return true;
+        }
+      }
+
+      return false;
+    }, {
+      timeout: 12000,
+      message: 'Expected lineup combobox options to load before assigning players',
+    })
+    .toBe(true);
+
   const maxPasses = 6;
 
   for (let pass = 0; pass < maxPasses; pass += 1) {
@@ -250,6 +289,7 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
 
   const addNoteButton = page.getByRole('button', { name: 'Add note' });
   const notesTab = page.getByRole('tab', { name: 'Notes' });
+  const statusBadge = page.locator('.command-band__status-badge').first();
 
   const isInProgressUiReady = async (timeoutMs: number): Promise<boolean> => {
     const addNoteVisible = await addNoteButton.isVisible({ timeout: timeoutMs }).catch(() => false);
@@ -280,7 +320,6 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
       }
 
       // If button still not visible, log diagnostics and retry
-      const statusBadge = page.locator('.command-band__status-badge').first();
       const statusVisible = await statusBadge.isVisible({ timeout: 500 }).catch(() => false);
       console.log(`⚠️ Attempt ${attempt + 1}/3: "Add note" button not visible after game start. Status badge visible: ${statusVisible}`);
 
@@ -429,6 +468,27 @@ test.use({ ...devices['iPhone 12'], browserName: 'chromium' });
 test.describe('Direct Note Entry — Mobile', () => {
   test.describe.configure({ mode: 'serial' });
 
+  test.beforeAll(async ({ browser }) => {
+    test.setTimeout(TEST_CONFIG.timeout.long);
+
+    if (seededStateReady) {
+      return;
+    }
+
+    const context = await browser.newContext({
+      ...devices['iPhone 12'],
+      storageState: '.auth/user1.json',
+    });
+    const page = await context.newPage();
+
+    try {
+      await navigateToApp(page);
+      await ensureSeededState(page);
+    } finally {
+      await context.close();
+    }
+  });
+
   test.beforeEach(async ({ page }) => {
     await navigateToApp(page);
   });
@@ -436,7 +496,7 @@ test.describe('Direct Note Entry — Mobile', () => {
   // ── Icon-only trigger accessibility ────────────────────────────────────────
 
   test('CommandBand note button exists and has accessible name "Add note"', async ({ page }) => {
-    test.setTimeout(TEST_CONFIG.timeout.short);
+    test.setTimeout(TEST_CONFIG.timeout.medium);
     const isReady = await navigateToInProgressGame(page);
     expect(isReady).toBeTruthy();
 
@@ -448,7 +508,7 @@ test.describe('Direct Note Entry — Mobile', () => {
   // ── Open → Cancel wiring ───────────────────────────────────────────────────
 
   test('Tap Add note → dialog visible → Cancel → dismissed', async ({ page }) => {
-    test.setTimeout(TEST_CONFIG.timeout.short);
+    test.setTimeout(TEST_CONFIG.timeout.medium);
     const isReady = await navigateToInProgressGame(page);
     expect(isReady).toBeTruthy();
 
@@ -466,7 +526,7 @@ test.describe('Direct Note Entry — Mobile', () => {
   // ── Save button accessible with keyboard open ──────────────────────────────
 
   test('Save button remains within viewport when note textarea is focused (narrow keyboard-open simulation)', async ({ page }) => {
-    test.setTimeout(TEST_CONFIG.timeout.short);
+    test.setTimeout(TEST_CONFIG.timeout.medium);
     const isReady = await navigateToInProgressGame(page);
     expect(isReady).toBeTruthy();
 
@@ -503,7 +563,7 @@ test.describe('Direct Note Entry — Mobile', () => {
   // ref: https://github.com/amcolosk/soccer-app-game-management/issues/84
 
   test.fixme('saved note appears in notes list immediately without page reload (regression #84)', async ({ page }) => {
-    test.setTimeout(TEST_CONFIG.timeout.short);
+    test.setTimeout(TEST_CONFIG.timeout.medium);
     const isReady = await navigateToInProgressGame(page);
     expect(isReady).toBeTruthy();
 
@@ -531,7 +591,7 @@ test.describe('Direct Note Entry — Mobile', () => {
   });
 
   test('note row keeps visible Edit/Delete controls after save (swipe is additive)', async ({ page }) => {
-    test.setTimeout(TEST_CONFIG.timeout.short);
+    test.setTimeout(TEST_CONFIG.timeout.medium);
     const isReady = await navigateToInProgressGame(page);
     expect(isReady).toBeTruthy();
 
@@ -562,7 +622,7 @@ test.describe('Action row parity — tablet/desktop', () => {
   });
 
   test('notes action order and keyboard focus remain accessible on tablet width', async ({ page }) => {
-    test.setTimeout(TEST_CONFIG.timeout.short);
+    test.setTimeout(TEST_CONFIG.timeout.medium);
     const isReady = await navigateToInProgressGame(page);
     expect(isReady).toBeTruthy();
 

@@ -1079,6 +1079,138 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     console.log(`✓ Executed substitution and score synced for ${resolvedOpponent}; lineup includes ${incomingPlayerName}, score ${coach1Score}`);
   });
 
+  test('Queued substitutions are visible to the other coach before execution', async ({ page }) => {
+    test.setTimeout(TEST_CONFIG.timeout.long);
+
+    const normalizeIncomingName = (rawText: string): string =>
+      rawText
+        .replace(/^IN\s*/i, '')
+        .replace(/^#\d+\s*/, '')
+        .replace(/\s*\(.+\)$/, '')
+        .trim();
+
+    await logout(page);
+    await loginUser(page, TEST_USERS.user2.email, TEST_USERS.user2.password);
+
+    const openedOpponent = await openSharedGame(page);
+    expect(openedOpponent).toBeTruthy();
+
+    const gameStarted = await ensureGameStartedForQueue(page);
+    expect(gameStarted).toBe(true);
+
+    const fieldTabCoachA = page.getByRole('tab', { name: 'Field' });
+    if (await fieldTabCoachA.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await fieldTabCoachA.click();
+      await page.waitForTimeout(UI_TIMING.QUICK);
+    }
+
+    const substituteButton = page.locator('button.btn-substitute').first();
+    await expect(substituteButton).toBeVisible({ timeout: 10000 });
+
+    await substituteButton.click({ force: true });
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    const queueAction = page
+      .locator('.sub-player-item button, .sub-player-item .btn-primary, .sub-player-item .btn-secondary')
+      .filter({ hasText: /Queue/i })
+      .first();
+
+    await expect(queueAction).toBeVisible({ timeout: 10000 });
+    await queueAction.click({ force: true });
+    await page.waitForTimeout(UI_TIMING.STANDARD);
+
+    await expect(page.locator('.sub-queue-section')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.sub-queue-section')).toContainText('Substitution Queue (1)');
+
+    const queuedIncomingTextCoachA = ((await page.locator('.sub-queue-item .sub-player-row--in').first().textContent()) ?? '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const incomingPlayerName = normalizeIncomingName(queuedIncomingTextCoachA);
+    expect(incomingPlayerName.length).toBeGreaterThan(0);
+
+    await logout(page);
+    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+
+    const user1OpenedOpponent = await openSharedGame(page);
+    expect(user1OpenedOpponent).toBeTruthy();
+
+    const fieldTabCoachB = page.getByRole('tab', { name: 'Field' });
+    if (await fieldTabCoachB.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await fieldTabCoachB.click();
+      await page.waitForTimeout(UI_TIMING.QUICK);
+    }
+
+    try {
+      await expect
+        .poll(async () => {
+          const queueHeader = ((await page.locator('.sub-queue-section').first().textContent()) ?? '').replace(/\s+/g, ' ').trim();
+          const queueIncomingRaw = ((await page.locator('.sub-queue-item .sub-player-row--in').first().textContent()) ?? '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          return {
+            queueHasOne: /Substitution Queue \(1\)/i.test(queueHeader),
+            queueIncoming: normalizeIncomingName(queueIncomingRaw),
+          };
+        }, {
+          timeout: 25000,
+          message: 'Coach 1 should see the queued substitution before execution',
+        })
+        .toEqual({
+          queueHasOne: true,
+          queueIncoming: incomingPlayerName,
+        });
+    } catch {
+      // Cross-user queue subscription can lag; reload and re-open once before failing.
+      await page.goto('/');
+      await waitForPageLoad(page);
+
+      const expectedOpponent = user1OpenedOpponent ?? GAME_OPPONENT;
+      const reopenedCard = page.locator('.game-card, .item-card').filter({ hasText: expectedOpponent }).first();
+      await expect(reopenedCard).toBeVisible({ timeout: 15000 });
+      const reopenedOpenButton = reopenedCard.locator('.open-game-button').first();
+      if (await reopenedOpenButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await reopenedOpenButton.click();
+      } else {
+        await reopenedCard.click();
+      }
+      await waitForPageLoad(page);
+
+      const reopenedFieldTab = page.getByRole('tab', { name: 'Field' });
+      if (await reopenedFieldTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await reopenedFieldTab.click();
+        await page.waitForTimeout(UI_TIMING.QUICK);
+      }
+
+      await expect
+        .poll(async () => {
+          const queueHeader = ((await page.locator('.sub-queue-section').first().textContent()) ?? '').replace(/\s+/g, ' ').trim();
+          const queueIncomingRaw = ((await page.locator('.sub-queue-item .sub-player-row--in').first().textContent()) ?? '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          return {
+            queueHasOne: /Substitution Queue \(1\)/i.test(queueHeader),
+            queueIncoming: normalizeIncomingName(queueIncomingRaw),
+          };
+        }, {
+          timeout: 30000,
+          message: 'Coach 1 should see queued substitution after reload',
+        })
+        .toEqual({
+          queueHasOne: true,
+          queueIncoming: incomingPlayerName,
+        });
+    }
+
+    const executeNowButton = page.locator('.sub-queue-item .btn-execute-sub').first();
+    if (await executeNowButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await executeNowButton.click({ force: true });
+      await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+      await expect(page.locator('.sub-queue-item')).toHaveCount(0);
+    }
+
+    console.log(`✓ Queued substitution is visible cross-coach before execution for ${user1OpenedOpponent}; player ${incomingPlayerName}`);
+  });
+
   test('User 1 verifies changes and cleans up', async ({ page }) => {
     test.setTimeout(TEST_CONFIG.timeout.medium);
     
