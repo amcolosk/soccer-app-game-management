@@ -174,4 +174,37 @@ describe("LineupShapeView", () => {
 
     expect(screen.getByText("Out of position")).toBeInTheDocument();
   });
+
+  it("renders remove action with compact icon and accessible remove label", () => {
+    renderView("scheduled");
+
+    const removeButton = screen.getByRole("button", {
+      name: /remove ava keeper from goalkeeper/i,
+    });
+    const nodeButton = screen.getByRole("button", { name: /goalkeeper: ava keeper/i });
+    const nodeContainer = nodeButton.closest(".lineup-shape-node");
+
+    expect(removeButton).toBeInTheDocument();
+    expect(removeButton).toHaveTextContent("×");
+    expect(removeButton).toHaveTextContent("Remove player");
+    expect(nodeContainer).toHaveClass("lineup-shape-node--removable");
+  });
+
+  it("hides remove control while game is in progress", () => {
+    renderView("in-progress");
+
+    const nodeButton = screen.getByRole("button", { name: /goalkeeper: ava keeper/i });
+    const nodeContainer = nodeButton.closest(".lineup-shape-node");
+
+    expect(screen.queryByRole("button", { name: /remove ava keeper from goalkeeper/i })).not.toBeInTheDocument();
+    expect(nodeContainer).not.toHaveClass("lineup-shape-node--removable");
+  });
+
+  it("exposes player label title for predictable truncation fallback", () => {
+    renderView("scheduled");
+
+    const playerLabel = screen.getByTitle("#1 Ava");
+    expect(playerLabel).toHaveClass("lineup-shape-node__player");
+    expect(playerLabel).toHaveTextContent("#1 Ava");
+  });
 });

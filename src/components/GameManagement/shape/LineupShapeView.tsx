@@ -161,6 +161,10 @@ export function LineupShapeView({
           const assignment = lineupByPosition.get(node.positionId);
           const player = assignment?.playerId ? playersById.get(assignment.playerId) : undefined;
           const playerName = getPlayerName(player);
+          const showRemove = Boolean(assignment && gameState.status !== "in-progress");
+          const nodePlayerLabel = assignment && player
+            ? `#${player.playerNumber ?? "?"} ${player.firstName}`
+            : "Empty";
           const outOfPosition = Boolean(
             player
               && assignment?.positionId
@@ -177,7 +181,7 @@ export function LineupShapeView({
           return (
             <div
               key={node.positionId}
-              className={`lineup-shape-node ${assignment ? "lineup-shape-node--assigned" : "lineup-shape-node--empty"} ${selectedPositionId === node.positionId ? "lineup-shape-node--selected" : ""}`}
+              className={`lineup-shape-node ${assignment ? "lineup-shape-node--assigned" : "lineup-shape-node--empty"} ${showRemove ? "lineup-shape-node--removable" : ""} ${selectedPositionId === node.positionId ? "lineup-shape-node--selected" : ""}`}
               style={{ left: `${node.xPct}%`, top: `${node.yPct}%` }}
             >
               <button
@@ -189,22 +193,19 @@ export function LineupShapeView({
                 disabled={!interaction?.canTap}
               >
                 <span className="lineup-shape-node__position">{node.abbreviation || node.positionName}</span>
-                <span className="lineup-shape-node__player">
-                  {assignment && player
-                    ? `#${player.playerNumber ?? "?"} ${player.firstName}`
-                    : "Empty"}
-                </span>
+                <span className="lineup-shape-node__player" title={nodePlayerLabel}>{nodePlayerLabel}</span>
                 {outOfPosition && <span className="lineup-shape-node__detail">Out of position</span>}
               </button>
 
-              {assignment && gameState.status !== "in-progress" && (
+              {showRemove && assignment && (
                 <button
                   type="button"
                   className="lineup-shape-node__remove"
                   onClick={() => void onRemoveFromLineup(assignment.id)}
                   aria-label={`Remove ${playerName} from ${node.positionName}`}
                 >
-                  Remove
+                  <span className="lineup-shape-node__remove-icon" aria-hidden="true">×</span>
+                  <span className="sr-only">Remove player</span>
                 </button>
               )}
             </div>

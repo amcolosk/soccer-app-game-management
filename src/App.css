@@ -1838,7 +1838,10 @@
 .lineup-shape-view {
   margin: 1rem 0;
   --lineup-shape-pitch-height: clamp(320px, 74vw, 420px);
-  --lineup-shape-node-width: clamp(80px, 21vw, 116px);
+  --lineup-shape-node-width: clamp(92px, 24vw, 132px);
+  --lineup-shape-assigned-node-width: clamp(128px, 34vw, 188px);
+  --lineup-shape-remove-hit-size: 44px;
+  --lineup-shape-remove-padding: 0.2rem;
 }
 
 .lineup-shape-view__toolbar {
@@ -1886,6 +1889,10 @@
   width: var(--lineup-shape-node-width);
 }
 
+.lineup-shape-node--assigned {
+  width: var(--lineup-shape-assigned-node-width);
+}
+
 .lineup-shape-node__tap-target {
   width: 100%;
   min-width: 44px;
@@ -1894,15 +1901,16 @@
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.9);
   color: #0d3b12;
-  padding: 0.35rem 0.45rem;
+  padding: 0.35rem 0.5rem;
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
+  min-inline-size: 0;
   cursor: pointer;
 }
 
-.lineup-shape-node--assigned .lineup-shape-node__tap-target {
-  padding-right: 3rem;
+.lineup-shape-node--removable .lineup-shape-node__tap-target {
+  padding-right: calc(var(--lineup-shape-remove-hit-size) + (var(--lineup-shape-remove-padding) * 2) + 0.45rem);
 }
 
 .lineup-shape-node__tap-target:disabled {
@@ -1916,8 +1924,13 @@
 }
 
 .lineup-shape-node__player {
+  display: block;
   font-size: 0.8rem;
   font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .lineup-shape-node__detail {
@@ -1927,20 +1940,38 @@
 
 .lineup-shape-node__remove {
   position: absolute;
-  right: 4px;
-  bottom: 4px;
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0.25rem 0.45rem;
+  top: var(--lineup-shape-remove-padding);
+  right: var(--lineup-shape-remove-padding);
+  width: var(--lineup-shape-remove-hit-size);
+  min-width: var(--lineup-shape-remove-hit-size);
+  height: var(--lineup-shape-remove-hit-size);
+  padding: 0;
   font-size: 0.75rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  z-index: 3;
-  border: 1px solid var(--danger-red);
-  border-radius: 8px;
+  border: none;
+  border-radius: 10px;
   color: var(--danger-red);
-  background: #fff;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.lineup-shape-node__remove:hover,
+.lineup-shape-node__remove:focus-visible {
+  background: rgba(211, 47, 47, 0.1);
+}
+
+.lineup-shape-node__remove-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .lineup-shape-node--selected .lineup-shape-node__tap-target {
@@ -2375,6 +2406,7 @@
 
   .lineup-shape-view {
     --lineup-shape-node-width: clamp(72px, 24vw, 98px);
+    --lineup-shape-removable-node-width: clamp(100px, 32vw, 124px);
   }
 
   .lineup-shape-node__position {
@@ -2394,15 +2426,7 @@
   .lineup-shape-view {
     --lineup-shape-pitch-height: clamp(300px, 90vw, 360px);
     --lineup-shape-node-width: clamp(68px, 26vw, 90px);
-  }
-
-  .lineup-shape-node--assigned .lineup-shape-node__tap-target {
-    padding-right: 2.75rem;
-  }
-
-  .lineup-shape-node__remove {
-    font-size: 0.7rem;
-    padding: 0.2rem 0.4rem;
+    --lineup-shape-removable-node-width: clamp(96px, 34vw, 116px);
   }
 }
 
