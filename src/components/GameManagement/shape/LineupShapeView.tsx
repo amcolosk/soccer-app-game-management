@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { calculatePlayerPlayTime, formatPlayTime } from "../../../utils/playTimeCalculations";
 import { showError, showSuccess } from "../../../utils/toast";
 import type {
@@ -31,7 +31,36 @@ interface LineupShapeViewProps {
   currentTime: number;
   teamMaxPlayersOnField: number;
   onSubstitute: (position: FormationPosition) => void;
-  onRemoveFromLineup: (lineupId: string) => Promise<void>;
+  onQuickReplace: (params: { assignmentId: string; playerId: string; positionId: string }) => Promise<"success" | "conflict" | "error">;
+  onClearSlot: (params: { assignmentId: string; positionName: string; playerName: string }) => Promise<"success" | "conflict" | "error" | "cancelled">;
+}
+
+type QuickReplaceStatus = "idle" | "loading" | "success" | "error" | "conflict";
+
+const QUICK_REPLACE_COPY = {
+  scheduled: {
+    title: "Quick Replace",
+    helper: "Select a bench player to update this starting slot before kickoff.",
+  },
+  halftime: {
+    title: "Quick Replace",
+    helper: "Select a bench player to update this second-half slot before restart.",
+  },
+  states: {
+    idle: "Ready: choose a bench player or clear this slot.",
+    loading: "Saving lineup update...",
+    success: "Lineup slot updated successfully.",
+    error: "Unable to update this slot right now. Please try again.",
+    conflict: "Lineup changed from another update. Refresh and try again.",
+  },
+} as const;
+
+interface QuickReplaceTarget {
+  assignmentId: string;
+  positionId: string;
+  positionName: string;
+  currentPlayerName: string;
+  opener: HTMLElement | null;
 }
 
 function getPlayerName(player: PlayerWithRoster | undefined): string {
@@ -49,9 +78,17 @@ export function LineupShapeView({
   currentTime,
   teamMaxPlayersOnField,
   onSubstitute,
-  onRemoveFromLineup,
+  onQuickReplace,
+  onClearSlot,
 }: LineupShapeViewProps) {
   const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
+  const [quickReplaceTarget, setQuickReplaceTarget] = useState<QuickReplaceTarget | null>(null);
+  const [quickReplaceStatus, setQuickReplaceStatus] = useState<QuickReplaceStatus>("idle");
+
+  const quickReplaceTitleId = useId();
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
+  const quickReplaceDialogRef = useRef<HTMLDivElement>(null);
+  const quickReplaceCloseRef = useRef<HTMLButtonElement>(null);
 
   const nodes = useMemo(() => buildLineupShapeNodes(positions), [positions]);
   const lineupByPosition = useMemo(() => {
@@ -80,9 +117,27 @@ export function LineupShapeView({
       startersCount,
       maxStarters: teamMaxPlayersOnField,
       onSubstitute,
+      onQuickReplace: (position) => {
+        const assignment = lineupByPosition.get(position.id);
+        if (!assignment) {
+          return;
+        }
+
+        const player = assignment.playerId ? playersById.get(assignment.playerId) : undefined;
+        const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+        setQuickReplaceTarget({
+          assignmentId: assignment.id,
+          positionId: position.id,
+          positionName: position.positionName,
+          currentPlayerName: getPlayerName(player),
+          opener,
+        });
+        setQuickReplaceStatus("idle");
+      },
       onStarterLimitReached: (message) => showError(message),
     });
-  }, [gameState.status, onSubstitute, startersCount, teamMaxPlayersOnField]);
+  }, [gameState.status, lineupByPosition, onSubstitute, playersById, startersCount, teamMaxPlayersOnField]);
 
   const benchPlayers = useMemo(() => {
     const bench = players.filter((player) => !lineup.some((entry) => entry.playerId === player.id && entry.isStarter));
@@ -92,6 +147,18 @@ export function LineupShapeView({
       getPlayTimeSeconds: (playerId: string) => calculatePlayerPlayTime(playerId, playTimeRecords, currentTime),
     });
   }, [currentTime, lineup, playTimeRecords, players, selectedPositionId]);
+
+  const quickReplaceBenchPlayers = useMemo(() => {
+    if (!quickReplaceTarget) {
+      return [];
+    }
+
+    return sortBenchPlayersByPriority({
+      benchPlayers,
+      currentPositionId: quickReplaceTarget.positionId,
+      getPlayTimeSeconds: (playerId: string) => calculatePlayerPlayTime(playerId, playTimeRecords, currentTime),
+    });
+  }, [benchPlayers, currentTime, playTimeRecords, quickReplaceTarget]);
 
   const benchStrip = useMemo<ExportBenchPlayer[]>(() => {
     return benchPlayers.map((player) => ({
@@ -118,6 +185,197 @@ export function LineupShapeView({
     interaction.onTap();
   };
 
+  const focusFallbackElement = useCallback(() => {
+    const fallbackNode = document.querySelector<HTMLButtonElement>(".lineup-shape-node__tap-target:not(:disabled)");
+    if (fallbackNode) {
+      fallbackNode.focus();
+      return;
+    }
+
+    if (exportButtonRef.current) {
+      exportButtonRef.current.focus();
+      return;
+    }
+
+    const fallbackButton = document.querySelector<HTMLButtonElement>("button:not(:disabled)");
+    fallbackButton?.focus();
+  }, []);
+
+  const closeQuickReplace = useCallback(() => {
+    const opener = quickReplaceTarget?.opener;
+    setQuickReplaceTarget(null);
+    setQuickReplaceStatus("idle");
+
+    if (opener && opener.isConnected) {
+      opener.focus();
+      return;
+    }
+
+    focusFallbackElement();
+  }, [focusFallbackElement, quickReplaceTarget]);
+
+  useEffect(() => {
+    if (!quickReplaceTarget) {
+      return;
+    }
+
+    quickReplaceCloseRef.current?.focus();
+  }, [quickReplaceTarget]);
+
+  useEffect(() => {
+    if (!quickReplaceTarget) {
+      return;
+    }
+
+    const modal = quickReplaceDialogRef.current;
+    if (!modal) {
+      return;
+    }
+
+    const focusableSelectors = [
+      'button:not(:disabled)',
+      '[href]',
+      'input:not(:disabled)',
+      'select:not(:disabled)',
+      'textarea:not(:disabled)',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(', ');
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeQuickReplace();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const focusable = Array.from(modal.querySelectorAll<HTMLElement>(focusableSelectors));
+      if (focusable.length === 0) {
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey) {
+        if (document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        }
+        return;
+      }
+
+      if (document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    modal.addEventListener("keydown", onKeyDown);
+    return () => modal.removeEventListener("keydown", onKeyDown);
+  }, [closeQuickReplace, quickReplaceTarget]);
+
+  const isConflictError = (error: unknown): boolean => {
+    const message = error instanceof Error ? error.message : String(error);
+    return /conflict|already assigned|conditionalcheckfailed/i.test(message);
+  };
+
+  const handleQuickReplacePlayer = async (playerId: string) => {
+    if (!quickReplaceTarget) {
+      return;
+    }
+
+    const playerAlreadyStarter = lineup.some((entry) => entry.playerId === playerId && entry.isStarter);
+    if (playerAlreadyStarter) {
+      setQuickReplaceStatus("conflict");
+      return;
+    }
+
+    setQuickReplaceStatus("loading");
+    try {
+      const result = await onQuickReplace({
+        assignmentId: quickReplaceTarget.assignmentId,
+        playerId,
+        positionId: quickReplaceTarget.positionId,
+      });
+
+      if (result === "success") {
+        setQuickReplaceStatus("success");
+        showSuccess("Lineup slot updated.");
+        return;
+      }
+
+      if (result === "conflict") {
+        setQuickReplaceStatus("conflict");
+        return;
+      }
+
+      setQuickReplaceStatus("error");
+      showError("Unable to update this lineup slot.");
+    } catch (error) {
+      if (isConflictError(error)) {
+        setQuickReplaceStatus("conflict");
+        return;
+      }
+
+      setQuickReplaceStatus("error");
+      showError("Unable to update this lineup slot.");
+    }
+  };
+
+  const handleClearSlot = async () => {
+    if (!quickReplaceTarget) {
+      return;
+    }
+
+    setQuickReplaceStatus("loading");
+    try {
+      const result = await onClearSlot({
+        assignmentId: quickReplaceTarget.assignmentId,
+        positionName: quickReplaceTarget.positionName,
+        playerName: quickReplaceTarget.currentPlayerName,
+      });
+
+      if (result === "cancelled") {
+        setQuickReplaceStatus("idle");
+        return;
+      }
+
+      if (result === "conflict") {
+        setQuickReplaceStatus("conflict");
+        return;
+      }
+
+      if (result === "error") {
+        setQuickReplaceStatus("error");
+        showError("Unable to clear this lineup slot.");
+        return;
+      }
+
+      setQuickReplaceStatus("success");
+      showSuccess("Lineup slot cleared.");
+      closeQuickReplace();
+    } catch (error) {
+      if (isConflictError(error)) {
+        setQuickReplaceStatus("conflict");
+        return;
+      }
+
+      setQuickReplaceStatus("error");
+      showError("Unable to clear this lineup slot.");
+    }
+  };
+
+  const quickReplaceStateMessage = QUICK_REPLACE_COPY.states[quickReplaceStatus];
+  const quickReplaceHelper = gameState.status === "halftime"
+    ? QUICK_REPLACE_COPY.halftime.helper
+    : QUICK_REPLACE_COPY.scheduled.helper;
+  const politeAnnouncement = quickReplaceStatus === "error" || quickReplaceStatus === "conflict" ? "" : quickReplaceStateMessage;
+  const assertiveAnnouncement = quickReplaceStatus === "error" || quickReplaceStatus === "conflict" ? quickReplaceStateMessage : "";
+
   const handleExport = () => {
     try {
       const { filename } = exportLineupShapeLocally({
@@ -142,6 +400,7 @@ export function LineupShapeView({
         <button
           type="button"
           className="btn-secondary"
+          ref={exportButtonRef}
           onClick={handleExport}
           aria-label="Export lineup shape and bench strip to local file"
         >
@@ -161,7 +420,6 @@ export function LineupShapeView({
           const assignment = lineupByPosition.get(node.positionId);
           const player = assignment?.playerId ? playersById.get(assignment.playerId) : undefined;
           const playerName = getPlayerName(player);
-          const showRemove = Boolean(assignment && gameState.status !== "in-progress");
           const nodePlayerLabel = assignment && player
             ? `#${player.playerNumber ?? "?"} ${player.firstName}`
             : "Empty";
@@ -181,7 +439,7 @@ export function LineupShapeView({
           return (
             <div
               key={node.positionId}
-              className={`lineup-shape-node ${assignment ? "lineup-shape-node--assigned" : "lineup-shape-node--empty"} ${showRemove ? "lineup-shape-node--removable" : ""} ${selectedPositionId === node.positionId ? "lineup-shape-node--selected" : ""}`}
+              className={`lineup-shape-node ${assignment ? "lineup-shape-node--assigned" : "lineup-shape-node--empty"} ${selectedPositionId === node.positionId ? "lineup-shape-node--selected" : ""}`}
               style={{ left: `${node.xPct}%`, top: `${node.yPct}%` }}
             >
               <button
@@ -196,21 +454,13 @@ export function LineupShapeView({
                 <span className="lineup-shape-node__player" title={nodePlayerLabel}>{nodePlayerLabel}</span>
                 {outOfPosition && <span className="lineup-shape-node__detail">Out of position</span>}
               </button>
-
-              {showRemove && assignment && (
-                <button
-                  type="button"
-                  className="lineup-shape-node__remove"
-                  onClick={() => void onRemoveFromLineup(assignment.id)}
-                  aria-label={`Remove ${playerName} from ${node.positionName}`}
-                >
-                  <span className="lineup-shape-node__remove-icon" aria-hidden="true">×</span>
-                  <span className="sr-only">Remove player</span>
-                </button>
-              )}
             </div>
           );
         })}
+        <div className="lineup-shape-view__pitch-center-line" aria-hidden="true" />
+        <div className="lineup-shape-view__pitch-center-circle" aria-hidden="true" />
+        <div className="lineup-shape-view__pitch-penalty-box lineup-shape-view__pitch-penalty-box--top" aria-hidden="true" />
+        <div className="lineup-shape-view__pitch-penalty-box lineup-shape-view__pitch-penalty-box--bottom" aria-hidden="true" />
       </div>
 
       <div
@@ -240,6 +490,74 @@ export function LineupShapeView({
           })}
         </ul>
       </div>
+
+      {quickReplaceTarget && (
+        <div className="modal-overlay" onClick={closeQuickReplace}>
+          <div
+            ref={quickReplaceDialogRef}
+            className="modal-content lineup-shape-view__quick-replace-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={quickReplaceTitleId}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id={quickReplaceTitleId} className="lineup-shape-view__quick-replace-title">
+              {QUICK_REPLACE_COPY[gameState.status === "halftime" ? "halftime" : "scheduled"].title}: {quickReplaceTarget.positionName}
+            </h2>
+            <p className="lineup-shape-view__quick-replace-helper">{quickReplaceHelper}</p>
+            <p className={`lineup-shape-view__quick-replace-status lineup-shape-view__quick-replace-status--${quickReplaceStatus}`}>
+              {quickReplaceStateMessage}
+            </p>
+
+            <div className="sr-only" aria-live="polite">{politeAnnouncement}</div>
+            <div className="sr-only" aria-live="assertive">{assertiveAnnouncement}</div>
+
+            <ul className="lineup-shape-view__quick-replace-list" aria-label="Bench players sorted by replacement priority">
+              {quickReplaceBenchPlayers.map((player) => {
+                const playTimeSeconds = calculatePlayerPlayTime(player.id, playTimeRecords, currentTime);
+                const preferred = playerPreferredForPosition(player, quickReplaceTarget.positionId);
+                return (
+                  <li key={player.id}>
+                    <button
+                      type="button"
+                      className="lineup-shape-view__quick-replace-option"
+                      onClick={() => void handleQuickReplacePlayer(player.id)}
+                      disabled={quickReplaceStatus === "loading"}
+                    >
+                      <span className="lineup-shape-view__quick-replace-player">#{player.playerNumber ?? "?"} {player.firstName} {player.lastName}</span>
+                      <span className="lineup-shape-view__quick-replace-meta">{formatPlayTime(playTimeSeconds, "short")}</span>
+                      {preferred && <span className="lineup-shape-view__bench-fit">Fit</span>}
+                    </button>
+                  </li>
+                );
+              })}
+              {quickReplaceBenchPlayers.length === 0 && (
+                <li className="lineup-shape-view__quick-replace-empty">No bench players available for quick replace.</li>
+              )}
+            </ul>
+
+            <div className="lineup-shape-view__quick-replace-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => void handleClearSlot()}
+                disabled={quickReplaceStatus === "loading"}
+              >
+                Clear Slot
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                ref={quickReplaceCloseRef}
+                onClick={closeQuickReplace}
+                disabled={quickReplaceStatus === "loading"}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

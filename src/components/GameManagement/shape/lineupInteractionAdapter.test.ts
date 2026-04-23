@@ -29,28 +29,33 @@ function makePlayer(id: string, playerNumber: number, preferredPositions = ""): 
 describe("lineupInteractionAdapter", () => {
   it("uses substitution flow for scheduled empty-node taps", () => {
     const onSubstitute = vi.fn();
+    const onQuickReplace = vi.fn();
     const onStarterLimitReached = vi.fn();
     const adapter = createLineupInteractionAdapter({
       gameStatus: "scheduled",
       startersCount: 2,
       maxStarters: 7,
       onSubstitute,
+      onQuickReplace,
       onStarterLimitReached,
     });
 
     adapter.getEmptyNodeInteraction(makePosition("pos-1")).onTap();
     expect(onSubstitute).toHaveBeenCalledWith(expect.objectContaining({ id: "pos-1" }));
+    expect(onQuickReplace).not.toHaveBeenCalled();
     expect(onStarterLimitReached).not.toHaveBeenCalled();
   });
 
   it("prevents empty-node taps when at max starters", () => {
     const onSubstitute = vi.fn();
+    const onQuickReplace = vi.fn();
     const onStarterLimitReached = vi.fn();
     const adapter = createLineupInteractionAdapter({
       gameStatus: "halftime",
       startersCount: 7,
       maxStarters: 7,
       onSubstitute,
+      onQuickReplace,
       onStarterLimitReached,
     });
 
@@ -61,16 +66,36 @@ describe("lineupInteractionAdapter", () => {
 
   it("keeps in-progress assigned taps routed to substitution flow", () => {
     const onSubstitute = vi.fn();
+    const onQuickReplace = vi.fn();
     const adapter = createLineupInteractionAdapter({
       gameStatus: "in-progress",
       startersCount: 7,
       maxStarters: 7,
       onSubstitute,
+      onQuickReplace,
       onStarterLimitReached: vi.fn(),
     });
 
     adapter.getAssignedNodeInteraction(makePosition("pos-3")).onTap();
     expect(onSubstitute).toHaveBeenCalledWith(expect.objectContaining({ id: "pos-3" }));
+    expect(onQuickReplace).not.toHaveBeenCalled();
+  });
+
+  it("routes assigned scheduled taps to quick-replace flow", () => {
+    const onSubstitute = vi.fn();
+    const onQuickReplace = vi.fn();
+    const adapter = createLineupInteractionAdapter({
+      gameStatus: "scheduled",
+      startersCount: 2,
+      maxStarters: 7,
+      onSubstitute,
+      onQuickReplace,
+      onStarterLimitReached: vi.fn(),
+    });
+
+    adapter.getAssignedNodeInteraction(makePosition("pos-4")).onTap();
+    expect(onQuickReplace).toHaveBeenCalledWith(expect.objectContaining({ id: "pos-4" }));
+    expect(onSubstitute).not.toHaveBeenCalled();
   });
 
   it("sorts bench by play time then positional fit tie-break", () => {
@@ -87,6 +112,22 @@ describe("lineupInteractionAdapter", () => {
     });
 
     expect(sorted.map((player) => player.id)).toEqual(["p2", "p3", "p1"]);
+  });
+
+  it("sorts ties deterministically by player number then player id", () => {
+    const players = [
+      makePlayer("p2", 8, ""),
+      makePlayer("p1", 8, ""),
+      makePlayer("p4", 9, ""),
+      makePlayer("p3", 8, ""),
+    ];
+
+    const sorted = sortBenchPlayersByPriority({
+      benchPlayers: players,
+      getPlayTimeSeconds: () => 120,
+    });
+
+    expect(sorted.map((player) => player.id)).toEqual(["p1", "p2", "p3", "p4"]);
   });
 
   it("treats empty or missing preferred positions as not configured", () => {

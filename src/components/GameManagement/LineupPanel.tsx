@@ -42,6 +42,9 @@ interface LineupPanelProps {
   onResetViewPreference?: () => void;
 }
 
+type ShapeActionResult = "success" | "conflict" | "error";
+type ShapeClearActionResult = ShapeActionResult | "cancelled";
+
 export function LineupPanel({
   gameState,
   game,
@@ -74,6 +77,7 @@ export function LineupPanel({
     startersCount,
     maxStarters: team.maxPlayersOnField,
     onSubstitute,
+    onQuickReplace: () => undefined,
     onStarterLimitReached: showWarning,
   });
 
@@ -97,6 +101,16 @@ export function LineupPanel({
   };
 
   const isCurrentlyPlaying = (playerId: string) => isPlayerCurrentlyPlaying(playerId, playTimeRecords);
+
+  const isConflictError = (error: unknown): boolean => {
+    const message = error instanceof Error ? error.message : String(error);
+    return /conflict|already assigned|conditionalcheckfailed/i.test(message);
+  };
+
+  const isMissingRecordError = (error: unknown): boolean => {
+    const message = error instanceof Error ? error.message : String(error);
+    return /not found|does not exist|cannot find/i.test(message);
+  };
 
   const handleRemoveFromLineup = async (lineupId: string) => {
     try {
@@ -122,6 +136,123 @@ export function LineupPanel({
       await Promise.all(deletePromises);
     } catch (error) {
       handleApiError(error, 'Failed to clear lineup');
+    }
+  };
+
+  const handleShapeQuickReplace = async (params: {
+    assignmentId: string;
+    playerId: string;
+    positionId: string;
+  }): Promise<ShapeActionResult> => {
+    const targetStarter = lineup.find(
+      (entry) => entry.isStarter && entry.positionId === params.positionId,
+    );
+
+    const selectedPlayerStarter = lineup.find(
+      (entry) => entry.isStarter && entry.playerId === params.playerId,
+    );
+
+    try {
+      try {
+        await mutations.updateLineupAssignment(params.assignmentId, {
+          playerId: params.playerId,
+        });
+      } catch (error) {
+        if (!isMissingRecordError(error)) {
+          if (isConflictError(error)) {
+            return "conflict";
+          }
+
+          handleApiError(error, 'Failed to update lineup slot');
+          return "error";
+        }
+
+        try {
+          await mutations.createLineupAssignment({
+            gameId: game.id,
+            playerId: params.playerId,
+            positionId: params.positionId,
+            isStarter: true,
+            coaches: team.coaches,
+          });
+        } catch (fallbackError) {
+          if (isConflictError(fallbackError)) {
+            return "conflict";
+          }
+
+          handleApiError(fallbackError, 'Failed to update lineup slot');
+          return "error";
+        }
+      }
+
+      if (!selectedPlayerStarter || selectedPlayerStarter.id === params.assignmentId) {
+        return "success";
+      }
+
+      try {
+        await mutations.deleteLineupAssignment(selectedPlayerStarter.id);
+        return "success";
+      } catch (cleanupError) {
+        const rollbackTargetPlayerId = targetStarter?.playerId ?? null;
+
+        if (rollbackTargetPlayerId && rollbackTargetPlayerId !== params.playerId) {
+          try {
+            await mutations.updateLineupAssignment(params.assignmentId, {
+              playerId: rollbackTargetPlayerId,
+            });
+          } catch (rollbackError) {
+            if (isConflictError(rollbackError) || isMissingRecordError(rollbackError)) {
+              return "conflict";
+            }
+
+            handleApiError(rollbackError, 'Failed to rollback lineup slot after cleanup failure');
+            return "error";
+          }
+        }
+
+        if (isConflictError(cleanupError) || isMissingRecordError(cleanupError)) {
+          return "conflict";
+        }
+
+        handleApiError(cleanupError, 'Failed to clean up previous starter assignment');
+        return "error";
+      }
+    } catch (error) {
+      if (isConflictError(error)) {
+        return "conflict";
+      }
+
+      handleApiError(error, 'Failed to update lineup slot');
+      return "error";
+    }
+  };
+
+  const handleShapeClearSlot = async (params: {
+    assignmentId: string;
+    positionName: string;
+    playerName: string;
+  }): Promise<ShapeClearActionResult> => {
+    const confirmed = await confirm({
+      title: 'Clear Position',
+      message: `Remove ${params.playerName} from ${params.positionName}?`,
+      confirmText: 'Clear Slot',
+      variant: 'warning',
+    });
+
+    if (!confirmed) {
+      return "cancelled";
+    }
+
+    try {
+      await mutations.deleteLineupAssignment(params.assignmentId);
+      return "success";
+    } catch (error) {
+      if (isConflictError(error) || isMissingRecordError(error)) {
+        return "conflict";
+      }
+
+      handleApiError(error, 'Failed to remove player from lineup');
+      return "error";
     }
   };
 
@@ -237,7 +368,8 @@ export function LineupPanel({
             currentTime={currentTime}
             teamMaxPlayersOnField={team.maxPlayersOnField}
             onSubstitute={onSubstitute}
-            onRemoveFromLineup={handleRemoveFromLineup}
+            onQuickReplace={handleShapeQuickReplace}
+            onClearSlot={handleShapeClearSlot}
           />
         ) : gameState.status === 'scheduled' ? (
           <LineupBuilder

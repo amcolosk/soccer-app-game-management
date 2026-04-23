@@ -10,6 +10,7 @@ interface InteractionAdapterConfig {
   startersCount: number;
   maxStarters: number;
   onSubstitute: (position: FormationPosition) => void;
+  onQuickReplace: (position: FormationPosition) => void;
   onStarterLimitReached: (message: string) => void;
 }
 
@@ -24,7 +25,14 @@ function isStatusSupported(status: string): status is SupportedShapeStatus {
 }
 
 export function createLineupInteractionAdapter(config: InteractionAdapterConfig) {
-  const { gameStatus, startersCount, maxStarters, onSubstitute, onStarterLimitReached } = config;
+  const {
+    gameStatus,
+    startersCount,
+    maxStarters,
+    onSubstitute,
+    onQuickReplace,
+    onStarterLimitReached,
+  } = config;
 
   const getEmptyNodeInteraction = (position: FormationPosition): PositionInteraction => {
     if (!isStatusSupported(gameStatus)) {
@@ -57,18 +65,26 @@ export function createLineupInteractionAdapter(config: InteractionAdapterConfig)
   };
 
   const getAssignedNodeInteraction = (position: FormationPosition): PositionInteraction => {
-    if (gameStatus !== "in-progress") {
+    if (!isStatusSupported(gameStatus)) {
       return {
         canTap: false,
-        title: "Edit assignment using remove action",
+        title: "Unavailable",
         onTap: () => undefined,
+      };
+    }
+
+    if (gameStatus === "in-progress") {
+      return {
+        canTap: true,
+        title: "Tap to open substitution",
+        onTap: () => onSubstitute(position),
       };
     }
 
     return {
       canTap: true,
-      title: "Tap to open substitution",
-      onTap: () => onSubstitute(position),
+      title: "Tap to quick replace",
+      onTap: () => onQuickReplace(position),
     };
   };
 
@@ -108,7 +124,21 @@ export function sortBenchPlayersByPriority(params: {
 }): PlayerWithRoster[] {
   const { benchPlayers, currentPositionId, getPlayTimeSeconds } = params;
 
-  return [...benchPlayers].sort((a, b) => {
+  const compareBenchPlayers = createDeterministicBenchComparator({
+    currentPositionId,
+    getPlayTimeSeconds,
+  });
+
+  return [...benchPlayers].sort(compareBenchPlayers);
+}
+
+export function createDeterministicBenchComparator(params: {
+  currentPositionId?: string;
+  getPlayTimeSeconds: (playerId: string) => number;
+}) {
+  const { currentPositionId, getPlayTimeSeconds } = params;
+
+  return (a: Pick<PlayerWithRoster, "id" | "playerNumber" | "preferredPositions">, b: Pick<PlayerWithRoster, "id" | "playerNumber" | "preferredPositions">): number => {
     const aPlayTime = getPlayTimeSeconds(a.id);
     const bPlayTime = getPlayTimeSeconds(b.id);
     if (aPlayTime !== bPlayTime) {
@@ -123,6 +153,12 @@ export function sortBenchPlayersByPriority(params: {
       }
     }
 
-    return (a.playerNumber ?? Number.MAX_SAFE_INTEGER) - (b.playerNumber ?? Number.MAX_SAFE_INTEGER);
-  });
+    const aNumber = a.playerNumber ?? Number.MAX_SAFE_INTEGER;
+    const bNumber = b.playerNumber ?? Number.MAX_SAFE_INTEGER;
+    if (aNumber !== bNumber) {
+      return aNumber - bNumber;
+    }
+
+    return a.id.localeCompare(b.id);
+  };
 }

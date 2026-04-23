@@ -74,6 +74,10 @@ const lineup = [
 ];
 
 const renderView = (status: string, lineupAssignments: LineupAssignment[] = lineup) => {
+  const onSubstitute = vi.fn();
+  const onQuickReplace = vi.fn().mockResolvedValue("success");
+  const onClearSlot = vi.fn().mockResolvedValue("success");
+
   return render(
     <LineupShapeView
       gameState={{ ...baseGame, status } as Game}
@@ -84,9 +88,10 @@ const renderView = (status: string, lineupAssignments: LineupAssignment[] = line
       playTimeRecords={[] as PlayTimeRecord[]}
       currentTime={0}
       teamMaxPlayersOnField={7}
-      onSubstitute={vi.fn()}
-      onRemoveFromLineup={vi.fn().mockResolvedValue(undefined)}
-    />, 
+      onSubstitute={onSubstitute}
+      onQuickReplace={onQuickReplace}
+      onClearSlot={onClearSlot}
+    />,
   );
 };
 
@@ -95,6 +100,10 @@ const renderViewWithPlayers = (
   playersOverride: PlayerWithRoster[],
   lineupAssignments: LineupAssignment[] = lineup,
 ) => {
+  const onSubstitute = vi.fn();
+  const onQuickReplace = vi.fn().mockResolvedValue("success");
+  const onClearSlot = vi.fn().mockResolvedValue("success");
+
   return render(
     <LineupShapeView
       gameState={{ ...baseGame, status } as Game}
@@ -105,8 +114,9 @@ const renderViewWithPlayers = (
       playTimeRecords={[] as PlayTimeRecord[]}
       currentTime={0}
       teamMaxPlayersOnField={7}
-      onSubstitute={vi.fn()}
-      onRemoveFromLineup={vi.fn().mockResolvedValue(undefined)}
+      onSubstitute={onSubstitute}
+      onQuickReplace={onQuickReplace}
+      onClearSlot={onClearSlot}
     />,
   );
 };
@@ -137,6 +147,57 @@ describe("LineupShapeView", () => {
     const halftimeHint = screen.getByText(/halftime preview/i);
     expect(halftimeHint).toHaveAttribute("aria-live", "polite");
     expect(screen.getByRole("region", { name: /locked bench strip/i })).toBeInTheDocument();
+  });
+
+  it("routes assigned scheduled node taps into quick replace dialog", async () => {
+    const user = userEvent.setup();
+    const onSubstitute = vi.fn();
+    const onQuickReplace = vi.fn().mockResolvedValue("success");
+
+    render(
+      <LineupShapeView
+        gameState={{ ...baseGame, status: "scheduled" } as Game}
+        game={{ ...baseGame, status: "scheduled" } as Game}
+        positions={positions}
+        lineup={lineup}
+        players={players}
+        playTimeRecords={[] as PlayTimeRecord[]}
+        currentTime={0}
+        teamMaxPlayersOnField={7}
+        onSubstitute={onSubstitute}
+        onQuickReplace={onQuickReplace}
+        onClearSlot={vi.fn().mockResolvedValue("success")}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /goalkeeper: ava keeper/i }));
+    expect(screen.getByRole("dialog", { name: /quick replace: goalkeeper/i })).toBeInTheDocument();
+    expect(onSubstitute).not.toHaveBeenCalled();
+  });
+
+  it("keeps in-progress assigned node taps routed to substitution", async () => {
+    const user = userEvent.setup();
+    const onSubstitute = vi.fn();
+
+    render(
+      <LineupShapeView
+        gameState={{ ...baseGame, status: "in-progress" } as Game}
+        game={{ ...baseGame, status: "in-progress" } as Game}
+        positions={positions}
+        lineup={lineup}
+        players={players}
+        playTimeRecords={[] as PlayTimeRecord[]}
+        currentTime={0}
+        teamMaxPlayersOnField={7}
+        onSubstitute={onSubstitute}
+        onQuickReplace={vi.fn().mockResolvedValue("success")}
+        onClearSlot={vi.fn().mockResolvedValue("success")}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /goalkeeper: ava keeper/i }));
+    expect(onSubstitute).toHaveBeenCalledWith(expect.objectContaining({ id: "pos-gk" }));
+    expect(screen.queryByRole("dialog", { name: /quick replace/i })).not.toBeInTheDocument();
   });
 
   it("disables unsupported node interactions with an accessible unavailable title", () => {
@@ -175,29 +236,11 @@ describe("LineupShapeView", () => {
     expect(screen.getByText("Out of position")).toBeInTheDocument();
   });
 
-  it("renders remove action with compact icon and accessible remove label", () => {
+  it("removes persistent X control from assigned shape nodes", () => {
     renderView("scheduled");
 
-    const removeButton = screen.getByRole("button", {
-      name: /remove ava keeper from goalkeeper/i,
-    });
-    const nodeButton = screen.getByRole("button", { name: /goalkeeper: ava keeper/i });
-    const nodeContainer = nodeButton.closest(".lineup-shape-node");
-
-    expect(removeButton).toBeInTheDocument();
-    expect(removeButton).toHaveTextContent("×");
-    expect(removeButton).toHaveTextContent("Remove player");
-    expect(nodeContainer).toHaveClass("lineup-shape-node--removable");
-  });
-
-  it("hides remove control while game is in progress", () => {
-    renderView("in-progress");
-
-    const nodeButton = screen.getByRole("button", { name: /goalkeeper: ava keeper/i });
-    const nodeContainer = nodeButton.closest(".lineup-shape-node");
-
     expect(screen.queryByRole("button", { name: /remove ava keeper from goalkeeper/i })).not.toBeInTheDocument();
-    expect(nodeContainer).not.toHaveClass("lineup-shape-node--removable");
+    expect(document.querySelector(".lineup-shape-node__remove")).not.toBeInTheDocument();
   });
 
   it("exposes player label title for predictable truncation fallback", () => {
@@ -206,5 +249,101 @@ describe("LineupShapeView", () => {
     const playerLabel = screen.getByTitle("#1 Ava");
     expect(playerLabel).toHaveClass("lineup-shape-node__player");
     expect(playerLabel).toHaveTextContent("#1 Ava");
+  });
+
+  it("runs clear-slot action from quick replace dialog", async () => {
+    const user = userEvent.setup();
+    const onClearSlot = vi.fn().mockResolvedValue("success");
+
+    render(
+      <LineupShapeView
+        gameState={{ ...baseGame, status: "scheduled" } as Game}
+        game={{ ...baseGame, status: "scheduled" } as Game}
+        positions={positions}
+        lineup={lineup}
+        players={players}
+        playTimeRecords={[] as PlayTimeRecord[]}
+        currentTime={0}
+        teamMaxPlayersOnField={7}
+        onSubstitute={vi.fn()}
+        onQuickReplace={vi.fn().mockResolvedValue("success")}
+        onClearSlot={onClearSlot}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /goalkeeper: ava keeper/i }));
+    await user.click(screen.getByRole("button", { name: /clear slot/i }));
+
+    expect(onClearSlot).toHaveBeenCalledWith({
+      assignmentId: "la-1",
+      positionName: "Goalkeeper",
+      playerName: "Ava Keeper",
+    });
+  });
+
+  it("shows conflict microcopy when quick replace mutation reports conflict", async () => {
+    const user = userEvent.setup();
+    const onQuickReplace = vi.fn().mockRejectedValue(new Error("ConditionalCheckFailedException"));
+    const playersWithBench = [
+      ...players,
+      {
+        id: "player-2",
+        firstName: "Mia",
+        lastName: "Bench",
+        playerNumber: 12,
+      } as PlayerWithRoster,
+    ];
+
+    render(
+      <LineupShapeView
+        gameState={{ ...baseGame, status: "scheduled" } as Game}
+        game={{ ...baseGame, status: "scheduled" } as Game}
+        positions={positions}
+        lineup={lineup}
+        players={playersWithBench}
+        playTimeRecords={[] as PlayTimeRecord[]}
+        currentTime={0}
+        teamMaxPlayersOnField={7}
+        onSubstitute={vi.fn()}
+        onQuickReplace={onQuickReplace}
+        onClearSlot={vi.fn().mockResolvedValue("success")}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /goalkeeper: ava keeper/i }));
+    await user.click(screen.getByRole("button", { name: /#12 mia bench/i }));
+
+    const conflictMessages = screen.getAllByText(/lineup changed from another update/i);
+    expect(conflictMessages.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("keeps quick replace dialog open and shows conflict when clear-slot reports conflict", async () => {
+    const user = userEvent.setup();
+    const onClearSlot = vi.fn().mockResolvedValue("conflict");
+
+    render(
+      <LineupShapeView
+        gameState={{ ...baseGame, status: "scheduled" } as Game}
+        game={{ ...baseGame, status: "scheduled" } as Game}
+        positions={positions}
+        lineup={lineup}
+        players={players}
+        playTimeRecords={[] as PlayTimeRecord[]}
+        currentTime={0}
+        teamMaxPlayersOnField={7}
+        onSubstitute={vi.fn()}
+        onQuickReplace={vi.fn().mockResolvedValue("success")}
+        onClearSlot={onClearSlot}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /goalkeeper: ava keeper/i }));
+    await user.click(screen.getByRole("button", { name: /clear slot/i }));
+
+    expect(screen.getByRole("dialog", { name: /quick replace: goalkeeper/i })).toBeInTheDocument();
+    const conflictMessages = screen.getAllByText(/lineup changed from another update/i);
+    expect(conflictMessages.length).toBeGreaterThanOrEqual(1);
+    expect(mockShowSuccess).not.toHaveBeenCalledWith("Lineup slot cleared.");
+    expect(onClearSlot).toHaveBeenCalledTimes(1);
   });
 });

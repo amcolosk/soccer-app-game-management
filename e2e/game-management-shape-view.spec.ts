@@ -33,6 +33,27 @@ test.describe("Game Management shape view", () => {
       const substitutionDialog = page.getByRole("heading", { name: /assign player to position|substitution/i }).first();
       await expect(substitutionDialog).toBeVisible({ timeout: 10000 });
     }
+
+    const assignedNode = page.locator(".lineup-shape-node--assigned .lineup-shape-node__tap-target").first();
+    if (await assignedNode.isVisible().catch(() => false)) {
+      await assignedNode.click();
+
+      const quickReplaceDialog = page.getByRole("dialog", { name: /quick replace/i });
+      const substitutionHeading = page.getByRole("heading", { name: /substitution/i });
+      const lineupHeading = page.locator(".lineup-header h2").first();
+      const headingText = (await lineupHeading.textContent()) ?? "";
+      const isScheduled = /starting lineup/i.test(headingText);
+      const isHalftime = /second half lineup/i.test(headingText);
+
+      if (isScheduled || isHalftime) {
+        await expect(quickReplaceDialog).toBeVisible({ timeout: 10000 });
+        await expect(quickReplaceDialog).toHaveAttribute("aria-modal", "true");
+        await expect(substitutionHeading).toHaveCount(0);
+      } else {
+        await expect(substitutionHeading).toBeVisible({ timeout: 10000 });
+        await expect(quickReplaceDialog).toHaveCount(0);
+      }
+    }
   });
 
   test("fits narrow viewport and keeps shape controls at least 44x44", async ({ page }) => {
@@ -68,15 +89,6 @@ test.describe("Game Management shape view", () => {
     );
     expect(undersizedTapTargets).toBe(0);
 
-    const removeButtonCount = await page.locator(".lineup-shape-node__remove").count();
-    if (removeButtonCount > 0) {
-      const undersizedRemoveButtons = await page.locator(".lineup-shape-node__remove").evaluateAll((elements) =>
-        elements.filter((element) => {
-          const rect = element.getBoundingClientRect();
-          return rect.width < 44 || rect.height < 44;
-        }).length,
-      );
-      expect(undersizedRemoveButtons).toBe(0);
-    }
+    await expect(page.locator(".lineup-shape-node__remove")).toHaveCount(0);
   });
 });
