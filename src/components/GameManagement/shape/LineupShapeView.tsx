@@ -20,6 +20,7 @@ import {
   sortBenchPlayersByPriority,
 } from "./lineupInteractionAdapter";
 import { exportLineupShapeLocally, type ExportBenchPlayer } from "./exportLineupShape";
+import { SoccerPitchSurface } from "../../shared/SoccerPitchSurface";
 
 interface LineupShapeViewProps {
   gameState: Game;
@@ -414,8 +415,7 @@ export function LineupShapeView({
         </p>
       )}
 
-      <div className="lineup-shape-view__pitch" role="img" aria-label="Soccer lineup shape">
-        <div className="lineup-shape-view__pitch-grid" />
+      <SoccerPitchSurface className="lineup-shape-view__pitch" role="img" aria-label="Soccer lineup shape">
         {nodes.map((node) => {
           const assignment = lineupByPosition.get(node.positionId);
           const player = assignment?.playerId ? playersById.get(assignment.playerId) : undefined;
@@ -429,6 +429,7 @@ export function LineupShapeView({
               && playerHasPreferredPositions(player)
               && !playerPreferredForPosition(player, assignment.positionId),
           );
+          const outOfPositionA11ySuffix = outOfPosition ? " (out of position)" : "";
           const position = positionsById.get(node.positionId);
           const interaction = assignment && position
             ? interactionAdapter.getAssignedNodeInteraction(position)
@@ -446,7 +447,7 @@ export function LineupShapeView({
                 type="button"
                 className="lineup-shape-node__tap-target"
                 onClick={() => handleNodeTap(node, assignment)}
-                aria-label={`${node.positionName}: ${assignment ? playerName : "empty"}`}
+                aria-label={`${node.positionName}: ${assignment ? playerName : "empty"}${outOfPositionA11ySuffix}`}
                 title={interaction?.title ?? "Unavailable"}
                 disabled={!interaction?.canTap}
               >
@@ -457,11 +458,7 @@ export function LineupShapeView({
             </div>
           );
         })}
-        <div className="lineup-shape-view__pitch-center-line" aria-hidden="true" />
-        <div className="lineup-shape-view__pitch-center-circle" aria-hidden="true" />
-        <div className="lineup-shape-view__pitch-penalty-box lineup-shape-view__pitch-penalty-box--top" aria-hidden="true" />
-        <div className="lineup-shape-view__pitch-penalty-box lineup-shape-view__pitch-penalty-box--bottom" aria-hidden="true" />
-      </div>
+      </SoccerPitchSurface>
 
       <div
         className="lineup-shape-view__bench-strip"

@@ -1,0 +1,85 @@
+.soccer-pitch-surface {
+  --soccer-pitch-aspect-ratio: 2 / 3;
+  --soccer-pitch-border-radius: 10px;
+  --soccer-pitch-line-color: var(--pitch-surface-line-color);
+  --soccer-pitch-border-color: var(--pitch-surface-border-color);
+  --soccer-pitch-spot-color: var(--pitch-surface-spot-color);
+  --soccer-pitch-background: linear-gradient(
+    180deg,
+    var(--pitch-surface-background-start) 0%,
+    var(--pitch-surface-background-end) 100%
+  );
+  --soccer-pitch-penalty-width: 24%;
+  --soccer-pitch-penalty-height: 6%;
+  --soccer-pitch-center-circle-width: 20%;
+
+  position: relative;
+  aspect-ratio: var(--soccer-pitch-aspect-ratio);
+  border-radius: var(--soccer-pitch-border-radius);
+  border: 2px solid var(--soccer-pitch-border-color);
+  background: var(--soccer-pitch-background);
+  overflow: hidden;
+  flex-shrink: 0;
+  isolation: isolate;
+}
+
+.soccer-pitch-surface__markings {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.soccer-pitch-surface__center-line,
+.soccer-pitch-surface__center-circle,
+.soccer-pitch-surface__center-spot,
+.soccer-pitch-surface__penalty-box {
+  position: absolute;
+  pointer-events: none;
+}
+
+.soccer-pitch-surface__center-line {
+  left: 10%;
+  right: 10%;
+  top: 50%;
+  border-top: 1px solid var(--soccer-pitch-line-color);
+}
+
+.soccer-pitch-surface__center-circle {
+  left: 50%;
+  top: 50%;
+  width: var(--soccer-pitch-center-circle-width);
+  aspect-ratio: 2 / 1;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--soccer-pitch-line-color);
+  border-radius: 50%;
+}
+
+.soccer-pitch-surface__center-spot {
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--soccer-pitch-spot-color);
+}
+
+.soccer-pitch-surface__penalty-box {
+  left: 50%;
+  width: var(--soccer-pitch-penalty-width);
+  height: var(--soccer-pitch-penalty-height);
+  transform: translateX(-50%);
+  border: 2px solid var(--soccer-pitch-line-color);
+}
+
+.soccer-pitch-surface__penalty-box--top {
+  top: 0;
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+}
+
+.soccer-pitch-surface__penalty-box--bottom {
+  bottom: 0;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+}

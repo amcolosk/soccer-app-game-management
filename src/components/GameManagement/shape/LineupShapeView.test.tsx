@@ -149,6 +149,32 @@ describe("LineupShapeView", () => {
     expect(screen.getByRole("region", { name: /locked bench strip/i })).toBeInTheDocument();
   });
 
+  it("renders shared pitch surface semantics and decorative markings", () => {
+    renderView("scheduled");
+
+    const pitch = screen.getByRole("img", { name: /soccer lineup shape/i });
+    expect(pitch).toHaveClass("soccer-pitch-surface");
+    expect(pitch).toHaveClass("lineup-shape-view__pitch");
+
+    const markings = document.querySelector(".soccer-pitch-surface__markings");
+    expect(markings).toHaveAttribute("aria-hidden", "true");
+    expect(document.querySelectorAll(".soccer-pitch-surface__penalty-box").length).toBe(2);
+  });
+
+  it("keeps pitch actions keyboard-reachable with readable tap-target metadata", async () => {
+    const user = userEvent.setup();
+    renderView("scheduled");
+
+    const exportButton = screen.getByRole("button", { name: /export lineup shape and bench strip to local file/i });
+    expect(exportButton).toBeInTheDocument();
+
+    await user.tab();
+    expect(exportButton).toHaveFocus();
+
+    const nodeButton = screen.getByRole("button", { name: /goalkeeper: ava keeper/i });
+    expect(nodeButton).toHaveAttribute("title", "Tap to quick replace");
+  });
+
   it("routes assigned scheduled node taps into quick replace dialog", async () => {
     const user = userEvent.setup();
     const onSubstitute = vi.fn();

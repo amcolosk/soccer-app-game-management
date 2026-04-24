@@ -11,6 +11,8 @@ import {
   setFormationLayoutOverride,
 } from '../utils/formationLayoutOverride';
 import { useHelpFab } from '../contexts/HelpFabContext';
+import { SoccerPitchSurface } from './shared/SoccerPitchSurface';
+import { getFvePitchWidthStyle } from './formationVisualEditorLayout';
 
 const client = generateClient<Schema>();
 
@@ -493,90 +495,27 @@ export function FormationVisualEditor({
               {loadError}
             </div>
           ) : (
-          <div
+          <SoccerPitchSurface
             ref={canvasRef}
+            className="fve-pitch"
             style={{
-              /* Fix: set width as definite value so aspect-ratio can derive height.
-                 width = min(available container width, width-from-max-height).
-                 Max height = 90vh minus fixed chrome (56+52+64+16px padding) = 90vh-188px.
-                 Width from that height at 2:3 ratio = (90vh-188px)*2/3. */
-              width: 'min(100%, calc((90vh - 188px) * 2 / 3))',
+                /* Defensive sizing for short/tall viewports.
+                  Width is derived from available modal height at 2:3,
+                  then guarded with max() and clamp(). */
+                width: getFvePitchWidthStyle(),
               height: 'auto',
-              aspectRatio: '2/3',
-              position: 'relative',
               touchAction: 'none',
-              backgroundColor: '#2d7a2d',
-              borderRadius: '4px',
-              border: '2px solid rgba(255,255,255,0.3)',
-              flexShrink: 0,
-            }}
+              '--soccer-pitch-aspect-ratio': '2 / 3',
+              '--soccer-pitch-border-radius': '4px',
+              '--soccer-pitch-background': 'var(--fve-pitch-background)',
+              '--soccer-pitch-border-color': 'var(--fve-pitch-border-color)',
+              '--soccer-pitch-line-color': 'var(--fve-pitch-line-color)',
+              '--soccer-pitch-spot-color': 'var(--fve-pitch-spot-color)',
+              '--soccer-pitch-penalty-width': '24%',
+              '--soccer-pitch-penalty-height': '6%',
+              '--soccer-pitch-center-circle-width': '20%',
+            } as CSSProperties}
           >
-            {/* Pitch markings */}
-            <div
-              aria-hidden="true"
-              style={{
-                position: 'absolute',
-                left: '10%',
-                right: '10%',
-                top: '50%',
-                height: '1px',
-                backgroundColor: 'rgba(255,255,255,0.4)',
-              }}
-            />
-            <div
-              aria-hidden="true"
-              style={{
-                position: 'absolute',
-                left: '50%',
-                top: '50%',
-                width: '20%',
-                height: '10%',
-                transform: 'translate(-50%, -50%)',
-                border: '1px solid rgba(255,255,255,0.4)',
-                borderRadius: '50%',
-              }}
-            />
-            <div
-              aria-hidden="true"
-              style={{
-                position: 'absolute',
-                left: '50%',
-                top: '50%',
-                width: '6px',
-                height: '6px',
-                transform: 'translate(-50%, -50%)',
-                borderRadius: '50%',
-                backgroundColor: 'rgba(255,255,255,0.65)',
-              }}
-            />
-            <div
-              aria-hidden="true"
-              style={{
-                position: 'absolute',
-                left: '50%',
-                top: 0,
-                width: '24%',
-                height: '6%',
-                transform: 'translateX(-50%)',
-                border: '2px solid rgba(255,255,255,0.35)',
-                borderTop: 'none',
-                borderRadius: '0 0 10px 10px',
-              }}
-            />
-            <div
-              aria-hidden="true"
-              style={{
-                position: 'absolute',
-                left: '50%',
-                bottom: 0,
-                width: '24%',
-                height: '6%',
-                transform: 'translateX(-50%)',
-                border: '2px solid rgba(255,255,255,0.35)',
-                borderBottom: 'none',
-                borderRadius: '10px 10px 0 0',
-              }}
-            />
 
             {/* Position nodes */}
             {draft.map(pos => {
@@ -618,7 +557,7 @@ export function FormationVisualEditor({
                 </button>
               );
             })}
-          </div>
+          </SoccerPitchSurface>
           )}
         </div>
 

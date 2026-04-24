@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { FormationVisualEditor } from './FormationVisualEditor';
+import { getFvePitchWidthStyle } from './formationVisualEditorLayout';
 
 const listMock = vi.hoisted(() => vi.fn());
 const formationGetMock = vi.hoisted(() => vi.fn());
@@ -103,11 +104,67 @@ describe('FormationVisualEditor', () => {
     const node = await screen.findByRole('button', { name: /goalkeeper/i });
     expect(node).toBeInTheDocument();
     expect(node).toHaveStyle('left: 33%; top: 77%;');
+    const pitch = document.querySelector('.fve-pitch');
+    expect(pitch).toBeInTheDocument();
+    expect(pitch).toHaveClass('soccer-pitch-surface');
     expect(buildLineupShapeNodesMock).toHaveBeenCalled();
 
     unmount();
     expect(setHelpContextMock).toHaveBeenCalledWith('formation-visual-editor');
     expect(setHelpContextMock).toHaveBeenCalledWith('manage-formations');
+  });
+
+  it('keeps drag measurement on the forwarded shared pitch root', async () => {
+    renderEditor();
+
+    const node = await screen.findByRole('button', { name: /goalkeeper/i });
+    const pitch = document.querySelector('.fve-pitch') as HTMLDivElement;
+    expect(pitch).toBeInTheDocument();
+    expect(pitch).toHaveStyle('touch-action: none;');
+
+    const rect: DOMRect = {
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 300,
+      width: 300,
+      height: 300,
+      toJSON: () => ({}),
+    };
+    vi.spyOn(pitch, 'getBoundingClientRect').mockReturnValue(rect);
+
+    Object.defineProperty(node, 'setPointerCapture', {
+      value: vi.fn(),
+      configurable: true,
+    });
+    Object.defineProperty(node, 'releasePointerCapture', {
+      value: vi.fn(),
+      configurable: true,
+    });
+
+    fireEvent.pointerDown(node, { pointerId: 1, clientX: 90, clientY: 180 });
+    fireEvent.pointerMove(node, { pointerId: 1, clientX: 150, clientY: 180 });
+    fireEvent.pointerUp(node, { pointerId: 1, clientX: 150, clientY: 180 });
+
+    expect(node).toHaveStyle('left: 50%; top: 60%;');
+  });
+
+  it('applies guarded short-height clamp sizing and token-based pitch overrides', async () => {
+    renderEditor();
+
+    await screen.findByRole('button', { name: /goalkeeper/i });
+    const pitch = document.querySelector('.fve-pitch') as HTMLDivElement;
+    expect(pitch).toBeInTheDocument();
+
+    const widthStyle = getFvePitchWidthStyle();
+    expect(widthStyle).toContain('clamp(');
+    expect(widthStyle).toContain('max(');
+    expect(pitch.style.getPropertyValue('--soccer-pitch-background')).toBe('var(--fve-pitch-background)');
+    expect(pitch.style.getPropertyValue('--soccer-pitch-border-color')).toBe('var(--fve-pitch-border-color)');
+    expect(pitch.style.getPropertyValue('--soccer-pitch-line-color')).toBe('var(--fve-pitch-line-color)');
+    expect(pitch.style.getPropertyValue('--soccer-pitch-spot-color')).toBe('var(--fve-pitch-spot-color)');
   });
 
   it('shows discard prompt when canceling with unsaved changes', async () => {

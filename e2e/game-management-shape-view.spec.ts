@@ -91,4 +91,67 @@ test.describe("Game Management shape view", () => {
 
     await expect(page.locator(".lineup-shape-node__remove")).toHaveCount(0);
   });
+
+  test("prevents overlap between visible assigned cards on narrow viewport", async ({ page }) => {
+    await navigateToApp(page);
+
+    await page.locator("a.nav-item", { hasText: "Games" }).click();
+    await waitForPageLoad(page);
+
+    const gameCardCount = await page.locator(".game-card").count();
+    test.skip(gameCardCount === 0, "No games available to validate shape view in this environment.");
+
+    await page.locator(".game-card").first().click();
+    await waitForPageLoad(page);
+
+    const onCompletedScreen = await page.getByRole("heading", { name: /play time summary/i }).isVisible().catch(() => false);
+    test.skip(onCompletedScreen, "Shape view is out of scope for completed games.");
+
+    const shapeToggle = page.getByRole("button", { name: "Shape" });
+    await expect(shapeToggle).toBeVisible({ timeout: 10000 });
+    await shapeToggle.click();
+
+    const pitch = page.locator(".lineup-shape-view__pitch");
+    await expect(pitch).toBeVisible({ timeout: 10000 });
+
+    const assignedCards = page.locator(".lineup-shape-node--assigned .lineup-shape-node__tap-target");
+    const assignedRects = await assignedCards.evaluateAll((elements) => {
+      return elements
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          const isVisible = rect.width > 0
+            && rect.height > 0
+            && window.getComputedStyle(element).visibility !== "hidden"
+            && window.getComputedStyle(element).display !== "none";
+
+          return {
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+            isVisible,
+          };
+        })
+        .filter((rect) => rect.isVisible);
+    });
+
+    test.skip(
+      assignedRects.length < 2,
+      "Not enough visible assigned cards to validate overlap in this environment.",
+    );
+
+    const overlapPairs: string[] = [];
+    for (let i = 0; i < assignedRects.length; i += 1) {
+      const a = assignedRects[i];
+      for (let j = i + 1; j < assignedRects.length; j += 1) {
+        const b = assignedRects[j];
+        const overlaps = a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+        if (overlaps) {
+          overlapPairs.push(`${i}-${j}`);
+        }
+      }
+    }
+
+    expect(overlapPairs).toEqual([]);
+  });
 });
