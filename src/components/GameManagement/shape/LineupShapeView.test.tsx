@@ -126,6 +126,28 @@ describe("LineupShapeView", () => {
     vi.clearAllMocks();
   });
 
+  it("formats jersey short labels deterministically from normalized names", () => {
+    renderViewWithPlayers("scheduled", [
+      { id: "player-1", firstName: "  Ava  ", lastName: "  Keeper  ", playerNumber: 1 } as PlayerWithRoster,
+    ]);
+    expect(screen.getByTitle("#1 Ava Keeper")).toHaveTextContent("Ava K");
+
+    renderViewWithPlayers("scheduled", [
+      { id: "player-1", firstName: "Ava", lastName: "", playerNumber: 1 } as PlayerWithRoster,
+    ]);
+    expect(screen.getByTitle("#1 Ava")).toHaveTextContent("Ava");
+
+    renderViewWithPlayers("scheduled", [
+      { id: "player-1", firstName: "", lastName: " Keeper ", playerNumber: 1 } as PlayerWithRoster,
+    ]);
+    expect(screen.getByTitle("#1 Keeper")).toHaveTextContent("K");
+
+    renderViewWithPlayers("scheduled", [
+      { id: "player-1", firstName: "", lastName: " --- ", playerNumber: 1 } as PlayerWithRoster,
+    ]);
+    expect(screen.getByTitle("#1 ---")).toHaveTextContent("Unknown player");
+  });
+
   it("exports with accessible control and without identity in export params", async () => {
     const user = userEvent.setup();
     renderView("scheduled");
@@ -234,21 +256,7 @@ describe("LineupShapeView", () => {
     expect(nodeButton).toHaveAttribute("title", "Unavailable");
   });
 
-  it("does not show out-of-position when preferred positions are not configured", () => {
-    renderViewWithPlayers("scheduled", [
-      {
-        id: "player-1",
-        firstName: "Ava",
-        lastName: "Keeper",
-        playerNumber: 1,
-        preferredPositions: "",
-      } as PlayerWithRoster,
-    ]);
-
-    expect(screen.queryByText("Out of position")).not.toBeInTheDocument();
-  });
-
-  it("shows out-of-position when assigned position is not in configured preferred positions", () => {
+  it("does not render out-of-position marker regardless of preferred position fit", () => {
     renderViewWithPlayers("scheduled", [
       {
         id: "player-1",
@@ -259,7 +267,7 @@ describe("LineupShapeView", () => {
       } as PlayerWithRoster,
     ]);
 
-    expect(screen.getByText("Out of position")).toBeInTheDocument();
+    expect(screen.queryByText("Out of position")).not.toBeInTheDocument();
   });
 
   it("removes persistent X control from assigned shape nodes", () => {
@@ -269,12 +277,12 @@ describe("LineupShapeView", () => {
     expect(document.querySelector(".lineup-shape-node__remove")).not.toBeInTheDocument();
   });
 
-  it("exposes player label title for predictable truncation fallback", () => {
+  it("renders jersey player tier short label with full-name title fallback", () => {
     renderView("scheduled");
 
-    const playerLabel = screen.getByTitle("#1 Ava");
+    const playerLabel = screen.getByTitle("#1 Ava Keeper");
     expect(playerLabel).toHaveClass("lineup-shape-node__player");
-    expect(playerLabel).toHaveTextContent("#1 Ava");
+    expect(playerLabel).toHaveTextContent("Ava K");
   });
 
   it("runs clear-slot action from quick replace dialog", async () => {

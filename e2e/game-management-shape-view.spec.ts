@@ -78,6 +78,14 @@ test.describe("Game Management shape view", () => {
     const pitch = page.locator(".lineup-shape-view__pitch");
     await expect(pitch).toBeVisible({ timeout: 10000 });
 
+    const pitchHeightRatio = await pitch.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      return rect.height / viewportHeight;
+    });
+    expect(pitchHeightRatio).toBeGreaterThanOrEqual(0.58);
+    expect(pitchHeightRatio).toBeLessThanOrEqual(0.66);
+
     const pitchHasHorizontalOverflow = await pitch.evaluate((element) => element.scrollWidth > element.clientWidth + 1);
     expect(pitchHasHorizontalOverflow).toBe(false);
 
