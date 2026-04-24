@@ -66,6 +66,15 @@ function getLaneX(index: number, laneSize: number): number {
   return Number((left + (index * step)).toFixed(2));
 }
 
+function hasPersistedLayout(position: FormationPosition): position is FormationPosition & { xPct: number; yPct: number } {
+  return (
+    typeof position.xPct === "number"
+    && Number.isFinite(position.xPct)
+    && typeof position.yPct === "number"
+    && Number.isFinite(position.yPct)
+  );
+}
+
 export function buildLineupShapeNodes(positions: FormationPosition[]): LineupShapeNode[] {
   const byLane = new Map<ShapeLane, FormationPosition[]>();
   for (const lane of LANE_ORDER) {
@@ -81,6 +90,7 @@ export function buildLineupShapeNodes(positions: FormationPosition[]): LineupSha
   LANE_ORDER.forEach((lane, laneIndex) => {
     const lanePositions = byLane.get(lane) ?? [];
     lanePositions.forEach((position, slotIndex) => {
+      const usePersisted = hasPersistedLayout(position);
       nodes.push({
         positionId: position.id,
         positionName: position.positionName ?? "Unknown",
@@ -88,8 +98,8 @@ export function buildLineupShapeNodes(positions: FormationPosition[]): LineupSha
         lane,
         laneIndex,
         slotIndex,
-        xPct: getLaneX(slotIndex, lanePositions.length),
-        yPct: LANE_Y[lane],
+        xPct: usePersisted ? position.xPct : getLaneX(slotIndex, lanePositions.length),
+        yPct: usePersisted ? position.yPct : LANE_Y[lane],
       });
     });
   });

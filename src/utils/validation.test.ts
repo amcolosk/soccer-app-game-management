@@ -7,6 +7,7 @@ import {
   validateFormationFormData,
   BIRTH_YEAR_MIN,
 } from './validation';
+import { clampCoord, validateAndClampCoordinates } from './validation';
 import type { TeamRoster } from '../types/schema';
 
 describe('Player Number Uniqueness', () => {
@@ -246,5 +247,35 @@ describe('validateFormationFormData', () => {
     ];
     const result = validateFormationFormData({ ...valid, positions: incomplete });
     expect(result).toHaveProperty('error');
+  });
+});
+
+describe('clampCoord', () => {
+  it('rounds floats to nearest integer before clamping', () => {
+    expect(clampCoord(25.4)).toBe(25);
+    expect(clampCoord(25.5)).toBe(26);
+    expect(clampCoord(98.6)).toBe(99);
+  });
+
+  it('clamps values to [1, 99]', () => {
+    expect(clampCoord(-10)).toBe(1);
+    expect(clampCoord(0)).toBe(1);
+    expect(clampCoord(1)).toBe(1);
+    expect(clampCoord(99)).toBe(99);
+    expect(clampCoord(100)).toBe(99);
+  });
+});
+
+describe('validateAndClampCoordinates', () => {
+  it('rounds and clamps both xPct and yPct for each position', () => {
+    const result = validateAndClampCoordinates([
+      { id: 'p1', xPct: 0.2, yPct: 100.4 },
+      { id: 'p2', xPct: 48.5, yPct: 48.49 },
+    ]);
+
+    expect(result).toEqual([
+      { id: 'p1', xPct: 1, yPct: 99 },
+      { id: 'p2', xPct: 49, yPct: 48 },
+    ]);
   });
 });

@@ -1,5 +1,5 @@
 /**
- * TeamTrack Help System — Types and Content
+ * TeamTrack Help System - Types and Content
  *
  * Single-module barrel for the Phase 1 context-aware help feature.
  * Exports HelpScreenKey (type) and HELP_CONTENT (value).
@@ -13,23 +13,23 @@
  */
 
 // ---------------------------------------------------------------------------
-// Exported types — these have consumers in Phase 1
+// Exported types - these have consumers in Phase 1
 // ---------------------------------------------------------------------------
 
 /**
  * Identifies which help article to display.
  * One key per distinct screen context where help content differs meaningfully.
  *
- * GameManagement uses four keys — one per game state — because each state
+ * GameManagement uses four keys - one per game state - because each state
  * surfaces different affordances and the coach's questions differ entirely.
  *
- * Management uses five keys — one per sub-section — because Teams setup help
+ * Management uses five keys - one per sub-section - because Teams setup help
  * is unrelated to Sharing/Permissions help.
  */
 export type HelpScreenKey =
   // Home screen
   | 'home'
-  // Game Management — four states derived from gameState.status
+  // Game Management - four states derived from gameState.status
   | 'game-scheduled'
   | 'game-in-progress'
   | 'game-halftime'
@@ -38,17 +38,19 @@ export type HelpScreenKey =
   | 'game-planner'
   // Season Reports
   | 'season-reports'
-  // Management — five sub-sections matching activeSection values
+  // Management - five sub-sections matching activeSection values
   | 'manage-teams'
   | 'manage-players'
   | 'manage-formations'
   | 'manage-sharing'
   | 'manage-app'
   // User Profile
-  | 'profile';
+  | 'profile'
+  // Formation Visual Editor (modal, sub-context of manage-formations)
+  | 'formation-visual-editor';
 
 // ---------------------------------------------------------------------------
-// Internal types — used for type-checking HELP_CONTENT; not exported in Phase 1
+// Internal types - used for type-checking HELP_CONTENT; not exported in Phase 1
 // ---------------------------------------------------------------------------
 
 /**
@@ -82,7 +84,7 @@ interface ScreenHelpContent {
   screenTitle: string;
 
   /**
-   * 1–2 sentence plain-English description of what this screen is for.
+  * 1-2 sentence plain-English description of what this screen is for.
    * Written for a first-time coach, not a developer.
    */
   overview: string;
@@ -125,7 +127,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
   // @help-content: home
   'home': {
     screenTitle: 'Games List',
-    overview: 'This is your home screen — it shows all your games grouped by status: active, upcoming, and past. Tap any game card to open it.',
+    overview: 'This is your home screen - it shows all your games grouped by status: active, upcoming, and past. Tap any game card to open it.',
     tasks: [
       {
         title: 'Schedule a new game',
@@ -161,7 +163,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
 
   // @help-content: game-scheduled
   'game-scheduled': {
-    screenTitle: 'Game Management — Pre-Game',
+    screenTitle: 'Game Management - Pre-Game',
     overview: 'Before kick-off, mark which players are available and open the Game Planner to set your rotation. When the roster is ready, tap "Start Game" to begin.',
     tasks: [
       {
@@ -175,9 +177,9 @@ export const HELP_CONTENT: HelpContentRegistry = {
       {
         title: 'Understand availability statuses',
         steps: [
-          'Available — player is present and ready to play from kick-off.',
-          'Absent — player is not at the game; excluded from all rotations.',
-          'Late Arrival — player will arrive partway through the game.',
+          'Available - player is present and ready to play from kick-off.',
+          'Absent - player is not at the game; excluded from all rotations.',
+          'Late Arrival - player will arrive partway through the game.',
           'For Late Arrival, enter the expected arrival minute so the planner accounts for them.',
         ],
       },
@@ -206,7 +208,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
 
   // @help-content: game-in-progress
   'game-in-progress': {
-    screenTitle: 'Game Management — In Progress',
+    screenTitle: 'Game Management - In Progress',
     overview: 'Manage the live game: swap players in and out, record goals, log notes, and track who needs more time on the field.',
     tasks: [
       {
@@ -239,7 +241,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
         title: 'Find the next player to bring on',
         steps: [
           'Go to the Bench tab.',
-          'Players are sorted by least play time — bring on the player at the top.',
+          'Players are sorted by least play time - bring on the player at the top.',
         ],
       },
     ],
@@ -253,7 +255,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
 
   // @help-content: game-halftime
   'game-halftime': {
-    screenTitle: 'Game Management — Halftime',
+    screenTitle: 'Game Management - Halftime',
     overview: 'Adjust your lineup for the second half before restarting. The halftime lineup defaults to the second-half rotation from your Game Planner.',
     tasks: [
       {
@@ -289,7 +291,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
 
   // @help-content: game-completed
   'game-completed': {
-    screenTitle: 'Game Management — Completed',
+    screenTitle: 'Game Management - Completed',
     overview: 'Review the final result and play-time summary for each player. This game\'s data is automatically included in your Season Report.',
     tasks: [
       {
@@ -317,7 +319,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
   // @help-content: game-planner
   'game-planner': {
     screenTitle: 'Game Planner',
-    overview: 'Plan your rotation schedule before the game — set a starting lineup, mark availability, and generate fair rotations so every player gets equal time.',
+    overview: 'Plan your rotation schedule before the game - set a starting lineup, mark availability, and generate fair rotations so every player gets equal time.',
     tasks: [
       {
         title: 'Set the starting lineup',
@@ -349,7 +351,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
         steps: [
           'Tap "Copy from Previous Game".',
           'Select a past game with a saved plan.',
-          'The plan is applied to this game — edit as needed.',
+          'The plan is applied to this game - edit as needed.',
         ],
       },
     ],
@@ -398,7 +400,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
 
   // @help-content: manage-teams
   'manage-teams': {
-    screenTitle: 'Management — Teams',
+    screenTitle: 'Management - Teams',
     overview: 'Create and configure your teams, including half length, maximum players on field, and the formation used for lineups.',
     tasks: [
       {
@@ -438,8 +440,8 @@ export const HELP_CONTENT: HelpContentRegistry = {
 
   // @help-content: manage-players
   'manage-players': {
-    screenTitle: 'Management — Players',
-    overview: 'Manage your player roster — add players, assign jersey numbers, set preferred positions, and assign players to teams.',
+    screenTitle: 'Management - Players',
+    overview: 'Manage your player roster - add players, assign jersey numbers, set preferred positions, and assign players to teams.',
     tasks: [
       {
         title: 'Add a new player',
@@ -485,7 +487,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
 
   // @help-content: manage-formations
   'manage-formations': {
-    screenTitle: 'Management — Formations',
+    screenTitle: 'Management - Formations',
     overview: 'Create and manage field formations that define the position slots available in your lineup and Game Planner.',
     tasks: [
       {
@@ -525,7 +527,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
 
   // @help-content: manage-sharing
   'manage-sharing': {
-    screenTitle: 'Management — Sharing & Permissions',
+    screenTitle: 'Management - Sharing & Permissions',
     overview: 'Invite other coaches to view or co-manage your team. Manage pending invitations you have sent and accept ones sent to you.',
     tasks: [
       {
@@ -562,7 +564,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
 
   // @help-content: manage-app
   'manage-app': {
-    screenTitle: 'Management — App Settings',
+    screenTitle: 'Management - App Settings',
     overview: 'Configure app-wide preferences, view the current app version, and access developer tools. Settings here apply to all teams.',
     tasks: [
       {
@@ -619,7 +621,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
         steps: [
           'Scroll to the bottom of the Profile screen.',
           'Tap "Delete Account".',
-          'Read the warning carefully — this action is permanent.',
+          'Read the warning carefully - this action is permanent.',
           'Confirm deletion.',
         ],
       },
@@ -629,5 +631,34 @@ export const HELP_CONTENT: HelpContentRegistry = {
       { text: 'Deleting your account is permanent and removes all your data.' },
     ],
     relatedScreens: ['manage-sharing'],
+  },
+
+  // @help-content: formation-visual-editor
+  'formation-visual-editor': {
+    screenTitle: 'Customize Formation Layout',
+    overview: "Drag position nodes to reposition them on the pitch. On mobile, select a node then use the arrow buttons to nudge it. Tap Save when you're happy with the layout.",
+    tasks: [
+      {
+        title: 'Move a position node',
+        steps: [
+          'On desktop: click and drag the position node to the new location.',
+          'On mobile: tap a node to select it, then tap the arrow buttons below the pitch.',
+          'Use the keyboard arrow keys when a node is focused for fine-grained control.',
+        ],
+      },
+      {
+        title: 'Save or discard your layout',
+        steps: [
+          'Tap Save to write the layout to the database.',
+          'Tap Reset to revert to the last saved layout without closing the editor.',
+          'Tap Cancel to exit without saving (you will be asked to confirm if you have unsaved changes).',
+        ],
+      },
+    ],
+    tips: [
+      { text: 'Forward positions should be near the top; the goalkeeper near the bottom.' },
+      { text: "If another coach saves while you have the editor open, a conflict warning will appear and Save will be blocked until you reload." },
+    ],
+    relatedScreens: ['manage-formations'],
   },
 };

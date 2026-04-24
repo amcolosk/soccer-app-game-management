@@ -98,4 +98,19 @@ describe("lineupShapeDeterminism", () => {
     expect(laneByPositionId["a-rw"]).toBe("fwd");
     expect(laneByPositionId["a-str"]).toBe("fwd");
   });
+
+  it("honors persisted xPct/yPct coordinates when present", () => {
+    const customLayout: FormationPosition[] = [
+      { ...pos("p-gk", "Goalkeeper", "GK", 0), xPct: 42, yPct: 91 } as unknown as FormationPosition,
+      { ...pos("p-cm", "Center Mid", "CM", 1), xPct: 60, yPct: 33 } as unknown as FormationPosition,
+    ];
+
+    const snapshot = buildLineupShapeGoldenSnapshot(customLayout);
+    const nodeById = Object.fromEntries(snapshot.nodes.map((node) => [node.positionId, node]));
+
+    expect(nodeById["p-gk"].xPct).toBe(42);
+    expect(nodeById["p-gk"].yPct).toBe(91);
+    expect(nodeById["p-cm"].xPct).toBe(60);
+    expect(nodeById["p-cm"].yPct).toBe(33);
+  });
 });

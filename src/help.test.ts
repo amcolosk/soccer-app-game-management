@@ -2,7 +2,7 @@
  * Tests for src/help.ts — HELP_CONTENT registry validation.
  *
  * These tests enforce the content authoring guidelines:
- * - All 13 HelpScreenKey values are present
+ * - All HelpScreenKey values are present
  * - Each article has required fields with non-empty content
  * - Tasks ≤ 4 per screen, each with ≥ 1 step and ≤ 6 steps
  * - Tips ≤ 3 per screen, each with non-empty text
@@ -26,11 +26,12 @@ const ALL_KEYS: HelpScreenKey[] = [
   'manage-sharing',
   'manage-app',
   'profile',
+  'formation-visual-editor',
 ];
 
 describe('HELP_CONTENT registry', () => {
-  it('contains exactly 13 entries', () => {
-    expect(Object.keys(HELP_CONTENT)).toHaveLength(13);
+  it('contains exactly 14 entries', () => {
+    expect(Object.keys(HELP_CONTENT)).toHaveLength(14);
   });
 
   it.each(ALL_KEYS)('contains an entry for key "%s"', (key) => {
