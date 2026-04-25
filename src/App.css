@@ -2018,65 +2018,26 @@
 
 .lineup-shape-node__jersey {
   position: relative;
-  width: 100%;
-  min-height: 44px;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1.5px solid #204e8e;
-  border-radius: 0.88rem 0.88rem 0.66rem 0.66rem;
-  background:
-    linear-gradient(
-      180deg,
-      transparent 0,
-      transparent calc(100% - 7px),
-      rgba(24, 90, 173, 0.7) calc(100% - 7px),
-      rgba(24, 90, 173, 0.7) calc(100% - 5px),
-      transparent calc(100% - 5px),
-      transparent calc(100% - 3px),
-      rgba(24, 90, 173, 0.58) calc(100% - 3px),
-      rgba(24, 90, 173, 0.58) calc(100% - 1px),
-      transparent calc(100% - 1px)
-    ),
-    linear-gradient(180deg, #fbfdff 0%, #edf5ff 60%, #e4efff 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  background: linear-gradient(135deg, #87ceeb 0%, #4682b4 100%);
+  border: 2px solid #ffffff;
+  box-shadow: 
+    0 3px 6px rgba(0, 0, 0, 0.2), 
+    inset 0 -2px 4px rgba(0, 0, 0, 0.2),
+    inset 0 2px 4px rgba(255, 255, 255, 0.6);
+  z-index: 2;
 }
 
+/* Removed CSS arms completely for a clean tactical puck look */
 .lineup-shape-node__jersey::before,
 .lineup-shape-node__jersey::after {
-  content: "";
-  position: absolute;
-  top: 0.3rem;
-  width: 34%;
-  height: 52%;
-  border: 1.5px solid #1f4a87;
-  background:
-    linear-gradient(
-      180deg,
-      transparent 0,
-      transparent calc(100% - 6px),
-      rgba(24, 90, 173, 0.72) calc(100% - 6px),
-      rgba(24, 90, 173, 0.72) calc(100% - 4px),
-      transparent calc(100% - 4px),
-      transparent calc(100% - 2px),
-      rgba(24, 90, 173, 0.62) calc(100% - 2px),
-      rgba(24, 90, 173, 0.62) 100%
-    ),
-    linear-gradient(180deg, #f9fcff 0%, #e8f1ff 100%);
-  z-index: 1;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.28);
-}
-
-.lineup-shape-node__jersey::before {
-  left: -20%;
-  border-radius: 0.76rem 0.32rem 0.56rem 0.62rem;
-  transform: rotate(34deg);
-}
-
-.lineup-shape-node__jersey::after {
-  right: -20%;
-  border-radius: 0.32rem 0.76rem 0.62rem 0.56rem;
-  transform: rotate(-34deg);
+  display: none;
 }
 
 .lineup-shape-node__name-strip {
