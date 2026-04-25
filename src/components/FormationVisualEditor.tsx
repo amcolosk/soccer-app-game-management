@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
@@ -88,12 +88,64 @@ export function FormationVisualEditor({
 
   // Focus trap refs
   const modalRef = useRef<HTMLDivElement>(null);
+  const confirmDialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const openerRef = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
+  const confirmInvokerRef = useRef<HTMLElement | null>(null);
+
+  const focusElement = useCallback((target: HTMLElement | null): boolean => {
+    if (!target || !target.isConnected) {
+      return false;
+    }
+    target.focus();
+    return true;
+  }, []);
+
+  const restoreFocusToOpener = useCallback(() => {
+    setTimeout(() => {
+      if (focusElement(openerRef.current)) {
+        return;
+      }
+      if (focusElement(document.body)) {
+        return;
+      }
+      closeButtonRef.current?.focus();
+    }, 0);
+  }, [focusElement]);
+
+  const closeEditor = useCallback(() => {
+    onClose();
+    restoreFocusToOpener();
+  }, [onClose, restoreFocusToOpener]);
+
+  const closeConfirmAndRestoreFocus = useCallback(() => {
+    setShowCancelConfirm(false);
+    setTimeout(() => {
+      if (focusElement(confirmInvokerRef.current)) {
+        return;
+      }
+      if (focusElement(cancelButtonRef.current)) {
+        return;
+      }
+      closeButtonRef.current?.focus();
+    }, 0);
+  }, [focusElement]);
 
   // ---- load on mount ----
   useEffect(() => {
     void loadPositions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formationId]);
+
+  // ---- empty state announcement ----
+  useEffect(() => {
+    if (!loading && draft.length === 0) {
+      setAnnouncement('Formation has no positions');
+    }
+  }, [loading, draft.length]);
 
   async function loadPositions() {
     setLoading(true);
@@ -258,7 +310,7 @@ export function FormationVisualEditor({
 
   // ---- focus trap ----
   useEffect(() => {
-    if (loading) return;
+    if (loading || showCancelConfirm) return;
     const el = modalRef.current;
     if (!el) return;
     const focusable = el.querySelectorAll<HTMLElement>(
@@ -290,7 +342,50 @@ export function FormationVisualEditor({
     }
     el.addEventListener('keydown', onKeyDown);
     return () => el.removeEventListener('keydown', onKeyDown);
-  }, [loading]);
+  }, [loading, showCancelConfirm]);
+
+  // ---- nested confirm dialog focus trap ----
+  useEffect(() => {
+    if (!showCancelConfirm) return;
+    const el = confirmDialogRef.current;
+    if (!el) return;
+    
+    // Focus on primary action (Discard) button by default
+    const buttons = el.querySelectorAll<HTMLButtonElement>('button');
+    buttons[0]?.focus();
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeConfirmAndRestoreFocus();
+      } else if (e.key === 'Tab') {
+        const focusableElements = Array.from(
+          el!.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+          ),
+        );
+        if (focusableElements.length === 0) return;
+        const first = focusableElements[0];
+        const last = focusableElements[focusableElements.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
+    }
+    
+    el.addEventListener('keydown', onKeyDown);
+    return () => {
+      el.removeEventListener('keydown', onKeyDown);
+    };
+  }, [closeConfirmAndRestoreFocus, showCancelConfirm]);
 
   // ---- nudge ----
   function nudge(dx: number, dy: number, targetId: string | null = selectedId) {
@@ -409,117 +504,118 @@ export function FormationVisualEditor({
   // ---- cancel ----
   function handleCancel() {
     if (isDirty) {
+      confirmInvokerRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : cancelButtonRef.current;
       setShowCancelConfirm(true);
     } else {
-      onClose();
+      closeEditor();
     }
   }
 
   // ---- render ----
   return (
     <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 1000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        padding: '8px',
-      }}
+      className="fve-modal"
+      data-testid="fve-modal-backdrop"
       onClick={e => {
-        if (e.target === e.currentTarget) handleCancel();
+        if (e.target === e.currentTarget && !showCancelConfirm) {
+          handleCancel();
+        }
       }}
     >
       <div
         role="dialog"
-        aria-modal="true"
+        aria-modal={showCancelConfirm ? undefined : true}
+        aria-hidden={showCancelConfirm}
         aria-labelledby="fve-title"
         ref={modalRef}
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          maxHeight: '90vh',
-          width: 'min(480px, calc(100vw - 16px))',
-          backgroundColor: 'white',
-          borderRadius: '12px',
-          overflow: 'hidden',
-          boxShadow: '0 8px 30px rgba(0,0,0,0.2)',
+        className="fve-modal__dialog"
+        onKeyDown={event => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            handleCancel();
+          }
         }}
       >
-
       {/* Header */}
-      <div
-        style={{
-          height: '56px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 16px',
-          borderBottom: '1px solid var(--border-color)',
-          flexShrink: 0,
-        }}
-      >
-        <h2 id="fve-title" style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--primary-green)' }}>
+      <div className="fve-modal__header">
+        <h2 id="fve-title" className="fve-modal__title">
           Customize Layout — {formationName}
         </h2>
         <button
           onClick={handleCancel}
           aria-label="Close editor"
-          style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '1.25rem', cursor: 'pointer', padding: '8px' }}
+          className="fve-modal__close-button"
+          ref={closeButtonRef}
+          style={{ minWidth: '44px', minHeight: '44px', width: '44px', height: '44px' }}
         >
           ✕
         </button>
       </div>
 
       {/* Canvas container */}
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            overflow: 'hidden',
-            padding: '8px',
-            backgroundColor: 'var(--color-surface-light)',
-          }}
-        >
+        <div className="fve-modal__content">
           {loading ? (
-          <div role="status" aria-label="Loading formation positions" style={{ color: 'var(--text-secondary)' }}>
-            Loading…
-          </div>
+            <div role="status" aria-label="Loading formation positions" style={{ color: 'var(--text-secondary)' }}>
+              Loading…
+            </div>
           ) : loadError ? (
-            <div role="alert" style={{ color: '#dc2626', textAlign: 'center', padding: '8px' }}>
+            <div role="alert" className="fve-load-error">
               {loadError}
             </div>
+          ) : draft.length === 0 ? (
+            <>
+              <SoccerPitchSurface
+                ref={canvasRef}
+                className="fve-pitch"
+                style={{
+                  width: getFvePitchWidthStyle(),
+                  height: 'auto',
+                  touchAction: 'none',
+                  '--soccer-pitch-aspect-ratio': '2 / 3',
+                  '--soccer-pitch-border-radius': '4px',
+                  '--soccer-pitch-background': 'var(--fve-pitch-background)',
+                  '--soccer-pitch-border-color': 'var(--fve-pitch-border-color)',
+                  '--soccer-pitch-line-color': 'var(--fve-pitch-line-color)',
+                  '--soccer-pitch-spot-color': 'var(--fve-pitch-spot-color)',
+                  '--soccer-pitch-penalty-width': '24%',
+                  '--soccer-pitch-penalty-height': '6%',
+                  '--soccer-pitch-center-circle-width': '20%',
+                } as CSSProperties}
+              >
+                {/* Empty state: no position nodes */}
+              </SoccerPitchSurface>
+              <div className="fve-empty-state" role="status" aria-live="polite">
+                No positions added.
+              </div>
+            </>
           ) : (
-          <SoccerPitchSurface
-            ref={canvasRef}
-            className="fve-pitch"
-            style={{
+            <SoccerPitchSurface
+              ref={canvasRef}
+              className="fve-pitch"
+              style={{
                 /* Defensive sizing for short/tall viewports.
                   Width is derived from available modal height at 2:3,
                   then guarded with max() and clamp(). */
                 width: getFvePitchWidthStyle(),
-              height: 'auto',
-              touchAction: 'none',
-              '--soccer-pitch-aspect-ratio': '2 / 3',
-              '--soccer-pitch-border-radius': '4px',
-              '--soccer-pitch-background': 'var(--fve-pitch-background)',
-              '--soccer-pitch-border-color': 'var(--fve-pitch-border-color)',
-              '--soccer-pitch-line-color': 'var(--fve-pitch-line-color)',
-              '--soccer-pitch-spot-color': 'var(--fve-pitch-spot-color)',
-              '--soccer-pitch-penalty-width': '24%',
-              '--soccer-pitch-penalty-height': '6%',
-              '--soccer-pitch-center-circle-width': '20%',
-            } as CSSProperties}
-          >
+                height: 'auto',
+                touchAction: 'none',
+                '--soccer-pitch-aspect-ratio': '2 / 3',
+                '--soccer-pitch-border-radius': '4px',
+                '--soccer-pitch-background': 'var(--fve-pitch-background)',
+                '--soccer-pitch-border-color': 'var(--fve-pitch-border-color)',
+                '--soccer-pitch-line-color': 'var(--fve-pitch-line-color)',
+                '--soccer-pitch-spot-color': 'var(--fve-pitch-spot-color)',
+                '--soccer-pitch-penalty-width': '24%',
+                '--soccer-pitch-penalty-height': '6%',
+                '--soccer-pitch-center-circle-width': '20%',
+              } as CSSProperties}
+            >
 
             {/* Position nodes */}
             {draft.map(pos => {
               const isSelected = pos.id === selectedId;
+              const isDragging = draggingIdRef.current === pos.id;
               return (
                 <button
                   key={pos.id}
@@ -530,30 +626,13 @@ export function FormationVisualEditor({
                   onPointerUp={handlePointerUp}
                   onKeyDown={e => handleKeyDown(e, pos.id)}
                   onClick={() => setSelectedId(pos.id)}
+                  className={`shared-shape-node fve-node ${isSelected ? 'fve-node--selected' : ''} ${isDragging ? 'fve-node--dragging' : ''}`}
                   style={{
-                    position: 'absolute',
                     left: `${pos.xPct}%`,
                     top: `${pos.yPct}%`,
-                    transform: 'translate(-50%, -50%)',
-                    minWidth: '44px',
-                    minHeight: '44px',
-                    width: '44px',
-                    height: '44px',
-                    borderRadius: '50%',
-                    border: isSelected ? '3px solid #fff' : '2px solid rgba(255,255,255,0.6)',
-                    backgroundColor: isSelected ? 'rgba(255,255,255,0.3)' : 'rgba(26,71,42,0.85)',
-                    color: '#fff',
-                    fontSize: '0.7rem',
-                    fontWeight: 700,
-                    cursor: 'grab',
-                    touchAction: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    userSelect: 'none',
                   }}
                 >
-                  {pos.abbreviation}
+                  <span className="shared-shape-node__position">{pos.abbreviation}</span>
                 </button>
               );
             })}
@@ -565,14 +644,7 @@ export function FormationVisualEditor({
         {conflictWarning && (
           <div
             role="alert"
-            style={{
-              padding: '8px 16px',
-              backgroundColor: '#fffbeb',
-              borderTop: '1px solid #fcd34d',
-              color: '#92400e',
-              fontSize: '0.85rem',
-              flexShrink: 0,
-            }}
+            className="fve-conflict-banner"
           >
             ⚠ Another coach saved this layout while you had the editor open. Reload to get the latest layout before saving.
           </div>
@@ -580,14 +652,7 @@ export function FormationVisualEditor({
         {saveError && (
           <div
             role="alert"
-            style={{
-              padding: '8px 16px',
-              backgroundColor: '#fef2f2',
-              borderTop: '1px solid #fca5a5',
-              color: '#dc2626',
-              fontSize: '0.85rem',
-              flexShrink: 0,
-            }}
+            className="fve-error-banner"
           >
             {saveError}
           </div>
@@ -595,22 +660,17 @@ export function FormationVisualEditor({
 
       {/* Nudge strip */}
         <div
+          className="fve-nudge-strip"
           style={{
-            height: '52px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            flexShrink: 0,
-            visibility: selectedId === null ? 'hidden' : 'visible',
-            borderTop: '1px solid var(--border-color)',
-          }}
+            '--nudge-visibility': selectedId === null ? 'hidden' : 'visible',
+          } as CSSProperties}
         >
         <button
           onClick={() => nudge(0, -2)}
           aria-label="Nudge up"
           disabled={!selectedId}
-          style={nudgeBtnStyle}
+          className="fve-nudge-button"
+          style={{ minWidth: '44px', minHeight: '44px', width: '44px', height: '44px' }}
         >
           ↑
         </button>
@@ -618,7 +678,8 @@ export function FormationVisualEditor({
           onClick={() => nudge(0, 2)}
           aria-label="Nudge down"
           disabled={!selectedId}
-          style={nudgeBtnStyle}
+          className="fve-nudge-button"
+          style={{ minWidth: '44px', minHeight: '44px', width: '44px', height: '44px' }}
         >
           ↓
         </button>
@@ -626,7 +687,8 @@ export function FormationVisualEditor({
           onClick={() => nudge(-2, 0)}
           aria-label="Nudge left"
           disabled={!selectedId}
-          style={nudgeBtnStyle}
+          className="fve-nudge-button"
+          style={{ minWidth: '44px', minHeight: '44px', width: '44px', height: '44px' }}
         >
           ←
         </button>
@@ -634,45 +696,37 @@ export function FormationVisualEditor({
           onClick={() => nudge(2, 0)}
           aria-label="Nudge right"
           disabled={!selectedId}
-          style={nudgeBtnStyle}
+          className="fve-nudge-button"
+          style={{ minWidth: '44px', minHeight: '44px', width: '44px', height: '44px' }}
         >
           →
         </button>
         </div>
 
       {/* Button bar */}
-        <div
-          style={{
-            height: '64px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '0 16px',
-            flexShrink: 0,
-            borderTop: '1px solid var(--border-color)',
-          }}
-        >
+        <div className="fve-action-buttons">
         <button
           onClick={() => void handleSave()}
-          disabled={saving || loading || conflictWarning}
-          className="btn-primary"
-          style={{ flex: 1 }}
+          disabled={saving || loading || conflictWarning || draft.length === 0}
+          className="fve-action-button fve-action-button--primary"
+          style={{ minWidth: '44px', minHeight: '44px' }}
         >
           {saving ? 'Saving…' : 'Save'}
         </button>
         <button
           onClick={handleReset}
           disabled={saving || loading || !isDirty}
-          className="btn-secondary"
-          style={{ flex: 1 }}
+          className="fve-action-button fve-action-button--secondary"
+          style={{ minWidth: '44px', minHeight: '44px' }}
         >
           Reset
         </button>
         <button
           onClick={handleCancel}
           disabled={saving}
-          className="btn-secondary"
-          style={{ flex: 1 }}
+          className="fve-action-button fve-action-button--secondary"
+          ref={cancelButtonRef}
+          style={{ minWidth: '44px', minHeight: '44px' }}
         >
           Cancel
         </button>
@@ -687,80 +741,56 @@ export function FormationVisualEditor({
           {announcement}
         </div>
 
+      </div>
+
       {/* Unsaved-changes confirm dialog */}
-        {showCancelConfirm && (
+      {showCancelConfirm && (
+        <>
+          <div
+            className="fve-confirm-overlay"
+            data-testid="fve-confirm-backdrop"
+            onClick={event => {
+              if (event.target === event.currentTarget) {
+                closeConfirmAndRestoreFocus();
+              }
+            }}
+          />
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="fve-cancel-title"
-            style={{
-              position: 'absolute',
-              inset: 0,
-              backgroundColor: 'rgba(0,0,0,0.5)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '24px',
-              gap: '16px',
-              zIndex: 10,
-            }}
+            className="fve-confirm-modal"
+            ref={confirmDialogRef}
           >
-          <div
-            style={{
-              background: 'white',
-              borderRadius: '12px',
-              padding: '1.5rem',
-              width: '100%',
-              maxWidth: '360px',
-              boxShadow: '0 8px 30px rgba(0,0,0,0.2)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px',
-            }}
-          >
-          <h3 id="fve-cancel-title" style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-            Discard unsaved changes?
-          </h3>
-          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            Your layout changes have not been saved.
-          </p>
-            <div style={{ display: 'flex', gap: '12px' }}>
+            <h3 id="fve-cancel-title" className="fve-confirm-title">
+              Discard unsaved changes?
+            </h3>
+            <p className="fve-confirm-message">
+              Your layout changes have not been saved.
+            </p>
+            <div className="fve-confirm-buttons">
               <button
-                onClick={onClose}
-                className="btn-delete"
-                style={{ flex: 1 }}
+                onClick={closeEditor}
+                className="fve-confirm-button fve-confirm-button--primary"
+                autoFocus
+                style={{ minWidth: '44px', minHeight: '44px' }}
               >
                 Discard
               </button>
               <button
-                onClick={() => setShowCancelConfirm(false)}
-                className="btn-secondary"
-                style={{ flex: 1 }}
+                onClick={closeConfirmAndRestoreFocus}
+                className="fve-confirm-button fve-confirm-button--secondary"
+                style={{ minWidth: '44px', minHeight: '44px' }}
               >
                 Keep editing
               </button>
             </div>
           </div>
-          </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }
 
-const nudgeBtnStyle: CSSProperties = {
-  minWidth: '44px',
-  minHeight: '44px',
-  width: '44px',
-  height: '44px',
-  background: 'none',
-  border: '1px solid var(--border-color)',
-  borderRadius: '6px',
-  color: 'var(--text-primary)',
-  fontSize: '1.1rem',
-  cursor: 'pointer',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-};
+// Token-compliant FormationVisualEditor component.
+// All colors use design tokens from App.css; no hardcoded hex/rgb values.

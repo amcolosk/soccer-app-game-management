@@ -2,7 +2,7 @@ import { forwardRef, type CSSProperties, type HTMLAttributes, type ReactNode } f
 import './SoccerPitchSurface.css';
 
 interface SoccerPitchSurfaceProps extends Omit<HTMLAttributes<HTMLDivElement>, 'children'> {
-  children: ReactNode;
+  children?: ReactNode;
   style?: CSSProperties;
 }
 

@@ -1910,6 +1910,389 @@
   --fve-pitch-spot-color: var(--pitch-surface-spot-color);
 }
 
+/* ─── Shared Node Visual Primitives (Consumed by Both FVE and Lineup) ─── */
+.shared-shape-node {
+  /* Shared visual tokens: colors, borders, text for both FVE and Lineup */
+  background-color: var(--shared-shape-node-bg);
+  color: var(--shared-shape-node-text);
+  border: 1px solid var(--shared-shape-node-border);
+}
+
+.shared-shape-node__position {
+  /* Position abbreviation text */
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.shared-shape-node:focus-visible {
+  outline: var(--shared-shape-node-focus-ring-width) solid var(--shared-shape-node-focus-ring-color);
+  outline-offset: var(--shared-shape-node-focus-ring-offset);
+}
+
+.shared-shape-node--disabled {
+  background-color: var(--shared-shape-node-disabled-bg);
+  color: var(--shared-shape-node-disabled-text);
+  opacity: 0.6;
+}
+
+/* ─── FVE-Specific Node Sizing and Styling ─── */
+.fve-node {
+  /* FVE node sizing: independent from lineup geometry */
+  width: var(--fve-node-width);
+  height: var(--fve-node-height);
+  font-size: var(--fve-node-font-size);
+  border-radius: var(--fve-node-border-radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+
+.fve-node--selected {
+  border-color: var(--fve-node-selected-border);
+  background-color: var(--fve-node-selected-bg);
+}
+
+.fve-node--dragging {
+  opacity: var(--fve-node-dragging-opacity);
+  box-shadow: var(--fve-node-dragging-shadow);
+  cursor: grabbing;
+}
+
+.fve-node:disabled {
+  cursor: not-allowed;
+}
+
+/* ─── FVE Modal and Control Styling ─── */
+.fve-modal {
+  position: fixed;
+  inset: 0;
+  z-index: var(--fve-layer-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--fve-modal-backdrop-color);
+  padding: 8px;
+}
+
+.fve-modal__overlay {
+  position: fixed;
+  inset: 0;
+  background-color: var(--fve-modal-backdrop-color);
+  z-index: var(--fve-layer-modal);
+}
+
+.fve-modal__dialog {
+  position: relative;
+  z-index: var(--fve-layer-modal-content);
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  width: min(480px, calc(100vw - 16px));
+  background-color: var(--fve-modal-surface-bg);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--fve-modal-surface-shadow);
+}
+
+.fve-modal__dialog[aria-hidden='true'] {
+  pointer-events: none;
+}
+
+.fve-modal__header {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.fve-modal__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--primary-green);
+}
+
+.fve-modal__close-button {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 8px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background-color 0.2s ease;
+}
+
+.fve-modal__close-button:hover {
+  background-color: var(--hover-background);
+}
+
+.fve-modal__close-button:focus-visible {
+  outline: 2px solid var(--shared-shape-node-focus-ring-color);
+  outline-offset: 2px;
+}
+
+.fve-modal__content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 8px;
+  background-color: var(--color-surface-light);
+}
+
+/* ─── FVE Empty State ─── */
+.fve-empty-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 50;
+  background: var(--fve-empty-state-bg);
+  padding: 1rem;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--shared-shape-node-disabled-text);
+}
+
+.fve-load-error {
+  color: var(--fve-error-banner-text);
+  text-align: center;
+  padding: 8px;
+}
+
+/* ─── FVE Conflict and Error Banners ─── */
+.fve-conflict-banner {
+  padding: 8px 16px;
+  background-color: var(--fve-conflict-banner-bg);
+  border-top: 1px solid var(--fve-conflict-banner-border);
+  color: var(--fve-conflict-banner-text);
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.fve-error-banner {
+  padding: 8px 16px;
+  background-color: var(--fve-error-banner-bg);
+  border-top: 1px solid var(--fve-error-banner-border);
+  color: var(--fve-error-banner-text);
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ─── FVE Nudge Controls ─── */
+.fve-nudge-strip {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-color);
+  visibility: var(--nudge-visibility, hidden);
+}
+
+.fve-nudge-button {
+  width: 44px;
+  height: 44px;
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.fve-nudge-button:hover:not(:disabled) {
+  background-color: var(--hover-background);
+  border-color: var(--primary-green);
+}
+
+.fve-nudge-button:focus-visible {
+  outline: 2px solid var(--shared-shape-node-focus-ring-color);
+  outline-offset: 2px;
+}
+
+.fve-nudge-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── FVE Action Buttons ─── */
+.fve-action-buttons {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.fve-action-button {
+  flex: 1;
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: background-color 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fve-action-button:focus-visible {
+  outline: 2px solid var(--shared-shape-node-focus-ring-color);
+  outline-offset: 2px;
+}
+
+.fve-action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.fve-action-button--primary {
+  background-color: var(--primary-green);
+  color: var(--card-background);
+}
+
+.fve-action-button--primary:hover:not(:disabled) {
+  background-color: var(--light-green);
+}
+
+.fve-action-button--secondary {
+  background-color: var(--hover-background);
+  color: var(--text-primary);
+}
+
+.fve-action-button--secondary:hover:not(:disabled) {
+  background-color: var(--border-color);
+}
+
+.fve-action-button--danger {
+  background-color: var(--danger-red);
+  color: var(--card-background);
+}
+
+.fve-action-button--danger:hover:not(:disabled) {
+  background-color: var(--fve-danger-hover-bg);
+}
+
+/* ─── FVE Nested Confirm Modal (Unsaved Changes / Discard) ─── */
+.fve-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: var(--fve-modal-backdrop-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--fve-layer-nested-overlay);
+  padding: 24px;
+}
+
+.fve-confirm-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: var(--fve-layer-nested-modal);
+  background: var(--fve-modal-surface-bg);
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 360px;
+  box-shadow: var(--fve-modal-surface-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fve-confirm-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.fve-confirm-message {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.fve-confirm-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.fve-confirm-button {
+  flex: 1;
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: background-color 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fve-confirm-button:focus-visible {
+  outline: 2px solid var(--shared-shape-node-focus-ring-color);
+  outline-offset: 2px;
+}
+
+.fve-confirm-button--primary {
+  background-color: var(--danger-red);
+  color: var(--card-background);
+}
+
+.fve-confirm-button--primary:hover {
+  background-color: var(--fve-danger-hover-bg);
+}
+
+.fve-confirm-button--secondary {
+  background-color: var(--hover-background);
+  color: var(--text-primary);
+}
+
+.fve-confirm-button--secondary:hover {
+  background-color: var(--border-color);
+}
+
 .lineup-shape-node {
   position: absolute;
   transform: translate(-50%, -50%);

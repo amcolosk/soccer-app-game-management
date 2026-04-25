@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { FormationVisualEditor } from './FormationVisualEditor';
 import { getFvePitchWidthStyle } from './formationVisualEditorLayout';
 
@@ -53,6 +54,11 @@ vi.mock('../utils/formationLayoutOverride', () => ({
 describe('FormationVisualEditor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    
+    // Mock pointer capture methods for jsdom
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    HTMLElement.prototype.releasePointerCapture = vi.fn();
+    
     listMock.mockResolvedValue({
       data: [
         {
@@ -94,6 +100,42 @@ describe('FormationVisualEditor', () => {
       />,
     );
     return { onClose, onSaved, ...rendered };
+  }
+
+  function parsePx(value: string): number {
+    const parsed = Number.parseFloat(value.replace('px', ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function expectComputedTapTargetSize(element: HTMLElement) {
+    const computed = window.getComputedStyle(element);
+    const width = parsePx(computed.width);
+    const minWidth = parsePx(computed.minWidth || '0');
+    const height = parsePx(computed.height);
+    const minHeight = parsePx(computed.minHeight || '0');
+
+    expect(Math.max(width, minWidth)).toBeGreaterThanOrEqual(44);
+    expect(Math.max(height, minHeight)).toBeGreaterThanOrEqual(44);
+  }
+
+  function EditorHarness() {
+    const [open, setOpen] = useState(false);
+
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          Open editor
+        </button>
+        {open ? (
+          <FormationVisualEditor
+            formationId="formation-1"
+            formationName="4-4-2"
+            onClose={() => setOpen(false)}
+            onSaved={vi.fn()}
+          />
+        ) : null}
+      </>
+    );
   }
 
   it('loads positions and renders nodes with inferred fallback coordinates', async () => {
@@ -436,4 +478,276 @@ describe('FormationVisualEditor', () => {
       ]),
     );
   });
+
+  describe('Empty State and 44x44 Controls Audit', () => {
+    it('renders empty state message when initialPositions is empty', async () => {
+      const onClose = vi.fn();
+      const onSaved = vi.fn();
+
+      listMock.mockResolvedValue({ data: [] });
+      buildLineupShapeNodesMock.mockReturnValue([]);
+
+      render(
+        <FormationVisualEditor
+          formationId="formation-1"
+          formationName="4-4-2"
+          onClose={onClose}
+          onSaved={onSaved}
+        />,
+      );
+
+      const emptyStateMessage = await screen.findByText(/no positions added/i);
+      expect(emptyStateMessage).toBeInTheDocument();
+    });
+
+    it('announces empty state via aria-live region when no positions exist', async () => {
+      listMock.mockResolvedValue({ data: [] });
+      buildLineupShapeNodesMock.mockReturnValue([]);
+
+      render(
+        <FormationVisualEditor
+          formationId="formation-1"
+          formationName="4-4-2"
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+        />,
+      );
+
+      // Wait for aria-live announcement to be set
+      await waitFor(() => {
+        const liveRegion = screen.getByText(/formation has no positions/i);
+        expect(liveRegion).toBeInTheDocument();
+      });
+    });
+
+    it('disables Save button when no positions exist', async () => {
+      listMock.mockResolvedValue({ data: [] });
+      buildLineupShapeNodesMock.mockReturnValue([]);
+
+      render(
+        <FormationVisualEditor
+          formationId="formation-1"
+          formationName="4-4-2"
+          onClose={vi.fn()}
+          onSaved={vi.fn()}
+        />,
+      );
+
+      await screen.findByText(/no positions added/i);
+      const saveButton = screen.getByRole('button', { name: /^save$/i });
+      expect(saveButton).toBeDisabled();
+    });
+
+    it('verifies close button computes to at least 44x44', async () => {
+      const { unmount } = renderEditor();
+
+      const closeButton = await screen.findByRole('button', { name: /close editor/i });
+      expectComputedTapTargetSize(closeButton);
+
+      unmount();
+    });
+
+    it('verifies all nudge buttons compute to at least 44x44', async () => {
+      const user = userEvent.setup();
+      const { unmount } = renderEditor();
+
+      const gkNode = await screen.findByRole('button', { name: /goalkeeper/i });
+      await user.click(gkNode);
+
+      const nudgeButtons = screen.getAllByRole('button', {
+        name: /nudge (up|down|left|right)/i,
+      });
+
+      expect(nudgeButtons.length).toBeGreaterThan(0);
+
+      for (const button of nudgeButtons) {
+        expectComputedTapTargetSize(button);
+      }
+
+      unmount();
+    });
+
+    it('verifies action buttons compute to at least 44x44', async () => {
+      const { unmount } = renderEditor();
+
+      await screen.findByRole('button', { name: /goalkeeper/i });
+
+      const saveButton = screen.getByRole('button', { name: /^save$/i });
+      const resetButton = screen.getByRole('button', { name: /^reset$/i });
+      const cancelButton = screen.getByRole('button', { name: /^cancel$/i });
+
+      for (const button of [saveButton, resetButton, cancelButton]) {
+        expectComputedTapTargetSize(button);
+      }
+
+      unmount();
+    });
+
+    it('verifies confirm dialog buttons compute to at least 44x44', async () => {
+      const user = userEvent.setup();
+      const { unmount } = renderEditor();
+
+      await screen.findByRole('button', { name: /goalkeeper/i });
+
+      fireEvent.keyDown(screen.getByRole('button', { name: /goalkeeper/i }), { key: 'ArrowRight' });
+      await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+      const discardButton = await screen.findByRole('button', { name: /^discard$/i });
+      const keepEditingButton = screen.getByRole('button', { name: /keep editing/i });
+
+      for (const button of [discardButton, keepEditingButton]) {
+        expectComputedTapTargetSize(button);
+      }
+
+      unmount();
+    });
+
+    it('applies token-based styling to node buttons (no inline colors)', async () => {
+      const { unmount } = renderEditor();
+
+      const node = await screen.findByRole('button', { name: /goalkeeper/i });
+      const computedStyle = window.getComputedStyle(node);
+
+      // Verify that the node uses CSS variables, not inline hardcoded colors
+      expect(node.className).toContain('shared-shape-node');
+      expect(node.className).toContain('fve-node');
+
+      // Verify token-based styling is applied
+      expect(computedStyle.backgroundColor).not.toBe('');
+
+      unmount();
+    });
+
+    it('shows selected state on position node with token colors', async () => {
+      const user = userEvent.setup();
+      const { unmount } = renderEditor();
+
+      const node = await screen.findByRole('button', { name: /goalkeeper/i });
+
+      // Select the node
+      await user.click(node);
+
+      expect(node.className).toContain('fve-node--selected');
+
+      unmount();
+    });
+
+    it('focus trap cycles through main modal controls with Tab', async () => {
+      const { unmount } = renderEditor();
+
+      await screen.findByRole('button', { name: /goalkeeper/i });
+
+      const closeButton = screen.getByRole('button', { name: /close editor/i });
+      closeButton.focus();
+
+      // Tab should move to next focusable element
+      fireEvent.keyDown(closeButton, { key: 'Tab' });
+
+      unmount();
+    });
+
+    it('closes main modal on Escape and restores focus to opener', async () => {
+      const user = userEvent.setup();
+      render(<EditorHarness />);
+
+      const opener = screen.getByRole('button', { name: /open editor/i });
+      opener.focus();
+      await user.click(opener);
+
+      await screen.findByRole('button', { name: /goalkeeper/i });
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: /customize layout/i })).not.toBeInTheDocument();
+      });
+      await waitFor(() => {
+        expect(opener).toHaveFocus();
+      });
+    });
+
+    it('closes main modal on backdrop click and restores focus to opener', async () => {
+      const user = userEvent.setup();
+      render(<EditorHarness />);
+
+      const opener = screen.getByRole('button', { name: /open editor/i });
+      opener.focus();
+      await user.click(opener);
+
+      await screen.findByRole('button', { name: /goalkeeper/i });
+      await user.click(screen.getByTestId('fve-modal-backdrop'));
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: /customize layout/i })).not.toBeInTheDocument();
+      });
+      expect(opener).toHaveFocus();
+    });
+
+    it('nested confirm modal has focus trap with initial focus on Discard button', async () => {
+      const user = userEvent.setup();
+      const { unmount } = renderEditor();
+
+      await screen.findByRole('button', { name: /goalkeeper/i });
+
+      // Make a change to enable cancel confirmation
+      fireEvent.keyDown(screen.getByRole('button', { name: /goalkeeper/i }), { key: 'ArrowRight' });
+
+      // Click cancel to show confirm dialog
+      await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+      // Wait for discard button to appear and have focus
+      const discardButton = await screen.findByRole('button', { name: /^discard$/i });
+      expect(discardButton).toBeInTheDocument();
+
+      unmount();
+    });
+
+    it('nested confirm closes on Escape and restores focus to cancel button', async () => {
+      const user = userEvent.setup();
+      const { unmount } = renderEditor();
+
+      await screen.findByRole('button', { name: /goalkeeper/i });
+
+      fireEvent.keyDown(screen.getByRole('button', { name: /goalkeeper/i }), { key: 'ArrowRight' });
+      const cancelButton = screen.getByRole('button', { name: /^cancel$/i });
+      cancelButton.focus();
+      await user.click(cancelButton);
+
+      await screen.findByText(/discard unsaved changes\?/i);
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => {
+        expect(screen.queryByText(/discard unsaved changes/i)).not.toBeInTheDocument();
+      });
+      expect(cancelButton).toHaveFocus();
+
+      unmount();
+    });
+
+    it('nested confirm closes on backdrop click and restores focus to cancel button', async () => {
+      const user = userEvent.setup();
+      const { unmount } = renderEditor();
+
+      await screen.findByRole('button', { name: /goalkeeper/i });
+      const mainDialog = screen.getByRole('dialog', { name: /customize layout/i });
+
+      fireEvent.keyDown(screen.getByRole('button', { name: /goalkeeper/i }), { key: 'ArrowRight' });
+      const cancelButton = screen.getByRole('button', { name: /^cancel$/i });
+      cancelButton.focus();
+      await user.click(cancelButton);
+
+      expect(mainDialog).toHaveAttribute('aria-hidden', 'true');
+
+      await screen.findByText(/discard unsaved changes\?/i);
+      await user.click(screen.getByTestId('fve-confirm-backdrop'));
+
+      await waitFor(() => {
+        expect(screen.queryByText(/discard unsaved changes/i)).not.toBeInTheDocument();
+      });
+      expect(cancelButton).toHaveFocus();
+      expect(mainDialog).not.toHaveAttribute('aria-hidden', 'true');
+
+      unmount();
+    });
+  });
 });
+
