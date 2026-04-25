@@ -15,7 +15,6 @@ import {
 } from "./lineupShapeDeterminism";
 import {
   createLineupInteractionAdapter,
-  playerHasPreferredPositions,
   playerPreferredForPosition,
   sortBenchPlayersByPriority,
 } from "./lineupInteractionAdapter";
@@ -67,6 +66,52 @@ interface QuickReplaceTarget {
 function getPlayerName(player: PlayerWithRoster | undefined): string {
   if (!player) return "Unknown player";
   return `${player.firstName} ${player.lastName}`.trim();
+}
+
+function normalizeNamePart(value: string | null | undefined): string {
+  if (!value) {
+    return "";
+  }
+
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function getInitialFromLastName(lastName: string): string | null {
+  const alphaMatch = lastName.match(/\p{L}/u);
+  if (alphaMatch?.[0]) {
+    return alphaMatch[0].toLocaleUpperCase();
+  }
+
+  const alnumMatch = lastName.match(/[\p{L}\p{N}]/u);
+  if (alnumMatch?.[0]) {
+    return alnumMatch[0].toLocaleUpperCase();
+  }
+
+  return null;
+}
+
+function formatPlayerShortLabel(player: PlayerWithRoster | undefined): string {
+  if (!player) {
+    return "Unknown player";
+  }
+
+  const firstName = normalizeNamePart(player.firstName);
+  const lastName = normalizeNamePart(player.lastName);
+  const lastInitial = lastName ? getInitialFromLastName(lastName) : null;
+
+  if (firstName && lastName) {
+    return lastInitial ? `${firstName} ${lastInitial}` : "Unknown player";
+  }
+
+  if (firstName) {
+    return firstName;
+  }
+
+  if (lastName) {
+    return lastInitial ?? "Unknown player";
+  }
+
+  return "Unknown player";
 }
 
 export function LineupShapeView({
@@ -420,16 +465,12 @@ export function LineupShapeView({
           const assignment = lineupByPosition.get(node.positionId);
           const player = assignment?.playerId ? playersById.get(assignment.playerId) : undefined;
           const playerName = getPlayerName(player);
-          const nodePlayerLabel = assignment && player
-            ? `#${player.playerNumber ?? "?"} ${player.firstName}`
+          const nodePlayerLabel = assignment
+            ? formatPlayerShortLabel(player)
             : "Empty";
-          const outOfPosition = Boolean(
-            player
-              && assignment?.positionId
-              && playerHasPreferredPositions(player)
-              && !playerPreferredForPosition(player, assignment.positionId),
-          );
-          const outOfPositionA11ySuffix = outOfPosition ? " (out of position)" : "";
+          const nodePlayerTitle = assignment && player
+            ? `${player.playerNumber ? `#${player.playerNumber} ` : ""}${playerName}`
+            : nodePlayerLabel;
           const position = positionsById.get(node.positionId);
           const interaction = assignment && position
             ? interactionAdapter.getAssignedNodeInteraction(position)
@@ -447,13 +488,23 @@ export function LineupShapeView({
                 type="button"
                 className="lineup-shape-node__tap-target"
                 onClick={() => handleNodeTap(node, assignment)}
-                aria-label={`${node.positionName}: ${assignment ? playerName : "empty"}${outOfPositionA11ySuffix}`}
+                aria-label={`${node.positionName}: ${assignment ? playerName : "empty"}`}
                 title={interaction?.title ?? "Unavailable"}
                 disabled={!interaction?.canTap}
               >
-                <span className="lineup-shape-node__position">{node.abbreviation || node.positionName}</span>
-                <span className="lineup-shape-node__player" title={nodePlayerLabel}>{nodePlayerLabel}</span>
-                {outOfPosition && <span className="lineup-shape-node__detail">Out of position</span>}
+                {assignment ? (
+                  <>
+                    <span className="lineup-shape-node__jersey" aria-hidden="true">
+                      <span className="lineup-shape-node__position" aria-hidden="true">{node.abbreviation || node.positionName}</span>
+                    </span>
+                    <span className="lineup-shape-node__name-strip lineup-shape-node__player" title={nodePlayerTitle}>{nodePlayerLabel}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="lineup-shape-node__position" aria-hidden="true">{node.abbreviation || node.positionName}</span>
+                    <span className="lineup-shape-node__player" title={nodePlayerTitle}>{nodePlayerLabel}</span>
+                  </>
+                )}
               </button>
             </div>
           );
