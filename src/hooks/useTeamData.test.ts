@@ -10,10 +10,14 @@ const {
   mockTeamRosterObserveQuery,
   mockPlayerObserveQuery,
   mockFormationPositionObserveQuery,
+  mockGetFormationLayoutOverride,
+  mockClearFormationLayoutOverride,
 } = vi.hoisted(() => ({
   mockTeamRosterObserveQuery: vi.fn(),
   mockPlayerObserveQuery: vi.fn(),
   mockFormationPositionObserveQuery: vi.fn(),
+  mockGetFormationLayoutOverride: vi.fn(),
+  mockClearFormationLayoutOverride: vi.fn(),
 }));
 
 vi.mock('aws-amplify/data', () => ({
@@ -30,6 +34,12 @@ vi.mock('aws-amplify/data', () => ({
       },
     },
   })),
+}));
+
+vi.mock('../utils/formationLayoutOverride', () => ({
+  MAX_OVERRIDE_AGE_MS: 5 * 60 * 1000,
+  clearFormationLayoutOverride: mockClearFormationLayoutOverride,
+  getFormationLayoutOverride: mockGetFormationLayoutOverride,
 }));
 
 // ---------------------------------------------------------------------------
@@ -71,6 +81,7 @@ function createPositionObservable(positions: Array<{ id: string; name: string; s
 describe('useTeamData', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetFormationLayoutOverride.mockReturnValue(null);
 
     // Default empty mocks
     mockTeamRosterObserveQuery.mockReturnValue(createRosterObservable([]));
@@ -284,6 +295,203 @@ describe('useTeamData', () => {
     await waitFor(() => {
       expect(result.current.positions).toHaveLength(2);
     });
+  });
+
+  it('applies override when server still stale', async () => {
+    let positionNext: (data: { items: unknown[] }) => void;
+
+    mockTeamRosterObserveQuery.mockReturnValue(createRosterObservable([]));
+    mockGetFormationLayoutOverride.mockReturnValue({
+      formationId: 'formation-1',
+      savedAt: Date.now(),
+      positions: [
+        { id: 'pos-2', xPct: 12, yPct: 34 },
+      ],
+    });
+    mockFormationPositionObserveQuery.mockReturnValue({
+      subscribe: ({ next }: { next: (data: { items: unknown[] }) => void }) => {
+        positionNext = next;
+        next({ items: [] });
+        return { unsubscribe: vi.fn() };
+      },
+    });
+
+    const { result } = renderHook(() => useTeamData('team-1', 'formation-1'));
+
+    await waitFor(() => {
+      positionNext!({
+        items: [
+          { id: 'pos-1', name: 'Forward', sortOrder: 1, xPct: 50, yPct: 10 },
+          { id: 'pos-2', name: 'Midfield', sortOrder: 2, xPct: 60, yPct: 20 },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.positions).toHaveLength(2);
+    });
+
+    expect(result.current.positions[0]).toMatchObject({ id: 'pos-1', xPct: 50, yPct: 10 });
+    expect(result.current.positions[1]).toMatchObject({ id: 'pos-2', xPct: 12, yPct: 34 });
+    expect(mockGetFormationLayoutOverride).toHaveBeenCalledWith('formation-1');
+    expect(mockClearFormationLayoutOverride).not.toHaveBeenCalled();
+  });
+
+  it('clears override once server matches override coords', async () => {
+    let positionNext: (data: { items: unknown[] }) => void;
+
+    mockTeamRosterObserveQuery.mockReturnValue(createRosterObservable([]));
+    mockGetFormationLayoutOverride.mockReturnValue({
+      formationId: 'formation-1',
+      savedAt: Date.now(),
+      positions: [{ id: 'pos-2', xPct: 12, yPct: 34 }],
+    });
+    mockFormationPositionObserveQuery.mockReturnValue({
+      subscribe: ({ next }: { next: (data: { items: unknown[] }) => void }) => {
+        positionNext = next;
+        next({ items: [] });
+        return { unsubscribe: vi.fn() };
+      },
+    });
+
+    const { result } = renderHook(() => useTeamData('team-1', 'formation-1'));
+
+    await waitFor(() => {
+      positionNext!({
+        items: [
+          { id: 'pos-1', name: 'Forward', sortOrder: 1, xPct: 50, yPct: 10 },
+          { id: 'pos-2', name: 'Midfield', sortOrder: 2, xPct: 12, yPct: 34 },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.positions).toHaveLength(2);
+    });
+
+    expect(result.current.positions[1]).toMatchObject({ id: 'pos-2', xPct: 12, yPct: 34 });
+    expect(mockClearFormationLayoutOverride).toHaveBeenCalledWith('formation-1');
+  });
+
+  it('clears override and keeps server coords when server updatedAt is newer than override savedAt', async () => {
+    let positionNext: (data: { items: unknown[] }) => void;
+
+    mockTeamRosterObserveQuery.mockReturnValue(createRosterObservable([]));
+    mockGetFormationLayoutOverride.mockReturnValue({
+      formationId: 'formation-1',
+      savedAt: Date.parse('2026-04-23T10:00:00.000Z'),
+      positions: [{ id: 'pos-2', xPct: 12, yPct: 34 }],
+    });
+    mockFormationPositionObserveQuery.mockReturnValue({
+      subscribe: ({ next }: { next: (data: { items: unknown[] }) => void }) => {
+        positionNext = next;
+        next({ items: [] });
+        return { unsubscribe: vi.fn() };
+      },
+    });
+
+    const { result } = renderHook(() => useTeamData('team-1', 'formation-1'));
+
+    await waitFor(() => {
+      positionNext!({
+        items: [
+          {
+            id: 'pos-1',
+            name: 'Forward',
+            sortOrder: 1,
+            xPct: 50,
+            yPct: 10,
+            updatedAt: '2026-04-23T10:00:01.000Z',
+          },
+          {
+            id: 'pos-2',
+            name: 'Midfield',
+            sortOrder: 2,
+            xPct: 60,
+            yPct: 20,
+            updatedAt: '2026-04-23T10:00:01.000Z',
+          },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.positions).toHaveLength(2);
+    });
+
+    expect(result.current.positions[1]).toMatchObject({ id: 'pos-2', xPct: 60, yPct: 20 });
+    expect(mockClearFormationLayoutOverride).toHaveBeenCalledWith('formation-1');
+  });
+
+  it('ignores and clears expired override', async () => {
+    let positionNext: (data: { items: unknown[] }) => void;
+
+    mockTeamRosterObserveQuery.mockReturnValue(createRosterObservable([]));
+    mockGetFormationLayoutOverride.mockReturnValue({
+      formationId: 'formation-1',
+      savedAt: Date.now() - (5 * 60 * 1000) - 1,
+      positions: [{ id: 'pos-2', xPct: 12, yPct: 34 }],
+    });
+    mockFormationPositionObserveQuery.mockReturnValue({
+      subscribe: ({ next }: { next: (data: { items: unknown[] }) => void }) => {
+        positionNext = next;
+        next({ items: [] });
+        return { unsubscribe: vi.fn() };
+      },
+    });
+
+    const { result } = renderHook(() => useTeamData('team-1', 'formation-1'));
+
+    await waitFor(() => {
+      positionNext!({
+        items: [
+          { id: 'pos-1', name: 'Forward', sortOrder: 1, xPct: 50, yPct: 10 },
+          { id: 'pos-2', name: 'Midfield', sortOrder: 2, xPct: 60, yPct: 20 },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.positions).toHaveLength(2);
+    });
+
+    expect(result.current.positions[1]).toMatchObject({ id: 'pos-2', xPct: 60, yPct: 20 });
+    expect(mockClearFormationLayoutOverride).toHaveBeenCalledWith('formation-1');
+  });
+
+  it('clamps malformed override coords', async () => {
+    let positionNext: (data: { items: unknown[] }) => void;
+
+    mockTeamRosterObserveQuery.mockReturnValue(createRosterObservable([]));
+    mockGetFormationLayoutOverride.mockReturnValue({
+      formationId: 'formation-1',
+      savedAt: Date.now(),
+      positions: [{ id: 'pos-2', xPct: -10, yPct: 140 }],
+    });
+    mockFormationPositionObserveQuery.mockReturnValue({
+      subscribe: ({ next }: { next: (data: { items: unknown[] }) => void }) => {
+        positionNext = next;
+        next({ items: [] });
+        return { unsubscribe: vi.fn() };
+      },
+    });
+
+    const { result } = renderHook(() => useTeamData('team-1', 'formation-1'));
+
+    await waitFor(() => {
+      positionNext!({
+        items: [
+          { id: 'pos-1', name: 'Forward', sortOrder: 1, xPct: 50, yPct: 10 },
+          { id: 'pos-2', name: 'Midfield', sortOrder: 2, xPct: 60, yPct: 20 },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.positions).toHaveLength(2);
+    });
+
+    expect(result.current.positions[1]).toMatchObject({ id: 'pos-2', xPct: 1, yPct: 99 });
   });
 
   it('unsubscribes all subscriptions on unmount', () => {

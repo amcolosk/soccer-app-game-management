@@ -50,6 +50,12 @@ interface GameManagementProps {
   onBack: () => void;
 }
 
+type LineupViewMode = "list" | "shape";
+
+function getLineupViewStorageKey(userId: string, gameId: string): string {
+  return `lineup-view-mode:${userId}:${gameId}`;
+}
+
 class StarterCountError extends Error {
   readonly userMessage: string;
 
@@ -105,6 +111,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
   // Mobile tab navigation (in-progress state only)
   const [activeTab, setActiveTab] = useState<GameTab>("field");
+  const [lineupViewMode, setLineupViewMode] = useState<LineupViewMode>("list");
   // Controlled state for rotation modal (opened from CommandBand)
   const [rotationModalOpen, setRotationModalOpen] = useState(false);
   const [injuryModalOpen, setInjuryModalOpen] = useState(false);
@@ -248,6 +255,41 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       }
     })();
   }, []);
+
+  // View mode persistence scope is user+game and only for active lineup states.
+  useEffect(() => {
+    if (!userId) return;
+
+    const supportsShape = gameState.status === "scheduled" || gameState.status === "in-progress" || gameState.status === "halftime";
+    const storageKey = getLineupViewStorageKey(userId, game.id);
+
+    if (!supportsShape) {
+      localStorage.removeItem(storageKey);
+      setLineupViewMode("list");
+      return;
+    }
+
+    const stored = localStorage.getItem(storageKey);
+    if (stored === "shape" || stored === "list") {
+      setLineupViewMode(stored);
+      return;
+    }
+    setLineupViewMode("list");
+  }, [game.id, gameState.status, userId]);
+
+  const handleLineupViewModeChange = useCallback((mode: LineupViewMode) => {
+    setLineupViewMode(mode);
+    if (!userId) return;
+    const storageKey = getLineupViewStorageKey(userId, game.id);
+    localStorage.setItem(storageKey, mode);
+  }, [game.id, userId]);
+
+  const handleResetLineupViewPreference = useCallback(() => {
+    setLineupViewMode("list");
+    if (!userId) return;
+    const storageKey = getLineupViewStorageKey(userId, game.id);
+    localStorage.removeItem(storageKey);
+  }, [game.id, userId]);
 
   // Map game status → help key. Reactive: re-runs when game status transitions.
   // @help-content: game-scheduled, game-in-progress, game-halftime, game-completed
@@ -1353,6 +1395,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     currentTime,
     onSubstitute: handleSubstitute,
     mutations,
+    currentUserId: userId,
+    viewMode: lineupViewMode,
+    onViewModeChange: handleLineupViewModeChange,
+    onResetViewPreference: handleResetLineupViewPreference,
   };
 
   const sharedGoalTrackerProps = {

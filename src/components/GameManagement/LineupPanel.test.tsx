@@ -33,6 +33,7 @@ const {
   mockFormatPlayTime,
   mockIsPlayerCurrentlyPlaying,
   mockIsPlayerInLineup,
+  mockQuickReplaceResultReporter,
 } = vi.hoisted(() => ({
   mockDeleteLineupAssignment: vi.fn().mockResolvedValue({}),
   mockCreateLineupAssignment: vi.fn().mockResolvedValue({ data: { id: 'la-new' } }),
@@ -43,6 +44,7 @@ const {
   mockFormatPlayTime: vi.fn().mockReturnValue('0:00'),
   mockIsPlayerCurrentlyPlaying: vi.fn().mockReturnValue(false),
   mockIsPlayerInLineup: vi.fn().mockReturnValue(false),
+  mockQuickReplaceResultReporter: vi.fn(),
 }));
 
 vi.mock('aws-amplify/data', () => ({
@@ -85,6 +87,30 @@ vi.mock('../../utils/lineupUtils', () => ({
 vi.mock('../LineupBuilder', () => ({
   LineupBuilder: ({ positions }: { positions: unknown[] }) => (
     <div data-testid="lineup-builder" data-positions={positions.length} />
+  ),
+}));
+
+vi.mock('./shape/LineupShapeView', () => ({
+  LineupShapeView: ({ onQuickReplace }: {
+    onQuickReplace: (params: { assignmentId: string; playerId: string; positionId: string }) => Promise<"success" | "conflict" | "error">;
+  }) => (
+    <div data-testid="lineup-shape-view">
+      <button
+        type="button"
+        data-testid="trigger-quick-replace"
+        onClick={() => {
+          void onQuickReplace({
+            assignmentId: 'la-target',
+            playerId: 'player-b',
+            positionId: 'pos-1',
+          }).then((result) => {
+            mockQuickReplaceResultReporter(result);
+          });
+        }}
+      >
+        Trigger Quick Replace
+      </button>
+    </div>
   ),
 }));
 
@@ -132,7 +158,16 @@ const player1: PlayerWithRoster = {
   isActive: true,
 } as unknown as PlayerWithRoster;
 
-const players: PlayerWithRoster[] = [player1];
+const player2: PlayerWithRoster = {
+  id: 'player-b',
+  name: 'Bob',
+  firstName: 'Bob',
+  lastName: 'Jones',
+  playerNumber: 11,
+  isActive: true,
+} as unknown as PlayerWithRoster;
+
+const players: PlayerWithRoster[] = [player1, player2];
 
 const lineupAssignment: LineupAssignment = {
   id: 'la-1',
@@ -178,6 +213,7 @@ describe('LineupPanel', () => {
     mockIsPlayerInLineup.mockReturnValue(false);
     mockCalculatePlayerPlayTime.mockReturnValue(0);
     mockFormatPlayTime.mockReturnValue('0:00');
+    mockQuickReplaceResultReporter.mockReset();
   });
 
   // ── Header label ---------------------------------------------------------
@@ -307,6 +343,164 @@ describe('LineupPanel', () => {
       />,
     );
     expect(screen.queryByText(/available players/i)).not.toBeInTheDocument();
+  });
+
+  it('renders shape view when viewMode is shape', () => {
+    render(
+      <LineupPanel
+        {...defaultProps}
+        viewMode="shape"
+      />,
+    );
+    expect(screen.getByTestId('lineup-shape-view')).toBeInTheDocument();
+  });
+
+  it('calls onViewModeChange when shape toggle is clicked', async () => {
+    const user = userEvent.setup();
+    const onViewModeChange = vi.fn();
+
+    render(
+      <LineupPanel
+        {...defaultProps}
+        onViewModeChange={onViewModeChange}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /shape/i }));
+    expect(onViewModeChange).toHaveBeenCalledWith('shape');
+  });
+
+  it('quick replace: update failure does not delete selected player starter assignment', async () => {
+    const user = userEvent.setup();
+    const updateLineupAssignment = vi.fn().mockRejectedValue(new Error('update failed hard'));
+    const deleteLineupAssignment = vi.fn().mockResolvedValue({});
+
+    render(
+      <LineupPanel
+        {...defaultProps}
+        viewMode="shape"
+        lineup={[
+          {
+            id: 'la-target',
+            positionId: 'pos-1',
+            playerId: 'player-1',
+            gameId: 'game-1',
+            isStarter: true,
+          } as unknown as LineupAssignment,
+          {
+            id: 'la-player-b-existing',
+            positionId: 'pos-2',
+            playerId: 'player-b',
+            gameId: 'game-1',
+            isStarter: true,
+          } as unknown as LineupAssignment,
+        ]}
+        mutations={{
+          ...defaultProps.mutations,
+          updateLineupAssignment,
+          deleteLineupAssignment,
+        }}
+      />,
+    );
+
+    await user.click(screen.getByTestId('trigger-quick-replace'));
+
+    await waitFor(() => {
+      expect(updateLineupAssignment).toHaveBeenCalledWith('la-target', { playerId: 'player-b' });
+      expect(deleteLineupAssignment).not.toHaveBeenCalled();
+      expect(mockQuickReplaceResultReporter).toHaveBeenCalledWith('error');
+      expect(mockHandleApiError).toHaveBeenCalled();
+    });
+  });
+
+  it('quick replace: missing target update falls back to create without stale target delete', async () => {
+    const user = userEvent.setup();
+    const updateLineupAssignment = vi.fn().mockRejectedValue(new Error('record not found'));
+    const createLineupAssignment = vi.fn().mockResolvedValue({ data: { id: 'la-created-target' } });
+    const deleteLineupAssignment = vi.fn().mockResolvedValue({});
+
+    render(
+      <LineupPanel
+        {...defaultProps}
+        viewMode="shape"
+        lineup={[
+          {
+            id: 'la-target',
+            positionId: 'pos-1',
+            playerId: 'player-1',
+            gameId: 'game-1',
+            isStarter: true,
+          } as unknown as LineupAssignment,
+        ]}
+        mutations={{
+          ...defaultProps.mutations,
+          updateLineupAssignment,
+          createLineupAssignment,
+          deleteLineupAssignment,
+        }}
+      />,
+    );
+
+    await user.click(screen.getByTestId('trigger-quick-replace'));
+
+    await waitFor(() => {
+      expect(createLineupAssignment).toHaveBeenCalledWith({
+        gameId: 'game-1',
+        playerId: 'player-b',
+        positionId: 'pos-1',
+        isStarter: true,
+        coaches: ['user-1'],
+      });
+      expect(deleteLineupAssignment).not.toHaveBeenCalled();
+      expect(mockQuickReplaceResultReporter).toHaveBeenCalledWith('success');
+    });
+  });
+
+  it('quick replace: cleanup delete failure attempts rollback and does not report success', async () => {
+    const user = userEvent.setup();
+    const updateLineupAssignment = vi
+      .fn()
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({});
+    const deleteLineupAssignment = vi.fn().mockRejectedValue(new Error('not found'));
+
+    render(
+      <LineupPanel
+        {...defaultProps}
+        viewMode="shape"
+        lineup={[
+          {
+            id: 'la-target',
+            positionId: 'pos-1',
+            playerId: 'player-1',
+            gameId: 'game-1',
+            isStarter: true,
+          } as unknown as LineupAssignment,
+          {
+            id: 'la-player-b-existing',
+            positionId: 'pos-2',
+            playerId: 'player-b',
+            gameId: 'game-1',
+            isStarter: true,
+          } as unknown as LineupAssignment,
+        ]}
+        mutations={{
+          ...defaultProps.mutations,
+          updateLineupAssignment,
+          deleteLineupAssignment,
+        }}
+      />,
+    );
+
+    await user.click(screen.getByTestId('trigger-quick-replace'));
+
+    await waitFor(() => {
+      expect(deleteLineupAssignment).toHaveBeenCalledWith('la-player-b-existing');
+      expect(updateLineupAssignment).toHaveBeenNthCalledWith(1, 'la-target', { playerId: 'player-b' });
+      expect(updateLineupAssignment).toHaveBeenNthCalledWith(2, 'la-target', { playerId: 'player-1' });
+      expect(mockQuickReplaceResultReporter).toHaveBeenCalledWith('conflict');
+      expect(mockQuickReplaceResultReporter).not.toHaveBeenCalledWith('success');
+    });
   });
 
   // ── Substitute button triggers onSubstitute --------------------------------

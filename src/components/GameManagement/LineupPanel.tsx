@@ -11,6 +11,8 @@ import {
   isPlayerInLineup,
 } from "../../utils/lineupUtils";
 import { LineupBuilder } from "../LineupBuilder";
+import { LineupShapeView } from "./shape/LineupShapeView";
+import { createLineupInteractionAdapter } from "./shape/lineupInteractionAdapter";
 import type { GameMutationInput } from "../../hooks/useOfflineMutations";
 import type {
   Game,
@@ -34,7 +36,14 @@ interface LineupPanelProps {
   hideAvailablePlayers?: boolean;
   onSubstitute: (position: FormationPosition) => void;
   mutations: GameMutationInput;
+  currentUserId?: string;
+  viewMode?: "list" | "shape";
+  onViewModeChange?: (mode: "list" | "shape") => void;
+  onResetViewPreference?: () => void;
 }
+
+type ShapeActionResult = "success" | "conflict" | "error";
+type ShapeClearActionResult = ShapeActionResult | "cancelled";
 
 export function LineupPanel({
   gameState,
@@ -48,6 +57,9 @@ export function LineupPanel({
   hideAvailablePlayers = false,
   onSubstitute,
   mutations,
+  viewMode = "list",
+  onViewModeChange,
+  onResetViewPreference,
 }: LineupPanelProps) {
   const confirm = useConfirm();
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -56,6 +68,18 @@ export function LineupPanel({
   const startersCount = positions.filter(pos =>
     lineup.some(l => l.positionId === pos.id && l.isStarter)
   ).length;
+
+  const shapeEnabled = gameState.status === "scheduled" || gameState.status === "in-progress" || gameState.status === "halftime";
+  const resolvedViewMode = shapeEnabled ? viewMode : "list";
+
+  const interactionAdapter = createLineupInteractionAdapter({
+    gameStatus: gameState.status ?? "",
+    startersCount,
+    maxStarters: team.maxPlayersOnField,
+    onSubstitute,
+    onQuickReplace: () => undefined,
+    onStarterLimitReached: showWarning,
+  });
 
   const isInLineup = (playerId: string) => isPlayerInLineup(playerId, lineup);
 
@@ -77,6 +101,16 @@ export function LineupPanel({
   };
 
   const isCurrentlyPlaying = (playerId: string) => isPlayerCurrentlyPlaying(playerId, playTimeRecords);
+
+  const isConflictError = (error: unknown): boolean => {
+    const message = error instanceof Error ? error.message : String(error);
+    return /conflict|already assigned|conditionalcheckfailed/i.test(message);
+  };
+
+  const isMissingRecordError = (error: unknown): boolean => {
+    const message = error instanceof Error ? error.message : String(error);
+    return /not found|does not exist|cannot find/i.test(message);
+  };
 
   const handleRemoveFromLineup = async (lineupId: string) => {
     try {
@@ -105,6 +139,123 @@ export function LineupPanel({
     }
   };
 
+  const handleShapeQuickReplace = async (params: {
+    assignmentId: string;
+    playerId: string;
+    positionId: string;
+  }): Promise<ShapeActionResult> => {
+    const targetStarter = lineup.find(
+      (entry) => entry.isStarter && entry.positionId === params.positionId,
+    );
+
+    const selectedPlayerStarter = lineup.find(
+      (entry) => entry.isStarter && entry.playerId === params.playerId,
+    );
+
+    try {
+      try {
+        await mutations.updateLineupAssignment(params.assignmentId, {
+          playerId: params.playerId,
+        });
+      } catch (error) {
+        if (!isMissingRecordError(error)) {
+          if (isConflictError(error)) {
+            return "conflict";
+          }
+
+          handleApiError(error, 'Failed to update lineup slot');
+          return "error";
+        }
+
+        try {
+          await mutations.createLineupAssignment({
+            gameId: game.id,
+            playerId: params.playerId,
+            positionId: params.positionId,
+            isStarter: true,
+            coaches: team.coaches,
+          });
+        } catch (fallbackError) {
+          if (isConflictError(fallbackError)) {
+            return "conflict";
+          }
+
+          handleApiError(fallbackError, 'Failed to update lineup slot');
+          return "error";
+        }
+      }
+
+      if (!selectedPlayerStarter || selectedPlayerStarter.id === params.assignmentId) {
+        return "success";
+      }
+
+      try {
+        await mutations.deleteLineupAssignment(selectedPlayerStarter.id);
+        return "success";
+      } catch (cleanupError) {
+        const rollbackTargetPlayerId = targetStarter?.playerId ?? null;
+
+        if (rollbackTargetPlayerId && rollbackTargetPlayerId !== params.playerId) {
+          try {
+            await mutations.updateLineupAssignment(params.assignmentId, {
+              playerId: rollbackTargetPlayerId,
+            });
+          } catch (rollbackError) {
+            if (isConflictError(rollbackError) || isMissingRecordError(rollbackError)) {
+              return "conflict";
+            }
+
+            handleApiError(rollbackError, 'Failed to rollback lineup slot after cleanup failure');
+            return "error";
+          }
+        }
+
+        if (isConflictError(cleanupError) || isMissingRecordError(cleanupError)) {
+          return "conflict";
+        }
+
+        handleApiError(cleanupError, 'Failed to clean up previous starter assignment');
+        return "error";
+      }
+    } catch (error) {
+      if (isConflictError(error)) {
+        return "conflict";
+      }
+
+      handleApiError(error, 'Failed to update lineup slot');
+      return "error";
+    }
+  };
+
+  const handleShapeClearSlot = async (params: {
+    assignmentId: string;
+    positionName: string;
+    playerName: string;
+  }): Promise<ShapeClearActionResult> => {
+    const confirmed = await confirm({
+      title: 'Clear Position',
+      message: `Remove ${params.playerName} from ${params.positionName}?`,
+      confirmText: 'Clear Slot',
+      variant: 'warning',
+    });
+
+    if (!confirmed) {
+      return "cancelled";
+    }
+
+    try {
+      await mutations.deleteLineupAssignment(params.assignmentId);
+      return "success";
+    } catch (error) {
+      if (isConflictError(error) || isMissingRecordError(error)) {
+        return "conflict";
+      }
+
+      handleApiError(error, 'Failed to remove player from lineup');
+      return "error";
+    }
+  };
+
   const handlePlayerClick = (player: Player) => {
     const existing = lineup.find(l => l.playerId === player.id);
 
@@ -121,11 +272,7 @@ export function LineupPanel({
   };
 
   const handleEmptyPositionClick = (position: FormationPosition) => {
-    if (startersCount >= team.maxPlayersOnField) {
-      showWarning(`Maximum ${team.maxPlayersOnField} starters allowed`);
-      return;
-    }
-    onSubstitute(position);
+    interactionAdapter.getEmptyNodeInteraction(position).onTap();
   };
 
   const handleAssignPosition = async (positionId: string) => {
@@ -165,11 +312,40 @@ export function LineupPanel({
           <h2>
             {gameState.status === 'halftime' ? 'Second Half Lineup' : gameState.status === 'in-progress' ? 'Current Lineup' : 'Starting Lineup'} ({startersCount}/{team.maxPlayersOnField})
           </h2>
-          {gameState.status === 'halftime' && startersCount > 0 && (
-            <button onClick={handleClearAllPositions} className="btn-clear-lineup">
-              Clear All Positions
-            </button>
-          )}
+          <div className="lineup-header__actions">
+            {shapeEnabled && (
+              <div className="lineup-view-toggle" role="group" aria-label="Lineup view mode">
+                <button
+                  type="button"
+                  className={`btn-secondary ${resolvedViewMode === "list" ? "is-active" : ""}`}
+                  onClick={() => onViewModeChange?.("list")}
+                >
+                  List
+                </button>
+                <button
+                  type="button"
+                  className={`btn-secondary ${resolvedViewMode === "shape" ? "is-active" : ""}`}
+                  onClick={() => onViewModeChange?.("shape")}
+                >
+                  Shape
+                </button>
+                {onResetViewPreference && (
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={onResetViewPreference}
+                  >
+                    Reset View
+                  </button>
+                )}
+              </div>
+            )}
+            {gameState.status === 'halftime' && startersCount > 0 && (
+              <button onClick={handleClearAllPositions} className="btn-clear-lineup">
+                Clear All Positions
+              </button>
+            )}
+          </div>
         </div>
         {gameState.status === 'halftime' && (
           <p className="halftime-lineup-hint">
@@ -181,6 +357,20 @@ export function LineupPanel({
           <p className="empty-state">
             No positions defined. Go to the Positions tab to add field positions first.
           </p>
+        ) : resolvedViewMode === "shape" ? (
+          <LineupShapeView
+            gameState={gameState}
+            game={game}
+            positions={positions}
+            lineup={lineup}
+            players={players}
+            playTimeRecords={playTimeRecords}
+            currentTime={currentTime}
+            teamMaxPlayersOnField={team.maxPlayersOnField}
+            onSubstitute={onSubstitute}
+            onQuickReplace={handleShapeQuickReplace}
+            onClearSlot={handleShapeClearSlot}
+          />
         ) : gameState.status === 'scheduled' ? (
           <LineupBuilder
             positions={positions}

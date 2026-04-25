@@ -2,11 +2,34 @@ import { useEffect, useState } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import { sortRosterByNumber } from "../utils/playerUtils";
+import {
+  clearFormationLayoutOverride,
+  getFormationLayoutOverride,
+  MAX_OVERRIDE_AGE_MS,
+} from "../utils/formationLayoutOverride";
 import type { FormationPosition, PlayerWithRoster } from "../types/schema";
 
 export type { PlayerWithRoster } from "../types/schema";
 
 const client = generateClient<Schema>();
+
+function clampCoordinate(value: number): number {
+  return Math.min(99, Math.max(1, value));
+}
+
+function parseEpochMs(value: unknown): number | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getPositionUpdatedAtMs(position: FormationPosition): number | null {
+  const candidate = position as FormationPosition & { updatedAt?: unknown };
+  return parseEpochMs(candidate.updatedAt);
+}
 
 /**
  * Custom hook to load team roster and formation positions with real-time updates.
@@ -79,7 +102,92 @@ export function useTeamData(teamId: string, formationId: string | null | undefin
       }).subscribe({
         next: (data) => {
           const sortedPositions = [...data.items].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
-          setPositions(sortedPositions);
+          const override = getFormationLayoutOverride(formationId);
+
+          if (!override) {
+            setPositions(sortedPositions);
+            return;
+          }
+
+          if (Date.now() - override.savedAt > MAX_OVERRIDE_AGE_MS) {
+            clearFormationLayoutOverride(formationId);
+            setPositions(sortedPositions);
+            return;
+          }
+
+          const normalizedOverridePositions = override.positions.map((positionOverride) => ({
+            ...positionOverride,
+            xPct: clampCoordinate(positionOverride.xPct),
+            yPct: clampCoordinate(positionOverride.yPct),
+          }));
+          const serverMap = new Map(sortedPositions.map((position) => [position.id, position]));
+          const overrideMap = new Map(normalizedOverridePositions.map((position) => [position.id, position]));
+
+          const serverMatchesOverride =
+            normalizedOverridePositions.every((positionOverride) => serverMap.has(positionOverride.id)) &&
+            normalizedOverridePositions.every((positionOverride) => {
+              const serverPosition = serverMap.get(positionOverride.id);
+              if (!serverPosition) {
+                return false;
+              }
+
+              if (
+                typeof serverPosition.xPct !== "number" ||
+                !Number.isFinite(serverPosition.xPct) ||
+                typeof serverPosition.yPct !== "number" ||
+                !Number.isFinite(serverPosition.yPct)
+              ) {
+                return false;
+              }
+
+              return (
+                clampCoordinate(serverPosition.xPct) === positionOverride.xPct &&
+                clampCoordinate(serverPosition.yPct) === positionOverride.yPct
+              );
+            });
+
+          if (serverMatchesOverride) {
+            clearFormationLayoutOverride(formationId);
+            setPositions(sortedPositions);
+            return;
+          }
+
+          const serverIsNewerThanOverride =
+            normalizedOverridePositions.length > 0 &&
+            normalizedOverridePositions.every((positionOverride) => {
+              const serverPosition = serverMap.get(positionOverride.id);
+              if (!serverPosition) {
+                return false;
+              }
+
+              const serverUpdatedAtMs = getPositionUpdatedAtMs(serverPosition);
+              if (serverUpdatedAtMs === null) {
+                return false;
+              }
+
+              return serverUpdatedAtMs >= override.savedAt;
+            });
+
+          if (serverIsNewerThanOverride) {
+            clearFormationLayoutOverride(formationId);
+            setPositions(sortedPositions);
+            return;
+          }
+
+          const mergedPositions = sortedPositions.map((position) => {
+            const positionOverride = overrideMap.get(position.id);
+            if (!positionOverride) {
+              return position;
+            }
+
+            return {
+              ...position,
+              xPct: positionOverride.xPct,
+              yPct: positionOverride.yPct,
+            };
+          });
+
+          setPositions(mergedPositions);
         },
       });
     }

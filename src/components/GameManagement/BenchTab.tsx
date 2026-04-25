@@ -10,6 +10,7 @@ import type { GameMutationInput } from "../../hooks/useOfflineMutations";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
 import { showError, showInfo, showSuccess, showWarning } from "../../utils/toast";
 import { getPlayerAvailabilityStatus } from "../../utils/availabilityUtils";
+import { sortBenchPlayersByPriority } from "./shape/lineupInteractionAdapter";
 import type {
   PlayerWithRoster,
   LineupAssignment,
@@ -31,6 +32,7 @@ interface BenchTabProps {
   allowSubstitution?: boolean;
   onInjuryMutationPendingChange?: (isPending: boolean) => void;
   onSelectPlayer: (playerId: string) => void;
+  sortPositionId?: string;
 }
 
 type InjuryMutationState =
@@ -80,6 +82,7 @@ export function BenchTab({
   allowSubstitution = true,
   onInjuryMutationPendingChange,
   onSelectPlayer,
+  sortPositionId,
 }: BenchTabProps) {
   const confirm = useConfirm();
   const [announcement, setAnnouncement] = useState("");
@@ -160,20 +163,24 @@ export function BenchTab({
     }
   };
 
-  const benchPlayers = players
+  const unsortedBenchPlayers = players
     .filter((p) => !isPlayerInLineup(p.id, lineup))
     .filter((p) => getPlayerAvailabilityStatus(p.id, playerAvailabilities) !== 'absent')
     .map((p) => ({
       ...p,
       playTimeSeconds: calculatePlayerPlayTime(p.id, playTimeRecords, currentTime),
       availabilityStatus: getPlayerAvailabilityStatus(p.id, playerAvailabilities),
-    }))
-    .sort((a, b) => {
-      if (a.playTimeSeconds !== b.playTimeSeconds) {
-        return a.playTimeSeconds - b.playTimeSeconds;
-      }
-      return (a.playerNumber ?? 999) - (b.playerNumber ?? 999);
-    });
+    }));
+
+  const benchPlayers = sortBenchPlayersByPriority({
+    benchPlayers: unsortedBenchPlayers,
+    currentPositionId: sortPositionId,
+    getPlayTimeSeconds: (playerId: string) => calculatePlayerPlayTime(playerId, playTimeRecords, currentTime),
+  }).map((player) => ({
+    ...player,
+    playTimeSeconds: calculatePlayerPlayTime(player.id, playTimeRecords, currentTime),
+    availabilityStatus: getPlayerAvailabilityStatus(player.id, playerAvailabilities),
+  }));
 
   const onFieldPlayers = players
     .filter((p) => isPlayerCurrentlyPlaying(p.id, playTimeRecords))

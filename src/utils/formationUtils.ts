@@ -11,6 +11,8 @@ export interface ExistingFormationPosition {
   positionName: string;
   abbreviation: string;
   sortOrder?: number | null;
+  xPct?: number | null;
+  yPct?: number | null;
 }
 
 export interface NewPositionFormData {
@@ -23,12 +25,16 @@ export interface FormationPositionUpdate {
   positionName: string;
   abbreviation: string;
   sortOrder: number;
+  xPct?: number | null;
+  yPct?: number | null;
 }
 
 export interface FormationPositionCreate {
   positionName: string;
   abbreviation: string;
   sortOrder: number;
+  xPct?: number | null;
+  yPct?: number | null;
 }
 
 export interface FormationPositionDiff {
@@ -75,6 +81,8 @@ export function computeFormationPositionDiff(
       positionName: newPositions[i].positionName,
       abbreviation: newPositions[i].abbreviation,
       sortOrder: i + 1,
+      xPct: sorted[i].xPct ?? null,
+      yPct: sorted[i].yPct ?? null,
     });
   }
 
@@ -84,6 +92,8 @@ export function computeFormationPositionDiff(
       positionName: newPositions[i].positionName,
       abbreviation: newPositions[i].abbreviation,
       sortOrder: i + 1,
+      xPct: null,
+      yPct: null,
     });
   }
 

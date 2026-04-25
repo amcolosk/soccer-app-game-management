@@ -101,3 +101,29 @@ export function isValidPlayerNumber(playerNumber: number | null | undefined): bo
   
   return playerNumber >= 1 && playerNumber <= 99 && Number.isInteger(playerNumber);
 }
+
+// ---------------------------------------------------------------------------
+// Formation Visual Layout Coordinates
+// ---------------------------------------------------------------------------
+
+/**
+ * Clamps a coordinate value to the valid integer range [1, 99].
+ * Math.round() is applied FIRST because buildLineupShapeNodes returns floats
+ * and the schema declares a.integer() which rejects floats at runtime.
+ */
+export function clampCoord(value: number): number {
+  return Math.min(99, Math.max(1, Math.round(value)));
+}
+
+/**
+ * Applies clampCoord to each position's xPct and yPct.
+ */
+export function validateAndClampCoordinates(
+  positions: Array<{ id: string; xPct: number; yPct: number }>,
+): Array<{ id: string; xPct: number; yPct: number }> {
+  return positions.map(p => ({
+    id: p.id,
+    xPct: clampCoord(p.xPct),
+    yPct: clampCoord(p.yPct),
+  }));
+}

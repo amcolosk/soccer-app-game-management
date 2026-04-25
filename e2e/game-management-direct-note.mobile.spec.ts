@@ -412,9 +412,9 @@ async function ensureSeededState(page: Page): Promise<void> {
       lastError = error;
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error(`❌ Seeding attempt ${attempt} failed: ${errorMsg}`);
-      
-      // Reset the seeded state flag to retry completely
+
       if (attempt < MAX_SEED_ATTEMPTS) {
+        await navigateToApp(page);
         console.log(`🔄 Retrying seeding...`);
       }
     }

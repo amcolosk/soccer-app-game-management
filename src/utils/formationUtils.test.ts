@@ -13,6 +13,17 @@ function existing(id: string, positionName: string, abbreviation: string, sortOr
   return { id, positionName, abbreviation, sortOrder };
 }
 
+function existingWithCoords(
+  id: string,
+  positionName: string,
+  abbreviation: string,
+  sortOrder: number,
+  xPct: number | null,
+  yPct: number | null,
+): ExistingFormationPosition {
+  return { id, positionName, abbreviation, sortOrder, xPct, yPct };
+}
+
 function newPos(positionName: string, abbreviation: string): NewPositionFormData {
   return { positionName, abbreviation };
 }
@@ -48,6 +59,21 @@ describe('computeFormationPositionDiff', () => {
     expect(toUpdate[2].positionName).toBe('Striker');
   });
 
+  it('preserves existing xPct/yPct values on toUpdate rows', () => {
+    const existing2 = [
+      existingWithCoords('id-1', 'Goalkeeper', 'GK', 1, 12, 90),
+      existingWithCoords('id-2', 'Defender', 'DEF', 2, null, 55),
+    ];
+    const newPositions = [newPos('Goalkeeper', 'GK'), newPos('Defender', 'CB')];
+
+    const { toUpdate } = computeFormationPositionDiff(existing2, newPositions);
+
+    expect(toUpdate).toEqual([
+      { id: 'id-1', positionName: 'Goalkeeper', abbreviation: 'GK', sortOrder: 1, xPct: 12, yPct: 90 },
+      { id: 'id-2', positionName: 'Defender', abbreviation: 'CB', sortOrder: 2, xPct: null, yPct: 55 },
+    ]);
+  });
+
   it('new count > old count: existing positions updated in-place, extras created', () => {
     const existing2 = [
       existing('id-1', 'Goalkeeper', 'GK', 1),
@@ -68,8 +94,19 @@ describe('computeFormationPositionDiff', () => {
     expect(toUpdate[1].id).toBe('id-2');
 
     expect(toCreate).toHaveLength(2);
-    expect(toCreate[0]).toEqual({ positionName: 'Midfielder', abbreviation: 'MID', sortOrder: 3 });
-    expect(toCreate[1]).toEqual({ positionName: 'Forward', abbreviation: 'FWD', sortOrder: 4 });
+    expect(toCreate[0]).toEqual({ positionName: 'Midfielder', abbreviation: 'MID', sortOrder: 3, xPct: null, yPct: null });
+    expect(toCreate[1]).toEqual({ positionName: 'Forward', abbreviation: 'FWD', sortOrder: 4, xPct: null, yPct: null });
+  });
+
+  it('defaults toCreate xPct/yPct to null', () => {
+    const { toCreate } = computeFormationPositionDiff(
+      [existing('id-1', 'Goalkeeper', 'GK', 1)],
+      [newPos('Goalkeeper', 'GK'), newPos('Midfielder', 'MID')],
+    );
+
+    expect(toCreate).toEqual([
+      { positionName: 'Midfielder', abbreviation: 'MID', sortOrder: 2, xPct: null, yPct: null },
+    ]);
   });
 
   it('new count < old count: first positions updated in-place, excess IDs returned for deletion', () => {

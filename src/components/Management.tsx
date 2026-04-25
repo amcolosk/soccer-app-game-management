@@ -34,6 +34,8 @@ import { useHelpFab } from '../contexts/HelpFabContext';
 import type { HelpScreenKey } from '../help';
 import { buildFlatDebugSnapshot } from '../utils/debugUtils';
 import type { ManagementDebugContext } from '../types/debug';
+import { FormationVisualEditor } from './FormationVisualEditor';
+import type { DraftPosition } from './FormationVisualEditor';
 
 const client = generateClient<Schema>();
 
@@ -143,7 +145,7 @@ export function Management() {
 
   const { setHelpContext, setDebugContext } = useHelpFab();
 
-  // Map active section → help key. Reactive: re-runs when the coach switches tabs.
+  // Map active section -> help key. Reactive: re-runs when the coach switches tabs.
   // @help-content: manage-teams, manage-players, manage-formations, manage-sharing, manage-app
   useEffect(() => {
     const sectionToKey: Record<'teams' | 'formations' | 'players' | 'sharing' | 'app', HelpScreenKey> = {
@@ -175,6 +177,9 @@ export function Management() {
 
   const [formationForm, formationDispatch] = useReducer(formationFormReducer, initialFormationForm);
   const [playerForm, playerDispatch] = useReducer(playerFormReducer, initialPlayerForm);
+
+  const [visualEditorFormationId, setVisualEditorFormationId] = useState<string | null>(null);
+  const [savedPositions, setSavedPositions] = useState<Record<string, DraftPosition[]>>({});
 
   const managementDebugContext = useMemo((): ManagementDebugContext => ({
     activeSection,
@@ -605,7 +610,7 @@ export function Management() {
     const existingPositions = formationPositions
       .filter(p => p.formationId === formation.id)
       .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
-      .map(p => ({ positionName: p.positionName, abbreviation: p.abbreviation }));
+        .map(p => ({ positionName: p.positionName, abbreviation: p.abbreviation, xPct: p.xPct ?? null, yPct: p.yPct ?? null }));
 
     formationDispatch({ type: 'EDIT_FORMATION', formation, positions: existingPositions });
   };
@@ -634,23 +639,27 @@ export function Management() {
         formationForm.positions,
       );
 
-      // 1. Update existing positions in-place (IDs preserved) — parallelised
+      // 1. Update existing positions in-place (IDs preserved) - parallelized
       await Promise.all(toUpdate.map(pos =>
         client.models.FormationPosition.update({
           id: pos.id,
           positionName: pos.positionName,
           abbreviation: pos.abbreviation,
           sortOrder: pos.sortOrder,
+          xPct: pos.xPct ?? null,
+          yPct: pos.yPct ?? null,
         })
       ));
 
-      // 2. Create new positions if the count increased — parallelised
+      // 2. Create new positions if the count increased - parallelized
       await Promise.all(toCreate.map(pos =>
         client.models.FormationPosition.create({
           formationId: formationForm.editing!.id,
           positionName: pos.positionName,
           abbreviation: pos.abbreviation,
           sortOrder: pos.sortOrder,
+          xPct: pos.xPct ?? null,
+          yPct: pos.yPct ?? null,
           coaches: formationForm.editing!.coaches || [],
         })
       ));
@@ -1029,9 +1038,9 @@ export function Management() {
                         <div className="item-info">
                           <h3>{team.name}</h3>
                           <p className="item-meta">
-                            {team.maxPlayersOnField} players • {team.halfLengthMinutes} min halves
+                            {team.maxPlayersOnField} players | {team.halfLengthMinutes} min halves
                             {getFormationName(team.formationId) && (
-                              <> • Formation: {getFormationName(team.formationId)}</>
+                              <> | Formation: {getFormationName(team.formationId)}</>
                             )}
                           </p>
                           <p className="item-meta">Roster: {teamRosterList.length} player(s)</p>
@@ -1105,7 +1114,7 @@ export function Management() {
                               return (
                                 <div key={position.id} className="position-assignment-card">
                                   <div className="position-assignment-header">
-                                    <strong>{position.abbreviation} — {position.positionName}</strong>
+                                    <strong>{position.abbreviation} - {position.positionName}</strong>
                                     <span className="position-count">{assignedRosters.length}</span>
                                   </div>
                                   {assignedRosters.length > 0 && (
@@ -1121,7 +1130,7 @@ export function Management() {
                                               className="btn-remove-tag"
                                               aria-label={`Remove ${player.firstName} from ${position.abbreviation}`}
                                             >
-                                              ✕
+                                              Remove
                                             </button>
                                           </div>
                                         );
@@ -1365,7 +1374,7 @@ export function Management() {
                                       style={{ fontSize: '0.9em' }}
                                       aria-label="Remove from roster"
                                     >
-                                      ✕
+                                      Remove
                                     </button>
                                   </div>
                                 </div>
@@ -1539,7 +1548,7 @@ export function Management() {
                       <div className="item-info">
                         <h3>{formation.name}</h3>
                         <p className="item-meta">
-                          {formation.playerCount} players • {formation.sport || 'Soccer'}
+                          {formation.playerCount} players | {formation.sport || 'Soccer'}
                         </p>
                         {formationPositionList.length > 0 && (
                           <p className="item-meta" style={{ marginTop: '0.5rem' }}>
@@ -1555,8 +1564,17 @@ export function Management() {
                           onClick={() => handleEditFormation(formation)}
                           className="btn-edit"
                           aria-label="Edit formation"
+                          title="Edit formation"
                         >
                           ✎
+                        </button>
+                        <button
+                          onClick={() => setVisualEditorFormationId(formation.id)}
+                          className="btn-edit"
+                          aria-label="Customize layout"
+                          title="Customize layout"
+                        >
+                          ⊞
                         </button>
                       </div>
                     </div>
@@ -1773,7 +1791,7 @@ export function Management() {
                 className="btn-secondary"
                 style={{ marginBottom: '20px' }}
               >
-                ← Back to Selection
+                Back to Selection
               </button>
               
               <InvitationManagement
@@ -1790,7 +1808,7 @@ export function Management() {
         <div className="management-section">
           <div className="app-info-section">
             <div className="app-info-card">
-              <h3>📱 App Information</h3>
+              <h3>App Information</h3>
               <div className="app-info-item">
                 <span className="info-label">Version:</span>
                 <span className="info-value">{import.meta.env.VITE_APP_VERSION || '1.0.0'}</span>
@@ -1820,7 +1838,7 @@ export function Management() {
 
             {demoTeamId && (
               <div className="app-info-card" style={{ marginTop: '16px' }}>
-                <h3>🧪 Demo Data</h3>
+                <h3>Demo Data</h3>
                 <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>
                   You have a demo team active. This is sample data for exploring the app.
                 </p>
@@ -1837,6 +1855,22 @@ export function Management() {
           </div>
         </div>
       )}
-    </div>
+
+      {visualEditorFormationId !== null && (() => {
+        const formation = formations.find(f => f.id === visualEditorFormationId);
+        return formation ? (
+          <FormationVisualEditor
+            formationId={visualEditorFormationId}
+            formationName={formation.name}
+            initialPositions={savedPositions[visualEditorFormationId] ?? undefined}
+            onClose={() => setVisualEditorFormationId(null)}
+            onSaved={(positions: DraftPosition[]) => {
+              setSavedPositions(prev => ({ ...prev, [visualEditorFormationId!]: positions }));
+              setFormationRefreshKey(k => k + 1);
+              setVisualEditorFormationId(null);
+            }}
+          />
+        ) : null;
+      })()}    </div>
   );
 }
