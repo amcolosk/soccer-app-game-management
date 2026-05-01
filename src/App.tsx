@@ -9,7 +9,7 @@ import {
 import { AppLayout } from "./components/AppLayout";
 import { Home } from "./components/Home";
 import { GameManagementRoute } from "./components/routes/GameManagementRoute";
-import { GamePlannerRoute } from "./components/routes/GamePlannerRoute";
+import { GamePlanRedirect } from "./components/routes/GamePlanRedirect";
 import { InvitationRoute } from "./components/routes/InvitationRoute";
 import "./App.css";
 
@@ -37,7 +37,7 @@ function App() {
         <Route element={<AppLayout />}>
           <Route index element={<HomeOrLegacyRedirect />} />
           <Route path="game/:gameId" element={<GameManagementRoute />} />
-          <Route path="game/:gameId/plan" element={<GamePlannerRoute />} />
+          <Route path="game/:gameId/plan" element={<GamePlanRedirect />} />
           <Route path="reports" element={<SeasonReportRoute />} />
           <Route path="reports/:teamId" element={<SeasonReportRoute />} />
           <Route path="manage" element={<Management />} />

@@ -99,13 +99,13 @@ export function QuickStartChecklist({
       id: 6,
       title: 'Plan your rotations',
       completed: step6Complete,
-      directionText: 'Tap 📋 Plan Game on your game card',
+      directionText: 'Tap Open Game on your game card, then open the Plan tab',
     },
     {
       id: 7,
       title: 'Manage a live game',
       completed: step7Complete,
-      directionText: 'On game day, tap Start Game',
+      directionText: 'On game day, tap Open Game, then Start Game',
     },
   ];
 

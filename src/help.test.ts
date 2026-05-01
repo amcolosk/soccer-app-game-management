@@ -18,7 +18,6 @@ const ALL_KEYS: HelpScreenKey[] = [
   'game-in-progress',
   'game-halftime',
   'game-completed',
-  'game-planner',
   'season-reports',
   'manage-teams',
   'manage-players',
@@ -30,8 +29,8 @@ const ALL_KEYS: HelpScreenKey[] = [
 ];
 
 describe('HELP_CONTENT registry', () => {
-  it('contains exactly 14 entries', () => {
-    expect(Object.keys(HELP_CONTENT)).toHaveLength(14);
+  it('contains exactly 13 entries', () => {
+    expect(Object.keys(HELP_CONTENT)).toHaveLength(13);
   });
 
   it.each(ALL_KEYS)('contains an entry for key "%s"', (key) => {

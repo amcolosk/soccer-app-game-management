@@ -12,6 +12,7 @@ import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, type PlannedSubstitution } from "../../services/rotationPlannerService";
 import { calculatePlayerPlayTime } from "../../utils/playTimeCalculations";
+import { parseHalftimeLineup, serializeHalftimeLineup } from "../../utils/halftimeProjectionUtils";
 import { useTeamData } from "../../hooks/useTeamData";
 import { useOfflineMutations } from "../../hooks/useOfflineMutations";
 import { useTeamCoachProfiles } from "../../hooks/useTeamCoachProfiles";
@@ -28,10 +29,10 @@ import { CreateEditNoteModal } from "./CreateEditNoteModal";
 import { RotationWidget } from "./RotationWidget";
 import { SubstitutionPanel } from "./SubstitutionPanel";
 import { LineupPanel } from "./LineupPanel";
+import { PlanTab } from "./PlanTab";
 import { CompletedPlayTimeSummary } from "./CompletedPlayTimeSummary";
-import { PlayerAvailabilityGrid } from "../PlayerAvailabilityGrid";
 import { OfflineBanner } from "../OfflineBanner";
-import type { Game, Team, FormationPosition, SubQueue } from "./types";
+import type { Game, Team, FormationPosition, PlannedRotation, SubQueue } from "./types";
 import { AvailabilityProvider } from "../../contexts/AvailabilityContext";
 import { useHelpFab } from "../../contexts/HelpFabContext";
 import type { HelpScreenKey } from "../../help";
@@ -72,6 +73,16 @@ class StarterCountError extends Error {
 
 function isStarterCountError(error: unknown): error is StarterCountError {
   return error instanceof StarterCountError;
+}
+
+function buildDeterministicStartPlayTimeRecordId(params: {
+  gameId: string;
+  playerId: string;
+  half: 1 | 2;
+  startGameSeconds: number;
+}): string {
+  const { gameId, playerId, half, startGameSeconds } = params;
+  return `ptr:${gameId}:${playerId}:h${half}:t${startGameSeconds}`;
 }
 
 /**
@@ -151,6 +162,9 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
   // Guards to prevent duplicate halftime/end-game handling when both the
   // auto-trigger (from useGameTimer) and a manual button click fire concurrently.
+  const startGameInProgressRef = useRef(false);
+  const startStatusRef = useRef<Game['status']>(game.status);
+  const [isStartingGame, setIsStartingGame] = useState(false);
   const halftimeInProgressRef = useRef(false);
   const endGameInProgressRef = useRef(false);
   const halftimePtrClosePendingRef = useRef(false);
@@ -499,6 +513,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   }, [gameManagementDebugContext]);
 
   useEffect(() => {
+    startStatusRef.current = gameState.status;
+  }, [gameState.status]);
+
+  useEffect(() => {
     setDebugContext(gameManagementDebugSnapshot);
     return () => setDebugContext(null);
   }, [gameManagementDebugSnapshot, setDebugContext]);
@@ -637,7 +655,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   };
 
   const handleRecalculateRotations = async () => {
-    if (!gamePlan || plannedRotations.length === 0) return;
+    if (gameState.status !== 'scheduled') {
+      return;
+    }
+    if (!gamePlan) return;
 
     const confirmed = await confirm({
       title: 'Recalculate Rotations',
@@ -686,6 +707,73 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       const rotationIntervalMinutes = gamePlan.rotationIntervalMinutes || 10;
       const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
 
+      // Build the expected scheduled timeline so generation works even before
+      // PlannedRotation rows have been created.
+      const expectedRotations: Array<{ rotationNumber: number; gameMinute: number; half: 1 | 2 }> = [];
+      for (let index = 1; index <= rotationsPerHalf; index += 1) {
+        expectedRotations.push({
+          rotationNumber: index,
+          gameMinute: index * rotationIntervalMinutes,
+          half: 1,
+        });
+      }
+      expectedRotations.push({
+        rotationNumber: rotationsPerHalf + 1,
+        gameMinute: halfLengthMinutes,
+        half: 2,
+      });
+      for (let index = 1; index <= rotationsPerHalf; index += 1) {
+        expectedRotations.push({
+          rotationNumber: rotationsPerHalf + 1 + index,
+          gameMinute: halfLengthMinutes + index * rotationIntervalMinutes,
+          half: 2,
+        });
+      }
+
+      const existingByKey = new Map(
+        plannedRotations.map(rotation => [
+          `${rotation.half}:${rotation.gameMinute}:${rotation.rotationNumber}`,
+          rotation,
+        ])
+      );
+      const missingRotations = expectedRotations.filter(spec => {
+        const key = `${spec.half}:${spec.gameMinute}:${spec.rotationNumber}`;
+        return !existingByKey.has(key);
+      });
+
+      const allPlannedRotations = [...plannedRotations];
+      if (missingRotations.length > 0) {
+        let coachId = userId || team.coaches?.[0];
+        if (!coachId) {
+          const currentUser = await getCurrentUser();
+          coachId = currentUser.userId;
+        }
+        const createdRotations = await Promise.all(
+          missingRotations.map(async spec => {
+            const response = await client.models.PlannedRotation.create({
+              gamePlanId: gamePlan.id,
+              rotationNumber: spec.rotationNumber,
+              gameMinute: spec.gameMinute,
+              half: spec.half,
+              plannedSubstitutions: '[]',
+              coaches: [coachId],
+            });
+            if (!response.data) {
+              throw new Error('Failed to create missing planned rotation record');
+            }
+            return response.data as PlannedRotation;
+          })
+        );
+        allPlannedRotations.push(...createdRotations);
+      }
+      allPlannedRotations.sort((a, b) => {
+        const rotationDiff = (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0);
+        if (rotationDiff !== 0) return rotationDiff;
+        const minuteDiff = (a.gameMinute ?? 0) - (b.gameMinute ?? 0);
+        if (minuteDiff !== 0) return minuteDiff;
+        return (a.half ?? 0) - (b.half ?? 0);
+      });
+
       const goaliePos = positions.find(p => {
         const abbr = p.abbreviation?.toUpperCase();
         return abbr === 'GK' || abbr === 'G';
@@ -702,7 +790,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       const { rotations: generatedRotations } = calculateFairRotations(
         availableRoster,
         lineupArray,
-        plannedRotations.length,
+        allPlannedRotations.length,
         rotationsPerHalf,
         team.maxPlayersOnField || positions.length,
         goaliePositionId,
@@ -712,7 +800,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
       // Update only future rotations with generated substitutions
       const currentMinutes = Math.floor(currentTime / 60);
-      const updates = plannedRotations
+      const updates = allPlannedRotations
         .map((rotation, index) => ({ rotation, generated: generatedRotations[index] }))
         .filter(({ rotation }) => rotation.gameMinute > currentMinutes)
         .map(({ rotation, generated }) => {
@@ -737,6 +825,40 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     setEditGameIsHome(game.isHome ?? true);
     setIsEditingGame(true);
   }, [game]);
+
+  const handleHalfLengthChange = useCallback(async (minutes: number) => {
+    if (gameState.status !== 'scheduled') return;
+    const clamped = Math.max(1, Math.min(99, minutes));
+    try {
+      await mutations.updateGame(game.id, { halfLengthMinutes: clamped });
+    } catch (error) {
+      handleApiError(error, 'Failed to update half length');
+    }
+  }, [gameState.status, game.id, mutations]);
+
+  const handleIntervalChange = useCallback(async () => {
+    if (gameState.status !== 'scheduled') return;
+    // Rotation interval persistence is managed by the useGamePlanner hook inside PlanTab.
+  }, [gameState.status]);
+
+  const handleHalftimeLineupChange = useCallback(async (newLineup: Map<string, string>) => {
+    if (gameState.status !== 'scheduled') return;
+    if (!gamePlan?.id) return;
+    try {
+      const halftimeLineupStr = serializeHalftimeLineup(newLineup);
+      await client.models.GamePlan.update({
+        id: gamePlan.id,
+        halftimeLineup: halftimeLineupStr,
+      });
+    } catch (error) {
+      handleApiError(error, 'Failed to update halftime lineup');
+    }
+  }, [gameState.status, gamePlan?.id]);
+
+  const halftimeLineupMap = useMemo(
+    () => parseHalftimeLineup(gamePlan?.halftimeLineup as string | null | undefined),
+    [gamePlan?.halftimeLineup]
+  );
 
   const handleSaveGameEdit = useCallback(async () => {
     if (!editGameOpponent.trim()) {
@@ -773,6 +895,17 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   }, []);
 
   const handleStartGame = async () => {
+    if (startGameInProgressRef.current || isStartingGame) {
+      return;
+    }
+
+    if (startStatusRef.current !== 'scheduled') {
+      return;
+    }
+
+    startGameInProgressRef.current = true;
+    setIsStartingGame(true);
+
     // Warn if any starters are unavailable
     const unavailableStarters = lineup
       .filter(l => l.isStarter)
@@ -793,10 +926,21 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         confirmText: 'Start Anyway',
         variant: 'warning',
       });
-      if (!proceed) return;
+      if (!proceed) {
+        setIsStartingGame(false);
+        startGameInProgressRef.current = false;
+        return;
+      }
     }
 
     try {
+      const latestGame = await client.models.Game.get({ id: game.id });
+      const latestStatus = latestGame.data?.status;
+      if (latestStatus && latestStatus !== 'scheduled') {
+        startStatusRef.current = latestStatus;
+        return;
+      }
+
       const resolvedLocalStarters = lineup.filter(
         (l): l is typeof l & { playerId: string; positionId: string } =>
           l.isStarter && !!l.playerId && !!l.positionId
@@ -834,18 +978,27 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         lastStartTime: startTime,
       });
 
-      // Create play time records for resolved starters using game time.
-      // Only create if they don't already have an active record for this game.
-      const startersWithoutActiveRecords = starters
-        .filter(l => {
-          const hasActiveRecord = playTimeRecords.some(
-            r => r.gameId === game.id && r.playerId === l.playerId && r.endGameSeconds === null
-          );
-          return !hasActiveRecord;
-        });
+      const persistedStart = await client.models.Game.get({ id: game.id });
+      const persistedLastStartTime = persistedStart.data?.lastStartTime ?? null;
+      const anotherClientWon =
+        persistedStart.data?.status === 'in-progress'
+        && typeof persistedLastStartTime === 'string'
+        && persistedLastStartTime.length > 0
+        && persistedLastStartTime !== startTime;
+      if (anotherClientWon) {
+        startStatusRef.current = persistedStart.data?.status ?? 'in-progress';
+        showWarning('This game was started from another client. Refreshing live state.');
+        return;
+      }
 
-      const starterPromises = startersWithoutActiveRecords.map(l =>
+      const starterPromises = starters.map(l =>
         mutations.createPlayTimeRecord({
+          id: buildDeterministicStartPlayTimeRecordId({
+            gameId: game.id,
+            playerId: l.playerId,
+            half: 1,
+            startGameSeconds: currentTime,
+          }),
           gameId: game.id,
           playerId: l.playerId,
           positionId: l.positionId,
@@ -856,6 +1009,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
       await Promise.all(starterPromises);
 
+      startStatusRef.current = 'in-progress';
       setGameState({ ...gameState, status: 'in-progress' });
       setIsRunning(true);
       trackEvent(AnalyticsEvents.GAME_STARTED.category, AnalyticsEvents.GAME_STARTED.action);
@@ -864,6 +1018,9 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         error,
         isStarterCountError(error) ? error.userMessage : 'Failed to start game'
       );
+    } finally {
+      setIsStartingGame(false);
+      startGameInProgressRef.current = false;
     }
   };
 
@@ -1026,6 +1183,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       
       const starterPromises = starters.map(l => {
         return mutations.createPlayTimeRecord({
+          id: buildDeterministicStartPlayTimeRecordId({
+            gameId: game.id,
+            playerId: l.playerId,
+            half: 2,
+            startGameSeconds: resumeTime,
+          }),
           gameId: game.id,
           playerId: l.playerId,
           positionId: l.positionId,
@@ -1116,10 +1279,17 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     onEndGame: handleEndGame,
   });
 
-  // Reset tab to 'field' whenever the game leaves in-progress state
+  // Reset tab when game status changes.
+  // scheduled → stay/go to 'plan' (no live data needed)
+  // in-progress / halftime → auto-switch from 'plan' to 'field' on transition; keep other tabs
+  // completed → reset to 'field' (no tab nav shown, but keep state clean)
   useEffect(() => {
-    if (gameState.status !== "in-progress") {
-      setActiveTab("field");
+    if (gameState.status === 'scheduled') {
+      setActiveTab('plan');
+    } else if (gameState.status === 'in-progress' || gameState.status === 'halftime') {
+      setActiveTab(prev => prev === 'plan' ? 'field' : prev);
+    } else {
+      setActiveTab('field');
     }
   }, [gameState.status]);
 
@@ -1447,6 +1617,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
           onResumeTimer={handleResumeTimer}
           onShowRotationModal={() => { setRotationModalOpen(true); trackEvent(AnalyticsEvents.ROTATION_WIDGET_OPENED.category, AnalyticsEvents.ROTATION_WIDGET_OPENED.action); }}
           onAddNote={(trigger) => openLiveNoteModal({ source: 'command-band', defaultType: 'other' }, trigger)}
+          onStartGame={handleStartGame}
+          isStartPending={isStartingGame}
         />
 
         {/* Rotation and late-arrival modals (always mounted for in-progress) */}
@@ -1491,108 +1663,174 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
         {/* ── PRE-GAME ─────────────────────────────────────────────── */}
         {gameState.status === 'scheduled' && (
-          <div className="pregame-layout">
-            {/* Edit Game trigger or inline edit form */}
-            {!isEditingGame ? (
-              <button
-                ref={editGameButtonRef}
-                className="btn-secondary btn-edit-game-trigger"
-                onClick={handleOpenEditGame}
+          <>
+            <OfflineBanner isOnline={isOnline} pendingCount={pendingMutationCount} isSyncing={isSyncing} />
+            <TabNav
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+              substitutionQueueCount={substitutionQueue.length}
+              tabPanelIdPrefix="game-tab-panel"
+            />
+
+            {activeTab === 'plan' && (
+              <div
+                className="pregame-layout game-tab-content"
+                role="tabpanel"
+                id="game-tab-panel-plan"
+                aria-labelledby="game-tab-panel-tab-plan"
+                tabIndex={0}
               >
-                ✏️ Edit Game
-              </button>
-            ) : (
-              <div className="create-form" ref={editFormRef}>
-                <h3>Edit Game</h3>
-                <input
-                  type="text"
-                  placeholder="Opponent Team Name *"
-                  value={editGameOpponent}
-                  onChange={(e) => setEditGameOpponent(e.target.value)}
-                  maxLength={100}
-                />
-                <input
-                  type="datetime-local"
-                  value={editGameDate}
-                  onChange={(e) => setEditGameDate(e.target.value)}
-                />
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={editGameIsHome}
-                    onChange={(e) => setEditGameIsHome(e.target.checked)}
-                  />
-                  Home Game
-                </label>
-                <div className="form-actions">
+                {/* Edit Game trigger or inline edit form */}
+                {!isEditingGame ? (
                   <button
-                    onClick={handleSaveGameEdit}
-                    className="btn-primary"
-                    disabled={isSavingGameEdit}
+                    ref={editGameButtonRef}
+                    className="btn-secondary btn-edit-game-trigger"
+                    onClick={handleOpenEditGame}
                   >
-                    {isSavingGameEdit ? 'Saving…' : 'Save Changes'}
+                    ✏️ Edit Game
                   </button>
-                  <button
-                    onClick={handleCancelGameEdit}
-                    className="btn-secondary"
-                    disabled={isSavingGameEdit}
-                  >
-                    Cancel
-                  </button>
-                </div>
+                ) : (
+                  <div className="create-form" ref={editFormRef}>
+                    <h3>Edit Game</h3>
+                    <input
+                      type="text"
+                      placeholder="Opponent Team Name *"
+                      value={editGameOpponent}
+                      onChange={(e) => setEditGameOpponent(e.target.value)}
+                      maxLength={100}
+                    />
+                    <input
+                      type="datetime-local"
+                      value={editGameDate}
+                      onChange={(e) => setEditGameDate(e.target.value)}
+                    />
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={editGameIsHome}
+                        onChange={(e) => setEditGameIsHome(e.target.checked)}
+                      />
+                      Home Game
+                    </label>
+                    <div className="form-actions">
+                      <button
+                        onClick={handleSaveGameEdit}
+                        className="btn-primary"
+                        disabled={isSavingGameEdit}
+                      >
+                        {isSavingGameEdit ? 'Saving…' : 'Save Changes'}
+                      </button>
+                      <button
+                        onClick={handleCancelGameEdit}
+                        className="btn-secondary"
+                        disabled={isSavingGameEdit}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <PlanTab
+                  readOnly={false}
+                  gamePlan={gamePlan}
+                  plannedRotations={plannedRotations}
+                  planConflicts={getPlanConflicts()}
+                  isRecalculating={isRecalculating}
+                  onRecalculateRotations={handleRecalculateRotations}
+                  onHalfLengthChange={handleHalfLengthChange}
+                  onIntervalChange={handleIntervalChange}
+                  halftimeLineup={halftimeLineupMap}
+                  onHalftimeLineupChange={handleHalftimeLineupChange}
+                  onGenerateRotations={handleRecalculateRotations}
+                  {...sharedLineupPanelProps}
+                />
+
+                {!isEditingGame && (
+                  <div className="pregame-start-cta">
+                    <button onClick={handleStartGame} className="btn-primary btn-large" disabled={isStartingGame}>
+                      {isStartingGame ? 'Starting...' : 'Start Game'}
+                    </button>
+                  </div>
+                )}
+
+                {!isEditingGame && deleteGameButton}
               </div>
             )}
 
-            {gamePlan && (() => {
-              const conflicts = getPlanConflicts();
-              if (conflicts.length === 0) return null;
-              return (
-                <div className="plan-conflict-banner">
-                  <h4>⚠️ Plan Conflicts</h4>
-                  <p>The following players are in the game plan but currently unavailable:</p>
-                  <ul>
-                    {conflicts.map(c => (
-                      <li key={c.playerId}>
-                        <strong>{c.playerName}</strong> — {c.status}
-                        {c.type === 'starter' && ' (starting lineup)'}
-                        {c.rotationNumbers.length > 0 && ` · Rotation${c.rotationNumbers.length > 1 ? 's' : ''} ${c.rotationNumbers.join(', ')}`}
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="conflict-hint">Update availability or adjust the game plan before starting.</p>
-                  <button
-                    onClick={handleRecalculateRotations}
-                    disabled={isRecalculating}
-                    className="btn-secondary"
-                    style={{ marginTop: '8px' }}
-                  >
-                    {isRecalculating ? '⏳ Recalculating...' : '🔄 Recalculate Rotations'}
-                  </button>
-                </div>
-              );
-            })()}
-
-            {gamePlan && players.length > 0 && (
-              <PlayerAvailabilityGrid
-                players={players}
-                gameId={game.id}
-                coaches={team.coaches || []}
-                lineupPlayerIds={lineup.filter(l => l.isStarter).map(l => l.playerId)}
-              />
-            )}
-
-            <LineupPanel {...sharedLineupPanelProps} />
-
-            {!isEditingGame && (
-              <div className="pregame-start-cta">
-                <button onClick={handleStartGame} className="btn-primary btn-large">
-                  Start Game
-                </button>
+            {activeTab === 'field' && (
+              <div
+                className="field-tab game-tab-content"
+                role="tabpanel"
+                id="game-tab-panel-field"
+                aria-labelledby="game-tab-panel-tab-field"
+                tabIndex={0}
+              >
+                <LineupPanel
+                  {...sharedLineupPanelProps}
+                  hideAvailablePlayers={true}
+                />
               </div>
             )}
 
-            {!isEditingGame && deleteGameButton}
-          </div>
+            {activeTab === 'bench' && (
+              <div
+                className="game-tab-content"
+                role="tabpanel"
+                id="game-tab-panel-bench"
+                aria-labelledby="game-tab-panel-tab-bench"
+                tabIndex={0}
+              >
+                <BenchTab
+                  players={players}
+                  lineup={lineup}
+                  playTimeRecords={playTimeRecords}
+                  currentTime={currentTime}
+                  halfLengthSeconds={halfLengthSeconds}
+                  gameId={game.id}
+                  coaches={Array.isArray(team.coaches) ? team.coaches : undefined}
+                  playerAvailabilities={playerAvailabilities}
+                  mutations={mutations}
+                  isOnline={isOnline}
+                  allowSubstitution={false}
+                  onSelectPlayer={() => undefined}
+                />
+              </div>
+            )}
+
+            {activeTab === 'goals' && (
+              <div
+                className="game-tab-content"
+                role="tabpanel"
+                id="game-tab-panel-goals"
+                aria-labelledby="game-tab-panel-tab-goals"
+                tabIndex={0}
+              >
+                <GoalTracker {...sharedGoalTrackerProps} />
+              </div>
+            )}
+
+            {activeTab === 'notes' && (
+              <div
+                className="game-tab-content"
+                role="tabpanel"
+                id="game-tab-panel-notes"
+                aria-labelledby="game-tab-panel-tab-notes"
+                tabIndex={0}
+              >
+                <PreGameNotesPanel
+                  gameStatus={gameState.status}
+                  notes={preGameNotes}
+                  players={players}
+                  onAdd={openCreatePreGameNote}
+                  onEdit={openEditPreGameNote}
+                  onDelete={handleDeletePreGameNote}
+                  isReadOnly={false}
+                  profileMap={profileMap}
+                />
+              </div>
+            )}
+          </>
         )}
 
         {/* ── IN-PROGRESS ──────────────────────────────────────────── */}
@@ -1603,10 +1841,37 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
               activeTab={activeTab}
               onTabChange={setActiveTab}
               substitutionQueueCount={substitutionQueue.length}
+              tabPanelIdPrefix="game-tab-panel"
             />
 
+            {activeTab === 'plan' && (
+              <div
+                className="game-tab-content"
+                role="tabpanel"
+                id="game-tab-panel-plan"
+                aria-labelledby="game-tab-panel-tab-plan"
+                tabIndex={0}
+              >
+                <PlanTab
+                  readOnly={true}
+                  gamePlan={gamePlan}
+                  plannedRotations={plannedRotations}
+                  planConflicts={getPlanConflicts()}
+                  isRecalculating={isRecalculating}
+                  onRecalculateRotations={handleRecalculateRotations}
+                  {...sharedLineupPanelProps}
+                />
+              </div>
+            )}
+
             {activeTab === 'field' && (
-              <div className="field-tab">
+              <div
+                className="field-tab game-tab-content"
+                role="tabpanel"
+                id="game-tab-panel-field"
+                aria-labelledby="game-tab-panel-tab-field"
+                tabIndex={0}
+              >
                 <LineupPanel
                   {...sharedLineupPanelProps}
                   hideAvailablePlayers={true}
@@ -1646,29 +1911,55 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             )}
 
             {activeTab === 'bench' && (
-              <BenchTab
-                players={players}
-                lineup={lineup}
-                playTimeRecords={playTimeRecords}
-                currentTime={currentTime}
-                halfLengthSeconds={halfLengthSeconds}
-                gameId={game.id}
-                coaches={Array.isArray(team.coaches) ? team.coaches : undefined}
-                playerAvailabilities={playerAvailabilities}
-                mutations={mutations}
-                isOnline={isOnline}
-                onSelectPlayer={() => {
-                  const emptyPosition = positions.find(
-                    pos => !lineup.some(l => l.positionId === pos.id && l.isStarter)
-                  );
-                  const targetPosition = emptyPosition ?? positions[0];
-                  if (targetPosition) setSubstitutionRequest(targetPosition);
-                }}
-              />
+              <div
+                className="game-tab-content"
+                role="tabpanel"
+                id="game-tab-panel-bench"
+                aria-labelledby="game-tab-panel-tab-bench"
+                tabIndex={0}
+              >
+                <BenchTab
+                  players={players}
+                  lineup={lineup}
+                  playTimeRecords={playTimeRecords}
+                  currentTime={currentTime}
+                  halfLengthSeconds={halfLengthSeconds}
+                  gameId={game.id}
+                  coaches={Array.isArray(team.coaches) ? team.coaches : undefined}
+                  playerAvailabilities={playerAvailabilities}
+                  mutations={mutations}
+                  isOnline={isOnline}
+                  onSelectPlayer={() => {
+                    const emptyPosition = positions.find(
+                      pos => !lineup.some(l => l.positionId === pos.id && l.isStarter)
+                    );
+                    const targetPosition = emptyPosition ?? positions[0];
+                    if (targetPosition) setSubstitutionRequest(targetPosition);
+                  }}
+                />
+              </div>
             )}
 
             {activeTab === 'goals' && (
-              <GoalTracker {...sharedGoalTrackerProps} />
+              <div
+                className="game-tab-content"
+                role="tabpanel"
+                id="game-tab-panel-goals"
+                aria-labelledby="game-tab-panel-tab-goals"
+                tabIndex={0}
+              >
+                <GoalTracker {...sharedGoalTrackerProps} />
+              </div>
+            )}
+
+            {activeTab === 'notes' && (
+              <div
+                className="game-tab-content"
+                role="tabpanel"
+                id="game-tab-panel-notes"
+                aria-labelledby="game-tab-panel-tab-notes"
+                tabIndex={0}
+              />
             )}
 
           </>
@@ -1757,7 +2048,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         <PlayerNotesPanel
           {...sharedNotesPanelProps}
           showPanelContent={
-            (gameState.status === 'in-progress' && activeTab === 'notes')
+            ((gameState.status === 'scheduled' || gameState.status === 'in-progress') && activeTab === 'notes')
             || gameState.status === 'completed'
           }
           isNoteModalOpen={liveNoteModalState.isOpen}

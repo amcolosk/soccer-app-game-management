@@ -33,6 +33,7 @@ interface LineupShapeViewProps {
   onSubstitute: (position: FormationPosition) => void;
   onQuickReplace: (params: { assignmentId: string; playerId: string; positionId: string }) => Promise<"success" | "conflict" | "error">;
   onClearSlot: (params: { assignmentId: string; positionName: string; playerName: string }) => Promise<"success" | "conflict" | "error" | "cancelled">;
+  isReadOnly?: boolean;
 }
 
 type QuickReplaceStatus = "idle" | "loading" | "success" | "error" | "conflict";
@@ -126,6 +127,7 @@ export function LineupShapeView({
   onSubstitute,
   onQuickReplace,
   onClearSlot,
+  isReadOnly = false,
 }: LineupShapeViewProps) {
   const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
   const [quickReplaceTarget, setQuickReplaceTarget] = useState<QuickReplaceTarget | null>(null);
@@ -216,6 +218,10 @@ export function LineupShapeView({
   }, [benchPlayers, currentTime, playTimeRecords]);
 
   const handleNodeTap = (node: LineupShapeNode, assignment: LineupAssignment | undefined) => {
+    if (isReadOnly) {
+      return;
+    }
+
     const position = positionsById.get(node.positionId);
     if (!position) return;
 
@@ -330,6 +336,10 @@ export function LineupShapeView({
   };
 
   const handleQuickReplacePlayer = async (playerId: string) => {
+    if (isReadOnly) {
+      return;
+    }
+
     if (!quickReplaceTarget) {
       return;
     }
@@ -373,6 +383,10 @@ export function LineupShapeView({
   };
 
   const handleClearSlot = async () => {
+    if (isReadOnly) {
+      return;
+    }
+
     if (!quickReplaceTarget) {
       return;
     }
@@ -449,6 +463,7 @@ export function LineupShapeView({
           ref={exportButtonRef}
           onClick={handleExport}
           aria-label="Export lineup shape and bench strip to local file"
+          disabled={isReadOnly}
         >
           Export Shape
         </button>
@@ -490,7 +505,7 @@ export function LineupShapeView({
                 onClick={() => handleNodeTap(node, assignment)}
                 aria-label={`${node.positionName}: ${assignment ? playerName : "empty"}`}
                 title={interaction?.title ?? "Unavailable"}
-                disabled={!interaction?.canTap}
+                disabled={isReadOnly || !interaction?.canTap}
               >
                 {assignment ? (
                   <>
@@ -539,7 +554,7 @@ export function LineupShapeView({
         </ul>
       </div>
 
-      {quickReplaceTarget && (
+      {!isReadOnly && quickReplaceTarget && (
         <div className="modal-overlay" onClick={closeQuickReplace}>
           <div
             ref={quickReplaceDialogRef}

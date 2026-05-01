@@ -34,6 +34,7 @@ interface LineupPanelProps {
   playTimeRecords: PlayTimeRecord[];
   currentTime: number;
   hideAvailablePlayers?: boolean;
+  isReadOnly?: boolean;
   onSubstitute: (position: FormationPosition) => void;
   mutations: GameMutationInput;
   currentUserId?: string;
@@ -55,6 +56,7 @@ export function LineupPanel({
   playTimeRecords,
   currentTime,
   hideAvailablePlayers = false,
+  isReadOnly = false,
   onSubstitute,
   mutations,
   viewMode = "list",
@@ -71,6 +73,7 @@ export function LineupPanel({
 
   const shapeEnabled = gameState.status === "scheduled" || gameState.status === "in-progress" || gameState.status === "halftime";
   const resolvedViewMode = shapeEnabled ? viewMode : "list";
+  const isInteractive = !isReadOnly;
 
   const interactionAdapter = createLineupInteractionAdapter({
     gameStatus: gameState.status ?? "",
@@ -113,6 +116,7 @@ export function LineupPanel({
   };
 
   const handleRemoveFromLineup = async (lineupId: string) => {
+    if (!isInteractive) return;
     try {
       await mutations.deleteLineupAssignment(lineupId);
     } catch (error) {
@@ -121,6 +125,7 @@ export function LineupPanel({
   };
 
   const handleClearAllPositions = async () => {
+    if (!isInteractive) return;
     const confirmed = await confirm({
       title: 'Clear Lineup',
       message: `Remove all ${startersCount} players from the lineup?`,
@@ -144,6 +149,10 @@ export function LineupPanel({
     playerId: string;
     positionId: string;
   }): Promise<ShapeActionResult> => {
+    if (!isInteractive) {
+      return "error";
+    }
+
     const targetStarter = lineup.find(
       (entry) => entry.isStarter && entry.positionId === params.positionId,
     );
@@ -232,6 +241,10 @@ export function LineupPanel({
     positionName: string;
     playerName: string;
   }): Promise<ShapeClearActionResult> => {
+    if (!isInteractive) {
+      return "error";
+    }
+
     const confirmed = await confirm({
       title: 'Clear Position',
       message: `Remove ${params.playerName} from ${params.positionName}?`,
@@ -257,6 +270,7 @@ export function LineupPanel({
   };
 
   const handlePlayerClick = (player: Player) => {
+    if (!isInteractive) return;
     const existing = lineup.find(l => l.playerId === player.id);
 
     if (existing) {
@@ -272,10 +286,12 @@ export function LineupPanel({
   };
 
   const handleEmptyPositionClick = (position: FormationPosition) => {
+    if (!isInteractive) return;
     interactionAdapter.getEmptyNodeInteraction(position).onTap();
   };
 
   const handleAssignPosition = async (positionId: string) => {
+    if (!isInteractive) return;
     if (!selectedPlayer) return;
 
     try {
@@ -319,6 +335,7 @@ export function LineupPanel({
                   type="button"
                   className={`btn-secondary ${resolvedViewMode === "list" ? "is-active" : ""}`}
                   onClick={() => onViewModeChange?.("list")}
+                  disabled={!isInteractive}
                 >
                   List
                 </button>
@@ -326,6 +343,7 @@ export function LineupPanel({
                   type="button"
                   className={`btn-secondary ${resolvedViewMode === "shape" ? "is-active" : ""}`}
                   onClick={() => onViewModeChange?.("shape")}
+                  disabled={!isInteractive}
                 >
                   Shape
                 </button>
@@ -334,6 +352,7 @@ export function LineupPanel({
                     type="button"
                     className="btn-secondary"
                     onClick={onResetViewPreference}
+                    disabled={!isInteractive}
                   >
                     Reset View
                   </button>
@@ -341,7 +360,7 @@ export function LineupPanel({
               </div>
             )}
             {gameState.status === 'halftime' && startersCount > 0 && (
-              <button onClick={handleClearAllPositions} className="btn-clear-lineup">
+              <button onClick={handleClearAllPositions} className="btn-clear-lineup" disabled={!isInteractive}>
                 Clear All Positions
               </button>
             )}
@@ -370,40 +389,47 @@ export function LineupPanel({
             onSubstitute={onSubstitute}
             onQuickReplace={handleShapeQuickReplace}
             onClearSlot={handleShapeClearSlot}
+            isReadOnly={isReadOnly}
           />
         ) : gameState.status === 'scheduled' ? (
-          <LineupBuilder
-            positions={positions}
-            availablePlayers={players.filter(p => p.isActive)}
-            lineup={new Map(lineup.filter(l => l.positionId && l.playerId).map(l => [l.positionId as string, l.playerId]))}
-            onLineupChange={async (positionId, playerId) => {
-              const existing = lineup.find(l => l.positionId === positionId);
+          isInteractive ? (
+            <LineupBuilder
+              positions={positions}
+              availablePlayers={players.filter(p => p.isActive)}
+              lineup={new Map(lineup.filter(l => l.positionId && l.playerId).map(l => [l.positionId as string, l.playerId]))}
+              onLineupChange={async (positionId, playerId) => {
+                const existing = lineup.find(l => l.positionId === positionId);
 
-              if (playerId === '') {
-                if (existing) {
-                  await mutations.deleteLineupAssignment(existing.id);
-                }
-              } else {
-                const playerExisting = lineup.find(l => l.playerId === playerId);
-                if (playerExisting) {
-                  await mutations.deleteLineupAssignment(playerExisting.id);
-                }
-
-                if (existing) {
-                  await mutations.updateLineupAssignment(existing.id, { playerId });
+                if (playerId === '') {
+                  if (existing) {
+                    await mutations.deleteLineupAssignment(existing.id);
+                  }
                 } else {
-                  await mutations.createLineupAssignment({
-                    gameId: game.id,
-                    playerId,
-                    positionId,
-                    isStarter: true,
-                    coaches: team.coaches,
-                  });
+                  const playerExisting = lineup.find(l => l.playerId === playerId);
+                  if (playerExisting) {
+                    await mutations.deleteLineupAssignment(playerExisting.id);
+                  }
+
+                  if (existing) {
+                    await mutations.updateLineupAssignment(existing.id, { playerId });
+                  } else {
+                    await mutations.createLineupAssignment({
+                      gameId: game.id,
+                      playerId,
+                      positionId,
+                      isStarter: true,
+                      coaches: team.coaches,
+                    });
+                  }
                 }
-              }
-            }}
-            showPreferredPositions={true}
-          />
+              }}
+              showPreferredPositions={true}
+            />
+          ) : (
+            <div className="lineup-readonly-message" role="note">
+              Lineup editing is disabled in this view.
+            </div>
+          )
         ) : (
           <>
             <div className="position-lineup-grid">
@@ -425,25 +451,29 @@ export function LineupPanel({
                             {assignedPlayer.firstName} {assignedPlayer.lastName}
                           </span>
                           {gameState.status !== 'in-progress' ? (
-                            <button
-                              onClick={() => {
-                                const assignment = lineup.find(l => l.positionId === position.id);
-                                if (assignment) void handleRemoveFromLineup(assignment.id);
-                              }}
-                              className="btn-remove-small"
-                            >
-                              ✕
-                            </button>
-                          ) : (
-                            <div className="player-actions">
+                            isInteractive ? (
                               <button
-                                onClick={() => onSubstitute(position)}
-                                className="btn-substitute"
-                                title="Make substitution"
+                                onClick={() => {
+                                  const assignment = lineup.find(l => l.positionId === position.id);
+                                  if (assignment) void handleRemoveFromLineup(assignment.id);
+                                }}
+                                className="btn-remove-small"
                               >
-                                ⇄
+                                ✕
                               </button>
-                            </div>
+                            ) : null
+                          ) : (
+                            isInteractive ? (
+                              <div className="player-actions">
+                                <button
+                                  onClick={() => onSubstitute(position)}
+                                  className="btn-substitute"
+                                  title="Make substitution"
+                                >
+                                  ⇄
+                                </button>
+                              </div>
+                            ) : null
                           )}
                         </div>
                         {isCurrentlyPlaying(assignedPlayer.id) && (
@@ -454,9 +484,9 @@ export function LineupPanel({
                       </div>
                     ) : (
                       <div
-                        className={`empty-slot ${(gameState.status === 'halftime' || gameState.status === 'scheduled') ? 'clickable' : ''}`}
-                        onClick={() => handleEmptyPositionClick(position)}
-                        title={(gameState.status === 'halftime' || gameState.status === 'scheduled') ? 'Click to assign player' : ''}
+                        className={`empty-slot ${isInteractive && (gameState.status === 'halftime' || gameState.status === 'scheduled') ? 'clickable' : ''}`}
+                        onClick={isInteractive ? () => handleEmptyPositionClick(position) : undefined}
+                        title={isInteractive && (gameState.status === 'halftime' || gameState.status === 'scheduled') ? 'Click to assign player' : ''}
                       >
                         Empty
                       </div>
@@ -480,8 +510,8 @@ export function LineupPanel({
                     return (
                       <div
                         key={player.id}
-                        className={`player-card clickable ${inLineup ? 'in-lineup' : ''} ${playing ? 'currently-playing' : ''}`}
-                        onClick={() => handlePlayerClick(player)}
+                        className={`player-card ${isInteractive ? 'clickable' : ''} ${inLineup ? 'in-lineup' : ''} ${playing ? 'currently-playing' : ''}`}
+                        onClick={isInteractive ? () => handlePlayerClick(player) : undefined}
                       >
                         <div className="player-number">#{player.playerNumber}</div>
                         <div className="player-info">
@@ -510,7 +540,7 @@ export function LineupPanel({
       </div>
 
       {/* Position Picker Modal */}
-      {showPositionPicker && selectedPlayer && (
+      {isInteractive && showPositionPicker && selectedPlayer && (
         <div className="modal-overlay" onClick={() => setShowPositionPicker(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h2>Assign {selectedPlayer.firstName} {selectedPlayer.lastName} to Position</h2>

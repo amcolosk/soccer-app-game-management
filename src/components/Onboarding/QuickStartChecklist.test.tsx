@@ -296,6 +296,12 @@ describe('QuickStartChecklist — step navigation', () => {
     await userEvent.click(screen.getByText('Manage a live game').closest('button')!);
     expect(onNavigate).toHaveBeenCalledWith(7);
   });
+
+  it('shows merged-flow directions for planning and live game steps', () => {
+    renderChecklist();
+    expect(screen.getByText('Tap Open Game on your game card, then open the Plan tab')).toBeInTheDocument();
+    expect(screen.getByText('On game day, tap Open Game, then Start Game')).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------

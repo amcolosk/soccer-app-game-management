@@ -5686,6 +5686,23 @@
   min-height: 56px;
 }
 
+.command-band--scheduled {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.command-band--scheduled .command-band__center {
+  display: none;
+}
+
+.command-band--scheduled .command-band__left {
+  max-width: 122px;
+}
+
+.command-band--scheduled .command-band__right {
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
 .command-band__left {
   display: flex;
   align-items: center;
@@ -5892,20 +5909,84 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
+.command-band__status-scheduled {
+  background: var(--border-color);
+  color: var(--text-secondary);
+  padding: 0.3rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: none;
+}
+
+.command-band__opponent-name {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  max-width: 240px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.command-band__start-game-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.35rem 0.75rem;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.command-band__start-game-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.command-band__start-game-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.command-band__start-game-btn:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
 @media (max-width: 430px) {
   .command-band__right {
     max-width: 136px;
     gap: 0.5rem;
   }
 
+  .command-band--scheduled .command-band__right {
+    max-width: none;
+  }
+
   .command-band__note-label {
     display: none;
+  }
+
+  .command-band__opponent-name {
+    max-width: 180px;
   }
 }
 
 @media (max-width: 390px) {
   .command-band__right {
     max-width: 124px;
+  }
+
+  .command-band--scheduled .command-band__left {
+    max-width: 110px;
   }
 
   .command-band__rotation-at {
@@ -5919,6 +6000,24 @@
     gap: 0.45rem;
   }
 
+  .command-band--scheduled .command-band__left {
+    max-width: 104px;
+  }
+
+  .command-band--scheduled .command-band__right {
+    max-width: none;
+    gap: 0.3rem;
+  }
+
+  .command-band__opponent-name {
+    max-width: 140px;
+  }
+
+  .command-band--scheduled .command-band__opponent-name {
+    max-width: 164px;
+    text-align: right;
+  }
+
   .command-band__rotation-badge {
     padding: 0.3rem 0.4rem;
   }
@@ -5927,15 +6026,35 @@
 /* ── Tab Navigation ── */
 .game-tab-nav {
   display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
   border-bottom: 2px solid var(--border-color);
   background: var(--card-background);
   position: sticky;
   top: 56px;
   z-index: 190;
+  scrollbar-gutter: stable both-edges;
+}
+
+.game-tab-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.game-tab-nav::after {
+  content: "";
+  position: sticky;
+  right: 0;
+  width: 20px;
+  flex: 0 0 20px;
+  background: linear-gradient(to left, rgba(245, 248, 245, 0.95), rgba(245, 248, 245, 0));
+  pointer-events: none;
 }
 
 .game-tab-nav__tab {
-  flex: 1;
+  flex: 0 0 auto;
+  min-width: 90px;
   padding: 0.65rem 0.5rem;
   background: transparent;
   border: none;
@@ -5946,6 +6065,19 @@
   cursor: pointer;
   position: relative;
   transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.game-tab-nav__tab:focus-visible {
+  outline: 2px solid var(--primary-green);
+  outline-offset: -2px;
+}
+
+@media (min-width: 600px) {
+  .game-tab-nav__tab {
+    flex: 1;
+    min-width: 0;
+  }
 }
 
 .game-tab-nav__tab.active {
@@ -5969,6 +6101,35 @@
   justify-content: center;
   padding: 0 3px;
   font-weight: 700;
+}
+
+@media (max-width: 375px) {
+  .game-tab-nav {
+    scrollbar-width: thin;
+  }
+
+  .game-tab-nav::-webkit-scrollbar {
+    display: block;
+    height: 4px;
+  }
+
+  .game-tab-nav::-webkit-scrollbar-thumb {
+    background: rgba(46, 125, 50, 0.45);
+    border-radius: 999px;
+  }
+}
+
+/* ── Game Tab Content ── */
+.game-tab-content {
+  max-height: calc(100dvh - 56px - 44px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+@supports not (height: 100dvh) {
+  .game-tab-content {
+    max-height: calc(100vh - 56px - 44px);
+  }
 }
 
 /* ── Field Tab ── */
@@ -6280,8 +6441,178 @@
   padding-bottom: 7rem;
 }
 
+/* ── Plan Tab ── */
+.plan-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.plan-tab--readonly {
+  opacity: 0.85;
+}
+
+.plan-tab__readonly-banner {
+  background: rgba(25, 118, 210, 0.08);
+  border: 1px solid rgba(25, 118, 210, 0.3);
+  border-radius: 8px;
+  padding: 0.65rem 1rem;
+  font-size: 0.9rem;
+  color: var(--primary-green);
+  font-weight: 500;
+}
+
+.plan-tab__save-btn,
+.plan-tab__generate-btn {
+  width: 100%;
+}
+
+.plan-tab__empty-state {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 0.75rem 0;
+  margin: 0;
+}
+
+.plan-tab__timeline-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.plan-tab__timeline-section h4 {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.plan-tab__timeline-panel {
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.plan-tab__rotation-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.plan-tab__rotation-details h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.plan-tab__halftime-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.plan-tab__halftime-editor h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Halftime editor BEM */
+.halftime-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.halftime-editor__position {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.halftime-editor__players {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.halftime-editor__starting {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.halftime-editor__select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.halftime-editor__readonly {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+/* Rotation subs list */
+.rotation-subs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.rotation-subs-list__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  padding: 0.5rem;
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.rotation-subs-list__out {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.rotation-subs-list__arrow {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.rotation-subs-list__in {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.rotation-subs-list__position {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  margin-left: auto;
+}
+
+/* Rotation derived value display */
+.rotation-derived-value {
+  flex: 1;
+  text-align: center;
+  font-weight: 600;
+  font-size: 1rem;
+  padding: 0.5rem 0.25rem;
+  color: var(--text-primary);
+}
+
 .pregame-start-cta {
-  position: sticky;
   bottom: 4rem;
   background: var(--card-background);
   border-top: 2px solid var(--border-color);
@@ -6592,10 +6923,10 @@
   outline-offset: 2px;
 }
 .planner-timeline-pill--halftime {
-  border-color: #ff9800;
+  border-color: #f59e0b;
 }
 .planner-timeline-pill--halftime.planner-timeline-pill--active {
-  background: #ff9800;
+  background: #f59e0b;
 }
 .planner-sub-badge {
   font-size: 0.7rem;
@@ -6612,11 +6943,11 @@
   color: var(--primary-green);
 }
 .planner-timeline-pill--halftime .planner-sub-badge {
-  background: #ff9800;
+  background: #f59e0b;
 }
 .planner-timeline-pill--halftime.planner-timeline-pill--active .planner-sub-badge {
   background: white;
-  color: #ff9800;
+  color: #f59e0b;
 }
 .assigned-player--readonly {
   cursor: default;
@@ -6650,7 +6981,7 @@
   font-size: 0.95rem;
   cursor: pointer;
   padding: 0.75rem;
-  background: #f9fafb;
+  background: var(--background);
   border: 1px solid var(--border-color);
   border-radius: 8px;
   list-style: none;

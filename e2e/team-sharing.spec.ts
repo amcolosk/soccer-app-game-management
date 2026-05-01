@@ -148,29 +148,23 @@ async function ensurePlannedStartingLineupForOpponent(page: Page, opponent: stri
   const gameCard = page.locator('.game-card').filter({ hasText: opponent }).first();
   await expect(gameCard).toBeVisible({ timeout: 10000 });
 
-  const planButton = gameCard.locator('.plan-button').first();
-  await expect(planButton).toBeVisible({ timeout: 5000 });
-  await planButton.click();
+  const openButton = gameCard.locator('.open-game-button').first();
+  await expect(openButton).toBeVisible({ timeout: 5000 });
+  await openButton.click();
   await waitForPageLoad(page);
 
-  await expect(page.locator('.game-planner-container')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('.game-management')).toBeVisible({ timeout: 10000 });
 
-  const rotationsTab = page.getByRole('tab', { name: /Rotations/i });
-  if (await rotationsTab.isVisible({ timeout: 1500 }).catch(() => false)) {
-    await rotationsTab.click();
+  const planTab = page.getByRole('tab', { name: 'Plan' });
+  if (await planTab.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await planTab.click();
     await page.waitForTimeout(UI_TIMING.NAVIGATION);
   }
 
-  const startTab = page.getByRole('tab', { name: 'Start' });
-  if (await startTab.isVisible({ timeout: 1500 }).catch(() => false)) {
-    await startTab.click();
-    await page.waitForTimeout(UI_TIMING.NAVIGATION);
-  }
-
-  let lineupSelects = page.locator('.rotation-details-panel .position-slot select');
+  let lineupSelects = page.locator('.position-lineup-grid .position-slot select');
   let slotCount = await lineupSelects.count();
   if (slotCount === 0) {
-    lineupSelects = page.getByRole('combobox');
+    lineupSelects = page.locator('.starting-lineup-container .player-select');
     slotCount = await lineupSelects.count();
   }
 
@@ -188,9 +182,6 @@ async function ensurePlannedStartingLineupForOpponent(page: Page, opponent: stri
     }
   }
 
-  const createOrUpdatePlanButton = page.locator('button').filter({ hasText: /Create Game Plan|Update Plan/ }).first();
-  await expect(createOrUpdatePlanButton).toBeVisible({ timeout: 10000 });
-  await createOrUpdatePlanButton.click();
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 }
 

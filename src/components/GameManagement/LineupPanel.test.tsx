@@ -91,13 +91,18 @@ vi.mock('../LineupBuilder', () => ({
 }));
 
 vi.mock('./shape/LineupShapeView', () => ({
-  LineupShapeView: ({ onQuickReplace }: {
+  LineupShapeView: ({ onQuickReplace, isReadOnly = false }: {
     onQuickReplace: (params: { assignmentId: string; playerId: string; positionId: string }) => Promise<"success" | "conflict" | "error">;
+    isReadOnly?: boolean;
   }) => (
     <div data-testid="lineup-shape-view">
+      <button type="button" aria-label="Export lineup shape" disabled={isReadOnly}>
+        Export Shape
+      </button>
       <button
         type="button"
         data-testid="trigger-quick-replace"
+        disabled={isReadOnly}
         onClick={() => {
           void onQuickReplace({
             assignmentId: 'la-target',
@@ -368,6 +373,58 @@ describe('LineupPanel', () => {
 
     await user.click(screen.getByRole('button', { name: /shape/i }));
     expect(onViewModeChange).toHaveBeenCalledWith('shape');
+  });
+
+  it('disables live plan controls in read-only mode so they cannot be focused or activated', async () => {
+    const user = userEvent.setup();
+    const onViewModeChange = vi.fn();
+    const onSubstitute = vi.fn();
+
+    render(
+      <LineupPanel
+        {...defaultProps}
+        isReadOnly
+        onViewModeChange={onViewModeChange}
+        onSubstitute={onSubstitute}
+      />,
+    );
+
+    const listButton = screen.getByRole('button', { name: /list/i });
+    const shapeButton = screen.getByRole('button', { name: /shape/i });
+
+    expect(listButton).toBeDisabled();
+    expect(shapeButton).toBeDisabled();
+    expect(screen.queryByTitle('Make substitution')).not.toBeInTheDocument();
+
+    await user.tab();
+    expect(listButton).not.toHaveFocus();
+    expect(shapeButton).not.toHaveFocus();
+
+    expect(onViewModeChange).not.toHaveBeenCalled();
+    expect(onSubstitute).not.toHaveBeenCalled();
+  });
+
+  it('disables shape-view controls in read-only mode', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LineupPanel
+        {...defaultProps}
+        isReadOnly
+        viewMode="shape"
+      />,
+    );
+
+    const exportButton = screen.getByRole('button', { name: /export lineup shape/i });
+    const quickReplaceButton = screen.getByTestId('trigger-quick-replace');
+
+    expect(exportButton).toBeDisabled();
+    expect(quickReplaceButton).toBeDisabled();
+
+    await user.tab();
+    expect(exportButton).not.toHaveFocus();
+    expect(quickReplaceButton).not.toHaveFocus();
+    expect(mockQuickReplaceResultReporter).not.toHaveBeenCalled();
   });
 
   it('quick replace: update failure does not delete selected player starter assignment', async () => {

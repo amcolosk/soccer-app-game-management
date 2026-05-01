@@ -34,8 +34,6 @@ export type HelpScreenKey =
   | 'game-in-progress'
   | 'game-halftime'
   | 'game-completed'
-  // Game Planner
-  | 'game-planner'
   // Season Reports
   | 'season-reports'
   // Management - five sub-sections matching activeSection values
@@ -164,7 +162,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
   // @help-content: game-scheduled
   'game-scheduled': {
     screenTitle: 'Game Management - Pre-Game',
-    overview: 'Before kick-off, mark which players are available and open the Game Planner to set your rotation. When the roster is ready, tap "Start Game" to begin.',
+    overview: 'Before kick-off, set up your lineup and mark which players are available. Use the Plan tab to configure rotations. When the roster is ready, tap "Start Game" to begin.',
     tasks: [
       {
         title: 'Mark a player\'s availability',
@@ -184,18 +182,18 @@ export const HELP_CONTENT: HelpContentRegistry = {
         ],
       },
       {
-        title: 'Open the Game Planner before kick-off',
+        title: 'Set the starting lineup',
         steps: [
-          'Tap the "Game Planner" button on this screen.',
-          'Set your starting lineup and generate rotations.',
-          'Return here when ready to start the game.',
+          'The Plan tab shows your lineup positions.',
+          'Use the select dropdowns to assign players to positions.',
+          'All positions must be filled before starting the game.',
         ],
       },
       {
         title: 'Start the game',
         steps: [
           'Confirm all availability is set correctly.',
-          'Tap "Start Game" to begin the first half.',
+          'Tap "Start Game" in the top bar or at the bottom of the screen.',
         ],
       },
     ],
@@ -203,7 +201,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
       { text: 'Setting availability before kick-off enables fair rotation calculations.' },
       { text: 'Late Arrival players are included in rotations from their expected arrival time.' },
     ],
-    relatedScreens: ['game-planner', 'game-in-progress'],
+    relatedScreens: ['game-in-progress'],
   },
 
   // @help-content: game-in-progress
@@ -250,7 +248,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
       { text: 'Bench tab automatically sorts by least play time to guide fair rotation.' },
       { text: 'Pause the timer during stoppages to keep play-time records accurate.' },
     ],
-    relatedScreens: ['game-planner', 'game-halftime'],
+    relatedScreens: ['game-halftime'],
   },
 
   // @help-content: game-halftime
@@ -286,7 +284,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
       { text: 'Changes to the lineup at halftime don\'t affect first-half play-time records.' },
       { text: 'If the planner has a second-half rotation, the halftime lineup is pre-filled.' },
     ],
-    relatedScreens: ['game-planner', 'game-in-progress'],
+    relatedScreens: ['game-in-progress'],
   },
 
   // @help-content: game-completed
@@ -314,53 +312,6 @@ export const HELP_CONTENT: HelpContentRegistry = {
       { text: 'Completed games cannot be restarted. Contact support if ended in error.' },
     ],
     relatedScreens: ['season-reports', 'home'],
-  },
-
-  // @help-content: game-planner
-  'game-planner': {
-    screenTitle: 'Game Planner',
-    overview: 'Plan your rotation schedule before the game - set a starting lineup, mark availability, and generate fair rotations so every player gets equal time.',
-    tasks: [
-      {
-        title: 'Set the starting lineup',
-        steps: [
-          'Go to the Lineup tab.',
-          'Drag players from the bench list onto the field positions.',
-          'All positions must be filled before you can generate rotations.',
-        ],
-      },
-      {
-        title: 'Set a player\'s availability for this game',
-        steps: [
-          'Go to the Availability tab.',
-          'Tap a player\'s status chip to change it.',
-          'For Late Arrival, enter the expected arrival minute.',
-        ],
-      },
-      {
-        title: 'Generate a fair rotation plan',
-        steps: [
-          'Set your starting lineup and confirm availability first.',
-          'Tap "Calculate Rotations".',
-          'The planner distributes minutes fairly across available players.',
-          'Review the rotation timeline and adjust if needed.',
-        ],
-      },
-      {
-        title: 'Copy a plan from a previous game',
-        steps: [
-          'Tap "Copy from Previous Game".',
-          'Select a past game with a saved plan.',
-          'The plan is applied to this game - edit as needed.',
-        ],
-      },
-    ],
-    tips: [
-      { text: 'The rotation interval (default 10 min) controls how often swaps happen per half.' },
-      { text: 'Late Arrival players are automatically included from their arrival minute.' },
-      { text: 'Changes made here are reflected in the in-game rotation widget.' },
-    ],
-    relatedScreens: ['game-scheduled', 'game-in-progress'],
   },
 
   // @help-content: season-reports
@@ -482,7 +433,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
       { text: 'Jersey numbers are used to sort players in the bench and lineup views.' },
       { text: 'Preferred positions guide the rotation planner when assigning field spots.' },
     ],
-    relatedScreens: ['manage-teams', 'game-planner'],
+    relatedScreens: ['manage-teams'],
   },
 
   // @help-content: manage-formations
@@ -522,7 +473,7 @@ export const HELP_CONTENT: HelpContentRegistry = {
       { text: 'A formation defines the position names shown in the Game Planner and live game.' },
       { text: 'Built-in formation templates are available to start from common configurations.' },
     ],
-    relatedScreens: ['manage-teams', 'game-planner'],
+    relatedScreens: ['manage-teams'],
   },
 
   // @help-content: manage-sharing

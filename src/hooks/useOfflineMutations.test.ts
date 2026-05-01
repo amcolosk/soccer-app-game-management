@@ -201,6 +201,32 @@ describe('useOfflineMutations', () => {
       expect(mockEnqueue).not.toHaveBeenCalled();
     });
 
+    it('treats duplicate deterministic PlayTimeRecord creates as idempotent success', async () => {
+      mockPlayTimeRecordCreate.mockResolvedValueOnce({
+        data: null,
+        errors: [{ message: 'PlayTimeRecord already exists' }],
+      });
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await expect(result.current.mutations.createPlayTimeRecord({
+          id: 'ptr:g1:p1:h1:t0',
+          gameId: 'g1',
+          playerId: 'p1',
+          startGameSeconds: 0,
+          coaches: ['coach-1'],
+        })).resolves.toBeUndefined();
+      });
+
+      expect(mockPlayTimeRecordCreate).toHaveBeenCalledWith({
+        id: 'ptr:g1:p1:h1:t0',
+        gameId: 'g1',
+        playerId: 'p1',
+        startGameSeconds: 0,
+        coaches: ['coach-1'],
+      });
+    });
+
     it('createPlayerAvailability calls the Amplify model directly', async () => {
       const { result } = renderHook(() => useOfflineMutations());
 
@@ -496,6 +522,46 @@ describe('useOfflineMutations', () => {
         notes: 'Queued update',
       });
       expect(mockDeleteSecureGameNote).toHaveBeenCalledWith({ id: 'legacy-note-id' });
+    });
+
+    it('treats queued duplicate deterministic PlayTimeRecord creates as successful replay', async () => {
+      mockDequeueAll.mockResolvedValue([
+        {
+          id: 'q-ptr-1',
+          model: 'PlayTimeRecord',
+          operation: 'create',
+          payload: {
+            id: 'ptr:g1:p1:h1:t0',
+            gameId: 'g1',
+            playerId: 'p1',
+            startGameSeconds: 0,
+            coaches: ['coach-1'],
+          },
+          enqueuedAt: 1,
+          retryCount: 0,
+          ownerSub: DEFAULT_SUB,
+        },
+      ]);
+      mockPlayTimeRecordCreate.mockResolvedValueOnce({
+        data: null,
+        errors: [{ message: 'PlayTimeRecord already exists' }],
+      });
+
+      renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        capturedOnReconnect?.();
+      });
+      await flush();
+
+      expect(mockPlayTimeRecordCreate).toHaveBeenCalledWith({
+        id: 'ptr:g1:p1:h1:t0',
+        gameId: 'g1',
+        playerId: 'p1',
+        startGameSeconds: 0,
+        coaches: ['coach-1'],
+      });
+      expect(mockRequeueFailed).not.toHaveBeenCalled();
     });
 
     it('requeues malformed legacy GameNote delete payloads with canonical validation code', async () => {

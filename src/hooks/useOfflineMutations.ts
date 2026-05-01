@@ -17,6 +17,7 @@ import { useNetworkStatus } from './useNetworkStatus';
 const client = generateClient<Schema>();
 
 type LineupAssignmentCreateInput = Parameters<typeof client.models.LineupAssignment.create>[0];
+type PlayTimeRecordCreateInput = Parameters<typeof client.models.PlayTimeRecord.create>[0];
 type GoalCreateInput = Parameters<typeof client.models.Goal.create>[0];
 type PlayerAvailabilityCreateInput = Parameters<typeof client.models.PlayerAvailability.create>[0];
 type PlayerAvailabilityUpdateInput = Parameters<typeof client.models.PlayerAvailability.update>[0];
@@ -30,9 +31,11 @@ export interface GameUpdateFields {
   elapsedSeconds?: number | null;
   ourScore?: number | null;
   opponentScore?: number | null;
+  halfLengthMinutes?: number | null;
 }
 
 export interface PlayTimeRecordCreateFields {
+  id?: string | null;
   gameId: string;
   playerId: string;
   positionId?: string | null;
@@ -205,6 +208,35 @@ function assertNoGraphQLErrors(
   }
 }
 
+function isDuplicateCreateErrorMessage(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return normalized.includes('already exists')
+    || normalized.includes('duplicate')
+    || normalized.includes('conditionalcheckfailed')
+    || normalized.includes('conditional request failed')
+    || normalized.includes('conflict');
+}
+
+function isIdempotentPlayTimeRecordDuplicate(
+  result: { errors?: Array<{ message?: string | null }> } | undefined,
+  fields: PlayTimeRecordCreateFields
+): boolean {
+  if (!fields.id || !result?.errors || result.errors.length === 0) {
+    return false;
+  }
+
+  return result.errors.every((error) => isDuplicateCreateErrorMessage(error.message ?? ''));
+}
+
+async function executePlayTimeRecordCreate(fields: PlayTimeRecordCreateFields): Promise<void> {
+  const result = await client.models.PlayTimeRecord.create(fields as PlayTimeRecordCreateInput);
+  if (isIdempotentPlayTimeRecordDuplicate(result, fields)) {
+    return;
+  }
+
+  assertNoGraphQLErrors(result, 'Failed to create play time record');
+}
+
 type GraphQLErrorLike = { message?: string | null };
 
 function normalizeErrorMessage(error: GraphQLErrorLike): string {
@@ -309,6 +341,10 @@ async function executeSecureDeleteGameNote(payload: { id: string }): Promise<voi
 async function executeSingleMutation(item: QueuedMutation): Promise<void> {
   if (!ALLOWED_MODELS.has(item.model) || !ALLOWED_OPS.has(item.operation)) {
     throw new Error(`Disallowed model/operation in offline queue: ${item.model}.${item.operation}`);
+  }
+  if (item.model === 'PlayTimeRecord' && item.operation === 'create') {
+    await executePlayTimeRecordCreate(item.payload as unknown as PlayTimeRecordCreateFields);
+    return;
   }
   if (item.model === 'GameNote' && item.operation === 'create') {
     await executeSecureCreateGameNote(item.payload as unknown as GameNoteCreateFields & { authorId?: unknown });
@@ -521,10 +557,7 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       await enqueueOrRun(
         'PlayTimeRecord', 'create',
         fields as unknown as Record<string, unknown>,
-        async () => {
-          const result = await client.models.PlayTimeRecord.create(fields);
-          assertNoGraphQLErrors(result, 'Failed to create play time record');
-        }
+        () => executePlayTimeRecordCreate(fields)
       );
     },
     [enqueueOrRun]

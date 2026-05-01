@@ -13,6 +13,8 @@ interface CommandBandProps {
   onResumeTimer: () => void;
   onShowRotationModal: () => void;
   onAddNote?: (trigger: HTMLElement | null) => void;
+  onStartGame?: () => void;
+  isStartPending?: boolean;
 }
 
 export function CommandBand({
@@ -27,6 +29,8 @@ export function CommandBand({
   onResumeTimer,
   onShowRotationModal,
   onAddNote,
+  onStartGame,
+  isStartPending = false,
 }: CommandBandProps) {
   const getNextRotation = (): PlannedRotation | null => {
     if (!gamePlan || plannedRotations.length === 0) return null;
@@ -45,6 +49,19 @@ export function CommandBand({
     : null;
 
   const renderRightCell = () => {
+    if (gameState.status === "scheduled") {
+      return (
+        <button
+          className="command-band__start-game-btn"
+          onClick={onStartGame}
+          disabled={isStartPending}
+          title="Start game"
+          aria-label="Start game"
+        >
+          {isStartPending ? "Starting..." : "▶ Start"}
+        </button>
+      );
+    }
     if (gameState.status === "in-progress") {
       const noteButton = (
         <button
@@ -112,8 +129,48 @@ export function CommandBand({
   const halfLabel =
     gameState.currentHalf === 2 ? "2nd Half" : "1st Half";
 
-  return (
-    <div className="command-band">
+  const renderScheduledLayout = () => (
+    <>
+      {/* Left: back + Scheduled badge */}
+      <div className="command-band__left">
+        <button
+          onClick={onBack}
+          className="command-band__btn-back"
+          title="Back to games"
+        >
+          ←
+        </button>
+        <span className="command-band__status-badge command-band__status-scheduled">
+          📅 Scheduled
+        </span>
+      </div>
+
+      {/* Center: empty */}
+      <div className="command-band__center" />
+
+      {/* Right: opponent name + Start button */}
+      <div className="command-band__right">
+        <span
+          className="command-band__opponent-name"
+          title={gameState.opponent}
+        >
+          vs {gameState.opponent}
+        </span>
+        <button
+          className="command-band__start-game-btn"
+          onClick={onStartGame}
+          disabled={isStartPending}
+          title="Start game"
+          aria-label="Start game"
+        >
+          {isStartPending ? "Starting..." : "▶ Start"}
+        </button>
+      </div>
+    </>
+  );
+
+  const renderActiveGameLayout = () => (
+    <>
       {/* Left: back + score */}
       <div className="command-band__left">
         <button
@@ -159,6 +216,15 @@ export function CommandBand({
 
       {/* Right: status / rotation info */}
       <div className="command-band__right">{renderRightCell()}</div>
+    </>
+  );
+
+  return (
+    <div className={`command-band${gameState.status === "scheduled" ? " command-band--scheduled" : ""}`}>
+      {gameState.status === "scheduled"
+        ? renderScheduledLayout()
+        : renderActiveGameLayout()}
     </div>
   );
 }
+
