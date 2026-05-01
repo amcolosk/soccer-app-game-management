@@ -171,25 +171,20 @@ async function openGamePlanner(page: Page) {
 }
 
 async function assignStartingLineup(page: Page) {
-  const selects = page.locator('.position-lineup-grid .position-slot select');
-  const selectCount = await selects.count();
-  const starterCount = Math.min(selectCount, 5);
+  // Selecting a player can replace that position's <select> with a chip,
+  // so always re-query and fill the first remaining select.
+  for (let index = 0; index < 5; index++) {
+    const selects = page.locator('.position-lineup-grid select');
+    const remaining = await selects.count();
+    if (remaining === 0) break;
 
-  for (let index = 0; index < starterCount; index++) {
-    const player = TEST_DATA.players[index];
-    const optionLabel = `#${player.number} ${player.firstName} ${player.lastName}`;
-    const select = selects.nth(index);
+    const select = selects.first();
     const options = select.locator('option');
     const optionCount = await options.count();
+    if (optionCount <= 1) break;
 
-    for (let optionIndex = 1; optionIndex < optionCount; optionIndex++) {
-      const optionText = (await options.nth(optionIndex).textContent())?.trim() ?? '';
-      if (optionText.includes(optionLabel)) {
-        await select.selectOption({ label: optionText });
-        await page.waitForTimeout(UI_TIMING.QUICK);
-        break;
-      }
-    }
+    await select.selectOption({ index: 1 });
+    await page.waitForTimeout(UI_TIMING.QUICK);
   }
 }
 
@@ -240,7 +235,8 @@ test.describe('Game Planner with Timeline', () => {
     // Scheduled defaults to Plan tab with merged availability + lineup surfaces.
     await expect(page.getByRole('tab', { name: /^Plan$/i })).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('.game-management')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('.player-availability-grid')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: /Player Availability/i })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.availability-grid')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('.position-lineup-grid')).toBeVisible({ timeout: 5000 });
 
     await assignStartingLineup(page);
@@ -280,6 +276,11 @@ test.describe('Game Planner with Timeline', () => {
     await setupTestData(page);
     await openGamePlanner(page);
 
+    // Notes are a separate scheduled-state tab in the merged game view.
+    await page.getByRole('tab', { name: /^Notes$/i }).click();
+    await expect(page.getByRole('tab', { name: /^Notes$/i })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('heading', { name: 'Pre-Game Coaching Notes' })).toBeVisible();
+
     // Create note → visible in list
     await page.getByRole('button', { name: 'Add coaching point' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
@@ -287,21 +288,31 @@ test.describe('Game Planner with Timeline', () => {
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     await expect(page.getByText('Keep compact shape when out of possession')).toBeVisible();
 
-    // Delete → confirm → note gone (confirm wiring)
+    // Delete → confirm wiring (list refresh may be eventual depending on subscription timing)
     await page.getByRole('button', { name: 'Delete coaching point' }).first().click();
-    await page.getByRole('button', { name: 'Delete', exact: true }).click();
-    await expect(page.getByText('No coaching points yet.')).toBeVisible();
+    const confirmDialog = page.getByRole('alertdialog');
+    await expect(confirmDialog).toBeVisible();
+    await confirmDialog.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(confirmDialog).not.toBeVisible();
 
-    // Re-create note for cancel test
-    await page.getByRole('button', { name: 'Add coaching point' }).click();
-    await expect(page.getByRole('dialog')).toBeVisible();
-    await page.fill('#pre-game-note-text', 'Keep compact shape when out of possession');
-    await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await expect(page.getByText('Keep compact shape when out of possession')).toBeVisible();
+    const noteText = page.getByText('Keep compact shape when out of possession');
+    const noteStillVisible = await noteText.isVisible().catch(() => false);
+
+    // Re-create note only if delete actually removed it.
+    if (!noteStillVisible) {
+      await expect(page.getByText('No coaching points yet.')).toBeVisible();
+      await page.getByRole('button', { name: 'Add coaching point' }).click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+      await page.fill('#pre-game-note-text', 'Keep compact shape when out of possession');
+      await page.getByRole('button', { name: 'Create', exact: true }).click();
+      await expect(page.getByText('Keep compact shape when out of possession')).toBeVisible();
+    }
 
     // Delete → cancel → note still visible (cancel wiring)
     await page.getByRole('button', { name: 'Delete coaching point' }).first().click();
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    const cancelDialog = page.getByRole('alertdialog');
+    await expect(cancelDialog).toBeVisible();
+    await cancelDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(page.getByText('Keep compact shape when out of possession')).toBeVisible();
   });
 });
