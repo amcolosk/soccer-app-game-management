@@ -1835,6 +1835,86 @@
   border-color: var(--primary-green);
 }
 
+.planner-lineup-view {
+  margin-top: 0.75rem;
+}
+
+.planner-lineup-view .lineup-view-toggle {
+  margin-bottom: 0.75rem;
+}
+
+.planner-lineup-view__empty {
+  margin: 0;
+  padding: 0.85rem 1rem;
+  border: 1px dashed var(--border-color);
+  border-radius: 10px;
+  background: var(--card-background);
+  color: var(--text-secondary);
+}
+
+.planner-lineup-view__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--card-background);
+}
+
+.planner-lineup-view__row + .planner-lineup-view__row {
+  margin-top: 0.6rem;
+}
+
+.planner-lineup-view__position-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.planner-lineup-view__player-name {
+  color: var(--text-secondary);
+  min-height: 2.5rem;
+  display: flex;
+  align-items: center;
+  word-break: break-word;
+}
+
+.planner-lineup-view__select {
+  min-height: 2.5rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-background);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+.planner-lineup-view__select:focus-visible {
+  outline: 2px solid var(--primary-green);
+  outline-offset: 2px;
+  border-color: var(--primary-green);
+}
+
+@media (min-width: 640px) {
+  .planner-lineup-view__row {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .planner-lineup-view__position-label {
+    width: 110px;
+    flex-shrink: 0;
+  }
+
+  .planner-lineup-view__player-name,
+  .planner-lineup-view__select {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
 .lineup-shape-view {
   margin: 1rem 0;
   --lineup-shape-pitch-min-height: 320px;

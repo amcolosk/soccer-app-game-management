@@ -16,7 +16,7 @@ import type {
   PlannedRotation,
   LineupAssignment,
 } from "../types";
-import { computeRotationDiff, computeRevisionFingerprint } from "../../../utils/rotationDiffUtils";
+import { computeRevisionFingerprint } from "../../../utils/rotationDiffUtils";
 import {
   projectHalftimeRotation,
   parseHalftimeLineup,
@@ -41,8 +41,11 @@ export interface UseGamePlannerResult {
   isLocked: boolean;
   errors: string[];
   updateRotationInterval: (minutes: number) => Promise<void>;
+  /** Immediately saves the new starting lineup to GamePlan. Does not write PlannedRotation records. */
+  updateStartingLineup: (lineup: Map<string, string>) => Promise<void>;
   updateHalftimeLineup: (lineup: Map<string, string>) => Promise<void>;
   selectTimelineKey: (key: string | null) => void;
+  /** Saves rotationIntervalMinutes + current startingLineup + current halftimeLineup to GamePlan. Does not write PlannedRotation records. */
   savePlan: () => Promise<void>;
   computeHalftimeRotation: () => PlannedRotation | null;
 }
@@ -54,6 +57,45 @@ interface PlannerDraftState {
   selectedTimelineKey: string | null;
 }
 
+function parseStartingLineupFromPlan(startingLineupRaw: string | null | undefined): Map<string, string> {
+  const startingLineup = new Map<string, string>();
+  if (!startingLineupRaw) {
+    return startingLineup;
+  }
+
+  try {
+    const entries = JSON.parse(startingLineupRaw) as Array<{
+      playerId: string;
+      positionId: string;
+    }>;
+    for (const entry of entries) {
+      startingLineup.set(entry.positionId, entry.playerId);
+    }
+  } catch (e) {
+    console.error("[useGamePlanner] Failed to parse startingLineup:", e);
+  }
+
+  return startingLineup;
+}
+
+function lineupFromAssignments(assignments: LineupAssignment[]): Map<string, string> {
+  const startingLineup = new Map<string, string>();
+  for (const assignment of assignments) {
+    if (assignment.positionId && assignment.playerId) {
+      startingLineup.set(assignment.positionId, assignment.playerId);
+    }
+  }
+  return startingLineup;
+}
+
+function serializeStartingLineup(lineup: Map<string, string>): string {
+  return JSON.stringify(
+    Array.from(lineup.entries())
+      .map(([positionId, playerId]) => ({ playerId, positionId }))
+      .sort((a, b) => a.positionId.localeCompare(b.positionId))
+  );
+}
+
 export function useGamePlanner(
   game: Game,
   team: Team,
@@ -62,26 +104,9 @@ export function useGamePlanner(
   startingLineupAssignments: LineupAssignment[]
 ): UseGamePlannerResult {
   const [draft, setDraft] = useState<PlannerDraftState>(() => {
-    const startingLineup = new Map<string, string>();
-    if (gamePlan?.startingLineup) {
-      try {
-        const entries = JSON.parse(gamePlan.startingLineup as string) as Array<{
-          playerId: string;
-          positionId: string;
-        }>;
-        for (const entry of entries) {
-          startingLineup.set(entry.positionId, entry.playerId);
-        }
-      } catch (e) {
-        console.error("[useGamePlanner] Failed to parse startingLineup:", e);
-      }
-    } else {
-      for (const assignment of startingLineupAssignments) {
-        if (assignment.positionId && assignment.playerId) {
-          startingLineup.set(assignment.positionId, assignment.playerId);
-        }
-      }
-    }
+    const startingLineup = gamePlan?.startingLineup
+      ? parseStartingLineupFromPlan(gamePlan.startingLineup as string)
+      : lineupFromAssignments(startingLineupAssignments);
 
     const halftimeLineup = parseHalftimeLineup(gamePlan?.halftimeLineup as string | null | undefined);
 
@@ -97,23 +122,24 @@ export function useGamePlanner(
   const [errors, setErrors] = useState<string[]>([]);
   const mutationInFlightRef = useRef(false);
 
-  const remoteFingerprint = useMemo(
-    () =>
-      computeRevisionFingerprint(
-        {
-          startingLineup: gamePlan?.startingLineup as string | null | undefined,
-          halftimeLineup: gamePlan?.halftimeLineup as string | null | undefined,
-          rotationIntervalMinutes: gamePlan?.rotationIntervalMinutes,
-        },
-        plannedRotations
-      ),
-    [gamePlan, plannedRotations]
-  );
+  const remoteFingerprint = useMemo(() => {
+    const fallbackStartingLineup = lineupFromAssignments(startingLineupAssignments);
+    const startingLineupStr = gamePlan?.startingLineup
+      ? (gamePlan.startingLineup as string)
+      : serializeStartingLineup(fallbackStartingLineup);
+
+    return computeRevisionFingerprint(
+      {
+        startingLineup: startingLineupStr,
+        halftimeLineup: (gamePlan?.halftimeLineup as string | null | undefined) ?? "[]",
+        rotationIntervalMinutes: gamePlan?.rotationIntervalMinutes ?? 10,
+      },
+      plannedRotations
+    );
+  }, [gamePlan, plannedRotations, startingLineupAssignments]);
 
   const localFingerprint = useMemo(() => {
-    const startingLineupStr = JSON.stringify(
-      Array.from(draft.startingLineup.entries())
-    );
+    const startingLineupStr = serializeStartingLineup(draft.startingLineup);
     const halftimeLineupStr = serializeHalftimeLineup(draft.halftimeLineup);
 
     return computeRevisionFingerprint(
@@ -154,6 +180,64 @@ export function useGamePlanner(
     [assertScheduledStatus]
   );
 
+  const updateStartingLineup = useCallback(
+    async (lineup: Map<string, string>) => {
+      assertScheduledStatus();
+      if (mutationInFlightRef.current) return;
+
+      try {
+        mutationInFlightRef.current = true;
+        setErrors([]);
+
+        // Optimistically update local state.
+        setDraft(prev => ({ ...prev, startingLineup: new Map(lineup) }));
+        setDirtyKeys(prev => new Set([...prev, "startingLineup"]));
+
+        const freshGameResp = await client.models.Game.get({ id: game.id });
+        const freshGame = freshGameResp?.data as Game | null;
+        if (freshGame?.status !== "scheduled") {
+          throw new Error(`Status changed during save: ${freshGame?.status || "unknown"}`);
+        }
+
+        const startingLineupStr = JSON.stringify(
+          Array.from(lineup.entries()).map(([positionId, playerId]) => ({ playerId, positionId }))
+        );
+        const halftimeLineupStr = serializeHalftimeLineup(draft.halftimeLineup);
+
+        let planId = gamePlan?.id;
+        if (!planId) {
+          const user = await getCurrentUser();
+          const createResult = await client.models.GamePlan.create({
+            gameId: game.id,
+            rotationIntervalMinutes: draft.rotationIntervalMinutes,
+            totalRotations: 0,
+            startingLineup: startingLineupStr,
+            halftimeLineup: halftimeLineupStr,
+            coaches: [user.userId],
+          } as Parameters<typeof client.models.GamePlan.create>[0]);
+          const createdPlan = createResult?.data as GamePlan | null;
+          if (!createdPlan?.id) throw new Error("Failed to create GamePlan");
+          planId = createdPlan.id;
+        } else {
+          await client.models.GamePlan.update({
+            id: planId,
+            startingLineup: startingLineupStr,
+            halftimeLineup: halftimeLineupStr,
+            rotationIntervalMinutes: draft.rotationIntervalMinutes,
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setErrors([msg]);
+        showError(msg);
+        throw err;
+      } finally {
+        mutationInFlightRef.current = false;
+      }
+    },
+    [game, draft, gamePlan, assertScheduledStatus]
+  );
+
   const updateHalftimeLineup = useCallback(
     async (lineup: Map<string, string>) => {
       assertScheduledStatus();
@@ -161,16 +245,58 @@ export function useGamePlanner(
 
       try {
         mutationInFlightRef.current = true;
+        setErrors([]);
+
+        // Optimistically update local state.
         setDraft(prev => ({
           ...prev,
           halftimeLineup: new Map(lineup),
         }));
         setDirtyKeys(prev => new Set([...prev, "halftimeLineup"]));
+
+        const freshGameResp = await client.models.Game.get({ id: game.id });
+        const freshGame = freshGameResp?.data as Game | null;
+        if (freshGame?.status !== "scheduled") {
+          throw new Error(`Status changed during save: ${freshGame?.status || "unknown"}`);
+        }
+
+        const startingLineupStr = JSON.stringify(
+          Array.from(draft.startingLineup.entries()).map(([positionId, playerId]) => ({ playerId, positionId }))
+        );
+        const halftimeLineupStr = serializeHalftimeLineup(lineup);
+
+        let planId = gamePlan?.id;
+        if (!planId) {
+          const user = await getCurrentUser();
+          const createResult = await client.models.GamePlan.create({
+            gameId: game.id,
+            rotationIntervalMinutes: draft.rotationIntervalMinutes,
+            totalRotations: 0,
+            startingLineup: startingLineupStr,
+            halftimeLineup: halftimeLineupStr,
+            coaches: [user.userId],
+          } as Parameters<typeof client.models.GamePlan.create>[0]);
+          const createdPlan = createResult?.data as GamePlan | null;
+          if (!createdPlan?.id) throw new Error("Failed to create GamePlan");
+          planId = createdPlan.id;
+        } else {
+          await client.models.GamePlan.update({
+            id: planId,
+            startingLineup: startingLineupStr,
+            halftimeLineup: halftimeLineupStr,
+            rotationIntervalMinutes: draft.rotationIntervalMinutes,
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setErrors([msg]);
+        showError(msg);
+        throw err;
       } finally {
         mutationInFlightRef.current = false;
       }
     },
-    [assertScheduledStatus]
+    [game, draft, gamePlan, assertScheduledStatus]
   );
 
   const selectTimelineKey = useCallback((key: string | null) => {
@@ -190,7 +316,7 @@ export function useGamePlanner(
       gamePlanId: gamePlan?.id || "",
       coaches: team.coaches || [],
     } as unknown as PlannedRotation;
-  }, [draft, gamePlan, team]);
+  }, [draft.startingLineup, draft.halftimeLineup, gamePlan, team]);
 
   const savePlan = useCallback(async () => {
     assertScheduledStatus();
@@ -242,64 +368,11 @@ export function useGamePlanner(
         });
       }
 
-      const freshGamePhase2Resp = await client.models.Game.get({ id: game.id });
-      const freshGamePhase2 = freshGamePhase2Resp?.data as Game | null;
-      if (freshGamePhase2?.status !== "scheduled") {
-        throw new Error(
-          `Status changed during Phase 2: ${freshGamePhase2?.status || "unknown"}`
-        );
-      }
-
-      // In the planner, we only persist the halftime rotation marker
-      const desiredRotations: PlannedRotation[] = [];
-      
-      const haltimeRot = computeHalftimeRotation();
-      if (haltimeRot) {
-        desiredRotations.push({
-          ...haltimeRot,
-          rotationNumber: 999,
-          gameMinute: (game.halfLengthMinutes ?? team.halfLengthMinutes) || 30,
-          half: 2,
-        } as PlannedRotation);
-      }
-
-      const { operations, errors: diffErrors } = computeRotationDiff(
-        plannedRotations,
-        desiredRotations
-      );
-
-      if (diffErrors.length > 0) {
-        console.warn("[useGamePlanner] Diff errors:", diffErrors);
-      }
-
-      const user = await getCurrentUser();
-      for (const op of operations) {
-        if (op.action === "delete" && op.current) {
-          await client.models.PlannedRotation.delete({
-            id: op.current.id,
-          });
-        } else if (op.action === "update" && op.desired) {
-          await client.models.PlannedRotation.update({
-            id: op.desired.id,
-            plannedSubstitutions: op.desired.plannedSubstitutions,
-          });
-        } else if (op.action === "create" && op.desired) {
-          await client.models.PlannedRotation.create({
-            gamePlanId: planId,
-            rotationNumber: op.desired.rotationNumber,
-            gameMinute: op.desired.gameMinute,
-            half: op.desired.half,
-            plannedSubstitutions: op.desired.plannedSubstitutions,
-            coaches: [user.userId],
-          });
-        }
-      }
-
       const finalGameResp = await client.models.Game.get({ id: game.id });
       const finalGame = finalGameResp?.data as Game | null;
       if (finalGame?.status !== "scheduled") {
         throw new Error(
-          `Status changed during Phase 4: ${finalGame?.status || "unknown"}`
+          `Status changed during save completion: ${finalGame?.status || "unknown"}`
         );
       }
 
@@ -312,10 +385,15 @@ export function useGamePlanner(
     } finally {
       mutationInFlightRef.current = false;
     }
-  }, [game, team, draft, gamePlan, plannedRotations, assertScheduledStatus, computeHalftimeRotation]);
+  }, [game, draft, gamePlan, assertScheduledStatus]);
 
   useEffect(() => {
     if (dirtyKeys.size > 0) {
+      // If remote fingerprint has caught up with our local draft, the subscription confirmed
+      // our save. Clear the dirty guard so future remote changes can rehydrate normally.
+      if (remoteFingerprint === localFingerprint) {
+        setDirtyKeys(new Set());
+      }
       return;
     }
 
@@ -323,30 +401,56 @@ export function useGamePlanner(
       return;
     }
 
-    const startingLineup = new Map<string, string>();
-    if (gamePlan?.startingLineup) {
-      try {
-        const entries = JSON.parse(gamePlan.startingLineup as string) as Array<{
-          playerId: string;
-          positionId: string;
-        }>;
-        for (const entry of entries) {
-          startingLineup.set(entry.positionId, entry.playerId);
-        }
-      } catch (e) {
-        console.error("[useGamePlanner rehydrate] Failed to parse:", e);
-      }
-    }
+    const startingLineup = gamePlan?.startingLineup
+      ? parseStartingLineupFromPlan(gamePlan.startingLineup as string)
+      : lineupFromAssignments(startingLineupAssignments);
 
     const halftimeLineup = parseHalftimeLineup(gamePlan?.halftimeLineup as string | null | undefined);
 
-    setDraft({
-      rotationIntervalMinutes: gamePlan?.rotationIntervalMinutes || 10,
-      startingLineup,
-      halftimeLineup,
-      selectedTimelineKey: null,
+    setDraft((prev) => {
+      let hasChanges = false;
+      if (prev.rotationIntervalMinutes !== (gamePlan?.rotationIntervalMinutes || 10)) {
+        hasChanges = true;
+      }
+
+      if (!hasChanges) {
+        if (prev.startingLineup.size !== startingLineup.size) {
+          hasChanges = true;
+        } else {
+          for (const [k, v] of startingLineup.entries()) {
+            if (prev.startingLineup.get(k) !== v) {
+              hasChanges = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!hasChanges) {
+        if (prev.halftimeLineup.size !== halftimeLineup.size) {
+          hasChanges = true;
+        } else {
+          for (const [k, v] of halftimeLineup.entries()) {
+            if (prev.halftimeLineup.get(k) !== v) {
+              hasChanges = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!hasChanges) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        rotationIntervalMinutes: gamePlan?.rotationIntervalMinutes || 10,
+        startingLineup,
+        halftimeLineup,
+      };
     });
-  }, [gamePlan, plannedRotations, remoteFingerprint, localFingerprint, dirtyKeys]);
+  }, [gamePlan, plannedRotations, remoteFingerprint, localFingerprint, dirtyKeys, startingLineupAssignments]);
 
   return {
     draft: {
@@ -361,6 +465,7 @@ export function useGamePlanner(
     isLocked,
     errors,
     updateRotationInterval,
+    updateStartingLineup,
     updateHalftimeLineup,
     selectTimelineKey,
     savePlan,

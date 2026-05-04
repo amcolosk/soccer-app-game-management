@@ -12,7 +12,12 @@ import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, type PlannedSubstitution } from "../../services/rotationPlannerService";
 import { calculatePlayerPlayTime } from "../../utils/playTimeCalculations";
-import { parseHalftimeLineup, serializeHalftimeLineup } from "../../utils/halftimeProjectionUtils";
+import {
+  computeRevisionFingerprint,
+  computeRotationDiff,
+  filterScopedDeletes,
+  type RotationDiffOperation,
+} from "../../utils/rotationDiffUtils";
 import { useTeamData } from "../../hooks/useTeamData";
 import { useOfflineMutations } from "../../hooks/useOfflineMutations";
 import { useTeamCoachProfiles } from "../../hooks/useTeamCoachProfiles";
@@ -30,6 +35,7 @@ import { RotationWidget } from "./RotationWidget";
 import { SubstitutionPanel } from "./SubstitutionPanel";
 import { LineupPanel } from "./LineupPanel";
 import { PlanTab } from "./PlanTab";
+import type { PlannedRotationsUpdateInput, PlannerMutationResult } from "./PlanTab";
 import { CompletedPlayTimeSummary } from "./CompletedPlayTimeSummary";
 import { OfflineBanner } from "../OfflineBanner";
 import type { Game, Team, FormationPosition, PlannedRotation, SubQueue } from "./types";
@@ -103,6 +109,17 @@ function computeScoreFromGoals(goals: Array<{ scoredByUs: boolean }>) {
 function buildGoalsFingerprint(goals: Array<{ id: string }>): string {
   const sorted = [...goals].sort((a, b) => a.id.localeCompare(b.id));
   return JSON.stringify(sorted.map(g => g.id));
+}
+
+function orderPlannerOperationsForSaferApply(
+  operations: RotationDiffOperation[]
+): RotationDiffOperation[] {
+  const order = { update: 0, create: 1, delete: 2 } as const;
+  return [...operations].sort((a, b) => {
+    const byAction = order[a.action] - order[b.action];
+    if (byAction !== 0) return byAction;
+    return a.key.localeCompare(b.key);
+  });
 }
 
 export function GameManagement({ game, team, onBack }: GameManagementProps) {
@@ -841,24 +858,172 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     // Rotation interval persistence is managed by the useGamePlanner hook inside PlanTab.
   }, [gameState.status]);
 
-  const handleHalftimeLineupChange = useCallback(async (newLineup: Map<string, string>) => {
-    if (gameState.status !== 'scheduled') return;
-    if (!gamePlan?.id) return;
-    try {
-      const halftimeLineupStr = serializeHalftimeLineup(newLineup);
-      await client.models.GamePlan.update({
-        id: gamePlan.id,
-        halftimeLineup: halftimeLineupStr,
-      });
-    } catch (error) {
-      handleApiError(error, 'Failed to update halftime lineup');
-    }
-  }, [gameState.status, gamePlan?.id]);
+  const handleUpdatePlannedRotations = useCallback(async (
+    input: PlannedRotationsUpdateInput
+  ): Promise<PlannerMutationResult> => {
+    const computeFingerprintFor = (rotations: PlannedRotation[]) => computeRevisionFingerprint(
+      {
+        startingLineup: gamePlan?.startingLineup as string | null | undefined,
+        halftimeLineup: gamePlan?.halftimeLineup as string | null | undefined,
+        rotationIntervalMinutes: gamePlan?.rotationIntervalMinutes,
+      },
+      rotations
+    );
 
-  const halftimeLineupMap = useMemo(
-    () => parseHalftimeLineup(gamePlan?.halftimeLineup as string | null | undefined),
-    [gamePlan?.halftimeLineup]
-  );
+    const currentFingerprint = computeFingerprintFor(plannedRotations);
+
+    if (gameState.status !== 'scheduled' || !gamePlan?.id) {
+      return {
+        status: 'conflict',
+        serverFingerprint: currentFingerprint,
+        conflictReason: 'Planner is no longer editable in the current game state.',
+      };
+    }
+
+    if (input.expectedFingerprint !== currentFingerprint) {
+      return {
+        status: 'conflict',
+        serverFingerprint: currentFingerprint,
+        conflictReason: 'Plan changed remotely. Refresh and re-apply your edits.',
+      };
+    }
+
+    try {
+      const { operations } = computeRotationDiff(plannedRotations, input.plannedRotations);
+      const scopedOperations = orderPlannerOperationsForSaferApply(
+        filterScopedDeletes(operations, gamePlan.id)
+      );
+
+      const getRotationKey = (rotation: Pick<PlannedRotation, 'half' | 'gameMinute'>): string => {
+        return `${rotation.half}:${rotation.gameMinute}`;
+      };
+
+      const applyOperationToRows = (
+        rows: PlannedRotation[],
+        operation: RotationDiffOperation
+      ): PlannedRotation[] => {
+        if (operation.action === 'delete' && operation.current) {
+          const keyToDelete = getRotationKey(operation.current);
+          return rows.filter((row) => getRotationKey(row) !== keyToDelete);
+        }
+
+        if (operation.action === 'update' && operation.current && operation.desired) {
+          const keyToUpdate = getRotationKey(operation.current);
+          const next = rows.map((row) => {
+            if (getRotationKey(row) !== keyToUpdate) {
+              return row;
+            }
+            return {
+              ...row,
+              plannedSubstitutions: operation.desired?.plannedSubstitutions ?? row.plannedSubstitutions,
+            };
+          });
+          return next;
+        }
+
+        if (operation.action === 'create' && operation.desired) {
+          const createKey = getRotationKey(operation.desired);
+          const withoutExisting = rows.filter((row) => getRotationKey(row) !== createKey);
+          return [...withoutExisting, operation.desired];
+        }
+
+        return rows;
+      };
+
+      const readCurrentPlanState = async () => {
+        const { data } = await client.models.PlannedRotation.list({
+          filter: { gamePlanId: { eq: gamePlan.id } },
+        });
+        const rows = [...data].sort((a, b) => {
+          const byRotation = (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0);
+          if (byRotation !== 0) return byRotation;
+          return (a.gameMinute ?? 0) - (b.gameMinute ?? 0);
+        });
+        return {
+          rows,
+          fingerprint: computeFingerprintFor(rows),
+        };
+      };
+
+      // NOTE: Amplify's generated model APIs do not provide a cross-record transaction
+      // for this write set. To fail closed under concurrent edits, re-check before each
+      // write against the expected intermediate fingerprint and abort immediately on drift.
+      const ensureExpectedFingerprint = async (expectedFingerprint: string): Promise<{
+        ok: boolean;
+        fingerprint: string;
+      }> => {
+        const latest = await readCurrentPlanState();
+        return {
+          ok: latest.fingerprint === expectedFingerprint,
+          fingerprint: latest.fingerprint,
+        };
+      };
+
+        let coachId = userId || team.coaches?.[0];
+      if (!coachId) {
+        const currentUser = await getCurrentUser();
+        coachId = currentUser.userId;
+      }
+
+      let expectedRows = [...plannedRotations];
+      let expectedFingerprint = input.expectedFingerprint;
+
+      for (const operation of scopedOperations) {
+        const preWrite = await ensureExpectedFingerprint(expectedFingerprint);
+        if (!preWrite.ok) {
+          return {
+            status: 'conflict',
+            serverFingerprint: preWrite.fingerprint,
+            conflictReason: 'Plan changed while saving. No further edits were applied.',
+          };
+        }
+
+        if (operation.action === 'delete' && operation.current?.id) {
+          await client.models.PlannedRotation.delete({ id: operation.current.id });
+        } else if (operation.action === 'update' && operation.current?.id && operation.desired) {
+          await client.models.PlannedRotation.update({
+            id: operation.current.id,
+            plannedSubstitutions: operation.desired.plannedSubstitutions,
+          });
+        } else if (operation.action === 'create' && operation.desired) {
+          await client.models.PlannedRotation.create({
+            gamePlanId: gamePlan.id,
+            rotationNumber: operation.desired.rotationNumber,
+            gameMinute: operation.desired.gameMinute,
+            half: operation.desired.half,
+            plannedSubstitutions: operation.desired.plannedSubstitutions,
+            coaches: [coachId],
+          });
+        }
+
+        expectedRows = applyOperationToRows(expectedRows, operation);
+        expectedFingerprint = computeFingerprintFor(expectedRows);
+      }
+
+      const latestAfterWrite = await readCurrentPlanState();
+
+      return {
+        status: 'ok',
+        serverFingerprint: latestAfterWrite.fingerprint,
+      };
+    } catch (error) {
+      handleApiError(error, 'Failed to update planned rotations');
+      let latestFingerprint = currentFingerprint;
+      try {
+        const { data } = await client.models.PlannedRotation.list({
+          filter: { gamePlanId: { eq: gamePlan.id } },
+        });
+        latestFingerprint = computeFingerprintFor(data);
+      } catch {
+        // Keep currentFingerprint fallback when follow-up read fails.
+      }
+      return {
+        status: 'conflict',
+        serverFingerprint: latestFingerprint,
+        conflictReason: 'Unable to save rotation changes right now. Try again.',
+      };
+    }
+    }, [gamePlan, gameState.status, plannedRotations, userId, team.coaches]);
 
   const handleSaveGameEdit = useCallback(async () => {
     if (!editGameOpponent.trim()) {
@@ -1740,9 +1905,8 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                   onRecalculateRotations={handleRecalculateRotations}
                   onHalfLengthChange={handleHalfLengthChange}
                   onIntervalChange={handleIntervalChange}
-                  halftimeLineup={halftimeLineupMap}
-                  onHalftimeLineupChange={handleHalftimeLineupChange}
                   onGenerateRotations={handleRecalculateRotations}
+                  onUpdatePlannedRotations={handleUpdatePlannedRotations}
                   {...sharedLineupPanelProps}
                 />
 

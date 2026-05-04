@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+﻿/* eslint-disable @typescript-eslint/no-explicit-any */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,6 +24,44 @@ vi.mock("../PlayerAvailabilityGrid", () => ({
 
 vi.mock("./LineupPanel", () => ({
   LineupPanel: () => <div data-testid="lineup-panel" />,
+}));
+
+vi.mock("./PlannerLineupView", () => ({
+  PlannerLineupView: ({ onPositionAssign, displayLineup, positions, players, isReadOnly }: any) => (
+    <div data-testid="planner-lineup-view">
+      {positions.map((pos: any) => {
+        const posLabel = pos.abbreviation || pos.positionName || "Position";
+        const assignedPlayerId =
+          (displayLineup instanceof Map ? displayLineup.get(pos.id) : displayLineup?.[pos.id]) ?? "";
+        if (isReadOnly) {
+          const player = players.find((p: any) => p.id === assignedPlayerId);
+          return (
+            <span key={pos.id}>
+              {player
+                ? `${player.firstName ?? ""} ${player.lastName ?? ""}`.trim() || player.id
+                : "Unassigned"}
+            </span>
+          );
+        }
+        return (
+          <select
+            key={pos.id}
+            data-testid={`position-select-${pos.id}`}
+            aria-label={`Player for ${posLabel}`}
+            value={assignedPlayerId}
+            onChange={(e) => onPositionAssign?.(pos.id, e.target.value)}
+          >
+            <option value="">Unassigned</option>
+            {players.map((p: any) => (
+              <option key={p.id} value={p.id}>
+                {`${p.firstName ?? ""} ${p.lastName ?? ""}`.trim() || p.id}
+              </option>
+            ))}
+          </select>
+        );
+      })}
+    </div>
+  ),
 }));
 
 import { useGamePlanner } from "./hooks/useGamePlanner";
@@ -115,21 +153,8 @@ describe("PlanTab", () => {
     updateHalftimeLineup: vi.fn().mockResolvedValue(undefined),
     selectTimelineKey: vi.fn(),
     savePlan: vi.fn().mockResolvedValue(undefined),
-    computeHalftimeRotation: vi.fn(() => ({
-      id: "",
-      gamePlanId: "plan-1",
-      coaches: ["coach-1"],
-      half: 2,
-      gameMinute: 0,
-      rotationNumber: 0,
-      plannedSubstitutions: JSON.stringify([
-        {
-          playerOutId: "player-2",
-          playerInId: "player-3",
-          positionId: "pos-2",
-        },
-      ]),
-    })),
+    updateStartingLineup: vi.fn().mockResolvedValue(undefined),
+    computeHalftimeRotation: vi.fn().mockReturnValue(null),
   };
 
   beforeEach(() => {
@@ -158,6 +183,10 @@ describe("PlanTab", () => {
     viewMode: "list" as const,
     onViewModeChange: vi.fn(),
     onResetViewPreference: vi.fn(),
+    onUpdatePlannedRotations: vi.fn().mockResolvedValue({
+      status: "ok",
+      serverFingerprint: "remote-fp-next",
+    }),
   };
 
   it("renders scheduled planner controls", () => {
@@ -167,6 +196,56 @@ describe("PlanTab", () => {
     expect(screen.getByText("Half length (minutes)")).toBeInTheDocument();
     expect(screen.getByText("Every (min)")).toBeInTheDocument();
     expect(screen.getByText("Rotations / half")).toBeInTheDocument();
+  });
+
+  it("renders projected play time per player from lineup and planned rotations", () => {
+    render(<PlanTab {...defaultProps} />);
+
+    expect(screen.getByRole("heading", { name: "Projected Play Time" })).toBeInTheDocument();
+    expect(screen.getByText("Player One", { selector: ".playtime-label" })).toBeInTheDocument();
+    expect(screen.getByText("Player Two", { selector: ".playtime-label" })).toBeInTheDocument();
+    expect(screen.getByText("Player Three", { selector: ".playtime-label" })).toBeInTheDocument();
+    expect(screen.getByText("10m", { selector: ".playtime-minutes" })).toBeInTheDocument();
+    expect(screen.getByText("50m", { selector: ".playtime-minutes" })).toBeInTheDocument();
+    expect(screen.getByText("60m", { selector: ".playtime-minutes" })).toBeInTheDocument();
+  });
+
+  it("renders projected play time with zero minutes when starting lineup and rotations are empty", () => {
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      draft: {
+        ...mockPlannerResult.draft,
+        startingLineup: new Map(),
+      },
+    });
+
+    render(<PlanTab {...defaultProps} gamePlan={null} plannedRotations={[]} />);
+
+    expect(screen.getByRole("heading", { name: "Projected Play Time" })).toBeInTheDocument();
+    expect(screen.getByText("Player One", { selector: ".playtime-label" })).toBeInTheDocument();
+    expect(screen.getByText("Player Two", { selector: ".playtime-label" })).toBeInTheDocument();
+    expect(screen.getByText("Player Three", { selector: ".playtime-label" })).toBeInTheDocument();
+    expect(screen.getAllByText("0m", { selector: ".playtime-minutes" })).toHaveLength(3);
+  });
+
+  it("shows unknown player label when projection includes a player not in current players list", () => {
+    const plannedRotationsWithUnknown: PlannedRotation[] = [
+      {
+        ...mockPlannedRotations[0],
+        plannedSubstitutions: JSON.stringify([
+          {
+            playerOutId: "player-1",
+            playerInId: "player-999",
+            positionId: "pos-1",
+          },
+        ]),
+      } as PlannedRotation,
+    ];
+
+    render(<PlanTab {...defaultProps} plannedRotations={plannedRotationsWithUnknown} />);
+
+    expect(screen.getByText("Unknown Player (player-999)")).toBeInTheDocument();
+    expect(screen.getByText("50m")).toBeInTheDocument();
   });
 
   it("uses canonical rotations-per-half formula floor(halfLength/interval)-1", () => {
@@ -191,7 +270,7 @@ describe("PlanTab", () => {
       ...mockPlannerResult,
       draft: {
         ...mockPlannerResult.draft,
-        selectedTimelineKey: "H2:M00:HT",
+        selectedTimelineKey: "halftime",
       },
     });
 
@@ -201,6 +280,353 @@ describe("PlanTab", () => {
     await userEvent.selectOptions(selects[0], "player-3");
 
     expect(mockPlannerResult.updateHalftimeLineup).toHaveBeenCalled();
+  });
+
+  it("keeps halftime lineup selection on rerender and prop refresh", () => {
+    const selectTimelineKey = vi.fn();
+
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      selectTimelineKey,
+      draft: {
+        ...mockPlannerResult.draft,
+        selectedTimelineKey: "halftime",
+        startingLineup: new Map([
+          ["pos-1", "player-1"],
+          ["pos-2", "player-2"],
+        ]),
+        halftimeLineup: new Map([
+          ["pos-1", "player-1"],
+          ["pos-2", "player-3"],
+        ]),
+      },
+    });
+
+    const { rerender } = render(<PlanTab {...defaultProps} />);
+
+    const halftimeSelect = screen.getByTestId("position-select-pos-2");
+    expect(halftimeSelect).toHaveValue("player-3");
+
+    const refreshedLineup: LineupAssignment[] = [
+      { positionId: "pos-1", playerId: "player-2", isStarter: true } as LineupAssignment,
+      { positionId: "pos-2", playerId: "player-1", isStarter: true } as LineupAssignment,
+    ];
+
+    rerender(
+      <PlanTab
+        {...defaultProps}
+        lineup={refreshedLineup}
+        plannedRotations={[...mockPlannedRotations]}
+      />
+    );
+
+    expect(screen.getByTestId("position-select-pos-2")).toHaveValue("player-3");
+    expect(selectTimelineKey).not.toHaveBeenCalledWith("starting");
+  });
+
+  it("allows editing a rotation and submits through parent-owned update callback", async () => {
+    const onUpdatePlannedRotations = vi.fn().mockResolvedValue({
+      status: "ok",
+      serverFingerprint: "remote-fp-next",
+    });
+
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      draft: {
+        ...mockPlannerResult.draft,
+        selectedTimelineKey: "rotation-1-rot-1",
+      },
+    });
+
+    render(
+      <PlanTab
+        {...defaultProps}
+        onUpdatePlannedRotations={onUpdatePlannedRotations}
+        gamePlan={{ ...mockGamePlan, rotationIntervalMinutes: 15 } as GamePlan}
+      />
+    );
+
+    // Rotation panel shows PlannerLineupView: pos-1 select shows player-3 (lineup after rotation 1 applied)
+    const posSelect = screen.getByTestId("position-select-pos-1");
+    await userEvent.selectOptions(posSelect, "player-2");
+
+    // Wait for the 300ms debounce to fire
+    await waitFor(
+      () => expect(onUpdatePlannedRotations).toHaveBeenCalledTimes(1),
+      { timeout: 1000 }
+    );
+
+    const payload = onUpdatePlannedRotations.mock.calls[0][0];
+    expect(payload.expectedFingerprint).toBe("remote-fp");
+    expect(payload.plannedRotations).toHaveLength(1);
+    const parsedSubs = JSON.parse(payload.plannedRotations[0].plannedSubstitutions);
+    expect(parsedSubs).toEqual([
+      {
+        playerOutId: "player-1",
+        playerInId: "player-2",
+        positionId: "pos-1",
+      },
+    ]);
+  });
+
+  it("persists explicit clear when selecting Unassigned in rotation editor", async () => {
+    const onUpdatePlannedRotations = vi.fn().mockResolvedValue({
+      status: "ok",
+      serverFingerprint: "remote-fp-next",
+    });
+
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      draft: {
+        ...mockPlannerResult.draft,
+        selectedTimelineKey: "rotation-1-rot-1",
+      },
+    });
+
+    render(
+      <PlanTab
+        {...defaultProps}
+        onUpdatePlannedRotations={onUpdatePlannedRotations}
+      />
+    );
+
+    const posSelect = screen.getByTestId("position-select-pos-1");
+    await userEvent.selectOptions(posSelect, "");
+
+    await waitFor(
+      () => expect(onUpdatePlannedRotations).toHaveBeenCalledTimes(1),
+      { timeout: 1000 }
+    );
+
+    const payload = onUpdatePlannedRotations.mock.calls[0][0];
+    const parsedSubs = JSON.parse(payload.plannedRotations[0].plannedSubstitutions);
+    expect(parsedSubs).toEqual([
+      {
+        playerOutId: "player-1",
+        playerInId: "",
+        positionId: "pos-1",
+      },
+    ]);
+  });
+
+  it("shows conflict feedback when parent update reports conflict", async () => {
+    const onUpdatePlannedRotations = vi.fn().mockResolvedValue({
+      status: "conflict",
+      serverFingerprint: "remote-fp-server",
+      conflictReason: "Plan changed remotely.",
+    });
+
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      draft: {
+        ...mockPlannerResult.draft,
+        selectedTimelineKey: "rotation-1-rot-1",
+      },
+    });
+
+    render(
+      <PlanTab
+        {...defaultProps}
+        onUpdatePlannedRotations={onUpdatePlannedRotations}
+      />
+    );
+
+    const posSelect = screen.getByTestId("position-select-pos-1");
+    await userEvent.selectOptions(posSelect, "player-2");
+
+    await waitFor(
+      () => expect(onUpdatePlannedRotations).toHaveBeenCalledTimes(1),
+      { timeout: 1000 }
+    );
+
+    expect(screen.getByText("Plan Updated Elsewhere")).toBeInTheDocument();
+    expect(screen.getByText("Plan changed remotely.")).toBeInTheDocument();
+    // Rotation panel (PlannerLineupView) is still visible after conflict
+    expect(screen.getByTestId("planner-lineup-view")).toBeInTheDocument();
+  });
+
+  it("clears staged local override after subscription update matches and allows later server divergence", async () => {
+    const onUpdatePlannedRotations = vi.fn().mockResolvedValue({
+      status: "ok",
+      serverFingerprint: "remote-fp-next",
+    });
+
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      draft: {
+        ...mockPlannerResult.draft,
+        selectedTimelineKey: "rotation-1-rot-1",
+      },
+    });
+
+    const initialRotations: PlannedRotation[] = [
+      {
+        ...mockPlannedRotations[0],
+        plannedSubstitutions: JSON.stringify([
+          {
+            playerOutId: "player-1",
+            playerInId: "player-3",
+            positionId: "pos-1",
+          },
+        ]),
+      } as PlannedRotation,
+    ];
+
+    const { rerender } = render(
+      <PlanTab
+        {...defaultProps}
+        plannedRotations={initialRotations}
+        onUpdatePlannedRotations={onUpdatePlannedRotations}
+      />
+    );
+
+    // Change pos-1 from player-3 to player-2 (immediate-save)
+    const posSelect = screen.getByTestId("position-select-pos-1");
+    await userEvent.selectOptions(posSelect, "player-2");
+
+    await waitFor(
+      () => expect(onUpdatePlannedRotations).toHaveBeenCalledTimes(1),
+      { timeout: 1000 }
+    );
+
+    // Local override in effect: pos-1 select now shows player-2
+    expect(screen.getByTestId("position-select-pos-1")).toHaveValue("player-2");
+
+    const matchedServerRotations: PlannedRotation[] = [
+      {
+        ...mockPlannedRotations[0],
+        plannedSubstitutions: JSON.stringify([
+          {
+            playerOutId: "player-1",
+            playerInId: "player-2",
+            positionId: "pos-1",
+          },
+        ]),
+      } as PlannedRotation,
+    ];
+
+    rerender(
+      <PlanTab
+        {...defaultProps}
+        plannedRotations={matchedServerRotations}
+        onUpdatePlannedRotations={onUpdatePlannedRotations}
+      />
+    );
+
+    // Override cleared but server data matches: still shows player-2
+    expect(screen.getByTestId("position-select-pos-1")).toHaveValue("player-2");
+
+    const divergedServerRotations: PlannedRotation[] = [
+      {
+        ...mockPlannedRotations[0],
+        plannedSubstitutions: JSON.stringify([
+          {
+            playerOutId: "player-1",
+            playerInId: "player-3",
+            positionId: "pos-1",
+          },
+        ]),
+      } as PlannedRotation,
+    ];
+
+    rerender(
+      <PlanTab
+        {...defaultProps}
+        plannedRotations={divergedServerRotations}
+        onUpdatePlannedRotations={onUpdatePlannedRotations}
+      />
+    );
+
+    // Server data wins: back to player-3
+    expect(screen.getByTestId("position-select-pos-1")).toHaveValue("player-3");
+  });
+
+  it("clears staged local override when keyed server row is removed", async () => {
+    const onUpdatePlannedRotations = vi.fn().mockResolvedValue({
+      status: "ok",
+      serverFingerprint: "remote-fp-next",
+    });
+
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      draft: {
+        ...mockPlannerResult.draft,
+        selectedTimelineKey: "rotation-1-rot-1",
+      },
+    });
+
+    const { rerender } = render(
+      <PlanTab
+        {...defaultProps}
+        onUpdatePlannedRotations={onUpdatePlannedRotations}
+      />
+    );
+
+    // Make a change (creates local override)
+    const posSelect = screen.getByTestId("position-select-pos-1");
+    await userEvent.selectOptions(posSelect, "player-2");
+
+    await waitFor(
+      () => expect(onUpdatePlannedRotations).toHaveBeenCalledTimes(1),
+      { timeout: 1000 }
+    );
+
+    rerender(
+      <PlanTab
+        {...defaultProps}
+        plannedRotations={[]}
+        onUpdatePlannedRotations={onUpdatePlannedRotations}
+      />
+    );
+
+    // Override cleared, no R1 rotation pill remains
+    expect(screen.queryByRole("tab", { name: /r1/i })).not.toBeInTheDocument();
+  });
+
+  it("keyboard timeline navigation does not block in immediate-save mode", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
+
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      draft: {
+        ...mockPlannerResult.draft,
+        selectedTimelineKey: "rotation-1-rot-1",
+      },
+    });
+
+    render(<PlanTab {...defaultProps} />);
+
+    // Navigate away with keyboard — no confirm dialog expected in immediate-save mode
+    mockPlannerResult.selectTimelineKey.mockClear();
+    const timeline = screen.getByRole("tablist", { name: /plan timeline/i });
+    fireEvent.keyDown(timeline, { key: "ArrowLeft" });
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(mockPlannerResult.selectTimelineKey).toHaveBeenCalled();
+
+    confirmSpy.mockRestore();
+  });
+
+  it("handles non-array plannedSubstitutions payloads without crashing", () => {
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      draft: {
+        ...mockPlannerResult.draft,
+        selectedTimelineKey: "rotation-1-rot-1",
+      },
+    });
+
+    const nonArrayRotations: PlannedRotation[] = [
+      {
+        ...mockPlannedRotations[0],
+        plannedSubstitutions: JSON.stringify({ invalid: true }),
+      } as PlannedRotation,
+    ];
+
+    render(<PlanTab {...defaultProps} plannedRotations={nonArrayRotations} />);
+
+    // Component renders without crashing — PlannerLineupView shown for rotation state
+    expect(screen.getByTestId("planner-lineup-view")).toBeInTheDocument();
   });
 
   it("keeps live plan tab read-only while allowing timeline inspection selection", () => {

@@ -142,10 +142,29 @@ export function computeRevisionFingerprint(
   },
   plannedRotations: PlannedRotation[]
 ): string {
+  // Normalize a lineup JSON string to a canonical form (sorted by positionId, fixed key order).
+  // This makes the fingerprint independent of JSON key insertion order so that
+  // data serialized as {positionId, playerId} vs {playerId, positionId} produces
+  // the same fingerprint — preventing an infinite rehydration loop in useGamePlanner.
+  const normalizeLineup = (json: string | null | undefined): string => {
+    const raw = json || "";
+    if (!raw) return raw;
+    try {
+      const parsed = JSON.parse(raw) as Array<{ playerId?: string; positionId?: string }>;
+      if (!Array.isArray(parsed)) return raw;
+      const normalized = parsed
+        .map(e => ({ playerId: e.playerId ?? "", positionId: e.positionId ?? "" }))
+        .sort((a, b) => a.positionId.localeCompare(b.positionId));
+      return JSON.stringify(normalized);
+    } catch {
+      return raw;
+    }
+  };
+
   // Hash GamePlan fields
   const gamePlanHash = JSON.stringify({
-    startingLineup: gamePlanPayload.startingLineup || "",
-    halftimeLineup: gamePlanPayload.halftimeLineup || "",
+    startingLineup: normalizeLineup(gamePlanPayload.startingLineup),
+    halftimeLineup: normalizeLineup(gamePlanPayload.halftimeLineup),
     rotationIntervalMinutes: gamePlanPayload.rotationIntervalMinutes || 0,
   });
 
