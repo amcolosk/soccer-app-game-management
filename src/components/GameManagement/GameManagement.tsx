@@ -747,18 +747,94 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
         });
       }
 
-      const existingByKey = new Map(
-        plannedRotations.map(rotation => [
-          `${rotation.half}:${rotation.gameMinute}:${rotation.rotationNumber}`,
-          rotation,
-        ])
-      );
-      const missingRotations = expectedRotations.filter(spec => {
-        const key = `${spec.half}:${spec.gameMinute}:${spec.rotationNumber}`;
-        return !existingByKey.has(key);
-      });
+      const getExpectedKey = (rotation: { half?: number | null; gameMinute?: number | null }) => {
+        return `${rotation.half ?? 0}:${rotation.gameMinute ?? 0}`;
+      };
 
-      const allPlannedRotations = [...plannedRotations];
+      const expectedByKey = new Map(
+        expectedRotations.map(spec => [getExpectedKey(spec), spec])
+      );
+      const existingByKey = new Map<string, PlannedRotation[]>();
+      for (const rotation of plannedRotations) {
+        const key = getExpectedKey(rotation);
+        const bucket = existingByKey.get(key);
+        if (bucket) {
+          bucket.push(rotation);
+        } else {
+          existingByKey.set(key, [rotation]);
+        }
+      }
+
+      const rowsToDelete: PlannedRotation[] = [];
+      const rowsToUpdateSchedule: Array<{ id: string; rotationNumber: number; gameMinute: number; half: 1 | 2 }> = [];
+      const normalizedExistingRows: PlannedRotation[] = [];
+
+      for (const spec of expectedRotations) {
+        const key = getExpectedKey(spec);
+        const candidates = existingByKey.get(key) ?? [];
+        if (candidates.length === 0) {
+          continue;
+        }
+
+        const preferredMatch = candidates.find(candidate => candidate.rotationNumber === spec.rotationNumber);
+        const deterministicSorted = [...candidates].sort((a, b) => (a.id ?? '').localeCompare(b.id ?? ''));
+        const rowToKeep = preferredMatch ?? deterministicSorted[0];
+
+        normalizedExistingRows.push({
+          ...rowToKeep,
+          rotationNumber: spec.rotationNumber,
+          gameMinute: spec.gameMinute,
+          half: spec.half,
+        });
+
+        if (
+          rowToKeep.rotationNumber !== spec.rotationNumber
+          || rowToKeep.gameMinute !== spec.gameMinute
+          || rowToKeep.half !== spec.half
+        ) {
+          rowsToUpdateSchedule.push({
+            id: rowToKeep.id,
+            rotationNumber: spec.rotationNumber,
+            gameMinute: spec.gameMinute,
+            half: spec.half,
+          });
+        }
+
+        for (const candidate of candidates) {
+          if (candidate.id !== rowToKeep.id) {
+            rowsToDelete.push(candidate);
+          }
+        }
+      }
+
+      for (const rotation of plannedRotations) {
+        const key = getExpectedKey(rotation);
+        if (!expectedByKey.has(key)) {
+          rowsToDelete.push(rotation);
+        }
+      }
+
+      const rowsToDeleteById = new Map<string, PlannedRotation>();
+      for (const rotation of rowsToDelete) {
+        rowsToDeleteById.set(rotation.id, rotation);
+      }
+
+      if (rowsToDeleteById.size > 0) {
+        await Promise.all(
+          Array.from(rowsToDeleteById.values()).map(rotation => client.models.PlannedRotation.delete({ id: rotation.id }))
+        );
+      }
+
+      if (rowsToUpdateSchedule.length > 0) {
+        await Promise.all(
+          rowsToUpdateSchedule.map(update => client.models.PlannedRotation.update(update))
+        );
+      }
+
+      const keptKeys = new Set(normalizedExistingRows.map(rotation => getExpectedKey(rotation)));
+      const missingRotations = expectedRotations.filter(spec => !keptKeys.has(getExpectedKey(spec)));
+
+      const allPlannedRotations = [...normalizedExistingRows];
       if (missingRotations.length > 0) {
         let coachId = userId || team.coaches?.[0];
         if (!coachId) {
@@ -781,7 +857,10 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
             return response.data as PlannedRotation;
           })
         );
-        allPlannedRotations.push(...createdRotations);
+        allPlannedRotations.push(...createdRotations.map(rotation => ({
+          ...rotation,
+          plannedSubstitutions: rotation.plannedSubstitutions ?? '[]',
+        })));
       }
       allPlannedRotations.sort((a, b) => {
         const rotationDiff = (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0);
