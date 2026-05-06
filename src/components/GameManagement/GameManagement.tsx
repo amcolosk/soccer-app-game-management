@@ -10,7 +10,7 @@ import { isoToDatetimeLocal } from "../../utils/gameTimeUtils";
 import { useConfirm } from "../ConfirmModal";
 import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
-import { calculateFairRotations, type PlannedSubstitution } from "../../services/rotationPlannerService";
+import { calculateFairRotations, copyGamePlan, type PlannedSubstitution } from "../../services/rotationPlannerService";
 import { calculatePlayerPlayTime } from "../../utils/playTimeCalculations";
 import {
   computeRevisionFingerprint,
@@ -34,7 +34,7 @@ import { CreateEditNoteModal } from "./CreateEditNoteModal";
 import { RotationWidget } from "./RotationWidget";
 import { SubstitutionPanel } from "./SubstitutionPanel";
 import { LineupPanel } from "./LineupPanel";
-import { PlanTab } from "./PlanTab";
+import { PlanTab, type GenerateRotationsOptions } from "./PlanTab";
 import type { PlannedRotationsUpdateInput, PlannerMutationResult } from "./PlanTab";
 import { CompletedPlayTimeSummary } from "./CompletedPlayTimeSummary";
 import { OfflineBanner } from "../OfflineBanner";
@@ -51,10 +51,13 @@ import { useGameNotification } from "../../hooks/useGameNotification";
 // Used only for planning operations (PlannedRotation.update) — not live-game mutations.
 const client = generateClient<Schema>();
 
+type PreviousGameSummary = { id: string; opponent: string; gameDate: string | null };
+
 interface GameManagementProps {
   game: Game;
   team: Team;
   onBack: () => void;
+  initialTab?: GameTab;
 }
 
 type LineupViewMode = "list" | "shape";
@@ -122,7 +125,180 @@ function orderPlannerOperationsForSaferApply(
   });
 }
 
-export function GameManagement({ game, team, onBack }: GameManagementProps) {
+/**
+ * Phase A of the rotation schedule pipeline.
+ * Builds the expected rotation timeline, reconciles it against existing rows
+ * (deleting duplicates/obsolete rows, updating schedule fields), creates any
+ * missing rows with empty substitutions, and returns the full sorted list of
+ * normalized PlannedRotation records.
+ *
+ * Does NOT call calculateFairRotations — substitution content is left empty.
+ */
+async function normalizeAndCreateRotationSchedule({
+  gamePlan,
+  plannedRotations,
+  halfLengthMinutes,
+  rotationIntervalMinutes,
+  userId,
+  team,
+}: {
+  gamePlan: import("./types").GamePlan;
+  plannedRotations: import("./types").PlannedRotation[];
+  halfLengthMinutes: number;
+  rotationIntervalMinutes: number;
+  userId: string | undefined;
+  team: import("./types").Team;
+}): Promise<import("./types").PlannedRotation[]> {
+  const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
+
+  const expectedRotations: Array<{ rotationNumber: number; gameMinute: number; half: 1 | 2 }> = [];
+  for (let index = 1; index <= rotationsPerHalf; index += 1) {
+    expectedRotations.push({
+      rotationNumber: index,
+      gameMinute: index * rotationIntervalMinutes,
+      half: 1,
+    });
+  }
+  expectedRotations.push({
+    rotationNumber: rotationsPerHalf + 1,
+    gameMinute: halfLengthMinutes,
+    half: 2,
+  });
+  for (let index = 1; index <= rotationsPerHalf; index += 1) {
+    expectedRotations.push({
+      rotationNumber: rotationsPerHalf + 1 + index,
+      gameMinute: halfLengthMinutes + index * rotationIntervalMinutes,
+      half: 2,
+    });
+  }
+
+  const getExpectedKey = (rotation: { half?: number | null; gameMinute?: number | null }) => {
+    return `${rotation.half ?? 0}:${rotation.gameMinute ?? 0}`;
+  };
+
+  const expectedByKey = new Map(
+    expectedRotations.map(spec => [getExpectedKey(spec), spec])
+  );
+  const existingByKey = new Map<string, import("./types").PlannedRotation[]>();
+  for (const rotation of plannedRotations) {
+    const key = getExpectedKey(rotation);
+    const bucket = existingByKey.get(key);
+    if (bucket) {
+      bucket.push(rotation);
+    } else {
+      existingByKey.set(key, [rotation]);
+    }
+  }
+
+  const rowsToDelete: import("./types").PlannedRotation[] = [];
+  const rowsToUpdateSchedule: Array<{ id: string; rotationNumber: number; gameMinute: number; half: 1 | 2 }> = [];
+  const normalizedExistingRows: import("./types").PlannedRotation[] = [];
+
+  for (const spec of expectedRotations) {
+    const key = getExpectedKey(spec);
+    const candidates = existingByKey.get(key) ?? [];
+    if (candidates.length === 0) {
+      continue;
+    }
+
+    const preferredMatch = candidates.find(candidate => candidate.rotationNumber === spec.rotationNumber);
+    const deterministicSorted = [...candidates].sort((a, b) => (a.id ?? '').localeCompare(b.id ?? ''));
+    const rowToKeep = preferredMatch ?? deterministicSorted[0];
+
+    normalizedExistingRows.push({
+      ...rowToKeep,
+      rotationNumber: spec.rotationNumber,
+      gameMinute: spec.gameMinute,
+      half: spec.half,
+    });
+
+    if (
+      rowToKeep.rotationNumber !== spec.rotationNumber
+      || rowToKeep.gameMinute !== spec.gameMinute
+      || rowToKeep.half !== spec.half
+    ) {
+      rowsToUpdateSchedule.push({
+        id: rowToKeep.id,
+        rotationNumber: spec.rotationNumber,
+        gameMinute: spec.gameMinute,
+        half: spec.half,
+      });
+    }
+
+    for (const candidate of candidates) {
+      if (candidate.id !== rowToKeep.id) {
+        rowsToDelete.push(candidate);
+      }
+    }
+  }
+
+  for (const rotation of plannedRotations) {
+    const key = getExpectedKey(rotation);
+    if (!expectedByKey.has(key)) {
+      rowsToDelete.push(rotation);
+    }
+  }
+
+  const rowsToDeleteById = new Map<string, import("./types").PlannedRotation>();
+  for (const rotation of rowsToDelete) {
+    rowsToDeleteById.set(rotation.id, rotation);
+  }
+
+  if (rowsToDeleteById.size > 0) {
+    await Promise.all(
+      Array.from(rowsToDeleteById.values()).map(rotation => client.models.PlannedRotation.delete({ id: rotation.id }))
+    );
+  }
+
+  if (rowsToUpdateSchedule.length > 0) {
+    await Promise.all(
+      rowsToUpdateSchedule.map(update => client.models.PlannedRotation.update(update))
+    );
+  }
+
+  const keptKeys = new Set(normalizedExistingRows.map(rotation => getExpectedKey(rotation)));
+  const missingRotations = expectedRotations.filter(spec => !keptKeys.has(getExpectedKey(spec)));
+
+  const allPlannedRotations = [...normalizedExistingRows];
+  if (missingRotations.length > 0) {
+    let coachId = userId || team.coaches?.[0];
+    if (!coachId) {
+      const currentUser = await getCurrentUser();
+      coachId = currentUser.userId;
+    }
+    const createdRotations = await Promise.all(
+      missingRotations.map(async spec => {
+        const response = await client.models.PlannedRotation.create({
+          gamePlanId: gamePlan.id,
+          rotationNumber: spec.rotationNumber,
+          gameMinute: spec.gameMinute,
+          half: spec.half,
+          plannedSubstitutions: '[]',
+          coaches: [coachId],
+        });
+        if (!response.data) {
+          throw new Error('Failed to create missing planned rotation record');
+        }
+        return response.data as import("./types").PlannedRotation;
+      })
+    );
+    allPlannedRotations.push(...createdRotations.map(rotation => ({
+      ...rotation,
+      plannedSubstitutions: rotation.plannedSubstitutions ?? '[]',
+    })));
+  }
+  allPlannedRotations.sort((a, b) => {
+    const rotationDiff = (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0);
+    if (rotationDiff !== 0) return rotationDiff;
+    const minuteDiff = (a.gameMinute ?? 0) - (b.gameMinute ?? 0);
+    if (minuteDiff !== 0) return minuteDiff;
+    return (a.half ?? 0) - (b.half ?? 0);
+  });
+
+  return allPlannedRotations;
+}
+
+export function GameManagement({ game, team, onBack, initialTab }: GameManagementProps) {
   const confirm = useConfirm();
   // Load team roster and formation positions with real-time updates
   const { players, positions } = useTeamData(team.id, team.formationId);
@@ -138,7 +314,7 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
   const [userId, setUserId] = useState<string>('');
 
   // Mobile tab navigation (in-progress state only)
-  const [activeTab, setActiveTab] = useState<GameTab>("field");
+  const [activeTab, setActiveTab] = useState<GameTab>(initialTab ?? "field");
   const [lineupViewMode, setLineupViewMode] = useState<LineupViewMode>("list");
   // Controlled state for rotation modal (opened from CommandBand)
   const [rotationModalOpen, setRotationModalOpen] = useState(false);
@@ -160,6 +336,11 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
 
   // Game planner integration
   const [isRecalculating, setIsRecalculating] = useState(false);
+
+  // Copy-from-game state
+  const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
+  const [previousGamesWithPlans, setPreviousGamesWithPlans] = useState<PreviousGameSummary[] | null>(null);
+  const [isCopyingPlan, setIsCopyingPlan] = useState(false);
 
   // Optimistic overlay ids pending backend confirmation (to avoid flicker on add)
   const [optimisticAddIds, setOptimisticAddIds] = useState<Set<string>>(new Set());
@@ -671,19 +852,21 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
     return conflicts;
   };
 
-  const handleRecalculateRotations = async () => {
+  const handleRecalculateRotations = async (options?: GenerateRotationsOptions) => {
     if (gameState.status !== 'scheduled') {
       return;
     }
     if (!gamePlan) return;
 
-    const confirmed = await confirm({
-      title: 'Recalculate Rotations',
-      message: 'This will recalculate all rotation substitutions based on current player availability and preferred positions.\n\nExisting rotation substitutions will be overwritten.',
-      confirmText: 'Recalculate',
-      variant: 'warning',
-    });
-    if (!confirmed) return;
+    if (!options?.skipConfirm) {
+      const confirmed = await confirm({
+        title: 'Recalculate Rotations',
+        message: 'This will recalculate all rotation substitutions based on current player availability and preferred positions.\n\nExisting rotation substitutions will be overwritten.',
+        confirmText: 'Recalculate',
+        variant: 'warning',
+      });
+      if (!confirmed) return;
+    }
 
     try {
       setIsRecalculating(true);
@@ -724,152 +907,17 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       const rotationIntervalMinutes = gamePlan.rotationIntervalMinutes || 10;
       const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
 
-      // Build the expected scheduled timeline so generation works even before
-      // PlannedRotation rows have been created.
-      const expectedRotations: Array<{ rotationNumber: number; gameMinute: number; half: 1 | 2 }> = [];
-      for (let index = 1; index <= rotationsPerHalf; index += 1) {
-        expectedRotations.push({
-          rotationNumber: index,
-          gameMinute: index * rotationIntervalMinutes,
-          half: 1,
-        });
-      }
-      expectedRotations.push({
-        rotationNumber: rotationsPerHalf + 1,
-        gameMinute: halfLengthMinutes,
-        half: 2,
-      });
-      for (let index = 1; index <= rotationsPerHalf; index += 1) {
-        expectedRotations.push({
-          rotationNumber: rotationsPerHalf + 1 + index,
-          gameMinute: halfLengthMinutes + index * rotationIntervalMinutes,
-          half: 2,
-        });
-      }
-
-      const getExpectedKey = (rotation: { half?: number | null; gameMinute?: number | null }) => {
-        return `${rotation.half ?? 0}:${rotation.gameMinute ?? 0}`;
-      };
-
-      const expectedByKey = new Map(
-        expectedRotations.map(spec => [getExpectedKey(spec), spec])
-      );
-      const existingByKey = new Map<string, PlannedRotation[]>();
-      for (const rotation of plannedRotations) {
-        const key = getExpectedKey(rotation);
-        const bucket = existingByKey.get(key);
-        if (bucket) {
-          bucket.push(rotation);
-        } else {
-          existingByKey.set(key, [rotation]);
-        }
-      }
-
-      const rowsToDelete: PlannedRotation[] = [];
-      const rowsToUpdateSchedule: Array<{ id: string; rotationNumber: number; gameMinute: number; half: 1 | 2 }> = [];
-      const normalizedExistingRows: PlannedRotation[] = [];
-
-      for (const spec of expectedRotations) {
-        const key = getExpectedKey(spec);
-        const candidates = existingByKey.get(key) ?? [];
-        if (candidates.length === 0) {
-          continue;
-        }
-
-        const preferredMatch = candidates.find(candidate => candidate.rotationNumber === spec.rotationNumber);
-        const deterministicSorted = [...candidates].sort((a, b) => (a.id ?? '').localeCompare(b.id ?? ''));
-        const rowToKeep = preferredMatch ?? deterministicSorted[0];
-
-        normalizedExistingRows.push({
-          ...rowToKeep,
-          rotationNumber: spec.rotationNumber,
-          gameMinute: spec.gameMinute,
-          half: spec.half,
-        });
-
-        if (
-          rowToKeep.rotationNumber !== spec.rotationNumber
-          || rowToKeep.gameMinute !== spec.gameMinute
-          || rowToKeep.half !== spec.half
-        ) {
-          rowsToUpdateSchedule.push({
-            id: rowToKeep.id,
-            rotationNumber: spec.rotationNumber,
-            gameMinute: spec.gameMinute,
-            half: spec.half,
-          });
-        }
-
-        for (const candidate of candidates) {
-          if (candidate.id !== rowToKeep.id) {
-            rowsToDelete.push(candidate);
-          }
-        }
-      }
-
-      for (const rotation of plannedRotations) {
-        const key = getExpectedKey(rotation);
-        if (!expectedByKey.has(key)) {
-          rowsToDelete.push(rotation);
-        }
-      }
-
-      const rowsToDeleteById = new Map<string, PlannedRotation>();
-      for (const rotation of rowsToDelete) {
-        rowsToDeleteById.set(rotation.id, rotation);
-      }
-
-      if (rowsToDeleteById.size > 0) {
-        await Promise.all(
-          Array.from(rowsToDeleteById.values()).map(rotation => client.models.PlannedRotation.delete({ id: rotation.id }))
-        );
-      }
-
-      if (rowsToUpdateSchedule.length > 0) {
-        await Promise.all(
-          rowsToUpdateSchedule.map(update => client.models.PlannedRotation.update(update))
-        );
-      }
-
-      const keptKeys = new Set(normalizedExistingRows.map(rotation => getExpectedKey(rotation)));
-      const missingRotations = expectedRotations.filter(spec => !keptKeys.has(getExpectedKey(spec)));
-
-      const allPlannedRotations = [...normalizedExistingRows];
-      if (missingRotations.length > 0) {
-        let coachId = userId || team.coaches?.[0];
-        if (!coachId) {
-          const currentUser = await getCurrentUser();
-          coachId = currentUser.userId;
-        }
-        const createdRotations = await Promise.all(
-          missingRotations.map(async spec => {
-            const response = await client.models.PlannedRotation.create({
-              gamePlanId: gamePlan.id,
-              rotationNumber: spec.rotationNumber,
-              gameMinute: spec.gameMinute,
-              half: spec.half,
-              plannedSubstitutions: '[]',
-              coaches: [coachId],
-            });
-            if (!response.data) {
-              throw new Error('Failed to create missing planned rotation record');
-            }
-            return response.data as PlannedRotation;
-          })
-        );
-        allPlannedRotations.push(...createdRotations.map(rotation => ({
-          ...rotation,
-          plannedSubstitutions: rotation.plannedSubstitutions ?? '[]',
-        })));
-      }
-      allPlannedRotations.sort((a, b) => {
-        const rotationDiff = (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0);
-        if (rotationDiff !== 0) return rotationDiff;
-        const minuteDiff = (a.gameMinute ?? 0) - (b.gameMinute ?? 0);
-        if (minuteDiff !== 0) return minuteDiff;
-        return (a.half ?? 0) - (b.half ?? 0);
+      // Phase A: normalize schedule rows and create any missing ones
+      const allPlannedRotations = await normalizeAndCreateRotationSchedule({
+        gamePlan,
+        plannedRotations,
+        halfLengthMinutes,
+        rotationIntervalMinutes,
+        userId,
+        team,
       });
 
+      // Phase B: compute fair substitutions and write them to future rotations
       const goaliePos = positions.find(p => {
         const abbr = p.abbreviation?.toUpperCase();
         return abbr === 'GK' || abbr === 'G';
@@ -914,6 +962,104 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
       setIsRecalculating(false);
     }
   };
+
+  const handleOpenCopyModal = useCallback(async () => {
+    if (gameState.status !== 'scheduled') return;
+    setPreviousGamesWithPlans(null); // null = loading state
+    setIsCopyModalOpen(true);
+    try {
+      const [gamesResult, plansResult] = await Promise.all([
+        client.models.Game.list({ filter: { teamId: { eq: team.id } } }),
+        client.models.GamePlan.list(),
+      ]);
+      // Filter plans to only those whose gameId belongs to this team's games
+      const teamGameIds = new Set(gamesResult.data.map(g => g.id));
+      const planGameIds = new Set(
+        plansResult.data
+          .filter(p => teamGameIds.has(p.gameId as string))
+          .map(p => p.gameId as string)
+      );
+      const previous = gamesResult.data
+        .filter(g => g.id !== game.id && planGameIds.has(g.id))
+        .sort((a, b) => {
+          const da = a.gameDate ? new Date(a.gameDate as string).getTime() : 0;
+          const db = b.gameDate ? new Date(b.gameDate as string).getTime() : 0;
+          return db - da; // most recent first
+        })
+        .map(g => ({
+          id: g.id,
+          opponent: g.opponent as string,
+          gameDate: (g.gameDate as string | null | undefined) ?? null,
+        }));
+      setPreviousGamesWithPlans(previous);
+    } catch (error) {
+      handleApiError(error, 'Failed to load previous games');
+      setIsCopyModalOpen(false);
+    }
+  }, [gameState.status, team.id, game.id]);
+
+  const handleCopyFromGame = useCallback(async (sourceGameId: string) => {
+    if (gameState.status !== 'scheduled') return;
+    setIsCopyingPlan(true);
+    try {
+      if (gamePlan) {
+        const confirmed = await confirm({
+          title: 'Replace Existing Plan?',
+          message: 'This will overwrite your current game plan and all rotations. This cannot be undone.',
+          confirmText: 'Replace',
+          variant: 'warning',
+        });
+        if (!confirmed) {
+          return;
+        }
+        const existingRotationsResult = await client.models.PlannedRotation.list({
+          filter: { gamePlanId: { eq: gamePlan.id } },
+        });
+        await Promise.all(
+          existingRotationsResult.data.map(r => client.models.PlannedRotation.delete({ id: r.id }))
+        );
+        await client.models.GamePlan.delete({ id: gamePlan.id });
+      }
+
+      let coachId = userId || (team.coaches as string[])?.[0];
+      if (!coachId) {
+        const currentUser = await getCurrentUser();
+        coachId = currentUser.userId;
+      }
+      const coaches = coachId ? [coachId] : [];
+
+      const newPlan = await copyGamePlan(sourceGameId, game.id, coaches);
+      if (!newPlan) {
+        showError('No plan found on the selected game.');
+        return;
+      }
+
+      // Confirm the new plan exists in DynamoDB before closing modal
+      let writeConfirmed = false;
+      for (let i = 0; i < 5; i++) {
+        await new Promise(resolve => setTimeout(resolve, 400));
+        const check = await client.models.GamePlan.list({
+          filter: { gameId: { eq: game.id } },
+        });
+        if (check.data.some(p => p.id === newPlan.id)) {
+          writeConfirmed = true;
+          break;
+        }
+      }
+      if (!writeConfirmed) {
+        showError('Plan was copied but may not have loaded yet. Please refresh.');
+        return;
+      }
+
+      trackEvent(AnalyticsEvents.COPY_PLAN_FROM_GAME.category, AnalyticsEvents.COPY_PLAN_FROM_GAME.action);
+      showSuccess('Plan copied successfully!');
+      setIsCopyModalOpen(false);
+    } catch (error) {
+      handleApiError(error, 'Failed to copy game plan');
+    } finally {
+      setIsCopyingPlan(false);
+    }
+  }, [gameState.status, gamePlan, game.id, team.coaches, userId, confirm]);
 
   const handleOpenEditGame = useCallback(() => {
     setEditGameOpponent(game.opponent ?? '');
@@ -1986,6 +2132,12 @@ export function GameManagement({ game, team, onBack }: GameManagementProps) {
                   onIntervalChange={handleIntervalChange}
                   onGenerateRotations={handleRecalculateRotations}
                   onUpdatePlannedRotations={handleUpdatePlannedRotations}
+                  isCopyModalOpen={isCopyModalOpen}
+                  previousGamesWithPlans={previousGamesWithPlans ?? undefined}
+                  onOpenCopyModal={handleOpenCopyModal}
+                  onCloseCopyModal={() => setIsCopyModalOpen(false)}
+                  onCopyFromGame={handleCopyFromGame}
+                  isCopyingPlan={isCopyingPlan}
                   {...sharedLineupPanelProps}
                 />
 

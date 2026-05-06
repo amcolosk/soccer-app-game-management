@@ -16,12 +16,12 @@ describe('GamePlanRedirect', () => {
     vi.clearAllMocks();
   });
 
-  it('redirects /game/:gameId/plan to /game/:gameId', () => {
+  it('redirects /game/:gameId/plan to /game/:gameId?tab=plan', () => {
     mockUseParams.mockReturnValue({ gameId: 'game-123' });
 
     render(<GamePlanRedirect />);
 
-    expect(screen.getByTestId('redirect-target')).toHaveTextContent('/game/game-123');
+    expect(screen.getByTestId('redirect-target')).toHaveTextContent('/game/game-123?tab=plan');
   });
 
   it('redirects to home when gameId is missing', () => {

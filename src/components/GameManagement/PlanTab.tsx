@@ -43,6 +43,16 @@ export interface PlannerMutationResult {
   conflictReason?: string;
 }
 
+export interface PreviousGameSummary {
+  id: string;
+  opponent: string;
+  gameDate: string | null;
+}
+
+export interface GenerateRotationsOptions {
+  skipConfirm?: boolean;
+}
+
 interface PlanTabProps {
   /** When true, hides availability grid and mutation controls (for in-progress/halftime viewing). */
   readOnly: boolean;
@@ -75,9 +85,16 @@ interface PlanTabProps {
   /** External handler for halftime lineup changes. Falls back to planner.updateHalftimeLineup. */
   onHalftimeLineupChange?: (lineup: Map<string, string>) => Promise<void>;
   /** Calls calculateFairRotations and persists PlannedRotations. Status-gated in parent. Scheduled only. */
-  onGenerateRotations?: () => void | Promise<void>;
+  onGenerateRotations?: (options?: GenerateRotationsOptions) => void | Promise<void>;
   /** Canonical parent-owned PlannedRotation mutation entrypoint with precondition check. */
   onUpdatePlannedRotations?: (input: PlannedRotationsUpdateInput) => Promise<PlannerMutationResult>;
+  /** Previous games that have a saved plan (for copy feature). undefined = loading, [] = none found. Scheduled only. */
+  previousGamesWithPlans?: PreviousGameSummary[];
+  isCopyModalOpen?: boolean;
+  onOpenCopyModal?: () => void;
+  onCloseCopyModal?: () => void;
+  onCopyFromGame?: (sourceGameId: string) => Promise<void>;
+  isCopyingPlan?: boolean;
 }
 
 export function PlanTab({
@@ -101,6 +118,12 @@ export function PlanTab({
   onHalftimeLineupChange: externalOnHalftimeLineupChange,
   onGenerateRotations,
   onUpdatePlannedRotations,
+  previousGamesWithPlans,
+  isCopyModalOpen = false,
+  onOpenCopyModal,
+  onCloseCopyModal,
+  onCopyFromGame,
+  isCopyingPlan = false,
 }: PlanTabProps) {
   const lineupPlayerIds = lineup.filter(l => l.isStarter).map(l => l.playerId);
   const isScheduled = game.status === "scheduled";
@@ -566,6 +589,9 @@ export function PlanTab({
     setIsSavingPlan(true);
     try {
       const hasPendingHalfLengthChange = halfLengthInput !== derivedHalfLength;
+      const hasPendingRotationIntervalChange =
+        planner.draft.rotationIntervalMinutes !== (gamePlan?.rotationIntervalMinutes ?? 10);
+      const shouldAutoGenerateRotations = hasPendingHalfLengthChange || hasPendingRotationIntervalChange;
       if (hasPendingHalfLengthChange) {
         halfLengthEditingRef.current = false;
         const clamped = Math.max(1, Math.min(99, halfLengthInput));
@@ -577,10 +603,23 @@ export function PlanTab({
       if (planner.isDirty) {
         await planner.savePlan();
       }
+
+      if (shouldAutoGenerateRotations && onGenerateRotations) {
+        await onGenerateRotations({ skipConfirm: true });
+      }
     } finally {
       setIsSavingPlan(false);
     }
-  }, [isScheduled, readOnly, planner, halfLengthInput, derivedHalfLength, onHalfLengthChange]);
+  }, [
+    isScheduled,
+    readOnly,
+    planner,
+    halfLengthInput,
+    derivedHalfLength,
+    gamePlan?.rotationIntervalMinutes,
+    onHalfLengthChange,
+    onGenerateRotations,
+  ]);
 
   const handleRotationIntervalChange = useCallback(
     async (minutes: number) => {
@@ -812,6 +851,8 @@ export function PlanTab({
             {isSavingPlan ? "Saving..." : "Save Settings"}
           </button>
 
+          <p className="rotation-settings-section-label">Populate Rotations</p>
+
           {onGenerateRotations && (
             <button
               onClick={() => void onGenerateRotations()}
@@ -819,6 +860,17 @@ export function PlanTab({
               className="btn-secondary plan-tab__generate-btn"
             >
               {isRecalculating ? "Generating..." : "Generate Rotations"}
+            </button>
+          )}
+
+          {!readOnly && onOpenCopyModal && (
+            <button
+              type="button"
+              onClick={onOpenCopyModal}
+              disabled={isCopyingPlan || isRecalculating}
+              className="btn-secondary plan-tab__generate-btn"
+            >
+              Copy from game
             </button>
           )}
 
@@ -1022,6 +1074,63 @@ export function PlanTab({
                 <span className="playtime-minutes">{row.totalMinutes}m</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* 9. Copy-from-game modal */}
+      {isCopyModalOpen && onCloseCopyModal && (
+        <div
+          className="modal-overlay"
+          onClick={onCloseCopyModal}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="copy-plan-modal-title"
+          aria-busy={isCopyingPlan}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2 id="copy-plan-modal-title">Copy Plan from Game</h2>
+
+            {isCopyingPlan && (
+              <p aria-live="polite" className="copy-plan-status">Copying plan\u2026</p>
+            )}
+
+            <div aria-live="polite">
+              {previousGamesWithPlans === undefined ? (
+                <p>Loading games\u2026</p>
+              ) : previousGamesWithPlans.length === 0 ? (
+                <p className="empty-state">No other games with plans found.</p>
+              ) : (
+                <ul className="previous-games-list">
+                  {previousGamesWithPlans.map((g) => (
+                    <li key={g.id}>
+                      <button
+                        type="button"
+                        className="game-option"
+                        disabled={isCopyingPlan}
+                        onClick={() => void onCopyFromGame?.(g.id)}
+                      >
+                        <div className="game-info">
+                          <strong>{g.opponent}</strong>
+                          {g.gameDate && (
+                            <span>{new Date(g.gameDate).toLocaleDateString()}</span>
+                          )}
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={onCloseCopyModal}
+              disabled={isCopyingPlan}
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}

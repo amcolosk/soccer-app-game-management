@@ -8,10 +8,11 @@ import type { Game, Team } from '../../types/schema';
 // Hoisted mocks
 // ---------------------------------------------------------------------------
 
-const { mockGameGet, mockTeamGet, mockNavigate } = vi.hoisted(() => ({
+const { mockGameGet, mockTeamGet, mockNavigate, mockSetSearchParams } = vi.hoisted(() => ({
   mockGameGet: vi.fn(),
   mockTeamGet: vi.fn(),
   mockNavigate: vi.fn(),
+  mockSetSearchParams: vi.fn(),
 }));
 
 vi.mock('aws-amplify/data', () => ({
@@ -27,11 +28,12 @@ vi.mock('react-router-dom', () => ({
   useParams: vi.fn(),
   useLocation: vi.fn(),
   useNavigate: vi.fn(() => mockNavigate),
+  useSearchParams: vi.fn(() => [new URLSearchParams(), mockSetSearchParams]),
 }));
 
 vi.mock('../GameManagement', () => ({
-  GameManagement: ({ game, team }: { game: Game; team: Team }) => (
-    <div data-testid="game-management">
+  GameManagement: ({ game, team, initialTab }: { game: Game; team: Team; initialTab?: string }) => (
+    <div data-testid="game-management" data-initial-tab={initialTab ?? ''}>
       {game.id}-{team.id}
     </div>
   ),
@@ -42,10 +44,11 @@ vi.mock('../../utils/errorHandler', () => ({
   handleApiError: vi.fn(),
 }));
 
-import { useParams, useLocation } from 'react-router-dom';
+import { useParams, useLocation, useSearchParams } from 'react-router-dom';
 
 const mockUseParams = vi.mocked(useParams);
 const mockUseLocation = vi.mocked(useLocation);
+const mockUseSearchParams = vi.mocked(useSearchParams);
 
 const fakeGame: Game = { id: 'game-1', teamId: 'team-1', status: 'scheduled' } as Game;
 const fakeTeam: Team = { id: 'team-1', name: 'Eagles' } as Team;
@@ -54,7 +57,7 @@ const fakeTeam: Team = { id: 'team-1', name: 'Eagles' } as Team;
 // Helpers
 // ---------------------------------------------------------------------------
 
-function setupWithState(game: Game | null, team: Team | null) {
+function setupWithState(game: Game | null, team: Team | null, searchParams = new URLSearchParams()) {
   mockUseParams.mockReturnValue({ gameId: 'game-1' });
   mockUseLocation.mockReturnValue({
     state: { game, team },
@@ -63,6 +66,7 @@ function setupWithState(game: Game | null, team: Team | null) {
     hash: '',
     key: 'default',
   } as ReturnType<typeof useLocation>);
+  mockUseSearchParams.mockReturnValue([searchParams, mockSetSearchParams] as ReturnType<typeof useSearchParams>);
 }
 
 function setupNoState() {
@@ -74,6 +78,7 @@ function setupNoState() {
     hash: '',
     key: 'default',
   } as ReturnType<typeof useLocation>);
+  mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams] as ReturnType<typeof useSearchParams>);
 }
 
 // ---------------------------------------------------------------------------
@@ -160,5 +165,29 @@ describe('GameManagementRoute', () => {
 
     expect(mockGameGet).not.toHaveBeenCalled();
     expect(mockTeamGet).not.toHaveBeenCalled();
+  });
+
+  it('passes initialTab="plan" to GameManagement when ?tab=plan is in the URL', () => {
+    setupWithState(fakeGame, fakeTeam, new URLSearchParams('tab=plan'));
+
+    render(<GameManagementRoute />);
+
+    expect(screen.getByTestId('game-management')).toHaveAttribute('data-initial-tab', 'plan');
+  });
+
+  it('passes no initialTab when ?tab param is absent', () => {
+    setupWithState(fakeGame, fakeTeam);
+
+    render(<GameManagementRoute />);
+
+    expect(screen.getByTestId('game-management')).toHaveAttribute('data-initial-tab', '');
+  });
+
+  it('passes no initialTab when ?tab param has an invalid value', () => {
+    setupWithState(fakeGame, fakeTeam, new URLSearchParams('tab=invalid'));
+
+    render(<GameManagementRoute />);
+
+    expect(screen.getByTestId('game-management')).toHaveAttribute('data-initial-tab', '');
   });
 });

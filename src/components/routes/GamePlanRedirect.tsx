@@ -11,5 +11,5 @@ export function GamePlanRedirect() {
     return <Navigate to="/" replace />;
   }
   
-  return <Navigate to={`/game/${gameId}`} replace />;
+  return <Navigate to={`/game/${gameId}?tab=plan`} replace />;
 }

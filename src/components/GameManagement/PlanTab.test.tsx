@@ -693,7 +693,14 @@ describe("PlanTab", () => {
 
   it("Save Settings persists half-length edits even when planner draft is otherwise clean", async () => {
     const onHalfLengthChange = vi.fn().mockResolvedValue(undefined);
-    render(<PlanTab {...defaultProps} onHalfLengthChange={onHalfLengthChange} />);
+    const onGenerateRotations = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PlanTab
+        {...defaultProps}
+        onHalfLengthChange={onHalfLengthChange}
+        onGenerateRotations={onGenerateRotations}
+      />
+    );
 
     const saveBtn = screen.getByRole("button", { name: /save settings/i });
     expect(saveBtn).toBeDisabled();
@@ -708,6 +715,7 @@ describe("PlanTab", () => {
       expect(onHalfLengthChange).toHaveBeenCalledWith(35);
     });
     expect(mockPlannerResult.savePlan).not.toHaveBeenCalled();
+    expect(onGenerateRotations).toHaveBeenCalledWith({ skipConfirm: true });
   });
 
   it("disables Save Settings when live gameState half-length matches saved value even if game prop is stale", async () => {
@@ -774,5 +782,46 @@ describe("PlanTab", () => {
     expect(onIntervalChange).not.toHaveBeenCalled();
     expect(onHalftimeLineupChange).not.toHaveBeenCalled();
     expect(onGenerateRotations).not.toHaveBeenCalled();
+  });
+
+  describe("Copy from game button", () => {
+    it("renders 'Copy from game' button when onOpenCopyModal is provided and not readOnly", () => {
+      const onOpenCopyModal = vi.fn();
+      render(
+        <PlanTab
+          {...defaultProps}
+          onOpenCopyModal={onOpenCopyModal}
+        />
+      );
+      expect(screen.getByRole("button", { name: /copy from game/i })).toBeInTheDocument();
+    });
+
+    it("does not render 'Copy from game' button when readOnly is true", () => {
+      render(
+        <PlanTab
+          {...defaultProps}
+          readOnly={true}
+          game={{ ...mockGame, status: "in-progress" } as Game}
+          onOpenCopyModal={vi.fn()}
+        />
+      );
+      expect(screen.queryByRole("button", { name: /copy from game/i })).not.toBeInTheDocument();
+    });
+
+    it("does not render 'Copy from game' button when onOpenCopyModal is not provided", () => {
+      render(<PlanTab {...defaultProps} />);
+      expect(screen.queryByRole("button", { name: /copy from game/i })).not.toBeInTheDocument();
+    });
+
+    it("'Copy from game' button is disabled when isCopyingPlan is true", () => {
+      render(
+        <PlanTab
+          {...defaultProps}
+          onOpenCopyModal={vi.fn()}
+          isCopyingPlan={true}
+        />
+      );
+      expect(screen.getByRole("button", { name: /copy from game/i })).toBeDisabled();
+    });
   });
 });
