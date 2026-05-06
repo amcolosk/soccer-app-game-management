@@ -1,5 +1,5 @@
 ﻿/* eslint-disable @typescript-eslint/no-explicit-any */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PlanTab } from "./PlanTab";
@@ -381,8 +381,11 @@ describe("PlanTab", () => {
     render(<PlanTab {...defaultProps} />);
 
     expect(screen.getByText("Who goes off/on")).toBeInTheDocument();
-    expect(screen.getByText("Player One out")).toBeInTheDocument();
-    expect(screen.getByText("Player Three in")).toBeInTheDocument();
+    const subsSummary = screen.getByLabelText("Rotation substitutions summary");
+    expect(within(subsSummary).getByText("OFF")).toBeInTheDocument();
+    expect(within(subsSummary).getByText("ON")).toBeInTheDocument();
+    expect(within(subsSummary).getByText("Player One")).toBeInTheDocument();
+    expect(within(subsSummary).getByText("Player Three")).toBeInTheDocument();
   });
 
   it("explains Reset to saved behavior in rotation details", () => {

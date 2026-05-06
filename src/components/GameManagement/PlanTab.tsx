@@ -1209,9 +1209,11 @@ export function RotationSubstitutionsList({
         const posLabel = position?.abbreviation || position?.positionName || 'Pos';
         return (
           <div key={idx} className="rotation-subs-list__item">
-            <span className="rotation-subs-list__out">{playerOutName} out</span>
+            <span className="rotation-subs-list__label rotation-subs-list__label--out">OFF</span>
+            <span className="rotation-subs-list__out">{playerOutName}</span>
             <span className="rotation-subs-list__arrow">&rarr;</span>
-            <span className="rotation-subs-list__in">{playerInName} in</span>
+            <span className="rotation-subs-list__label rotation-subs-list__label--in">ON</span>
+            <span className="rotation-subs-list__in">{playerInName}</span>
             <span className="rotation-subs-list__position">({posLabel})</span>
           </div>
         );

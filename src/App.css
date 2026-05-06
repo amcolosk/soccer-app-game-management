@@ -6703,6 +6703,29 @@
   border-radius: 6px;
 }
 
+.rotation-subs-list__label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  height: 1.35rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.rotation-subs-list__label--out {
+  color: #7f1d1d;
+  background: #fee2e2;
+}
+
+.rotation-subs-list__label--in {
+  color: #14532d;
+  background: #dcfce7;
+}
+
 .rotation-subs-list__out {
   color: var(--text-primary);
   font-weight: 500;
@@ -6722,6 +6745,27 @@
   color: var(--text-secondary);
   font-size: 0.8rem;
   margin-left: auto;
+}
+
+@media (max-width: 640px) {
+  .rotation-subs-list__item {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    row-gap: 0.35rem;
+    column-gap: 0.45rem;
+    align-items: center;
+  }
+
+  .rotation-subs-list__arrow {
+    display: none;
+  }
+
+  .rotation-subs-list__position {
+    margin-left: 0;
+    justify-self: end;
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
 }
 
 /* Rotation derived value display */
