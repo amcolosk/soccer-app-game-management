@@ -6206,6 +6206,11 @@
   overflow-x: hidden;
 }
 
+.game-tab-content--page-scroll {
+  max-height: none;
+  overflow: visible;
+}
+
 @supports not (height: 100dvh) {
   .game-tab-content {
     max-height: calc(100vh - 56px - 44px);
@@ -6604,6 +6609,27 @@
   font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.plan-tab__subs-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.plan-tab__subs-summary h5 {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.plan-tab__reset-help {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
 }
 
 .plan-tab__halftime-editor {

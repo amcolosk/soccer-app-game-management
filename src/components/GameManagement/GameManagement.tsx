@@ -2064,7 +2064,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
 
             {activeTab === 'plan' && (
               <div
-                className="pregame-layout game-tab-content"
+                className="pregame-layout game-tab-content game-tab-content--page-scroll"
                 role="tabpanel"
                 id="game-tab-panel-plan"
                 aria-labelledby="game-tab-panel-tab-plan"

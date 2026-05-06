@@ -1029,6 +1029,17 @@ export function PlanTab({
                 </p>
               )}
 
+              {selectedRotation && (
+                <div className="plan-tab__subs-summary" aria-label="Rotation substitutions summary">
+                  <h5>Who goes off/on</h5>
+                  <RotationSubstitutionsList
+                    substitutions={(selectedRotation.plannedSubstitutions as string) ?? "[]"}
+                    players={players}
+                    positions={positions}
+                  />
+                </div>
+              )}
+
               <PlannerLineupView
                 displayLineup={selectedRotationCurrentLineup}
                 positions={positions}
@@ -1043,13 +1054,19 @@ export function PlanTab({
               />
 
               {!readOnly && isScheduled && selectedRotation && (
-                <button
-                  type="button"
-                  className="btn-tertiary plan-tab__reset-rotation-btn"
-                  onClick={() => void handleResetRotation(selectedRotation.rotationNumber)}
-                >
-                  Reset to saved
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="btn-tertiary plan-tab__reset-rotation-btn"
+                    onClick={() => void handleResetRotation(selectedRotation.rotationNumber)}
+                    title="Revert this rotation to the last saved version from the server"
+                  >
+                    Reset to saved
+                  </button>
+                  <p className="plan-tab__reset-help">
+                    Reverts this rotation to your last saved plan.
+                  </p>
+                </>
               )}
             </div>
           )}

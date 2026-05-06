@@ -369,6 +369,40 @@ describe("PlanTab", () => {
     ]);
   });
 
+  it("shows who goes off/on in rotation details", () => {
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      draft: {
+        ...mockPlannerResult.draft,
+        selectedTimelineKey: "rotation-1-rot-1",
+      },
+    });
+
+    render(<PlanTab {...defaultProps} />);
+
+    expect(screen.getByText("Who goes off/on")).toBeInTheDocument();
+    expect(screen.getByText("Player One out")).toBeInTheDocument();
+    expect(screen.getByText("Player Three in")).toBeInTheDocument();
+  });
+
+  it("explains Reset to saved behavior in rotation details", () => {
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      draft: {
+        ...mockPlannerResult.draft,
+        selectedTimelineKey: "rotation-1-rot-1",
+      },
+    });
+
+    render(<PlanTab {...defaultProps} />);
+
+    expect(screen.getByRole("button", { name: /reset to saved/i })).toHaveAttribute(
+      "title",
+      "Revert this rotation to the last saved version from the server"
+    );
+    expect(screen.getByText("Reverts this rotation to your last saved plan.")).toBeInTheDocument();
+  });
+
   it("persists explicit clear when selecting Unassigned in rotation editor", async () => {
     const onUpdatePlannedRotations = vi.fn().mockResolvedValue({
       status: "ok",
