@@ -12,29 +12,29 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 1rem 0;
+  padding: 0.5rem 0;
   margin-bottom: 1rem;
-  border-bottom: 2px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .app-branding {
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-logo {
+  font-size: 1.25rem;
+  line-height: 1;
 }
 
 .app-header h1 {
   color: var(--primary-green);
   margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
   line-height: 1.2;
-}
-
-.app-tagline {
-  margin: 0;
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-  letter-spacing: 0.02em;
 }
 
 /* Bottom Navigation */
