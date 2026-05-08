@@ -1,5 +1,6 @@
 ---
 name: coding-agent
+model: GPT-5.4 (copilot)
 description: "Implement approved plans, update source files, add tests, run targeted commands, and resolve review findings from implementation-planner, architect-agent, ui-designer, validation-agent, or security-engineer. Use for coding only; not for orchestration."
 tools: [read, search, edit, execute]
 user-invocable: false

@@ -282,6 +282,19 @@ describe("PlanTab", () => {
     expect(mockPlannerResult.updateHalftimeLineup).toHaveBeenCalled();
   });
 
+  it("swaps players when assigning an already-selected starter to another position", async () => {
+    render(<PlanTab {...defaultProps} />);
+
+    const pos1Select = screen.getByTestId("position-select-pos-1");
+    await userEvent.selectOptions(pos1Select, "player-2");
+
+    expect(mockPlannerResult.updateStartingLineup).toHaveBeenCalledTimes(1);
+    const updatedMap = mockPlannerResult.updateStartingLineup.mock.calls[0][0] as Map<string, string>;
+
+    expect(updatedMap.get("pos-1")).toBe("player-2");
+    expect(updatedMap.get("pos-2")).toBe("player-1");
+  });
+
   it("keeps halftime lineup selection on rerender and prop refresh", () => {
     const selectTimelineKey = vi.fn();
 
@@ -322,6 +335,41 @@ describe("PlanTab", () => {
 
     expect(screen.getByTestId("position-select-pos-2")).toHaveValue("player-3");
     expect(selectTimelineKey).not.toHaveBeenCalledWith("starting");
+  });
+
+  it("keeps second-half rotations fully assigned when halftime overrides are partial", () => {
+    const partialHalftimeDraft = {
+      ...mockPlannerResult,
+      draft: {
+        ...mockPlannerResult.draft,
+        selectedTimelineKey: "rotation-4-rot-4",
+        // Only one halftime override is stored; other positions must inherit end-of-H1 lineup.
+        halftimeLineup: new Map([[
+          "pos-2",
+          "player-3",
+        ]]),
+      },
+    };
+
+    (useGamePlanner as any).mockReturnValue(partialHalftimeDraft);
+
+    const fiveRotationPlan: PlannedRotation[] = [
+      { id: "rot-1", half: 1, gameMinute: 8, rotationNumber: 1, plannedSubstitutions: "[]" } as PlannedRotation,
+      { id: "rot-2", half: 1, gameMinute: 16, rotationNumber: 2, plannedSubstitutions: "[]" } as PlannedRotation,
+      { id: "rot-3", half: 2, gameMinute: 25, rotationNumber: 3, plannedSubstitutions: "[]" } as PlannedRotation,
+      { id: "rot-4", half: 2, gameMinute: 33, rotationNumber: 4, plannedSubstitutions: "[]" } as PlannedRotation,
+      { id: "rot-5", half: 2, gameMinute: 41, rotationNumber: 5, plannedSubstitutions: "[]" } as PlannedRotation,
+    ];
+
+    render(
+      <PlanTab
+        {...defaultProps}
+        plannedRotations={fiveRotationPlan}
+      />
+    );
+
+    expect(screen.getByTestId("position-select-pos-1")).toHaveValue("player-1");
+    expect(screen.getByTestId("position-select-pos-2")).toHaveValue("player-3");
   });
 
   it("allows editing a rotation and submits through parent-owned update callback", async () => {
@@ -365,6 +413,11 @@ describe("PlanTab", () => {
         playerOutId: "player-1",
         playerInId: "player-2",
         positionId: "pos-1",
+      },
+      {
+        playerOutId: "player-2",
+        playerInId: "player-3",
+        positionId: "pos-2",
       },
     ]);
   });
@@ -537,6 +590,11 @@ describe("PlanTab", () => {
             playerOutId: "player-1",
             playerInId: "player-2",
             positionId: "pos-1",
+          },
+          {
+            playerOutId: "player-2",
+            playerInId: "player-3",
+            positionId: "pos-2",
           },
         ]),
       } as PlannedRotation,

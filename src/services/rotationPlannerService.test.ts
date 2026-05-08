@@ -766,6 +766,46 @@ describe('rotationPlannerService', () => {
       expect(incomingIds).toContain('p5');
       expect(incomingIds).not.toContain('p4');
     });
+
+    it('keeps every rotation fully filled with unique players', () => {
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' },
+        { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: 'pos2' },
+        { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: 'pos3' },
+        { id: 'r4', playerId: 'p4', playerNumber: 4, preferredPositions: 'pos4' },
+        { id: 'r5', playerId: 'p5', playerNumber: 5, preferredPositions: 'pos5' },
+        { id: 'r6', playerId: 'p6', playerNumber: 6, preferredPositions: 'pos6' },
+        { id: 'r7', playerId: 'p7', playerNumber: 7, preferredPositions: 'pos1,pos3' },
+        { id: 'r8', playerId: 'p8', playerNumber: 8, preferredPositions: 'pos2,pos4' },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+        { playerId: 'p4', positionId: 'pos4' },
+        { playerId: 'p5', positionId: 'pos5' },
+        { playerId: 'p6', positionId: 'pos6' },
+      ];
+
+      const { rotations } = calculateFairRotations(players, startingLineup, 4, 2, 6);
+
+      const fieldByPosition = new Map<string, string>(
+        startingLineup.map((entry) => [entry.positionId, entry.playerId])
+      );
+
+      expect(fieldByPosition.size).toBe(6);
+
+      for (const rotation of rotations) {
+        rotation.substitutions.forEach((sub) => {
+          fieldByPosition.set(sub.positionId, sub.playerInId);
+        });
+
+        expect(fieldByPosition.size).toBe(6);
+        const onFieldPlayers = Array.from(fieldByPosition.values());
+        expect(new Set(onFieldPlayers).size).toBe(6);
+      }
+    });
   });
 
   describe('calculatePlayTime', () => {
@@ -969,6 +1009,44 @@ describe('rotationPlannerService', () => {
       expect(playTimeMap.get('p7')?.totalMinutes).toBe(10);
       // p8 plays 20-60 = 40 minutes
       expect(playTimeMap.get('p8')?.totalMinutes).toBe(40);
+    });
+
+    it('reports exact player minutes for a known rotation plan', () => {
+      const rotations = [
+        {
+          id: 'rot1',
+          rotationNumber: 1,
+          gameMinute: 10,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p1', playerInId: 'p3', positionId: 'pos1' },
+          ]),
+        },
+        {
+          id: 'rot2',
+          rotationNumber: 2,
+          gameMinute: 20,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p2', playerInId: 'p4', positionId: 'pos2' },
+          ]),
+        },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+      ];
+
+      const playTimeMap = calculatePlayTime(
+        rotations as any,
+        startingLineup,
+        10,
+        30
+      );
+
+      expect(playTimeMap.get('p1')?.totalMinutes).toBe(10);
+      expect(playTimeMap.get('p2')?.totalMinutes).toBe(20);
+      expect(playTimeMap.get('p3')?.totalMinutes).toBe(20);
+      expect(playTimeMap.get('p4')?.totalMinutes).toBe(10);
     });
 
     it('should handle player subbed out and back in later', () => {

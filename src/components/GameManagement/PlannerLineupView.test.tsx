@@ -64,4 +64,30 @@ describe("PlannerLineupView", () => {
 
     expect(screen.getByText("No positions defined for this formation yet.")).toBeInTheDocument();
   });
+
+  it("surfaces preferred players first in dropdown options", () => {
+    const multiPlayers = [
+      { id: "player-1", firstName: "Alex", lastName: "Morgan", playerNumber: 10, preferredPositions: "pos-2" },
+      { id: "player-2", firstName: "Sam", lastName: "Kerr", playerNumber: 8, preferredPositions: "pos-1" },
+      { id: "player-3", firstName: "Mia", lastName: "Hamm", playerNumber: 9 },
+    ] as PlayerWithRoster[];
+
+    render(
+      <PlannerLineupView
+        displayLineup={new Map()}
+        positions={[
+          { id: "pos-1", abbreviation: "FW", positionName: "Forward" } as FormationPosition,
+        ]}
+        players={multiPlayers}
+        isReadOnly={false}
+      />
+    );
+
+    const select = screen.getByRole("combobox", { name: "Player for FW" });
+    const options = Array.from(select.querySelectorAll("option")).map((option) => option.textContent);
+
+    expect(options[1]).toBe("⭐ #8 Sam Kerr");
+    expect(options).toContain("#10 Alex Morgan");
+    expect(options).toContain("#9 Mia Hamm");
+  });
 });

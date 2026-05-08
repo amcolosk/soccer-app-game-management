@@ -1,5 +1,6 @@
 ---
 name: security-engineer
+model: GPT-5.4 (copilot)
 description: "Review completed implementation for authentication, authorization, data exposure, injection risk, secrets handling, unsafe workflows, and other security issues. Use for security review only; not for implementation or orchestration."
 tools: [read, search, execute]
 user-invocable: false

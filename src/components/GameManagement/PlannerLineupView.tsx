@@ -71,6 +71,20 @@ export function PlannerLineupView({
   game,
   team,
 }: PlannerLineupViewProps) {
+  const parsePreferredPositions = (preferredPositions?: string): Set<string> => {
+    if (!preferredPositions) return new Set<string>();
+    return new Set(
+      preferredPositions
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
+  };
+
+  const getPlayerDisplayName = (player: PlayerWithRoster): string => {
+    return `${player.firstName ?? ""} ${player.lastName ?? ""}`.trim() || player.id;
+  };
+
   const syntheticAssignments = useMemo(
     () => displayLineupToAssignments(displayLineup),
     [displayLineup],
@@ -166,6 +180,22 @@ export function PlannerLineupView({
         const assignedPlayerId = displayLineup.get(pos.id) ?? "";
         const assignedPlayer = assignedPlayerId ? playerMap.get(assignedPlayerId) : null;
         const posLabel = pos.abbreviation || pos.positionName || "Position";
+        const sortedPlayers = [...players].sort((a, b) => {
+          const aPreferred = parsePreferredPositions(a.preferredPositions).has(pos.id);
+          const bPreferred = parsePreferredPositions(b.preferredPositions).has(pos.id);
+
+          if (aPreferred !== bPreferred) {
+            return aPreferred ? -1 : 1;
+          }
+
+          const aNum = a.playerNumber ?? Number.MAX_SAFE_INTEGER;
+          const bNum = b.playerNumber ?? Number.MAX_SAFE_INTEGER;
+          if (aNum !== bNum) {
+            return aNum - bNum;
+          }
+
+          return getPlayerDisplayName(a).localeCompare(getPlayerDisplayName(b));
+        });
 
         return (
           <div key={pos.id} className="planner-lineup-view__row">
@@ -173,8 +203,7 @@ export function PlannerLineupView({
             {isReadOnly ? (
               <span className="planner-lineup-view__player-name">
                 {assignedPlayer
-                  ? `${assignedPlayer.firstName ?? ""} ${assignedPlayer.lastName ?? ""}`.trim() ||
-                    "Unassigned"
+                  ? getPlayerDisplayName(assignedPlayer) || "Unassigned"
                   : "Unassigned"}
               </span>
             ) : (
@@ -187,11 +216,27 @@ export function PlannerLineupView({
                 }}
               >
                 <option value="">Unassigned</option>
-                {players.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {`${p.firstName ?? ""} ${p.lastName ?? ""}`.trim() || p.id}
-                  </option>
-                ))}
+                {sortedPlayers
+                  .filter((p) => {
+                    // Always show the currently assigned player; hide players assigned to other positions
+                    if (p.id === assignedPlayerId) return true;
+                    for (const [pid, vid] of displayLineup.entries()) {
+                      if (pid !== pos.id && vid === p.id) return false;
+                    }
+                    return true;
+                  })
+                  .map((p) => {
+                    const isPreferred = parsePreferredPositions(p.preferredPositions).has(pos.id);
+                    const num = p.playerNumber != null ? `#${p.playerNumber} ` : '';
+                    const displayName = `${num}${getPlayerDisplayName(p)}`;
+                    const label = isPreferred ? `⭐ ${displayName}` : displayName;
+
+                    return (
+                    <option key={p.id} value={p.id}>
+                      {label}
+                    </option>
+                    );
+                  })}
               </select>
             )}
           </div>

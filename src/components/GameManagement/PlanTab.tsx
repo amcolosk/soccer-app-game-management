@@ -53,6 +53,38 @@ export interface GenerateRotationsOptions {
   skipConfirm?: boolean;
 }
 
+function applyUniqueAssignment(
+  baseLineup: Map<string, string>,
+  positionId: string,
+  playerId: string
+): Map<string, string> {
+  const next = new Map(baseLineup);
+
+  if (!playerId) {
+    next.delete(positionId);
+    return next;
+  }
+
+  const currentAtTarget = next.get(positionId);
+  const existingPositions: string[] = [];
+  for (const [posId, assignedId] of next.entries()) {
+    if (assignedId === playerId && posId !== positionId) {
+      existingPositions.push(posId);
+    }
+  }
+
+  for (const posId of existingPositions) {
+    next.delete(posId);
+  }
+
+  if (existingPositions.length > 0 && currentAtTarget && currentAtTarget !== playerId) {
+    next.set(existingPositions[0], currentAtTarget);
+  }
+
+  next.set(positionId, playerId);
+  return next;
+}
+
 interface PlanTabProps {
   /** When true, hides availability grid and mutation controls (for in-progress/halftime viewing). */
   readOnly: boolean;
@@ -266,8 +298,8 @@ export function PlanTab({
   // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ H2 seeding Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   const isSelectedH2 = selectedTimelineItem?.rotation?.half === 2;
 
-  // Effective halftime lineup: prefer external prop, else planner draft.
-  const effectiveHalftimeLineup = externalHalftimeLineup ?? planner.draft.halftimeLineup;
+  // Explicit halftime overrides from persisted data/draft (may be partial).
+  const explicitHalftimeLineup = externalHalftimeLineup ?? planner.draft.halftimeLineup;
 
   // H2-only rows for computing lineups seeded from halftime.
   const h2RotationRows = useMemo(
@@ -281,6 +313,39 @@ export function PlanTab({
         })),
     [effectivePlannedRotations]
   );
+
+  const h1RotationRows = useMemo(
+    () =>
+      effectivePlannedRotations
+        .filter((r) => r.half === 1)
+        .sort((a, b) => (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0))
+        .map((r) => ({
+          rotationNumber: r.rotationNumber ?? 0,
+          plannedSubstitutions: (r.plannedSubstitutions as string) ?? "[]",
+        })),
+    [effectivePlannedRotations]
+  );
+
+  const endOfFirstHalfLineup = useMemo(() => {
+    if (h1RotationRows.length === 0) {
+      return new Map(planner.draft.startingLineup);
+    }
+    const lastH1RotationNumber = h1RotationRows[h1RotationRows.length - 1].rotationNumber;
+    return computeLineupAtRotation(planner.draft.startingLineup, h1RotationRows, lastH1RotationNumber);
+  }, [planner.draft.startingLineup, h1RotationRows]);
+
+  // H2 must always start from a full lineup: end-of-H1 plus any explicit halftime overrides.
+  const effectiveHalftimeLineup = useMemo(() => {
+    const merged = new Map(endOfFirstHalfLineup);
+    for (const [posId, playerId] of explicitHalftimeLineup.entries()) {
+      if (playerId) {
+        merged.set(posId, playerId);
+      } else {
+        merged.delete(posId);
+      }
+    }
+    return merged;
+  }, [endOfFirstHalfLineup, explicitHalftimeLineup]);
 
   const rotationRowsForLineup = useMemo(
     () =>
@@ -451,8 +516,7 @@ export function PlanTab({
   const handleStartingLineupChange = useCallback(
     async (positionId: string, playerId: string) => {
       if (!isScheduled || readOnly) return;
-      const newLineup = new Map(planner.draft.startingLineup);
-      if (playerId) { newLineup.set(positionId, playerId); } else { newLineup.delete(positionId); }
+      const newLineup = applyUniqueAssignment(planner.draft.startingLineup, positionId, playerId);
       await planner.updateStartingLineup(newLineup);
     },
     [isScheduled, readOnly, planner]
@@ -462,8 +526,7 @@ export function PlanTab({
   const handleHtPositionChange = useCallback(
     async (positionId: string, playerId: string) => {
       if (!isScheduled || readOnly) return;
-      const newLineup = new Map(effectiveHalftimeLineup);
-      if (playerId) { newLineup.set(positionId, playerId); } else { newLineup.delete(positionId); }
+      const newLineup = applyUniqueAssignment(effectiveHalftimeLineup, positionId, playerId);
       if (externalOnHalftimeLineupChange) {
         await externalOnHalftimeLineupChange(newLineup);
       } else {
@@ -477,23 +540,13 @@ export function PlanTab({
   const handleRotationPositionChange = useCallback(
     (positionId: string, playerId: string) => {
       if (!isScheduled || readOnly || selectedRotationNumber == null || !onUpdatePlannedRotations) return;
-      const newRotationLineup = new Map(selectedRotationCurrentLineup);
-      if (playerId) { newRotationLineup.set(positionId, playerId); } else { newRotationLineup.delete(positionId); }
+      const newRotationLineup = applyUniqueAssignment(selectedRotationCurrentLineup, positionId, playerId);
       const editedSubs = computeLineupDiff(selectedRotationBeforeLineup, newRotationLineup);
 
       // H2 cascade seed: project halftime lineup from H1 rotations + HT override.
       let h2CascadeSeed: Map<string, string> | undefined;
       if (isSelectedH2) {
-        const h1Rows = effectivePlannedRotations
-          .filter((r) => r.half === 1)
-          .sort((a, b) => (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0))
-          .map((r) => ({
-            rotationNumber: r.rotationNumber ?? 0,
-            plannedSubstitutions: (r.plannedSubstitutions as string) ?? "[]",
-          }));
-        const lastH1RotNum = h1Rows.length > 0 ? h1Rows[h1Rows.length - 1].rotationNumber : 0;
-        const lineupAfterH1 = computeLineupAtRotation(planner.draft.startingLineup, h1Rows, lastH1RotNum);
-        const seed = new Map(lineupAfterH1);
+        const seed = new Map(endOfFirstHalfLineup);
         for (const [posId, pid] of effectiveHalftimeLineup.entries()) {
           if (pid) { seed.set(posId, pid); } else { seed.delete(posId); }
         }
@@ -540,6 +593,7 @@ export function PlanTab({
       selectedRotationCurrentLineup, selectedRotationBeforeLineup,
       isSelectedH2, planner.draft.startingLineup, planner.remoteFingerprint,
       effectivePlannedRotations, effectiveHalftimeLineup, plannedRotations, persistRotationChange,
+      endOfFirstHalfLineup,
     ]
   );
 

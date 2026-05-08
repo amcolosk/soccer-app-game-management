@@ -1126,11 +1126,12 @@ export function Management() {
                                           <div key={roster.id} className="position-player-tag">
                                             <span>#{roster.playerNumber} {player.firstName} {player.lastName}</span>
                                             <button
+                                              type="button"
                                               onClick={() => handleTogglePlayerPosition(roster.id, position.id, false)}
                                               className="btn-remove-tag"
                                               aria-label={`Remove ${player.firstName} from ${position.abbreviation}`}
                                             >
-                                              Remove
+                                              ✕
                                             </button>
                                           </div>
                                         );
@@ -1369,12 +1370,12 @@ export function Management() {
                                       ✎
                                     </button>
                                     <button
+                                      type="button"
                                       onClick={() => handleRemovePlayerFromRoster(roster.id)}
                                       className="btn-delete"
-                                      style={{ fontSize: '0.9em' }}
-                                      aria-label="Remove from roster"
+                                      aria-label={`Remove ${player.firstName} from roster`}
                                     >
-                                      Remove
+                                      ✕
                                     </button>
                                   </div>
                                 </div>
