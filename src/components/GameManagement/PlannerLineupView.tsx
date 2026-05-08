@@ -6,8 +6,9 @@
  * the `onPositionAssign` callback. Never calls DynamoDB directly.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { LineupShapeView } from "./shape/LineupShapeView";
+import { useAvailability } from "../../contexts/AvailabilityContext";
 import type {
   FormationPosition,
   Game,
@@ -15,6 +16,13 @@ import type {
   LineupAssignment,
   Team,
 } from "./types";
+
+// Goalkeeper abbreviations per Rule 1.5 — must stay in sync with rotationPlannerService.ts.
+const GK_ABBREVIATIONS = new Set(['GK', 'G', 'GOL', 'GOAL']);
+
+function isGoalkeeperPosition(pos: FormationPosition): boolean {
+  return GK_ABBREVIATIONS.has((pos.abbreviation ?? '').toUpperCase().trim());
+}
 
 export interface PlannerLineupViewProps {
   /** Planner lineup: positionId → playerId (empty string or missing = unassigned) */
@@ -71,6 +79,12 @@ export function PlannerLineupView({
   game,
   team,
 }: PlannerLineupViewProps) {
+  const { getPlayerAvailability } = useAvailability();
+  const [dragSource, setDragSource] = useState<{
+    playerId: string;
+    sourcePositionId: string | null;
+  } | null>(null);
+
   const parsePreferredPositions = (preferredPositions?: string): Set<string> => {
     if (!preferredPositions) return new Set<string>();
     return new Set(
@@ -93,6 +107,16 @@ export function PlannerLineupView({
   const playerMap = useMemo(
     () => new Map(players.map((p) => [p.id, p])),
     [players],
+  );
+
+  const assignedPlayerIds = useMemo(
+    () => new Set(Array.from(displayLineup.values()).filter(Boolean)),
+    [displayLineup],
+  );
+
+  const benchPlayers = useMemo(
+    () => players.filter((player) => !assignedPlayerIds.has(player.id)),
+    [assignedPlayerIds, players],
   );
 
   const supportsShapeToggle = Boolean(onViewModeChange && game && team);
@@ -164,7 +188,132 @@ export function PlannerLineupView({
     );
   }
 
-  // List view: simple position → player-select grid.
+  const isUnavailableStatus = (status: string): boolean =>
+    status === "absent" || status === "injured";
+
+  const getPreferredPositionLabels = (player: PlayerWithRoster): string => {
+    const preferredIds = Array.from(parsePreferredPositions(player.preferredPositions));
+    if (preferredIds.length === 0) return "";
+
+    const labels = positions
+      .filter((position) => preferredIds.includes(position.id))
+      .map((position) => position.abbreviation || position.positionName)
+      .filter(Boolean);
+
+    return labels.length > 0 ? `(${labels.join(", ")})` : "";
+  };
+
+  const isGoalkeeperEligible = (player: PlayerWithRoster, position: FormationPosition): boolean => {
+    if (!isGoalkeeperPosition(position)) return true;
+    return parsePreferredPositions(player.preferredPositions).has(position.id);
+  };
+
+  const getSortedPlayersForPosition = (
+    position: FormationPosition,
+    assignedPlayerId: string,
+  ): PlayerWithRoster[] => {
+    return [...players]
+      .filter((player) => {
+        if (isGoalkeeperPosition(position) && player.id !== assignedPlayerId) {
+          if (!parsePreferredPositions(player.preferredPositions).has(position.id)) return false;
+        }
+
+        if (player.id === assignedPlayerId) return true;
+
+        for (const [positionId, playerId] of displayLineup.entries()) {
+          if (positionId !== position.id && playerId === player.id) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        const aPreferred = parsePreferredPositions(a.preferredPositions).has(position.id);
+        const bPreferred = parsePreferredPositions(b.preferredPositions).has(position.id);
+
+        if (aPreferred !== bPreferred) {
+          return aPreferred ? -1 : 1;
+        }
+
+        const aNum = a.playerNumber ?? Number.MAX_SAFE_INTEGER;
+        const bNum = b.playerNumber ?? Number.MAX_SAFE_INTEGER;
+        if (aNum !== bNum) {
+          return aNum - bNum;
+        }
+
+        return getPlayerDisplayName(a).localeCompare(getPlayerDisplayName(b));
+      });
+  };
+
+  const handleDragStart = (playerId: string, sourcePositionId: string | null) => {
+    const player = playerMap.get(playerId);
+    if (!player) return;
+
+    const status = getPlayerAvailability(playerId);
+    if (isUnavailableStatus(status)) return;
+
+    setDragSource({ playerId, sourcePositionId });
+  };
+
+  const clearDragSource = () => {
+    setDragSource(null);
+  };
+
+  const handleDropOnPosition = (targetPosition: FormationPosition) => {
+    if (!dragSource || isReadOnly) return;
+
+    const draggedPlayer = playerMap.get(dragSource.playerId);
+    if (!draggedPlayer) {
+      clearDragSource();
+      return;
+    }
+
+    if (!isGoalkeeperEligible(draggedPlayer, targetPosition)) {
+      clearDragSource();
+      return;
+    }
+
+    const targetPlayerId = displayLineup.get(targetPosition.id) ?? "";
+    const targetPlayer = targetPlayerId ? playerMap.get(targetPlayerId) : null;
+
+    if (dragSource.sourcePositionId === targetPosition.id) {
+      clearDragSource();
+      return;
+    }
+
+    if (dragSource.sourcePositionId === null) {
+      onPositionAssign?.(targetPosition.id, dragSource.playerId);
+      clearDragSource();
+      return;
+    }
+
+    if (targetPlayer) {
+      const sourcePosition = positions.find((position) => position.id === dragSource.sourcePositionId);
+      if (sourcePosition && !isGoalkeeperEligible(targetPlayer, sourcePosition)) {
+        clearDragSource();
+        return;
+      }
+    }
+
+    onPositionAssign?.(targetPosition.id, dragSource.playerId);
+    if (targetPlayerId) {
+      onPositionAssign?.(dragSource.sourcePositionId, targetPlayerId);
+    } else {
+      onPositionAssign?.(dragSource.sourcePositionId, "");
+    }
+    clearDragSource();
+  };
+
+  const handleDropOnBench = () => {
+    if (!dragSource || isReadOnly) return;
+    if (!dragSource.sourcePositionId) {
+      clearDragSource();
+      return;
+    }
+
+    onPositionAssign?.(dragSource.sourcePositionId, "");
+    clearDragSource();
+  };
+
   return (
     <div
       className="planner-lineup-view planner-lineup-view--list"
@@ -176,72 +325,127 @@ export function PlannerLineupView({
           No positions defined for this formation yet.
         </p>
       )}
-      {positions.map((pos) => {
-        const assignedPlayerId = displayLineup.get(pos.id) ?? "";
-        const assignedPlayer = assignedPlayerId ? playerMap.get(assignedPlayerId) : null;
-        const posLabel = pos.abbreviation || pos.positionName || "Position";
-        const sortedPlayers = [...players].sort((a, b) => {
-          const aPreferred = parsePreferredPositions(a.preferredPositions).has(pos.id);
-          const bPreferred = parsePreferredPositions(b.preferredPositions).has(pos.id);
+      {positions.length > 0 && (
+        <>
+          <div className="position-lineup-grid">
+            {positions.map((pos) => {
+              const assignedPlayerId = displayLineup.get(pos.id) ?? "";
+              const assignedPlayer = assignedPlayerId ? playerMap.get(assignedPlayerId) : null;
+              const posLabel = pos.abbreviation || pos.positionName || "Position";
+              const playerStatus = assignedPlayer ? getPlayerAvailability(assignedPlayer.id) : "available";
+              const isUnavailable = isUnavailableStatus(playerStatus);
+              const sortedPlayers = getSortedPlayersForPosition(pos, assignedPlayerId);
 
-          if (aPreferred !== bPreferred) {
-            return aPreferred ? -1 : 1;
-          }
-
-          const aNum = a.playerNumber ?? Number.MAX_SAFE_INTEGER;
-          const bNum = b.playerNumber ?? Number.MAX_SAFE_INTEGER;
-          if (aNum !== bNum) {
-            return aNum - bNum;
-          }
-
-          return getPlayerDisplayName(a).localeCompare(getPlayerDisplayName(b));
-        });
-
-        return (
-          <div key={pos.id} className="planner-lineup-view__row">
-            <span className="planner-lineup-view__position-label">{posLabel}</span>
-            {isReadOnly ? (
-              <span className="planner-lineup-view__player-name">
-                {assignedPlayer
-                  ? getPlayerDisplayName(assignedPlayer) || "Unassigned"
-                  : "Unassigned"}
-              </span>
-            ) : (
-              <select
-                className="planner-lineup-view__select"
-                value={assignedPlayerId}
-                aria-label={`Player for ${posLabel}`}
-                onChange={(e) => {
-                  onPositionAssign?.(pos.id, e.target.value);
-                }}
-              >
-                <option value="">Unassigned</option>
-                {sortedPlayers
-                  .filter((p) => {
-                    // Always show the currently assigned player; hide players assigned to other positions
-                    if (p.id === assignedPlayerId) return true;
-                    for (const [pid, vid] of displayLineup.entries()) {
-                      if (pid !== pos.id && vid === p.id) return false;
+              return (
+                <div
+                  key={pos.id}
+                  className="position-slot"
+                  onDragOver={(event) => {
+                    if (!isReadOnly) {
+                      event.preventDefault();
                     }
-                    return true;
-                  })
-                  .map((p) => {
-                    const isPreferred = parsePreferredPositions(p.preferredPositions).has(pos.id);
-                    const num = p.playerNumber != null ? `#${p.playerNumber} ` : '';
-                    const displayName = `${num}${getPlayerDisplayName(p)}`;
-                    const label = isPreferred ? `⭐ ${displayName}` : displayName;
+                  }}
+                  onDrop={() => {
+                    handleDropOnPosition(pos);
+                  }}
+                >
+                  <div className="position-label">{posLabel}</div>
+                  {assignedPlayer ? (
+                    <div
+                      className={`assigned-player ${isUnavailable ? "unavailable" : ""}`.trim()}
+                      draggable={!isReadOnly && !isUnavailable}
+                      onDragStart={() => handleDragStart(assignedPlayer.id, pos.id)}
+                      onDragEnd={clearDragSource}
+                    >
+                      <span className="player-number">#{assignedPlayer.playerNumber || 0}</span>
+                      <span className="player-name-short">{getPlayerDisplayName(assignedPlayer)}</span>
+                      {!isReadOnly && (
+                        <button
+                          type="button"
+                          className="remove-player"
+                          aria-label={`Remove ${getPlayerDisplayName(assignedPlayer)} from ${posLabel}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onPositionAssign?.(pos.id, "");
+                          }}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ) : isReadOnly ? (
+                    <div className="planner-lineup-view__empty-slot">Unassigned</div>
+                  ) : (
+                    <select
+                      className="player-select"
+                      value={assignedPlayerId}
+                      aria-label={`Player for ${posLabel}`}
+                      onChange={(e) => {
+                        onPositionAssign?.(pos.id, e.target.value);
+                      }}
+                    >
+                      <option value="">Unassigned</option>
+                      {sortedPlayers.map((player) => {
+                        const isPreferred = parsePreferredPositions(player.preferredPositions).has(pos.id);
+                        const num = player.playerNumber != null ? `#${player.playerNumber} ` : "";
+                        const displayName = `${num}${getPlayerDisplayName(player)}`;
+                        const optionLabel = isPreferred ? `⭐ ${displayName}` : displayName;
 
-                    return (
-                    <option key={p.id} value={p.id}>
-                      {label}
-                    </option>
-                    );
-                  })}
-              </select>
+                        return (
+                          <option key={player.id} value={player.id}>
+                            {optionLabel}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div
+            className="bench-area"
+            onDragOver={(event) => {
+              if (!isReadOnly) {
+                event.preventDefault();
+              }
+            }}
+            onDrop={handleDropOnBench}
+          >
+            <h4>Bench</h4>
+            {benchPlayers.length === 0 ? (
+              <p className="planner-lineup-view__bench-empty">All available players assigned.</p>
+            ) : (
+              <div className="bench-players">
+                {benchPlayers.map((player) => {
+                  const status = getPlayerAvailability(player.id);
+                  const isUnavailable = isUnavailableStatus(status);
+                  const preferredPositions = getPreferredPositionLabels(player);
+
+                  return (
+                    <div
+                      key={player.id}
+                      className={`bench-player ${isUnavailable ? "unavailable" : ""}`.trim()}
+                      draggable={!isReadOnly && !isUnavailable}
+                      onDragStart={() => handleDragStart(player.id, null)}
+                      onDragEnd={clearDragSource}
+                    >
+                      <span className="player-number">#{player.playerNumber || 0}</span>
+                      <span className="player-name">
+                        {getPlayerDisplayName(player)}
+                        {preferredPositions ? (
+                          <span className="planner-lineup-view__preferred-positions"> {preferredPositions}</span>
+                        ) : null}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
-        );
-      })}
+        </>
+      )}
     </div>
   );
 }

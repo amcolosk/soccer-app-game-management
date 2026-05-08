@@ -24,6 +24,18 @@ These are rules where the system needs to weigh options and make the "best" choi
 * **Rule 2.4 - Playtime Equality:** The rotation algorithm shall attempt to minimize the variance in total playtime among all non-goalie players by the end of the game. (i.e., The system should aim to give everyone roughly equal minutes, treating the 50% rule as a floor, not a target).
 * **Rule 2.5 - Play per Half:** The rotation algorithm shall attempt to have all players on the field at least once each half of the game.  
 
+---
+
+## 3. In-Game Adjustments & Dynamic Replanning (State Conflicts)
+These rules apply when the pre-game plan encounters real-world variations during the match, rendering the original schedule stale. The system relies on the coach to manually trigger a recalculation when the plan becomes stale.
+
+* **Rule 3.1 - Late Arrival / Status Change Integration:** If a player's attendance status changes from "absent/unavailable" to "present/available" during the game, the system must allow the coach to manually regenerate the remaining plan from the current timestamp forward. The late player's minimum playtime target (Rule 1.3) shall be prorated based on their remaining available game time.
+* **Rule 3.2 - Injury / Early Departure Rebalancing:** If a player is marked as injured or leaves early, the system must allow the coach to manually regenerate the remaining plan. The newly generated schedule will distribute the open minutes among the remaining players while adhering to Rule 2.4 (Equality) and maintaining fatigue rules (Rule 2.3).
+* **Rule 3.3 - Manual Override Conflict Resolution:** If a coach manually overrides a scheduled rotation (e.g., changes who goes in/out or ignores a planned substitution), the actual on-field state becomes the new "source of truth." When the coach triggers a recalculation, the algorithm must use this new baseline to generate future scheduled rotations, ensuring Rule 1.1 (Cloning) and Rule 1.2 (Sub Flow) are not violated.
+* **Rule 3.4 - Stale Plan Warning:** If an in-game event or manual override creates a conflict with the *next* planned rotation (e.g., a player scheduled to sub in is already on the field, or a player scheduled to sub out is already on the bench), the system must flag the plan as "stale" or "conflicted" and prompt the coach to manually resolve the conflict or regenerate the plan.
+
+---
+
 # Test Suite: 5v5 Rotation Algorithm (7-Player Roster)
 
 **Baseline Testing Environment:**
@@ -102,6 +114,14 @@ These are rules where the system needs to weigh options and make the "best" choi
 * **Setup:** Only 5 players are marked as "present." One of them has "GK" preferred.
 * **Expected Result:** * All 5 players are scheduled for 40 minutes (100% playtime).
     * (Rule 2.3) Shift length maximums and positional fatigue rules are ignored, as substitutions are impossible.
+
+**TC-11: Manual Override Conflict Detection**
+* **Objective:** Validate Rule 3.3 and 3.4 when a coach deviates from the plan.
+* **Setup:** At minute 15, Player A is scheduled to sub OUT and Player B is scheduled to sub IN. The coach manually overrides this, leaving Player A on the field and keeping Player B on the bench. In the next scheduled rotation at minute 20, Player B was originally planned to sub OUT.
+* **Expected Result:**
+    * (Rule 3.4) The system flags the minute 20 rotation as conflicted because Player B cannot sub OUT (they are already on the bench) and prompts the coach to regenerate.
+    * (Rule 3.3) Upon the coach selecting to regenerate, the system uses the actual minute 15 state to generate a valid minute 20 rotation, ensuring no "cloning" or invalid flow.
+
 ---
 
 ## Test Suite: 9v9 Rotation Algorithm (14–16 Player Roster)

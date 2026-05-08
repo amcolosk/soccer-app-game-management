@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PlanTab } from "./PlanTab";
+import { PlanTab, RotationSubstitutionsList } from "./PlanTab";
 import type {
   FormationPosition,
   Game,
@@ -918,5 +918,32 @@ describe("PlanTab", () => {
       );
       expect(screen.getByRole("button", { name: /copy from game/i })).toBeDisabled();
     });
+  });
+});
+
+describe("RotationSubstitutionsList — empty playerOutId", () => {
+  it('shows "(unfilled)" when playerOutId is empty string', () => {
+    const sub = JSON.stringify([{ playerOutId: "", playerInId: "player-1", positionId: "pos-1" }]);
+    render(
+      <RotationSubstitutionsList
+        substitutions={sub}
+        players={[{ id: "player-1", firstName: "Player", lastName: "One" } as any]}
+        positions={[{ id: "pos-1", abbreviation: "FW", positionName: "Forward" } as any]}
+      />
+    );
+    expect(screen.getByText("(unfilled)")).toBeInTheDocument();
+    expect(screen.queryByText("Unknown")).not.toBeInTheDocument();
+  });
+
+  it('shows "Unknown" for a non-empty playerOutId not in the player list', () => {
+    const sub = JSON.stringify([{ playerOutId: "ghost-id", playerInId: "player-1", positionId: "pos-1" }]);
+    render(
+      <RotationSubstitutionsList
+        substitutions={sub}
+        players={[{ id: "player-1", firstName: "Player", lastName: "One" } as any]}
+        positions={[{ id: "pos-1", abbreviation: "FW", positionName: "Forward" } as any]}
+      />
+    );
+    expect(screen.getByText("Unknown")).toBeInTheDocument();
   });
 });

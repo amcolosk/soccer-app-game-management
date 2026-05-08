@@ -1843,6 +1843,19 @@
   margin-bottom: 0.75rem;
 }
 
+.planner-lineup-view .position-lineup-grid {
+  margin-top: 0;
+}
+
+.planner-lineup-view .player-select {
+  min-height: 44px;
+  width: 100%;
+}
+
+.planner-lineup-view .bench-area {
+  margin-top: 1rem;
+}
+
 .planner-lineup-view__empty {
   margin: 0;
   padding: 0.85rem 1rem;
@@ -1895,6 +1908,23 @@
   outline: 2px solid var(--primary-green);
   outline-offset: 2px;
   border-color: var(--primary-green);
+}
+
+.planner-lineup-view__empty-slot {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+}
+
+.planner-lineup-view__preferred-positions {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.planner-lineup-view__bench-empty {
+  margin: 0;
+  color: var(--text-secondary);
 }
 
 @media (min-width: 640px) {

@@ -532,8 +532,76 @@ export function PlanTab({
       } else {
         await planner.updateHalftimeLineup(newLineup);
       }
+      // Cascade H2 rotations so their playerOutId values stay consistent with the
+      // new halftime lineup. Without this, stale subs overwrite the new halftime
+      // assignment when H2 lineups are computed. (Rule 1.4 — halftime is the only
+      // GK substitution point.)
+      if (onUpdatePlannedRotations) {
+        const sortedH2 = effectivePlannedRotations
+          .filter((r) => r.half === 2)
+          .sort((a, b) => (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0));
+        if (sortedH2.length > 0) {
+          const firstH2 = sortedH2[0];
+          let firstH2Subs: PlannedSubstitution[] = [];
+          try {
+            const parsed = JSON.parse((firstH2.plannedSubstitutions as string) ?? "[]");
+            if (Array.isArray(parsed)) firstH2Subs = parsed as PlannedSubstitution[];
+          } catch {
+            // Leave empty — cascade still rebinds downstream rotations.
+          }
+          // Rebind each sub's playerOutId to whoever is NOW in that position
+          // according to the fresh halftime lineup.
+          const reboundFirstH2Subs = firstH2Subs.map((sub) => ({
+            ...sub,
+            playerOutId: newLineup.get(sub.positionId) ?? sub.playerOutId,
+          }));
+          const cascadeResult = applyRotationEditWithSameHalfCascade(
+            planner.draft.startingLineup,
+            effectivePlannedRotations,
+            firstH2.rotationNumber ?? 0,
+            reboundFirstH2Subs,
+            newLineup,
+          );
+          if (cascadeResult.changedRotationNumbers.length > 0) {
+            setLocalRotationOverrides((prev) => {
+              const next = new Map(prev);
+              for (const rotNum of cascadeResult.changedRotationNumbers) {
+                const updated = cascadeResult.rotations.find((r) => r.rotationNumber === rotNum);
+                if (!updated) continue;
+                try {
+                  const key = generateCanonicalKey(updated.half, updated.gameMinute, false);
+                  const serverRot = plannedRotations.find((r) => r.rotationNumber === rotNum);
+                  if (serverRot?.plannedSubstitutions === updated.plannedSubstitutions) {
+                    next.delete(key);
+                  } else {
+                    next.set(key, updated);
+                  }
+                } catch {
+                  /* ignore malformed keys */
+                }
+              }
+              return next;
+            });
+            void persistRotationChange({
+              rotations: cascadeResult.rotations,
+              fingerprint: planner.remoteFingerprint,
+              changedNumbers: cascadeResult.changedRotationNumbers,
+            });
+          }
+        }
+      }
     },
-    [isScheduled, readOnly, effectiveHalftimeLineup, externalOnHalftimeLineupChange, planner]
+    [
+      isScheduled,
+      readOnly,
+      effectiveHalftimeLineup,
+      externalOnHalftimeLineupChange,
+      planner,
+      onUpdatePlannedRotations,
+      effectivePlannedRotations,
+      plannedRotations,
+      persistRotationChange,
+    ]
   );
 
   /** Debounced (300 ms) immediate-save for rotation slot changes. */
@@ -1256,10 +1324,10 @@ export function RotationSubstitutionsList({
         const position = positionMap.get(sub.positionId);
         const playerOutName = playerOut
           ? `${playerOut.firstName ?? ''} ${playerOut.lastName ?? ''}`.trim() || 'Unknown'
-          : 'Unknown';
+          : sub.playerOutId ? 'Unknown' : '(unfilled)';
         const playerInName = playerIn
           ? `${playerIn.firstName ?? ''} ${playerIn.lastName ?? ''}`.trim() || 'Unknown'
-          : 'Unknown';
+          : sub.playerInId ? 'Unknown' : '(unfilled)';
         const posLabel = position?.abbreviation || position?.positionName || 'Pos';
         return (
           <div key={idx} className="rotation-subs-list__item">
