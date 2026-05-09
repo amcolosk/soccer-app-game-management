@@ -164,6 +164,32 @@ describe("PlannerLineupView", () => {
     expect(onPositionAssign).toHaveBeenCalledWith("pos-1", "");
   });
 
+  it("clears an assigned slot when remove button receives pointer/mouse events before click (drag-swallow regression)", () => {
+    const onPositionAssign = vi.fn();
+
+    renderPlanner(
+      <PlannerLineupView
+        displayLineup={new Map([["pos-1", "player-1"]])}
+        positions={positions}
+        players={[
+          { id: "player-1", firstName: "Alex", lastName: "Morgan", playerNumber: 10 } as PlayerWithRoster,
+        ]}
+        onPositionAssign={onPositionAssign}
+        isReadOnly={false}
+      />,
+    );
+
+    const removeBtn = screen.getByRole("button", { name: "Remove Alex Morgan from FW" });
+
+    // Simulate the pointer/mouse down that would normally trigger drag on the parent
+    fireEvent.pointerDown(removeBtn);
+    fireEvent.mouseDown(removeBtn);
+    fireEvent.click(removeBtn);
+
+    expect(onPositionAssign).toHaveBeenCalledWith("pos-1", "");
+    expect(onPositionAssign).toHaveBeenCalledTimes(1);
+  });
+
   it("assigns a bench player when dropped onto an empty slot", () => {
     const onPositionAssign = vi.fn();
 

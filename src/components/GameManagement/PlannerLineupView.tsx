@@ -323,7 +323,12 @@ export function PlannerLineupView({
                         <button
                           type="button"
                           className="remove-player"
+                          draggable={false}
                           aria-label={`Remove ${getPlayerDisplayName(assignedPlayer)} from ${posLabel}`}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onDragStart={(e) => e.preventDefault()}
                           onClick={(event) => {
                             event.stopPropagation();
                             onPositionAssign?.(pos.id, "");
