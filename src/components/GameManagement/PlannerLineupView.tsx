@@ -17,13 +17,6 @@ import type {
   Team,
 } from "./types";
 
-// Goalkeeper abbreviations per Rule 1.5 — must stay in sync with rotationPlannerService.ts.
-const GK_ABBREVIATIONS = new Set(['GK', 'G', 'GOL', 'GOAL']);
-
-function isGoalkeeperPosition(pos: FormationPosition): boolean {
-  return GK_ABBREVIATIONS.has((pos.abbreviation ?? '').toUpperCase().trim());
-}
-
 export interface PlannerLineupViewProps {
   /** Planner lineup: positionId → playerId (empty string or missing = unassigned) */
   displayLineup: Map<string, string>;
@@ -203,11 +196,6 @@ export function PlannerLineupView({
     return labels.length > 0 ? `(${labels.join(", ")})` : "";
   };
 
-  const isGoalkeeperEligible = (player: PlayerWithRoster, position: FormationPosition): boolean => {
-    if (!isGoalkeeperPosition(position)) return true;
-    return parsePreferredPositions(player.preferredPositions).has(position.id);
-  };
-
   const getSortedPlayersForPosition = (
     position: FormationPosition,
   ): PlayerWithRoster[] => {
@@ -253,13 +241,7 @@ export function PlannerLineupView({
       return;
     }
 
-    if (!isGoalkeeperEligible(draggedPlayer, targetPosition)) {
-      clearDragSource();
-      return;
-    }
-
     const targetPlayerId = displayLineup.get(targetPosition.id) ?? "";
-    const targetPlayer = targetPlayerId ? playerMap.get(targetPlayerId) : null;
 
     if (dragSource.sourcePositionId === targetPosition.id) {
       clearDragSource();
@@ -270,14 +252,6 @@ export function PlannerLineupView({
       onPositionAssign?.(targetPosition.id, dragSource.playerId);
       clearDragSource();
       return;
-    }
-
-    if (targetPlayer) {
-      const sourcePosition = positions.find((position) => position.id === dragSource.sourcePositionId);
-      if (sourcePosition && !isGoalkeeperEligible(targetPlayer, sourcePosition)) {
-        clearDragSource();
-        return;
-      }
     }
 
     onPositionAssign?.(targetPosition.id, dragSource.playerId);
@@ -374,18 +348,15 @@ export function PlannerLineupView({
                       {sortedPlayers.map((player) => {
                         const isPreferred = parsePreferredPositions(player.preferredPositions).has(pos.id);
                         const isAssignedElsewhere = player.id !== assignedPlayerId && assignedPlayerIds.has(player.id);
-                        const isGkIneligible = isGoalkeeperPosition(pos) && !isGoalkeeperEligible(player, pos);
                         const num = player.playerNumber != null ? `#${player.playerNumber} ` : "";
                         const displayName = `${num}${getPlayerDisplayName(player)}`;
                         const baseLabel = isPreferred ? `⭐ ${displayName}` : displayName;
-                        const optionLabel = isGkIneligible
-                          ? `${baseLabel} (Not eligible for GK)`
-                          : isAssignedElsewhere
-                            ? `${baseLabel} (Assigned)`
-                            : baseLabel;
+                        const optionLabel = isAssignedElsewhere
+                          ? `${baseLabel} (Assigned)`
+                          : baseLabel;
 
                         return (
-                          <option key={player.id} value={player.id} disabled={isGkIneligible}>
+                          <option key={player.id} value={player.id}>
                             {optionLabel}
                           </option>
                         );

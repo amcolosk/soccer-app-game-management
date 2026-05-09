@@ -252,7 +252,7 @@ describe("PlannerLineupView", () => {
   });
 });
 
-describe("GK position dropdown filtering (Rule 1.5)", () => {
+describe("GK position — any player can be assigned (Rule 1.5 preference display only)", () => {
   const gkPosition = {
     id: "pos-gk", abbreviation: "GK", positionName: "Goalkeeper",
   } as FormationPosition;
@@ -266,7 +266,7 @@ describe("GK position dropdown filtering (Rule 1.5)", () => {
     return render(<AvailabilityProvider availabilities={[]}>{ui}</AvailabilityProvider>);
   };
 
-  it("shows all players in GK dropdown but disables non-GK-preferred players", () => {
+  it("shows all players in GK dropdown, all enabled, preferred player is starred", () => {
     renderPlanner(
       <PlannerLineupView
         displayLineup={new Map()}
@@ -284,8 +284,28 @@ describe("GK position dropdown filtering (Rule 1.5)", () => {
     const gkOption = options.find((o) => o.value === "p-gk");
     const fieldOption = options.find((o) => o.value === "p-field");
     expect(gkOption).not.toBeDisabled();
-    expect(fieldOption).toBeDisabled();
-    expect(fieldOption?.textContent).toContain("(Not eligible for GK)");
+    expect(fieldOption).not.toBeDisabled();
+    expect(gkOption?.textContent).toContain("⭐");
+    expect(fieldOption?.textContent).not.toContain("(Not eligible for GK)");
+  });
+
+  it("allows selecting a non-preferred player in the GK dropdown", () => {
+    const onPositionAssign = vi.fn();
+
+    renderPlanner(
+      <PlannerLineupView
+        displayLineup={new Map()}
+        positions={[gkPosition]}
+        players={players}
+        onPositionAssign={onPositionAssign}
+        isReadOnly={false}
+      />
+    );
+
+    const select = screen.getByRole("combobox", { name: "Player for GK" });
+    fireEvent.change(select, { target: { value: "p-field" } });
+
+    expect(onPositionAssign).toHaveBeenCalledWith("pos-gk", "p-field");
   });
 
   it("still shows the currently-assigned non-preferred player at GK in the assigned card", () => {
@@ -318,7 +338,7 @@ describe("GK position dropdown filtering (Rule 1.5)", () => {
     expect(options).toContain("p-field");
   });
 
-  it("rejects dropping a non-GK bench player onto a GK slot", () => {
+  it("allows dropping any bench player onto a GK slot", () => {
     const onPositionAssign = vi.fn();
 
     renderPlanner(
@@ -339,10 +359,10 @@ describe("GK position dropdown filtering (Rule 1.5)", () => {
     fireEvent.dragOver(slot as HTMLElement);
     fireEvent.drop(slot as HTMLElement);
 
-    expect(onPositionAssign).not.toHaveBeenCalled();
+    expect(onPositionAssign).toHaveBeenCalledWith("pos-gk", "p-field");
   });
 
-  it("rejects a swap when the target player is not eligible for a GK source slot", () => {
+  it("allows swapping players when the target player would move into a GK slot", () => {
     const onPositionAssign = vi.fn();
 
     renderPlanner(
@@ -368,7 +388,8 @@ describe("GK position dropdown filtering (Rule 1.5)", () => {
     fireEvent.dragOver(defSlot as HTMLElement);
     fireEvent.drop(defSlot as HTMLElement);
 
-    expect(onPositionAssign).not.toHaveBeenCalled();
+    expect(onPositionAssign).toHaveBeenNthCalledWith(1, "pos-def", "p-gk");
+    expect(onPositionAssign).toHaveBeenNthCalledWith(2, "pos-gk", "p-field");
   });
 });
 
@@ -437,7 +458,7 @@ describe("PlannerLineupView – non-GK dropdown includes already-assigned player
     expect(within(slot as HTMLElement).queryByText(/(Assigned)/)).not.toBeInTheDocument();
   });
 
-  it("GK position dropdown includes non-GK-preferred players as disabled", () => {
+  it("GK position dropdown includes non-GK-preferred players as enabled options", () => {
     renderPlanner(
       <PlannerLineupView
         displayLineup={new Map()}
@@ -450,17 +471,18 @@ describe("PlannerLineupView – non-GK dropdown includes already-assigned player
     const gkSelect = screen.getByRole("combobox", { name: "Player for GK" });
     const options = Array.from(gkSelect.querySelectorAll("option"));
     const optionValues = options.map((o) => o.value);
-    expect(optionValues).toContain("p3"); // GK-eligible, enabled
-    expect(optionValues).toContain("p1"); // included but disabled
-    expect(optionValues).toContain("p2"); // included but disabled
+    expect(optionValues).toContain("p3"); // GK-preferred
+    expect(optionValues).toContain("p1"); // non-GK-preferred, but now enabled
+    expect(optionValues).toContain("p2"); // non-GK-preferred, but now enabled
 
     const p3Option = options.find((o) => o.value === "p3");
     const p1Option = options.find((o) => o.value === "p1");
     const p2Option = options.find((o) => o.value === "p2");
     expect(p3Option).not.toBeDisabled();
-    expect(p1Option).toBeDisabled();
-    expect(p2Option).toBeDisabled();
-    expect(p1Option?.textContent).toContain("(Not eligible for GK)");
-    expect(p2Option?.textContent).toContain("(Not eligible for GK)");
+    expect(p1Option).not.toBeDisabled();
+    expect(p2Option).not.toBeDisabled();
+    expect(p3Option?.textContent).toContain("⭐");
+    expect(p1Option?.textContent).not.toContain("(Not eligible for GK)");
+    expect(p2Option?.textContent).not.toContain("(Not eligible for GK)");
   });
 });
