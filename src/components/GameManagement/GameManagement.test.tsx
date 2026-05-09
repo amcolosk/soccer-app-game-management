@@ -1686,7 +1686,7 @@ describe("GameManagement – handleRecalculateRotations uses live lineup", () =>
     expect(mockPlannedRotationUpdate).not.toHaveBeenCalled();
   });
 
-  it("calls calculateFairRotations with live starters (not gamePlan.startingLineup)", async () => {
+  it("uses gamePlan.startingLineup as lineup seed when no plannerSnapshot is provided", async () => {
     const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
     const mockedFn = vi.mocked(mockedCalc);
     mockedFn.mockReturnValue({ rotations: [], warnings: [] });
@@ -1695,6 +1695,7 @@ describe("GameManagement – handleRecalculateRotations uses live lineup", () =>
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'scheduled' },
       lineup: [
+        // Live starters have p1 + p2, but gamePlan.startingLineup is the source of truth
         { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
         { id: 'la-2', gameId: 'game-1', playerId: 'p2', positionId: 'pos2', isStarter: true },
       ],
@@ -1704,7 +1705,7 @@ describe("GameManagement – handleRecalculateRotations uses live lineup", () =>
       gamePlan: {
         id: 'gp-1',
         rotationIntervalMinutes: 10,
-        startingLineup: JSON.stringify([{ playerId: 'old-p1', positionId: 'pos1' }]),
+        startingLineup: JSON.stringify([{ playerId: 'p1', positionId: 'pos1' }, { playerId: 'p2', positionId: 'pos2' }]),
       } as any,
       plannedRotations: [
         { id: 'rot-1', rotationNumber: 1, gameMinute: 40, half: 2, plannedSubstitutions: '[]' } as any,
@@ -1722,7 +1723,7 @@ describe("GameManagement – handleRecalculateRotations uses live lineup", () =>
     });
 
     const callArgs = mockedFn.mock.calls[0];
-    // Second argument = lineupArray (from live starters, not from gamePlan.startingLineup)
+    // Second argument = lineupArray (from gamePlan.startingLineup)
     const lineupArg = callArgs[1];
     expect(lineupArg).toEqual(
       expect.arrayContaining([
@@ -1730,8 +1731,6 @@ describe("GameManagement – handleRecalculateRotations uses live lineup", () =>
         expect.objectContaining({ playerId: 'p2', positionId: 'pos2' }),
       ])
     );
-    // Must NOT use the old gamePlan.startingLineup ('old-p1')
-    expect(lineupArg.map((e: any) => e.playerId)).not.toContain('old-p1');
   });
 
   it("passes initialPlayTimeMinutes derived from playTimeRecords in the options", async () => {
@@ -2399,5 +2398,196 @@ describe("GameManagement – planned rotation precondition writer", () => {
     expect(mockPlannedRotationCreate).not.toHaveBeenCalled();
     expect(mockPlannedRotationDelete).not.toHaveBeenCalled();
     expect(mockPlannedRotationList).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleRecalculateRotations – plannerSnapshot lineup seed (regression)
+// ---------------------------------------------------------------------------
+describe("GameManagement – handleRecalculateRotations uses plannerSnapshot lineup when provided", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseTeamData.mockReturnValue({
+      players: [
+        { id: 'p1', playerNumber: 1, firstName: 'Alice', lastName: 'A', isActive: true, preferredPositions: 'pos1' },
+        { id: 'p2', playerNumber: 2, firstName: 'Bob', lastName: 'B', isActive: true, preferredPositions: 'pos2' },
+        { id: 'p3', playerNumber: 3, firstName: 'Carol', lastName: 'C', isActive: true, preferredPositions: 'pos1' },
+      ],
+      positions: [{ id: 'pos1', abbreviation: 'FW' }, { id: 'pos2', abbreviation: 'MF' }],
+    });
+  });
+
+  it("uses plannerSnapshot.startingLineup instead of live starters when snapshot provided", async () => {
+    const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
+    const mockedFn = vi.mocked(mockedCalc);
+    mockedFn.mockReturnValue({ rotations: [], warnings: [] });
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled', halfLengthMinutes: 30 },
+      lineup: [
+        // Live starters have p1 – these should be IGNORED when snapshot is provided
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+      ],
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10, startingLineup: '[]' } as any,
+      plannedRotations: [
+        { id: 'rot-1', rotationNumber: 1, gameMinute: 10, half: 1, plannedSubstitutions: '[]' } as any,
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+
+    await act(async () => {
+      await mockCaptures.planTabProps?.onGenerateRotations?.({
+        plannerSnapshot: {
+          startingLineup: new Map([['pos1', 'p3'], ['pos2', 'p2']]),
+          halfLengthMinutes: 30,
+          rotationIntervalMinutes: 10,
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockedFn).toHaveBeenCalled();
+    });
+
+    const lineupArg = mockedFn.mock.calls[0][1];
+    // Must use snapshot lineup (p3 + p2), not live starters (p1)
+    expect(lineupArg.map((e: any) => e.playerId)).toContain('p3');
+    expect(lineupArg.map((e: any) => e.playerId)).toContain('p2');
+    expect(lineupArg.map((e: any) => e.playerId)).not.toContain('p1');
+  });
+
+  it("uses plannerSnapshot dimensions for halfLengthMinutes and rotationIntervalMinutes", async () => {
+    const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
+    const mockedFn = vi.mocked(mockedCalc);
+    mockedFn.mockReturnValue({ rotations: [], warnings: [] });
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled', halfLengthMinutes: 30 },
+      lineup: [
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+      ],
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10, startingLineup: '[]' } as any,
+      plannedRotations: [],
+    });
+
+    mockPlannedRotationCreate.mockImplementation(async (payload: any) => ({
+      data: { id: `rot-${payload.rotationNumber}`, ...payload },
+    }));
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+
+    await act(async () => {
+      await mockCaptures.planTabProps?.onGenerateRotations?.({
+        plannerSnapshot: {
+          startingLineup: new Map([['pos1', 'p1']]),
+          halfLengthMinutes: 25, // override from snapshot
+          rotationIntervalMinutes: 5, // override from snapshot (different from gamePlan's 10)
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockedFn).toHaveBeenCalled();
+    });
+
+    // With halfLength=25, interval=5: rotationsPerHalf = floor(25/5)-1 = 4
+    // Total rotations expected = 4 H1 + 1 HT + 4 H2 = 9
+    expect(mockPlannedRotationCreate).toHaveBeenCalledTimes(9);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleEnsureRotationSchedule – save-only schedule reconciliation
+// ---------------------------------------------------------------------------
+describe("GameManagement – handleEnsureRotationSchedule", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+  });
+
+  it("passes onEnsureRotationSchedule to PlanTab in scheduled state", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled' },
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10, startingLineup: '[]' } as any,
+      plannedRotations: [],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+
+    expect(typeof mockCaptures.planTabProps?.onEnsureRotationSchedule).toBe('function');
+  });
+
+  it("does NOT call calculateFairRotations when onEnsureRotationSchedule is invoked", async () => {
+    const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
+    const mockedFn = vi.mocked(mockedCalc);
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled', halfLengthMinutes: 30 },
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10, startingLineup: '[]' } as any,
+      plannedRotations: [],
+    });
+
+    mockPlannedRotationCreate.mockImplementation(async (payload: any) => ({
+      data: { id: `rot-${payload.rotationNumber}`, ...payload },
+    }));
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(typeof mockCaptures.planTabProps?.onEnsureRotationSchedule).toBe('function');
+    });
+
+    await act(async () => {
+      await mockCaptures.planTabProps.onEnsureRotationSchedule({
+        halfLengthMinutes: 30,
+        rotationIntervalMinutes: 10,
+      });
+    });
+
+    // Schedule rows created but no fair-rotation computation
+    expect(mockedFn).not.toHaveBeenCalled();
+    expect(mockPlannedRotationCreate).toHaveBeenCalled();
+  });
+
+  it("creates rotation rows with empty substitutions and preserves existing rows", async () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled', halfLengthMinutes: 30 },
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10, startingLineup: '[]' } as any,
+      plannedRotations: [
+        // One existing row with substitutions that should be preserved
+        { id: 'rot-10', rotationNumber: 1, gameMinute: 10, half: 1, plannedSubstitutions: JSON.stringify([{ playerOutId: 'p1', playerInId: 'p2', positionId: 'pos1' }]) } as any,
+      ],
+    });
+
+    mockPlannedRotationCreate.mockImplementation(async (payload: any) => ({
+      data: { id: `created-${payload.rotationNumber}`, ...payload },
+    }));
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(typeof mockCaptures.planTabProps?.onEnsureRotationSchedule).toBe('function');
+    });
+
+    await act(async () => {
+      await mockCaptures.planTabProps.onEnsureRotationSchedule({
+        halfLengthMinutes: 30,
+        rotationIntervalMinutes: 10,
+      });
+    });
+
+    // Existing rot-10 should not be deleted (it's in the expected schedule)
+    expect(mockPlannedRotationDelete).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'rot-10' }));
+    // New rows must be created with empty substitutions
+    const createdPayloads = mockPlannedRotationCreate.mock.calls.map(([p]) => p);
+    for (const payload of createdPayloads) {
+      expect(payload.plannedSubstitutions).toBe('[]');
+    }
   });
 });

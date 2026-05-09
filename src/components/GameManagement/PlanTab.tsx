@@ -51,6 +51,7 @@ export interface PreviousGameSummary {
 
 export interface GenerateRotationsOptions {
   skipConfirm?: boolean;
+  plannerSnapshot?: { startingLineup: Map<string, string>; halfLengthMinutes: number; rotationIntervalMinutes: number };
 }
 
 function applyUniqueAssignment(
@@ -118,6 +119,8 @@ interface PlanTabProps {
   onHalftimeLineupChange?: (lineup: Map<string, string>) => Promise<void>;
   /** Calls calculateFairRotations and persists PlannedRotations. Status-gated in parent. Scheduled only. */
   onGenerateRotations?: (options?: GenerateRotationsOptions) => void | Promise<void>;
+  /** Reconciles rotation schedule rows without computing substitutions. Scheduled only. */
+  onEnsureRotationSchedule?: (input: { halfLengthMinutes: number; rotationIntervalMinutes: number }) => Promise<void>;
   /** Canonical parent-owned PlannedRotation mutation entrypoint with precondition check. */
   onUpdatePlannedRotations?: (input: PlannedRotationsUpdateInput) => Promise<PlannerMutationResult>;
   /** Previous games that have a saved plan (for copy feature). undefined = loading, [] = none found. Scheduled only. */
@@ -149,6 +152,7 @@ export function PlanTab({
   halftimeLineup: externalHalftimeLineup,
   onHalftimeLineupChange: externalOnHalftimeLineupChange,
   onGenerateRotations,
+  onEnsureRotationSchedule,
   onUpdatePlannedRotations,
   previousGamesWithPlans,
   isCopyModalOpen = false,
@@ -710,24 +714,26 @@ export function PlanTab({
     if (!isScheduled || readOnly) return;
     setIsSavingPlan(true);
     try {
+      // Capture immutable snapshots before any async work.
+      const snapshotHalfLength = Math.max(1, Math.min(99, halfLengthInput));
+      const snapshotInterval = planner.draft.rotationIntervalMinutes;
       const hasPendingHalfLengthChange = halfLengthInput !== derivedHalfLength;
       const hasPendingRotationIntervalChange =
         planner.draft.rotationIntervalMinutes !== (gamePlan?.rotationIntervalMinutes ?? 10);
-      const shouldAutoGenerateRotations = hasPendingHalfLengthChange || hasPendingRotationIntervalChange;
+      const scheduleAffectingChange = hasPendingHalfLengthChange || hasPendingRotationIntervalChange;
       if (hasPendingHalfLengthChange) {
         halfLengthEditingRef.current = false;
-        const clamped = Math.max(1, Math.min(99, halfLengthInput));
-        setHalfLengthInput(clamped);
+        setHalfLengthInput(snapshotHalfLength);
         if (onHalfLengthChange) {
-          await onHalfLengthChange(clamped);
+          await onHalfLengthChange(snapshotHalfLength);
         }
       }
       if (planner.isDirty) {
         await planner.savePlan();
       }
 
-      if (shouldAutoGenerateRotations && onGenerateRotations) {
-        await onGenerateRotations({ skipConfirm: true });
+      if (scheduleAffectingChange && onEnsureRotationSchedule) {
+        await onEnsureRotationSchedule({ halfLengthMinutes: snapshotHalfLength, rotationIntervalMinutes: snapshotInterval });
       }
     } finally {
       setIsSavingPlan(false);
@@ -740,7 +746,7 @@ export function PlanTab({
     derivedHalfLength,
     gamePlan?.rotationIntervalMinutes,
     onHalfLengthChange,
-    onGenerateRotations,
+    onEnsureRotationSchedule,
   ]);
 
   const handleRotationIntervalChange = useCallback(
@@ -967,17 +973,23 @@ export function PlanTab({
 
           <button
             onClick={handleSavePlan}
-            disabled={isSavingPlan || (!planner.isDirty && !hasPendingHalfLengthSave)}
+            disabled={isSavingPlan || isRecalculating || (!planner.isDirty && !hasPendingHalfLengthSave)}
             className="btn-primary plan-tab__save-btn"
           >
-            {isSavingPlan ? "Saving..." : "Save Settings"}
+            {isSavingPlan ? "Saving Plan..." : "Save Plan"}
           </button>
 
           <p className="rotation-settings-section-label">Populate Rotations</p>
 
           {onGenerateRotations && (
             <button
-              onClick={() => void onGenerateRotations()}
+              onClick={() => void onGenerateRotations({
+                plannerSnapshot: {
+                  startingLineup: new Map(planner.draft.startingLineup),
+                  halfLengthMinutes: halfLengthInput,
+                  rotationIntervalMinutes: planner.draft.rotationIntervalMinutes,
+                },
+              })}
               disabled={isRecalculating}
               className="btn-secondary plan-tab__generate-btn"
             >
@@ -1004,7 +1016,7 @@ export function PlanTab({
 
           {!hasNoPlans && effectivePlannedRotations.length === 0 && (
             <p className="plan-tab__empty-state">
-              No rotations generated yet. Use Auto-Generate to create a timeline.
+              Configure schedule settings and save to create your timeline.
             </p>
           )}
         </div>

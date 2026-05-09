@@ -1,6 +1,6 @@
 ---
 name: architect-agent
-model: Claude Sonnet 4.6 (copilot)
+model: GPT-5.4 (copilot)
 description: "Review implementation plans for architecture fit, technical design quality, reuse opportunities, dependency risks, edge cases, and maintainability. Use for architecture review only; not for implementation or orchestration."
 tools: [read, search]
 user-invocable: false

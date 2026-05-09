@@ -266,7 +266,7 @@ describe("GK position dropdown filtering (Rule 1.5)", () => {
     return render(<AvailabilityProvider availabilities={[]}>{ui}</AvailabilityProvider>);
   };
 
-  it("only shows GK-preferred players in the GK position dropdown", () => {
+  it("shows all players in GK dropdown but disables non-GK-preferred players", () => {
     renderPlanner(
       <PlannerLineupView
         displayLineup={new Map()}
@@ -276,9 +276,16 @@ describe("GK position dropdown filtering (Rule 1.5)", () => {
       />
     );
     const select = screen.getByRole("combobox", { name: "Player for GK" });
-    const options = Array.from(select.querySelectorAll("option")).map((o) => o.value);
-    expect(options).toContain("p-gk");
-    expect(options).not.toContain("p-field");
+    const options = Array.from(select.querySelectorAll("option"));
+    const optionValues = options.map((o) => o.value);
+    expect(optionValues).toContain("p-gk");
+    expect(optionValues).toContain("p-field");
+
+    const gkOption = options.find((o) => o.value === "p-gk");
+    const fieldOption = options.find((o) => o.value === "p-field");
+    expect(gkOption).not.toBeDisabled();
+    expect(fieldOption).toBeDisabled();
+    expect(fieldOption?.textContent).toContain("(Not eligible for GK)");
   });
 
   it("still shows the currently-assigned non-preferred player at GK in the assigned card", () => {
@@ -324,7 +331,8 @@ describe("GK position dropdown filtering (Rule 1.5)", () => {
       />
     );
 
-    const benchChip = screen.getByText(/Field Two/).closest(".bench-player");
+    const bench = screen.getByRole("heading", { name: "Bench" }).closest(".bench-area");
+    const benchChip = within(bench as HTMLElement).getByText(/Field Two/).closest(".bench-player");
     const slot = screen.getByText("GK").closest(".position-slot");
 
     fireEvent.dragStart(benchChip as HTMLElement);
@@ -361,5 +369,98 @@ describe("GK position dropdown filtering (Rule 1.5)", () => {
     fireEvent.drop(defSlot as HTMLElement);
 
     expect(onPositionAssign).not.toHaveBeenCalled();
+  });
+});
+
+describe("PlannerLineupView – non-GK dropdown includes already-assigned players (regression)", () => {
+  const fwPosition = { id: "pos-fw", abbreviation: "FW", positionName: "Forward" } as FormationPosition;
+  const midPosition = { id: "pos-mid", abbreviation: "MID", positionName: "Midfielder" } as FormationPosition;
+  const gkPosition2 = { id: "pos-gk2", abbreviation: "GK", positionName: "Goalkeeper" } as FormationPosition;
+
+  const allPlayers = [
+    { id: "p1", firstName: "Alice", lastName: "A", playerNumber: 1, preferredPositions: "pos-fw" } as PlayerWithRoster,
+    { id: "p2", firstName: "Bob", lastName: "B", playerNumber: 2, preferredPositions: "" } as PlayerWithRoster,
+    { id: "p3", firstName: "Carol", lastName: "C", playerNumber: 3, preferredPositions: "pos-gk2" } as PlayerWithRoster,
+  ];
+
+  const renderPlanner = (ui: React.ReactElement) =>
+    render(<AvailabilityProvider availabilities={[]}>{ui}</AvailabilityProvider>);
+
+  it("shows already-assigned outfield player in another outfield position dropdown", () => {
+    // p1 is assigned to FW; MID dropdown should still show p1 (not exclude it)
+    renderPlanner(
+      <PlannerLineupView
+        displayLineup={new Map([["pos-fw", "p1"]])}
+        positions={[fwPosition, midPosition]}
+        players={allPlayers}
+        isReadOnly={false}
+      />
+    );
+
+    const midSelect = screen.getByRole("combobox", { name: "Player for MID" });
+    const optionValues = Array.from(midSelect.querySelectorAll("option")).map((o) => o.value);
+    expect(optionValues).toContain("p1");
+  });
+
+  it("marks already-assigned outfield player with (Assigned) suffix in another position dropdown", () => {
+    renderPlanner(
+      <PlannerLineupView
+        displayLineup={new Map([["pos-fw", "p1"]])}
+        positions={[fwPosition, midPosition]}
+        players={allPlayers}
+        isReadOnly={false}
+      />
+    );
+
+    const midSelect = screen.getByRole("combobox", { name: "Player for MID" });
+    const optionTexts = Array.from(midSelect.querySelectorAll("option")).map((o) => o.textContent ?? "");
+    expect(optionTexts.some((t) => t.includes("Alice A") && t.includes("(Assigned)"))).toBe(true);
+  });
+
+  it("does NOT mark current occupant with (Assigned) in their own slot's dropdown", () => {
+    // p1 is assigned to FW; the FW dropdown should show p1 without (Assigned)
+    renderPlanner(
+      <PlannerLineupView
+        displayLineup={new Map([["pos-fw", "p1"]])}
+        positions={[fwPosition]}
+        players={allPlayers}
+        isReadOnly={false}
+      />
+    );
+
+    // p1 is shown as an assigned card, not a select; but if select existed, no (Assigned) expected
+    // In this case the slot has an assigned card, so verify the card shows p1 normally
+    const slot = screen.getByText("FW").closest(".position-slot");
+    expect(slot).not.toBeNull();
+    expect(within(slot as HTMLElement).getByText("Alice A")).toBeInTheDocument();
+    // No "(Assigned)" text in the slot card
+    expect(within(slot as HTMLElement).queryByText(/(Assigned)/)).not.toBeInTheDocument();
+  });
+
+  it("GK position dropdown includes non-GK-preferred players as disabled", () => {
+    renderPlanner(
+      <PlannerLineupView
+        displayLineup={new Map()}
+        positions={[gkPosition2, fwPosition]}
+        players={allPlayers}
+        isReadOnly={false}
+      />
+    );
+
+    const gkSelect = screen.getByRole("combobox", { name: "Player for GK" });
+    const options = Array.from(gkSelect.querySelectorAll("option"));
+    const optionValues = options.map((o) => o.value);
+    expect(optionValues).toContain("p3"); // GK-eligible, enabled
+    expect(optionValues).toContain("p1"); // included but disabled
+    expect(optionValues).toContain("p2"); // included but disabled
+
+    const p3Option = options.find((o) => o.value === "p3");
+    const p1Option = options.find((o) => o.value === "p1");
+    const p2Option = options.find((o) => o.value === "p2");
+    expect(p3Option).not.toBeDisabled();
+    expect(p1Option).toBeDisabled();
+    expect(p2Option).toBeDisabled();
+    expect(p1Option?.textContent).toContain("(Not eligible for GK)");
+    expect(p2Option?.textContent).toContain("(Not eligible for GK)");
   });
 });

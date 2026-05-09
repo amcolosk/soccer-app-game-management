@@ -210,22 +210,8 @@ export function PlannerLineupView({
 
   const getSortedPlayersForPosition = (
     position: FormationPosition,
-    assignedPlayerId: string,
   ): PlayerWithRoster[] => {
     return [...players]
-      .filter((player) => {
-        if (isGoalkeeperPosition(position) && player.id !== assignedPlayerId) {
-          if (!parsePreferredPositions(player.preferredPositions).has(position.id)) return false;
-        }
-
-        if (player.id === assignedPlayerId) return true;
-
-        for (const [positionId, playerId] of displayLineup.entries()) {
-          if (positionId !== position.id && playerId === player.id) return false;
-        }
-
-        return true;
-      })
       .sort((a, b) => {
         const aPreferred = parsePreferredPositions(a.preferredPositions).has(position.id);
         const bPreferred = parsePreferredPositions(b.preferredPositions).has(position.id);
@@ -334,7 +320,7 @@ export function PlannerLineupView({
               const posLabel = pos.abbreviation || pos.positionName || "Position";
               const playerStatus = assignedPlayer ? getPlayerAvailability(assignedPlayer.id) : "available";
               const isUnavailable = isUnavailableStatus(playerStatus);
-              const sortedPlayers = getSortedPlayersForPosition(pos, assignedPlayerId);
+              const sortedPlayers = getSortedPlayersForPosition(pos);
 
               return (
                 <div
@@ -387,12 +373,19 @@ export function PlannerLineupView({
                       <option value="">Unassigned</option>
                       {sortedPlayers.map((player) => {
                         const isPreferred = parsePreferredPositions(player.preferredPositions).has(pos.id);
+                        const isAssignedElsewhere = player.id !== assignedPlayerId && assignedPlayerIds.has(player.id);
+                        const isGkIneligible = isGoalkeeperPosition(pos) && !isGoalkeeperEligible(player, pos);
                         const num = player.playerNumber != null ? `#${player.playerNumber} ` : "";
                         const displayName = `${num}${getPlayerDisplayName(player)}`;
-                        const optionLabel = isPreferred ? `⭐ ${displayName}` : displayName;
+                        const baseLabel = isPreferred ? `⭐ ${displayName}` : displayName;
+                        const optionLabel = isGkIneligible
+                          ? `${baseLabel} (Not eligible for GK)`
+                          : isAssignedElsewhere
+                            ? `${baseLabel} (Assigned)`
+                            : baseLabel;
 
                         return (
-                          <option key={player.id} value={player.id}>
+                          <option key={player.id} value={player.id} disabled={isGkIneligible}>
                             {optionLabel}
                           </option>
                         );

@@ -786,18 +786,20 @@ describe("PlanTab", () => {
     expect(onGenerateRotations).toHaveBeenCalledOnce();
   });
 
-  it("Save Settings persists half-length edits even when planner draft is otherwise clean", async () => {
+  it("Save Plan persists half-length edits even when planner draft is otherwise clean", async () => {
     const onHalfLengthChange = vi.fn().mockResolvedValue(undefined);
+    const onEnsureRotationSchedule = vi.fn().mockResolvedValue(undefined);
     const onGenerateRotations = vi.fn().mockResolvedValue(undefined);
     render(
       <PlanTab
         {...defaultProps}
         onHalfLengthChange={onHalfLengthChange}
+        onEnsureRotationSchedule={onEnsureRotationSchedule}
         onGenerateRotations={onGenerateRotations}
       />
     );
 
-    const saveBtn = screen.getByRole("button", { name: /save settings/i });
+    const saveBtn = screen.getByRole("button", { name: /save plan/i });
     expect(saveBtn).toBeDisabled();
 
     const halfLengthInput = screen.getByLabelText("Half length (minutes)");
@@ -810,17 +812,112 @@ describe("PlanTab", () => {
       expect(onHalfLengthChange).toHaveBeenCalledWith(35);
     });
     expect(mockPlannerResult.savePlan).not.toHaveBeenCalled();
-    expect(onGenerateRotations).toHaveBeenCalledWith({ skipConfirm: true });
+    // Save calls onEnsureRotationSchedule, NOT onGenerateRotations
+    expect(onEnsureRotationSchedule).toHaveBeenCalledWith({ halfLengthMinutes: 35, rotationIntervalMinutes: 10 });
+    expect(onGenerateRotations).not.toHaveBeenCalled();
   });
 
-  it("disables Save Settings when live gameState half-length matches saved value even if game prop is stale", async () => {
+  it("Save Plan calls onEnsureRotationSchedule when rotation interval is dirty", async () => {
+    const onEnsureRotationSchedule = vi.fn().mockResolvedValue(undefined);
+    const onGenerateRotations = vi.fn().mockResolvedValue(undefined);
+
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      isDirty: true,
+      draft: {
+        ...mockPlannerResult.draft,
+        rotationIntervalMinutes: 15, // different from gamePlan.rotationIntervalMinutes (10)
+      },
+    });
+
+    render(
+      <PlanTab
+        {...defaultProps}
+        onEnsureRotationSchedule={onEnsureRotationSchedule}
+        onGenerateRotations={onGenerateRotations}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /save plan/i }));
+
+    await waitFor(() => {
+      expect(mockPlannerResult.savePlan).toHaveBeenCalled();
+    });
+    expect(onEnsureRotationSchedule).toHaveBeenCalledWith({ halfLengthMinutes: 30, rotationIntervalMinutes: 15 });
+    expect(onGenerateRotations).not.toHaveBeenCalled();
+  });
+
+  it("Save Plan does NOT call onEnsureRotationSchedule when only lineup is dirty (no schedule change)", async () => {
+    const onEnsureRotationSchedule = vi.fn().mockResolvedValue(undefined);
+
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      isDirty: true,
+      // rotationIntervalMinutes matches gamePlan (10)
+    });
+
+    render(
+      <PlanTab
+        {...defaultProps}
+        onEnsureRotationSchedule={onEnsureRotationSchedule}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /save plan/i }));
+
+    await waitFor(() => {
+      expect(mockPlannerResult.savePlan).toHaveBeenCalled();
+    });
+    expect(onEnsureRotationSchedule).not.toHaveBeenCalled();
+  });
+
+  it("Generate Rotations button passes plannerSnapshot with current draft state", async () => {
+    const onGenerateRotations = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <PlanTab
+        {...defaultProps}
+        onGenerateRotations={onGenerateRotations}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /generate rotations/i }));
+
+    expect(onGenerateRotations).toHaveBeenCalledTimes(1);
+    const opts = onGenerateRotations.mock.calls[0][0];
+    expect(opts).toHaveProperty("plannerSnapshot");
+    expect(opts.plannerSnapshot.halfLengthMinutes).toBe(30); // matches mockGame.halfLengthMinutes
+    expect(opts.plannerSnapshot.rotationIntervalMinutes).toBe(10); // matches mockPlannerResult draft
+    expect(opts.plannerSnapshot.startingLineup).toBeInstanceOf(Map);
+    expect(opts.plannerSnapshot.startingLineup.get("pos-1")).toBe("player-1");
+  });
+
+  it("shows updated empty-state copy when plan exists but rotations are empty", () => {
+    render(
+      <PlanTab
+        {...defaultProps}
+        gamePlan={mockGamePlan}
+        plannedRotations={[]}
+      />
+    );
+
+    expect(
+      screen.getByText("Configure schedule settings and save to create your timeline.")
+    ).toBeInTheDocument();
+    // Old copy must not appear
+    expect(
+      screen.queryByText(/Use Auto-Generate to create a timeline/)
+    ).not.toBeInTheDocument();
+  });
+
+  it("disables Save Plan when live gameState half-length matches saved value even if game prop is stale", async () => {
     const onHalfLengthChange = vi.fn().mockResolvedValue(undefined);
     const { rerender } = render(<PlanTab {...defaultProps} onHalfLengthChange={onHalfLengthChange} />);
 
     const halfLengthInput = screen.getByLabelText("Half length (minutes)");
     fireEvent.change(halfLengthInput, { target: { value: "35" } });
 
-    const saveBtn = screen.getByRole("button", { name: /save settings/i });
+    const saveBtn = screen.getByRole("button", { name: /save plan/i });
     expect(saveBtn).toBeEnabled();
 
     await userEvent.click(saveBtn);
@@ -837,7 +934,19 @@ describe("PlanTab", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: /save settings/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /save plan/i })).toBeDisabled();
+  });
+
+  it("disables Save Plan button while isRecalculating is true", async () => {
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      isDirty: true,
+    });
+
+    render(<PlanTab {...defaultProps} isRecalculating={true} />);
+
+    const saveBtn = screen.getByRole("button", { name: /save plan/i });
+    expect(saveBtn).toBeDisabled();
   });
 
   it("hides halftime lineup editor and rotation settings in readOnly mode", () => {

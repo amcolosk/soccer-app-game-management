@@ -884,27 +884,52 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
           preferredPositions: p.preferredPositions,
         }));
 
-      // Use live lineup instead of gamePlan.startingLineup for mid-game recalculations
-      const liveStarters = lineup.filter(l => l.isStarter);
-      if (liveStarters.length === 0) {
-        showWarning('No active lineup found. Please set up the lineup before recalculating.');
-        setIsRecalculating(false);
-        return;
+      // Lineup seed priority: plannerSnapshot → saved gamePlan.startingLineup → live starters (compatibility fallback)
+      let lineupArray: { playerId: string; positionId: string }[];
+      if (options?.plannerSnapshot?.startingLineup && options.plannerSnapshot.startingLineup.size > 0) {
+        lineupArray = Array.from(options.plannerSnapshot.startingLineup.entries())
+          .map(([positionId, playerId]) => ({ positionId, playerId }))
+          .filter((entry): entry is { playerId: string; positionId: string } => {
+            const status = getPlayerAvailability(entry.playerId);
+            return Boolean(entry.playerId) && (status === 'available' || status === 'late-arrival');
+          });
+      } else {
+        // Try gamePlan.startingLineup; fall through to live starters if empty or unparseable.
+        let lineupFromPlan: { playerId: string; positionId: string }[] | null = null;
+        if (gamePlan.startingLineup) {
+          try {
+            const sl = JSON.parse(gamePlan.startingLineup as string) as Array<{ playerId: string; positionId: string }>;
+            const filtered = sl.filter((entry): entry is { playerId: string; positionId: string } => {
+              const status = getPlayerAvailability(entry.playerId);
+              return Boolean(entry.playerId) && (status === 'available' || status === 'late-arrival') && entry.positionId != null;
+            });
+            if (filtered.length > 0) lineupFromPlan = filtered;
+          } catch {
+            // Ignore parse errors; fall through to live starters.
+          }
+        }
+
+        if (lineupFromPlan && lineupFromPlan.length > 0) {
+          lineupArray = lineupFromPlan;
+        } else {
+          const liveStarters = lineup.filter(l => l.isStarter);
+          lineupArray = liveStarters
+            .map(l => ({ playerId: l.playerId, positionId: l.positionId }))
+            .filter((entry): entry is { playerId: string; positionId: string } => {
+              const status = getPlayerAvailability(entry.playerId);
+              return (status === 'available' || status === 'late-arrival') && entry.positionId != null;
+            });
+        }
       }
-      const lineupArray = liveStarters
-        .map(l => ({ playerId: l.playerId, positionId: l.positionId }))
-        .filter((entry): entry is { playerId: string; positionId: string } => {
-          const status = getPlayerAvailability(entry.playerId);
-          return (status === 'available' || status === 'late-arrival') && entry.positionId != null;
-        });
 
       if (lineupArray.length === 0) {
         showWarning('No available players in the starting lineup. Adjust the lineup in the Game Planner first.');
+        setIsRecalculating(false);
         return;
       }
 
-      const halfLengthMinutes = gameState.halfLengthMinutes ?? team.halfLengthMinutes ?? 30;
-      const rotationIntervalMinutes = gamePlan.rotationIntervalMinutes || 10;
+      const halfLengthMinutes = options?.plannerSnapshot?.halfLengthMinutes ?? (gameState.halfLengthMinutes ?? team.halfLengthMinutes ?? 30);
+      const rotationIntervalMinutes = options?.plannerSnapshot?.rotationIntervalMinutes ?? (gamePlan.rotationIntervalMinutes || 10);
       const rotationsPerHalf = Math.max(0, Math.floor(halfLengthMinutes / rotationIntervalMinutes) - 1);
 
       // Phase A: normalize schedule rows and create any missing ones
@@ -960,6 +985,33 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       handleApiError(error, 'Failed to recalculate rotations');
     } finally {
       setIsRecalculating(false);
+    }
+  };
+
+  const handleEnsureRotationSchedule = async (input: { halfLengthMinutes: number; rotationIntervalMinutes: number }) => {
+    if (gameState.status !== 'scheduled') return;
+    // Use existing gamePlan or fetch a fresh one to handle stale-subscription race after first save.
+    let activePlan = gamePlan;
+    if (!activePlan) {
+      try {
+        const result = await client.models.GamePlan.list({ filter: { gameId: { eq: game.id } } });
+        activePlan = (result.data?.[0] ?? null) as import('./types').GamePlan | null;
+      } catch {
+        // Could not fetch; nothing to reconcile.
+      }
+    }
+    if (!activePlan) return;
+    try {
+      await normalizeAndCreateRotationSchedule({
+        gamePlan: activePlan,
+        plannedRotations,
+        halfLengthMinutes: input.halfLengthMinutes,
+        rotationIntervalMinutes: input.rotationIntervalMinutes,
+        userId,
+        team,
+      });
+    } catch (error) {
+      handleApiError(error, 'Failed to update rotation schedule');
     }
   };
 
@@ -2131,6 +2183,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                   onHalfLengthChange={handleHalfLengthChange}
                   onIntervalChange={handleIntervalChange}
                   onGenerateRotations={handleRecalculateRotations}
+                  onEnsureRotationSchedule={handleEnsureRotationSchedule}
                   onUpdatePlannedRotations={handleUpdatePlannedRotations}
                   isCopyModalOpen={isCopyModalOpen}
                   previousGamesWithPlans={previousGamesWithPlans ?? undefined}
