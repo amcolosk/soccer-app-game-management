@@ -312,13 +312,11 @@ export function useGameSubscriptions({
             .map(({ playerId, positionId }) => `${positionId}:${playerId}`),
         );
 
-        if (
+        const localLineupAligned = (
           desiredAssignments.length > 0
           && lineup.length === desiredAssignments.length
           && desiredAssignments.every(({ playerId, positionId }) => localStarterKeys.has(`${positionId}:${playerId}`))
-        ) {
-          return;
-        }
+        );
 
         // Query the database to double-check for existing assignments
         // This handles the race condition where subscription hasn't loaded yet
@@ -354,7 +352,7 @@ export function useGameSubscriptions({
         );
 
         if (
-          desiredAssignments.length > 0
+          localLineupAligned
           && existingByPosition.size === desiredAssignments.length
           && duplicateAssignments.length === 0
           && desiredAssignments.every(({ playerId, positionId }) => existingKeys.has(`${positionId}:${playerId}`))

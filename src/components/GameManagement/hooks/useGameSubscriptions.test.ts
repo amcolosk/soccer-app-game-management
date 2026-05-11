@@ -501,15 +501,19 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     });
   });
 
-  it('does not sync lineup from gamePlan when local lineup already exists', async () => {
+  it('skips lineup writes when local lineup already exists and DB is aligned', async () => {
     const game = createDefaultGame({ status: 'scheduled' });
     const props = createDefaultProps({ game });
 
     mockUseAmplifyQuery.mockImplementation((model: string) => {
       if (model === 'LineupAssignment') {
-        return { data: [{ id: 'la-1', positionId: 'pos1', playerId: 'p1' }], isSynced: true };
+        return { data: [{ id: 'la-1', positionId: 'pos1', playerId: 'p1', isStarter: true }], isSynced: true };
       }
       return { data: [], isSynced: false };
+    });
+
+    mockLineupList.mockResolvedValue({
+      data: [{ id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true }],
     });
 
     let capturedGamePlanNext: ((data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void) | null = null;
@@ -529,7 +533,7 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     });
 
     await waitFor(() => {
-      expect(mockLineupList).not.toHaveBeenCalled();
+      expect(mockLineupList).toHaveBeenCalled();
       expect(mockLineupCreate).not.toHaveBeenCalled();
       expect(mockLineupUpdate).not.toHaveBeenCalled();
       expect(mockLineupDelete).not.toHaveBeenCalled();
@@ -541,7 +545,7 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     const props = createDefaultProps({ game });
 
     mockLineupList.mockResolvedValue({
-      data: [{ id: 'la-existing', gameId: 'game-1', playerId: 'p1', positionId: 'pos1' }],
+      data: [{ id: 'la-existing', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true }],
     });
 
     let capturedGamePlanNext: ((data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void) | null = null;
@@ -629,6 +633,51 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     });
     expect(mockLineupUpdate).not.toHaveBeenCalled();
     expect(mockLineupDelete).not.toHaveBeenCalled();
+  });
+
+  it('cleans duplicate DB starter rows even when local lineup already matches the plan', async () => {
+    const game = createDefaultGame({ status: 'scheduled' });
+    const props = createDefaultProps({ game });
+
+    mockUseAmplifyQuery.mockImplementation((model: string) => {
+      if (model === 'LineupAssignment') {
+        return {
+          data: [{ id: 'la-1', positionId: 'pos1', playerId: 'p1', isStarter: true, createdAt: '2026-05-10T00:00:00.000Z' }],
+          isSynced: true,
+        };
+      }
+      return { data: [], isSynced: false };
+    });
+
+    mockLineupList.mockResolvedValue({
+      data: [
+        { id: 'la-old', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true, createdAt: '2026-05-10T00:00:00.000Z' },
+        { id: 'la-new', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true, createdAt: '2026-05-10T00:00:01.000Z' },
+      ],
+    });
+
+    let capturedGamePlanNext: ((data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void) | null = null;
+    mockGamePlanObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void }) => {
+        capturedGamePlanNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+
+    renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      capturedGamePlanNext?.({
+        items: [{ id: 'plan-1', startingLineup: JSON.stringify([{ playerId: 'p1', positionId: 'pos1' }]) }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockLineupList).toHaveBeenCalled();
+      expect(mockLineupDelete).toHaveBeenCalledWith({ id: 'la-old' });
+    });
+    expect(mockLineupCreate).not.toHaveBeenCalled();
+    expect(mockLineupUpdate).not.toHaveBeenCalled();
   });
 
   it('does not sync lineup from gamePlan when game is not scheduled', async () => {
