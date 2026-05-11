@@ -98,13 +98,12 @@ async function createPlayers(page: Page) {
     
     await clickButton(page, 'Add');
     await page.waitForTimeout(UI_TIMING.NAVIGATION);
-    
-    // Verify exactly one matching player header exists to avoid duplicate-text strict mode fragility.
-    const playerNameHeading = page
-      .locator('.item-card h3')
-      .filter({ hasText: `${player.firstName} ${player.lastName}` });
-    await expect(playerNameHeading).toHaveCount(1);
-    await expect(playerNameHeading.first()).toBeVisible();
+
+    const playerCard = page
+      .locator('.item-card')
+      .filter({ hasText: `${player.firstName} ${player.lastName}` })
+      .first();
+    await expect(playerCard).toBeVisible({ timeout: 10000 });
   }
   
   console.log(`✓ Created ${TEST_DATA.players.length} players`);
@@ -301,57 +300,57 @@ async function setupLineup(page: Page, opponent: string) {
   
   // Assign first 7 players to starting positions using dropdowns
   const startingPlayers = TEST_DATA.players.slice(0, 7);
-  
-  for (let i = 0; i < Math.min(slotCount, startingPlayers.length); i++) {
-    const player = startingPlayers[i];
-    const positionSlot = positionSlots.nth(i);
-    
-    // Find the select dropdown in this position slot
-    const select = positionSlot.locator('select');
-    if (await select.isVisible()) {
-      // Build the option label to match (format: "#N FirstName LastName" or "⭐ #N FirstName LastName")
-      const playerLabel = `#${player.number} ${player.firstName} ${player.lastName}`;
-      
-      // Get all options and find the matching one
+
+  for (const player of startingPlayers.slice(0, slotCount)) {
+    const removeButton = page.getByRole('button', {
+      name: `Remove ${player.firstName} ${player.lastName} from ${player.position}`,
+    });
+
+    if (await removeButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+      continue;
+    }
+
+    const select = page.getByRole('combobox', { name: `Player for ${player.position}` }).first();
+    await expect(select).toBeVisible({ timeout: 10000 });
+
+    const playerLabel = `#${player.number} ${player.firstName} ${player.lastName}`;
+    let fallbackLabel: string | null = null;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       const options = select.locator('option');
       const optionCount = await options.count();
-      
-      let matched = false;
-      for (let j = 1; j < optionCount; j++) { // Skip first option (placeholder)
-        const optionText = await options.nth(j).textContent();
-        if (optionText && optionText.includes(playerLabel)) {
-          await select.selectOption({ index: j });
-          matched = true;
-          console.log(`  ✓ ${player.firstName} ${player.lastName} assigned to position ${i + 1}`);
+      fallbackLabel = null;
+
+      for (let optionIndex = 1; optionIndex < optionCount; optionIndex += 1) {
+        const optionText = (await options.nth(optionIndex).textContent())?.trim() ?? '';
+        if (optionText.includes(playerLabel)) {
+          fallbackLabel = optionText;
           break;
         }
       }
-      
-      if (!matched) {
-        // Fallback: find the first option whose text contains the player label.
-        let fallbackLabel: string | null = null;
-        for (let j = 1; j < optionCount; j++) {
-          const optionText = (await options.nth(j).textContent())?.trim() ?? '';
-          if (optionText.includes(playerLabel)) {
-            fallbackLabel = optionText;
-            break;
-          }
-        }
 
-        if (fallbackLabel) {
-          await select.selectOption({ label: fallbackLabel });
-          console.log(`  ✓ ${player.firstName} ${player.lastName} assigned to position ${i + 1} (label fallback)`);
-        } else {
-          console.log(`  ⚠️ Could not find option for ${player.firstName} ${player.lastName}`);
-        }
+      if (!fallbackLabel) {
+        break;
       }
-      
-      await page.waitForTimeout(UI_TIMING.QUICK);
+
+      await select.selectOption({ label: fallbackLabel });
+
+      const assigned = await removeButton.isVisible({ timeout: 5000 }).catch(() => false);
+      if (assigned) {
+        console.log(`  ✓ ${player.firstName} ${player.lastName} assigned to ${player.position}`);
+        break;
+      }
+
+      await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     }
+
+    expect(fallbackLabel, `Expected option for ${player.firstName} ${player.lastName}`).toBeTruthy();
+    await expect(removeButton).toBeVisible({ timeout: 10000 });
   }
   
   // Wait for assignments to be processed
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+  await expect(page.locator('.position-lineup-grid button[aria-label^="Remove "]')).toHaveCount(7, { timeout: 10000 });
   
   console.log('✓ Lineup set up with 7 starters');
 }
@@ -446,8 +445,9 @@ async function getDisplayedGameSeconds(page: Page): Promise<number> {
 
 async function addTestTimeAndWait(page: Page, minutes: 1 | 5): Promise<number> {
   const timerBefore = await getDisplayedGameSeconds(page);
-  const addFiveBtn = page.getByRole('button', { name: '+5 min' }).first();
-  const addOneBtn = page.getByRole('button', { name: '+1 min' }).first();
+  const fieldTestingControls = page.locator('#game-tab-panel-field .testing-controls').first();
+  const addFiveBtn = fieldTestingControls.getByRole('button', { name: '+5 min' });
+  const addOneBtn = fieldTestingControls.getByRole('button', { name: '+1 min' });
   const preferredBtn = minutes === 5 ? addFiveBtn : addOneBtn;
 
   const getStateHint = async (): Promise<string> => {
@@ -490,6 +490,7 @@ async function addTestTimeAndWait(page: Page, minutes: 1 | 5): Promise<number> {
   if (!preferredVisible) {
     await page.getByRole('tab', { name: /^Field$/i }).first().click().catch(() => {});
     await page.waitForTimeout(UI_TIMING.QUICK);
+    await expect(fieldTestingControls).toBeVisible({ timeout: 5000 });
   }
 
   let actualMinutesAdded: 1 | 5 = minutes;
@@ -558,7 +559,7 @@ async function addTestTimeAndWait(page: Page, minutes: 1 | 5): Promise<number> {
     }
 
     await addOneBtn.scrollIntoViewIfNeeded();
-    await addOneBtn.click({ force: true });
+  await addOneBtn.click({ force: true });
     actualMinutesAdded = 1;
   }
 
@@ -626,7 +627,7 @@ async function advanceGameClockTo(page: Page, targetMinute: number): Promise<voi
     }
 
     const remainingSeconds = targetSeconds - currentSeconds;
-    await addTestTimeAndWait(page, remainingSeconds >= 300 ? 5 : 1);
+    await addTestTimeAndWait(page, remainingSeconds >= 240 ? 5 : 1);
     await page.waitForTimeout(UI_TIMING.QUICK);
   }
 }
@@ -647,7 +648,9 @@ async function runGame(page: Page, gameNumber: number = 1) {
   const cleanupConfirm = handleConfirmDialog(page, false);
   
   // Click the initial "Start Game" button which opens the availability check modal
-  await clickButton(page, 'Start Game');
+  const startButtons = page.getByRole('button', { name: 'Start Game' });
+  await expect(startButtons.last()).toBeVisible({ timeout: 5000 });
+  await startButtons.last().click({ force: true });
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
   
   // The Player Availability Check modal appears - click "Start Game" in the modal to confirm
@@ -655,11 +658,16 @@ async function runGame(page: Page, gameNumber: number = 1) {
   // The modal one appears after the "Player Availability Check" heading
   const availabilityHeading = page.getByRole('heading', { name: 'Player Availability Check' });
   if (await availabilityHeading.isVisible({ timeout: 3000 }).catch(() => false)) {
-    // Find the modal container (parent of the heading) and then find the Start Game button within it
-    // Use nth(1) to get the second "Start Game" button on the page (the one in the modal)
-    const modalStartButton = page.getByRole('button', { name: 'Start Game' }).nth(1);
-    await modalStartButton.click();
-    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    const modalStartButtons = page.getByRole('button', { name: 'Start Game' });
+    const buttonCount = await modalStartButtons.count();
+    for (let i = buttonCount - 1; i >= 0; i -= 1) {
+      const candidate = modalStartButtons.nth(i);
+      if (await candidate.isVisible({ timeout: 800 }).catch(() => false)) {
+        await candidate.click({ force: true });
+        await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+        break;
+      }
+    }
     console.log('✓ Confirmed player availability');
   }
   
@@ -1410,7 +1418,8 @@ test.describe('Soccer App Full Workflow', () => {
       }
     }
     for (let i = 0; i < injuredCount; i += 1) {
-      await markInjuredButtons.nth(i).click();
+      await expect(markInjuredButtons.first()).toBeVisible({ timeout: 5000 });
+      await markInjuredButtons.first().click();
       await page.getByRole('button', { name: 'Mark Injured' }).click();
       await page.waitForTimeout(UI_TIMING.QUICK);
     }

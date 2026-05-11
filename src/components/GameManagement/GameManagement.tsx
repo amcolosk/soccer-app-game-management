@@ -94,6 +94,34 @@ function buildDeterministicStartPlayTimeRecordId(params: {
   return `ptr:${gameId}:${playerId}:h${half}:t${startGameSeconds}`;
 }
 
+type StarterSelection = {
+  playerId: string;
+  positionId: string;
+};
+
+function parsePersistedStarterLineup(
+  lineupRaw: string | null | undefined,
+  getPlayerAvailability: (playerId: string) => string | null | undefined,
+): StarterSelection[] {
+  if (!lineupRaw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(lineupRaw) as Array<{ playerId?: string | null; positionId?: string | null }>;
+    return parsed.filter(
+      (entry): entry is { playerId: string; positionId: string } =>
+        typeof entry.playerId === 'string'
+        && entry.playerId.length > 0
+        && typeof entry.positionId === 'string'
+        && entry.positionId.length > 0
+        && ['available', 'late-arrival'].includes(getPlayerAvailability(entry.playerId) ?? 'available')
+    );
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Compute final score from Goal records.
  * Used for deriving scores during active game and writing snapshots on completion.
@@ -1390,9 +1418,23 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       const resolvedLocalStarterCount = resolvedLocalStarters.length;
       const expectedStarterCount = team.maxPlayersOnField ?? resolvedLocalStarterCount;
 
-      let starters = resolvedLocalStarters;
+      let starters: StarterSelection[] = resolvedLocalStarters.map((starter) => ({
+        playerId: starter.playerId,
+        positionId: starter.positionId,
+      }));
 
       if (resolvedLocalStarterCount < expectedStarterCount) {
+        const plannedStarters = parsePersistedStarterLineup(
+          (gamePlan?.startingLineup as string | null | undefined) ?? null,
+          getPlayerAvailability,
+        );
+
+        if (plannedStarters.length > starters.length) {
+          starters = plannedStarters;
+        }
+      }
+
+      if (starters.length < expectedStarterCount) {
         const fallbackAssignments = await client.models.LineupAssignment.list({
           filter: {
             gameId: { eq: game.id },
@@ -1402,7 +1444,10 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
 
         const dbStarters = fallbackAssignments.data.filter(
           (l): l is typeof l & { playerId: string; positionId: string } => !!l.playerId && !!l.positionId
-        );
+        ).map((starter) => ({
+          playerId: starter.playerId,
+          positionId: starter.positionId,
+        }));
 
         if (dbStarters.length > resolvedLocalStarters.length) {
           starters = dbStarters;
@@ -1600,9 +1645,25 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       const resolvedLocalStarterCount = resolvedLocalStarters.length;
       const expectedStarterCount = team.maxPlayersOnField ?? resolvedLocalStarterCount;
 
-      let starters = resolvedLocalStarters;
+      let starters: StarterSelection[] = resolvedLocalStarters.map((starter) => ({
+        playerId: starter.playerId,
+        positionId: starter.positionId,
+      }));
 
       if (resolvedLocalStarterCount < expectedStarterCount) {
+        const plannedSecondHalfStarters = parsePersistedStarterLineup(
+          (gamePlan?.halftimeLineup as string | null | undefined)
+          || (gamePlan?.startingLineup as string | null | undefined)
+          || null,
+          getPlayerAvailability,
+        );
+
+        if (plannedSecondHalfStarters.length > starters.length) {
+          starters = plannedSecondHalfStarters;
+        }
+      }
+
+      if (starters.length < expectedStarterCount) {
         const fallbackAssignments = await client.models.LineupAssignment.list({
           filter: {
             gameId: { eq: game.id },
@@ -1612,7 +1673,10 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
 
         const dbStarters = fallbackAssignments.data.filter(
           (l): l is typeof l & { playerId: string; positionId: string } => !!l.playerId && !!l.positionId
-        );
+        ).map((starter) => ({
+          playerId: starter.playerId,
+          positionId: starter.positionId,
+        }));
 
         if (dbStarters.length > resolvedLocalStarters.length) {
           starters = dbStarters;
@@ -1828,11 +1892,13 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     }, 0);
   }, []);
 
-  const handleAddTestTime = (minutes: number) => {
-    const newTime = currentTime + minutes * 60;
-    setCurrentTime(newTime);
-    resetAnchor(newTime);
-  };
+  const handleAddTestTime = useCallback((minutes: number) => {
+    setCurrentTime((previousTime) => {
+      const newTime = previousTime + minutes * 60;
+      resetAnchor(newTime);
+      return newTime;
+    });
+  }, [resetAnchor]);
 
   const openCreatePreGameNote = () => {
     setPreGameNoteMode('create');

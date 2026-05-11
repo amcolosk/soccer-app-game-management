@@ -90,6 +90,7 @@ const mockCaptures: {
   onApplyHalftimeSub?: (sub: PlannedSubstitution) => Promise<void>;
   onQueueSubstitution?: (playerId: string, positionId: string) => void;
   latestSubstitutionQueue?: { playerId: string; positionId: string }[];
+  gameTimerProps?: any;
   preGameNotesPanelProps?: any;
   playerNotesPanelProps?: any;
   rotationWidgetProps?: any;
@@ -99,6 +100,7 @@ const mockCaptures: {
 vi.mock("./GameTimer", () => ({
   GameTimer: vi.fn((props: any) => {
     mockCaptures.onApplyHalftimeSub = props.onApplyHalftimeSub;
+    mockCaptures.gameTimerProps = props;
     return <div data-testid="game-timer" />;
   }),
 }));
@@ -317,6 +319,7 @@ describe("GameManagement – handleApplyHalftimeSub", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCaptures.onApplyHalftimeSub = undefined;
+    mockCaptures.gameTimerProps = undefined;
     mockCaptures.playerNotesPanelProps = undefined;
     mockUseTeamData.mockReturnValue({ players: [], positions: [] });
     mockUseGameSubscriptions.mockReturnValue(defaultSubscription);
@@ -1249,6 +1252,29 @@ describe("GameManagement – handleQueueSubstitution batching", () => {
   });
 });
 
+describe("GameManagement – handleAddTestTime", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCaptures.gameTimerProps = undefined;
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+    mockUseGameSubscriptions.mockReturnValue(defaultSubscription);
+  });
+
+  it("accumulates from latest time even when the same callback instance fires twice", async () => {
+    renderComponent();
+    const onAddTestTime = mockCaptures.gameTimerProps?.onAddTestTime as ((minutes: number) => void) | undefined;
+    expect(typeof onAddTestTime).toBe('function');
+    const initialTime = mockCaptures.gameTimerProps?.currentTime as number;
+
+    await act(async () => {
+      onAddTestTime?.(1);
+      onAddTestTime?.(1);
+    });
+
+    expect(mockCaptures.gameTimerProps?.currentTime).toBe(initialTime + 120);
+  });
+});
+
 describe("GameManagement – starter fallback uses resolved starters", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1333,6 +1359,44 @@ describe("GameManagement – starter fallback uses resolved starters", () => {
     await waitFor(() => {
       expect(mockPlayTimeCreate).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it("handleStartGame falls back to GamePlan startingLineup before DB assignments", async () => {
+    const user = userEvent.setup();
+    const gameState = { ...defaultSubscription.gameState, status: 'scheduled' };
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState,
+      lineup: [
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+        { id: 'la-2', gameId: 'game-1', playerId: null, positionId: 'pos2', isStarter: true },
+      ],
+      gamePlan: {
+        id: 'gp-1',
+        startingLineup: JSON.stringify([
+          { playerId: 'p1', positionId: 'pos1' },
+          { playerId: 'p2', positionId: 'pos2' },
+        ]),
+        halftimeLineup: '[]',
+        rotationIntervalMinutes: 10,
+      },
+    });
+
+    renderWithRouter(
+      <GameManagement
+        game={{ ...mockGame, status: 'scheduled' }}
+        team={{ ...mockTeam, maxPlayersOnField: 2 }}
+        onBack={vi.fn()}
+      />
+    );
+
+    const startButtons = screen.getAllByRole('button', { name: /start game/i });
+    await user.click(startButtons[0]);
+
+    await waitFor(() => {
+      expect(mockPlayTimeCreate).toHaveBeenCalledTimes(2);
+    });
+    expect(mockLineupList).not.toHaveBeenCalled();
   });
 
   it("handleStartSecondHalf falls back to DB when resolved local starters are below expected", async () => {

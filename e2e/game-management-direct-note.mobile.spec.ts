@@ -220,8 +220,14 @@ async function ensureStartingLineup(page: Page): Promise<void> {
     }
   }
 
-  const lineupHeading = page.getByRole('heading', { name: /Starting Lineup/i }).first();
-  await expect(lineupHeading).toBeVisible({ timeout: 8000 });
+  const planTab = page.getByRole('tab', { name: /^Plan$/i });
+  if (await planTab.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await planTab.click();
+    await page.waitForTimeout(UI_TIMING.QUICK);
+  }
+
+  const plannerLineupGrid = page.locator('.position-lineup-grid').first();
+  await expect(plannerLineupGrid).toBeVisible({ timeout: 8000 });
 
   const listViewButton = page.getByRole('button', { name: 'List' }).first();
   await listViewButton.scrollIntoViewIfNeeded().catch(() => undefined);
@@ -230,12 +236,12 @@ async function ensureStartingLineup(page: Page): Promise<void> {
 
   // Fill one empty slot at a time and re-evaluate heading to avoid stale-locator drift.
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const lineupText = ((await lineupHeading.textContent()) ?? '').trim();
-    if (/\(5\/5\)/i.test(lineupText)) {
+    const remainingSelects = page.locator('.position-lineup-grid select');
+    if (await remainingSelects.count() === 0) {
       break;
     }
 
-    const selects = page.getByRole('combobox');
+    const selects = page.locator('.position-lineup-grid select');
     const selectCount = await selects.count();
     let filledOne = false;
 
@@ -246,12 +252,15 @@ async function ensureStartingLineup(page: Page): Promise<void> {
         continue;
       }
 
-      const optionCount = await select.locator('option').count();
-      if (optionCount <= 1) {
+      const optionLabels = (await select.locator('option').allTextContents())
+        .map((label) => label.trim())
+        .filter((label) => label && label !== 'Unassigned' && !label.includes('(Assigned)'));
+      const nextAvailablePlayer = optionLabels[0];
+      if (!nextAvailablePlayer) {
         continue;
       }
 
-      await select.selectOption({ index: 1 });
+      await select.selectOption({ label: nextAvailablePlayer });
       await page.waitForTimeout(UI_TIMING.QUICK);
       filledOne = true;
       break;
@@ -268,11 +277,11 @@ async function ensureStartingLineup(page: Page): Promise<void> {
   }
 
   await expect
-    .poll(async () => (await lineupHeading.textContent()) ?? '', {
+    .poll(async () => page.locator('.position-lineup-grid select').count(), {
       timeout: 10000,
-      message: 'Expected starting lineup to include at least one starter before game start',
+      message: 'Expected starting lineup to be fully assigned before game start',
     })
-    .toMatch(/\(([1-5])\/5\)/i);
+    .toBe(0);
 }
 
 async function startGameFromScheduledCard(page: Page, opponent: string, finishAtHalftime: boolean): Promise<void> {

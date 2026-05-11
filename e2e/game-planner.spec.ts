@@ -173,19 +173,28 @@ async function openGamePlanner(page: Page) {
 async function assignStartingLineup(page: Page) {
   // Selecting a player can replace that position's <select> with a chip,
   // so always re-query and fill the first remaining select.
-  for (let index = 0; index < 5; index++) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
     const selects = page.locator('.position-lineup-grid select');
     const remaining = await selects.count();
     if (remaining === 0) break;
 
     const select = selects.first();
-    const options = select.locator('option');
-    const optionCount = await options.count();
-    if (optionCount <= 1) break;
+    const optionLabels = (await select.locator('option').allTextContents())
+      .map((label) => label.trim())
+      .filter((label) => label && label !== 'Unassigned' && !label.includes('(Assigned)'));
+    const nextAvailablePlayer = optionLabels[0];
+    if (!nextAvailablePlayer) break;
 
-    await select.selectOption({ index: 1 });
+    await select.selectOption({ label: nextAvailablePlayer });
     await page.waitForTimeout(UI_TIMING.QUICK);
   }
+
+  await expect
+    .poll(async () => page.locator('.position-lineup-grid select').count(), {
+      timeout: 10000,
+      message: 'Expected all planner lineup slots to be assigned before starting the game',
+    })
+    .toBe(0);
 }
 
 async function startGameFromScheduled(page: Page) {
@@ -248,7 +257,7 @@ test.describe('Game Planner with Timeline', () => {
     // Live Plan tab stays available but read-only.
     await page.getByRole('tab', { name: /^Plan$/i }).click();
     await expect(page.getByRole('tab', { name: /^Plan$/i })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByText('Plan view — read-only during live play')).toBeVisible();
+    await expect(page.getByText(/plan is read-only during live play/i)).toBeVisible();
   });
 
   test('Legacy /game/:id/plan route redirects to merged /game/:id view', async ({ page }) => {
