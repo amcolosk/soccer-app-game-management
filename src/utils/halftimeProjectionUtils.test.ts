@@ -5,6 +5,8 @@ import {
   parseHalftimeLineup,
   serializeHalftimeLineup,
   halftimeLineupsEqual,
+  mergeHalftimeLineup,
+  deriveExplicitOverrides,
 } from "../utils/halftimeProjectionUtils";
 import type { PlannedRotation } from "../types/schema";
 
@@ -115,6 +117,27 @@ describe("halftimeProjectionUtils", () => {
     it("should handle invalid JSON gracefully", () => {
       expect(parseHalftimeLineup("invalid")).toEqual(new Map());
     });
+
+    it("should preserve empty-string playerId as explicit clear sentinel", () => {
+      const json = JSON.stringify([
+        { playerId: "", positionId: "pos1" },
+        { playerId: "p2", positionId: "pos2" },
+      ]);
+      const lineup = parseHalftimeLineup(json);
+      expect(lineup.has("pos1")).toBe(true);
+      expect(lineup.get("pos1")).toBe("");
+      expect(lineup.get("pos2")).toBe("p2");
+    });
+
+    it("should skip entries without positionId", () => {
+      const json = JSON.stringify([
+        { playerId: "p1", positionId: "" },
+        { playerId: "p2", positionId: "pos2" },
+      ]);
+      const lineup = parseHalftimeLineup(json);
+      expect(lineup.size).toBe(1);
+      expect(lineup.get("pos2")).toBe("p2");
+    });
   });
 
   describe("serializeHalftimeLineup", () => {
@@ -172,6 +195,87 @@ describe("halftimeProjectionUtils", () => {
       const a = new Map<string, string>([["pos1", "p1"]]);
       const b = new Map<string, string>([["pos1", "p2"]]);
       expect(halftimeLineupsEqual(a, b)).toBe(false);
+    });
+  });
+
+  describe("mergeHalftimeLineup", () => {
+    it("inherits end-of-H1 player when position absent from overrides", () => {
+      const endOfH1 = new Map([["pos1", "p1"], ["pos2", "p2"]]);
+      const overrides = new Map<string, string>([["pos1", "p3"]]);
+      const merged = mergeHalftimeLineup(endOfH1, overrides);
+      expect(merged.get("pos1")).toBe("p3");
+      expect(merged.get("pos2")).toBe("p2"); // inherited
+    });
+
+    it("applies non-empty player override", () => {
+      const endOfH1 = new Map([["pos1", "p1"]]);
+      const overrides = new Map([["pos1", "p99"]]);
+      const merged = mergeHalftimeLineup(endOfH1, overrides);
+      expect(merged.get("pos1")).toBe("p99");
+    });
+
+    it("removes position when override is empty string (explicit clear)", () => {
+      const endOfH1 = new Map([["pos1", "p1"], ["pos2", "p2"]]);
+      const overrides = new Map([["pos1", ""]]);
+      const merged = mergeHalftimeLineup(endOfH1, overrides);
+      expect(merged.has("pos1")).toBe(false);
+      expect(merged.get("pos2")).toBe("p2");
+    });
+
+    it("returns copy of endOfH1 when overrides are empty", () => {
+      const endOfH1 = new Map([["pos1", "p1"]]);
+      const merged = mergeHalftimeLineup(endOfH1, new Map());
+      expect(merged.get("pos1")).toBe("p1");
+      expect(merged).not.toBe(endOfH1); // must be a new map
+    });
+
+    it("does not mutate endOfH1 map", () => {
+      const endOfH1 = new Map([["pos1", "p1"]]);
+      const overrides = new Map([["pos1", ""]]);
+      mergeHalftimeLineup(endOfH1, overrides);
+      expect(endOfH1.get("pos1")).toBe("p1"); // original unchanged
+    });
+  });
+
+  describe("deriveExplicitOverrides", () => {
+    it("records positions with changed players relative to end-of-H1", () => {
+      const endOfH1 = new Map([["pos1", "p1"], ["pos2", "p2"]]);
+      const effective = new Map([["pos1", "p3"], ["pos2", "p2"]]);
+      const overrides = deriveExplicitOverrides(effective, endOfH1);
+      expect(overrides.get("pos1")).toBe("p3");
+      expect(overrides.has("pos2")).toBe(false); // unchanged, not stored
+    });
+
+    it("records empty-string sentinel for positions cleared relative to end-of-H1", () => {
+      const endOfH1 = new Map([["pos1", "p1"], ["pos2", "p2"]]);
+      const effective = new Map([["pos2", "p2"]]); // pos1 cleared
+      const overrides = deriveExplicitOverrides(effective, endOfH1);
+      expect(overrides.get("pos1")).toBe("");
+      expect(overrides.has("pos2")).toBe(false); // unchanged
+    });
+
+    it("returns empty map when effective lineup equals end-of-H1", () => {
+      const endOfH1 = new Map([["pos1", "p1"], ["pos2", "p2"]]);
+      const effective = new Map([["pos1", "p1"], ["pos2", "p2"]]);
+      const overrides = deriveExplicitOverrides(effective, endOfH1);
+      expect(overrides.size).toBe(0);
+    });
+
+    it("records empty-string sentinels for all positions when effective lineup is empty", () => {
+      const endOfH1 = new Map([["pos1", "p1"], ["pos2", "p2"]]);
+      const overrides = deriveExplicitOverrides(new Map(), endOfH1);
+      expect(overrides.get("pos1")).toBe("");
+      expect(overrides.get("pos2")).toBe("");
+      expect(overrides.size).toBe(2);
+    });
+
+    it("round-trips through mergeHalftimeLineup: derive then merge restores effective lineup", () => {
+      const endOfH1 = new Map([["pos1", "p1"], ["pos2", "p2"]]);
+      const effective = new Map([["pos1", "p3"]]); // pos2 cleared
+      const overrides = deriveExplicitOverrides(effective, endOfH1);
+      const restored = mergeHalftimeLineup(endOfH1, overrides);
+      expect(restored.get("pos1")).toBe("p3");
+      expect(restored.has("pos2")).toBe(false); // stays cleared
     });
   });
 });

@@ -71,6 +71,7 @@ export function recoverHalftimeLineupFromRotation(
  * Parse halftime lineup JSON from GamePlan.halftimeLineup.
  * Returns Map<positionId, playerId>.
  * Empty/null input returns empty map.
+ * Preserves empty-string playerId values as explicit clear sentinels.
  */
 export function parseHalftimeLineup(
   jsonData: string | null | undefined
@@ -81,8 +82,9 @@ export function parseHalftimeLineup(
     const entries = JSON.parse(jsonData) as HalftimeLineupEntry[];
     const result = new Map<string, string>();
     for (const entry of entries) {
-      if (entry.playerId && entry.positionId) {
-        result.set(entry.positionId, entry.playerId);
+      if (entry.positionId) {
+        // Preserve empty string as explicit clear sentinel; filter only missing positionId.
+        result.set(entry.positionId, entry.playerId ?? "");
       }
     }
     return result;
@@ -90,6 +92,54 @@ export function parseHalftimeLineup(
     console.error("[parseHalftimeLineup] Failed to parse:", e);
     return new Map();
   }
+}
+
+/**
+ * Merge end-of-H1 lineup with explicit halftime overrides into the effective halftime lineup.
+ *
+ * Explicit override contract:
+ *   - missing key in overrides  => inherit end-of-H1 player
+ *   - non-empty playerId        => explicit override with that player
+ *   - empty string ("")         => explicit clear for that position
+ */
+export function mergeHalftimeLineup(
+  endOfH1: Map<string, string>,
+  explicitOverrides: Map<string, string>
+): Map<string, string> {
+  const merged = new Map(endOfH1);
+  for (const [posId, playerId] of explicitOverrides.entries()) {
+    if (playerId) {
+      merged.set(posId, playerId);
+    } else {
+      merged.delete(posId);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Derive the minimal explicit override map from an effective halftime lineup relative to
+ * end-of-H1. Positions that match end-of-H1 are omitted (they will inherit naturally).
+ * Positions cleared relative to end-of-H1 are recorded with empty-string sentinel ("").
+ */
+export function deriveExplicitOverrides(
+  effectiveLineup: Map<string, string>,
+  endOfH1: Map<string, string>
+): Map<string, string> {
+  const overrides = new Map<string, string>();
+  // Record changed or new player assignments.
+  for (const [posId, playerId] of effectiveLineup.entries()) {
+    if (endOfH1.get(posId) !== playerId) {
+      overrides.set(posId, playerId);
+    }
+  }
+  // Record explicit clears: positions in end-of-H1 absent from the effective lineup.
+  for (const posId of endOfH1.keys()) {
+    if (!effectiveLineup.has(posId)) {
+      overrides.set(posId, "");
+    }
+  }
+  return overrides;
 }
 
 /**

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { PlayerAvailabilityGrid } from "../PlayerAvailabilityGrid";
 import { PlannerLineupView } from "./PlannerLineupView";
 import { useGamePlanner } from "./hooks/useGamePlanner";
+import { useConfirm } from "../ConfirmModal";
 import { generateCanonicalKey } from "../../utils/plannerKeyUtils";
 import { calculatePlayTime } from "../../services/rotationPlannerService";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
@@ -12,6 +13,11 @@ import {
   computeLineupAtRotation,
   computeLineupDiff,
 } from "../../utils/gamePlannerUtils";
+import {
+  mergeHalftimeLineup,
+  deriveExplicitOverrides,
+  projectHalftimeRotation,
+} from "../../utils/halftimeProjectionUtils";
 import type {
   Game,
   Team,
@@ -170,6 +176,7 @@ export function PlanTab({
   );
 
   const planner = useGamePlanner(game, team, gamePlan, plannedRotations, startingLineupAssignments);
+  const confirm = useConfirm();
 
   // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ State Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   const [isSavingPlan, setIsSavingPlan] = useState(false);
@@ -339,17 +346,11 @@ export function PlanTab({
   }, [planner.draft.startingLineup, h1RotationRows]);
 
   // H2 must always start from a full lineup: end-of-H1 plus any explicit halftime overrides.
-  const effectiveHalftimeLineup = useMemo(() => {
-    const merged = new Map(endOfFirstHalfLineup);
-    for (const [posId, playerId] of explicitHalftimeLineup.entries()) {
-      if (playerId) {
-        merged.set(posId, playerId);
-      } else {
-        merged.delete(posId);
-      }
-    }
-    return merged;
-  }, [endOfFirstHalfLineup, explicitHalftimeLineup]);
+  // explicit override contract: missing key => inherit, non-empty => override, "" => clear
+  const effectiveHalftimeLineup = useMemo(
+    () => mergeHalftimeLineup(endOfFirstHalfLineup, explicitHalftimeLineup),
+    [endOfFirstHalfLineup, explicitHalftimeLineup]
+  );
 
   const rotationRowsForLineup = useMemo(
     () =>
@@ -392,10 +393,20 @@ export function PlanTab({
   const totalGameMinutes = Math.max(0, halfLengthMinutes * 2);
 
   // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Synthetic HT sentinel for projected play time Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-  const syntheticHtRotation = useMemo(
-    () => planner.computeHalftimeRotation(),
-    [planner]
-  );
+  const syntheticHtRotation = useMemo(() => {
+    if (endOfFirstHalfLineup.size === 0) return null;
+    const payload = projectHalftimeRotation(endOfFirstHalfLineup, effectiveHalftimeLineup);
+    // Skip sentinel if no actual HT changes - empty subs corrupt play-time calc (gameMinute: 0)
+    let htSubs: unknown[] = [];
+    try { htSubs = JSON.parse(payload.plannedSubstitutions as string) as unknown[]; } catch { /* ignore */ }
+    if (htSubs.length === 0) return null;
+    return {
+      ...payload,
+      id: "",
+      gamePlanId: gamePlan?.id ?? "",
+      coaches: team.coaches ?? [],
+    } as unknown as PlannedRotation;
+  }, [endOfFirstHalfLineup, effectiveHalftimeLineup, gamePlan?.id, team.coaches]);
 
   const effectivePlannedRotationsWithHt = useMemo(() => {
     const htExists = effectivePlannedRotations.some(
@@ -526,15 +537,19 @@ export function PlanTab({
     [isScheduled, readOnly, planner]
   );
 
-  /** Immediate-save for halftime lineup position assignment. */
-  const handleHtPositionChange = useCallback(
-    async (positionId: string, playerId: string) => {
-      if (!isScheduled || readOnly) return;
-      const newLineup = applyUniqueAssignment(effectiveHalftimeLineup, positionId, playerId);
+  /**
+   * Internal: persists a new effective halftime lineup via the explicit-override contract.
+   * Derives the minimal override map (including "" sentinels for cleared positions),
+   * saves it, and cascades H2 rotations so playerOutId labels stay consistent.
+   */
+  const applyHalftimeLineupChange = useCallback(
+    async (nextEffectiveLineup: Map<string, string>) => {
+      // Derive minimal explicit overrides; "" = explicit clear sentinel.
+      const nextExplicitOverrides = deriveExplicitOverrides(nextEffectiveLineup, endOfFirstHalfLineup);
       if (externalOnHalftimeLineupChange) {
-        await externalOnHalftimeLineupChange(newLineup);
+        await externalOnHalftimeLineupChange(nextExplicitOverrides);
       } else {
-        await planner.updateHalftimeLineup(newLineup);
+        await planner.updateHalftimeLineup(nextExplicitOverrides);
       }
       // Cascade H2 rotations so their playerOutId values stay consistent with the
       // new halftime lineup. Without this, stale subs overwrite the new halftime
@@ -553,18 +568,18 @@ export function PlanTab({
           } catch {
             // Leave empty — cascade still rebinds downstream rotations.
           }
-          // Rebind each sub's playerOutId to whoever is NOW in that position
-          // according to the fresh halftime lineup.
+          // Rebind each sub's playerOutId to whoever is NOW in that position.
+          // Use "" for cleared positions so stale playerOut labels do not persist.
           const reboundFirstH2Subs = firstH2Subs.map((sub) => ({
             ...sub,
-            playerOutId: newLineup.get(sub.positionId) ?? sub.playerOutId,
+            playerOutId: nextEffectiveLineup.get(sub.positionId) ?? "",
           }));
           const cascadeResult = applyRotationEditWithSameHalfCascade(
             planner.draft.startingLineup,
             effectivePlannedRotations,
             firstH2.rotationNumber ?? 0,
             reboundFirstH2Subs,
-            newLineup,
+            nextEffectiveLineup,
           );
           if (cascadeResult.changedRotationNumbers.length > 0) {
             setLocalRotationOverrides((prev) => {
@@ -596,9 +611,7 @@ export function PlanTab({
       }
     },
     [
-      isScheduled,
-      readOnly,
-      effectiveHalftimeLineup,
+      endOfFirstHalfLineup,
       externalOnHalftimeLineupChange,
       planner,
       onUpdatePlannedRotations,
@@ -607,6 +620,29 @@ export function PlanTab({
       persistRotationChange,
     ]
   );
+
+  /** Immediate-save for halftime lineup position assignment. */
+  const handleHtPositionChange = useCallback(
+    async (positionId: string, playerId: string) => {
+      if (!isScheduled || readOnly) return;
+      const nextEffectiveLineup = applyUniqueAssignment(effectiveHalftimeLineup, positionId, playerId);
+      await applyHalftimeLineupChange(nextEffectiveLineup);
+    },
+    [isScheduled, readOnly, effectiveHalftimeLineup, applyHalftimeLineupChange]
+  );
+
+  /** Clears all halftime position assignments after confirmation. Halftime-only. */
+  const handleClearHalftimeLineup = useCallback(async () => {
+    if (!isScheduled || readOnly) return;
+    const confirmed = await confirm({
+      title: "Clear Halftime Lineup",
+      message: "Remove all players from the halftime lineup? H2 rotations will also be updated.",
+      confirmText: "Clear All",
+      variant: "warning",
+    });
+    if (!confirmed) return;
+    await applyHalftimeLineupChange(new Map());
+  }, [isScheduled, readOnly, confirm, applyHalftimeLineupChange]);
 
   /** Debounced (300 ms) immediate-save for rotation slot changes. */
   const handleRotationPositionChange = useCallback(
@@ -1139,7 +1175,18 @@ export function PlanTab({
             </div>
           ) : isHalftimeSelected ? (
             <div className="plan-tab__halftime-editor">
-              <h4>Halftime Lineup</h4>
+              <div className="plan-tab__halftime-header">
+                <h4>Halftime Lineup</h4>
+                {!readOnly && isScheduled && effectiveHalftimeLineup.size > 0 && (
+                  <button
+                    type="button"
+                    className="btn-clear-lineup"
+                    onClick={() => void handleClearHalftimeLineup()}
+                  >
+                    Clear All Positions
+                  </button>
+                )}
+              </div>
               <PlannerLineupView
                 displayLineup={effectiveHalftimeLineup}
                 positions={positions}

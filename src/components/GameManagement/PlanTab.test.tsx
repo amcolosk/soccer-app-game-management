@@ -14,6 +14,14 @@ import type {
 
 Element.prototype.scrollIntoView = vi.fn();
 
+const { mockConfirm } = vi.hoisted(() => ({
+  mockConfirm: vi.fn().mockResolvedValue(true),
+}));
+
+vi.mock("../ConfirmModal", () => ({
+  useConfirm: () => mockConfirm,
+}));
+
 vi.mock("./hooks/useGamePlanner", () => ({
   useGamePlanner: vi.fn(),
 }));
@@ -138,10 +146,7 @@ describe("PlanTab", () => {
         ["pos-1", "player-1"],
         ["pos-2", "player-2"],
       ]),
-      halftimeLineup: new Map([
-        ["pos-1", "player-1"],
-        ["pos-2", "player-3"],
-      ]),
+      halftimeLineup: new Map(), // empty — no explicit HT overrides in default scenario
       selectedTimelineKey: null,
     },
     isDirty: false,
@@ -159,6 +164,7 @@ describe("PlanTab", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockConfirm.mockResolvedValue(true);
     (useGamePlanner as any).mockReturnValue(mockPlannerResult);
   });
 
@@ -986,6 +992,156 @@ describe("PlanTab", () => {
     expect(onIntervalChange).not.toHaveBeenCalled();
     expect(onHalftimeLineupChange).not.toHaveBeenCalled();
     expect(onGenerateRotations).not.toHaveBeenCalled();
+  });
+
+  describe("Halftime lineup explicit-override contract", () => {
+    it("clearing a halftime slot inherited from end-of-H1 persists explicit empty-string override", async () => {
+      const updateHalftimeLineup = vi.fn().mockResolvedValue(undefined);
+      (useGamePlanner as any).mockReturnValue({
+        ...mockPlannerResult,
+        draft: {
+          ...mockPlannerResult.draft,
+          selectedTimelineKey: "halftime",
+          halftimeLineup: new Map(), // no explicit overrides — all positions inherited
+        },
+        updateHalftimeLineup,
+      });
+
+      // Use plannedRotations: [] so endOfH1 = startingLineup (no H1 rotations changing pos-1)
+      render(<PlanTab {...defaultProps} plannedRotations={[]} />);
+
+      // pos-1 is inherited from end-of-H1 (= startingLineup) and shows player-1
+      const pos1Select = screen.getByTestId("position-select-pos-1");
+      expect(pos1Select).toHaveValue("player-1");
+
+      // Clear pos-1
+      await userEvent.selectOptions(pos1Select, "");
+
+      expect(updateHalftimeLineup).toHaveBeenCalledOnce();
+      const persistedMap = updateHalftimeLineup.mock.calls[0][0] as Map<string, string>;
+      // The persisted map must carry an explicit "" sentinel for pos-1
+      expect(persistedMap.get("pos-1")).toBe("");
+      // pos-2 was not touched and still matches end-of-H1 — no override needed
+      expect(persistedMap.has("pos-2")).toBe(false);
+    });
+
+    it("rerender with empty-string sentinel keeps the halftime slot empty", () => {
+      (useGamePlanner as any).mockReturnValue({
+        ...mockPlannerResult,
+        draft: {
+          ...mockPlannerResult.draft,
+          selectedTimelineKey: "halftime",
+          halftimeLineup: new Map([["pos-1", ""]]), // explicit clear for pos-1
+        },
+      });
+
+      render(<PlanTab {...defaultProps} />);
+
+      // pos-1 must be empty — explicit clear overrides the end-of-H1 player
+      const pos1Select = screen.getByTestId("position-select-pos-1");
+      expect(pos1Select).toHaveValue("");
+      // pos-2 still inherits from end-of-H1
+      expect(screen.getByTestId("position-select-pos-2")).toHaveValue("player-2");
+    });
+
+    it("clear-all button visible when halftime lineup has assigned players and editor is interactive", () => {
+      (useGamePlanner as any).mockReturnValue({
+        ...mockPlannerResult,
+        draft: {
+          ...mockPlannerResult.draft,
+          selectedTimelineKey: "halftime",
+        },
+      });
+
+      render(<PlanTab {...defaultProps} />);
+      expect(screen.getByRole("button", { name: /clear all positions/i })).toBeInTheDocument();
+    });
+
+    it("clear-all button is hidden when readOnly", () => {
+      (useGamePlanner as any).mockReturnValue({
+        ...mockPlannerResult,
+        draft: {
+          ...mockPlannerResult.draft,
+          selectedTimelineKey: "halftime",
+        },
+      });
+
+      render(
+        <PlanTab
+          {...defaultProps}
+          readOnly={true}
+          game={{ ...mockGame, status: "halftime" } as Game}
+        />
+      );
+      expect(screen.queryByRole("button", { name: /clear all positions/i })).not.toBeInTheDocument();
+    });
+
+    it("clear-all button is hidden when all halftime positions are already empty", () => {
+      (useGamePlanner as any).mockReturnValue({
+        ...mockPlannerResult,
+        draft: {
+          ...mockPlannerResult.draft,
+          selectedTimelineKey: "halftime",
+          startingLineup: new Map(), // empty end-of-H1
+          halftimeLineup: new Map(),
+        },
+      });
+
+      // Use plannedRotations: [] so endOfH1 = startingLineup = new Map() (truly empty)
+      render(<PlanTab {...defaultProps} plannedRotations={[]} />);
+      expect(screen.queryByRole("button", { name: /clear all positions/i })).not.toBeInTheDocument();
+    });
+
+    it("clear-all confirm accepted clears all halftime positions via explicit overrides", async () => {
+      const updateHalftimeLineup = vi.fn().mockResolvedValue(undefined);
+      (useGamePlanner as any).mockReturnValue({
+        ...mockPlannerResult,
+        draft: {
+          ...mockPlannerResult.draft,
+          selectedTimelineKey: "halftime",
+        },
+        updateHalftimeLineup,
+      });
+
+      render(<PlanTab {...defaultProps} />);
+
+      const clearBtn = screen.getByRole("button", { name: /clear all positions/i });
+      await userEvent.click(clearBtn);
+
+      expect(mockConfirm).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Clear Halftime Lineup",
+          confirmText: "Clear All",
+          variant: "warning",
+        })
+      );
+      expect(updateHalftimeLineup).toHaveBeenCalledOnce();
+      const persistedMap = updateHalftimeLineup.mock.calls[0][0] as Map<string, string>;
+      // All positions from endOfH1 (= startingLineup here) must have "" clear sentinels
+      expect(persistedMap.get("pos-1")).toBe("");
+      expect(persistedMap.get("pos-2")).toBe("");
+    });
+
+    it("clear-all confirm cancelled does not persist changes", async () => {
+      const updateHalftimeLineup = vi.fn().mockResolvedValue(undefined);
+      mockConfirm.mockResolvedValueOnce(false);
+      (useGamePlanner as any).mockReturnValue({
+        ...mockPlannerResult,
+        draft: {
+          ...mockPlannerResult.draft,
+          selectedTimelineKey: "halftime",
+        },
+        updateHalftimeLineup,
+      });
+
+      render(<PlanTab {...defaultProps} />);
+
+      const clearBtn = screen.getByRole("button", { name: /clear all positions/i });
+      await userEvent.click(clearBtn);
+
+      expect(mockConfirm).toHaveBeenCalledOnce();
+      expect(updateHalftimeLineup).not.toHaveBeenCalled();
+    });
   });
 
   describe("Copy from game button", () => {
