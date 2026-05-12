@@ -983,26 +983,53 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         initialPlayTimeMinutes.set(player.playerId, accSecs / 60);
       }
 
+      const currentMinutes = Math.floor(currentTime / 60);
+      const isLiveGame = gameState.status === 'in-progress' || gameState.status === 'halftime';
+
+      // For live games (in-progress/halftime), only pass FUTURE rotation slots to the algorithm.
+      // Passing all slots (including past) creates invalid plans: the algorithm builds each
+      // rotation on its simulated previous state, which drifts from the actual field after any
+      // manual substitutions. Future rotations then reference players the algorithm thinks are
+      // on the bench but who are actually on the field.
+      // For scheduled games we generate all rotations but only write future slots (old behaviour).
+      const rotationsToGenerate = isLiveGame
+        ? allPlannedRotations.filter(r => r.gameMinute > currentMinutes)
+        : allPlannedRotations;
+
+      // Compute the effective rotationsPerHalf for the subset being generated.
+      // If halftime is still future, count first-half future slots (gameMinute < halfLengthMinutes).
+      // If halftime already passed (all future rotations are in half 2), pass -1 so the algorithm
+      // treats every generated rotation as a second-half rotation with no halftime transition.
+      let effectiveRotationsPerHalf = rotationsPerHalf;
+      if (isLiveGame) {
+        const halfInFuture = rotationsToGenerate.some(r => r.gameMinute === halfLengthMinutes);
+        effectiveRotationsPerHalf = halfInFuture
+          ? rotationsToGenerate.filter(r => r.gameMinute < halfLengthMinutes).length
+          : -1;
+      }
+
       const { rotations: generatedRotations } = calculateFairRotations(
         availableRoster,
         lineupArray,
-        allPlannedRotations.length,
-        rotationsPerHalf,
+        rotationsToGenerate.length,
+        effectiveRotationsPerHalf,
         team.maxPlayersOnField || positions.length,
         goaliePositionId,
         undefined,
         { rotationIntervalMinutes, halfLengthMinutes, positions, playerAvailabilities, initialPlayTimeMinutes },
       );
 
-      // Update only future rotations with generated substitutions
-      const currentMinutes = Math.floor(currentTime / 60);
-      const updates = allPlannedRotations
-        .map((rotation, index) => ({ rotation, generated: generatedRotations[index] }))
+      // Write generated substitutions to the target rotation slots.
+      // For live games, rotationsToGenerate is already the future-only set; use direct indexing.
+      // For scheduled games, allPlannedRotations was passed to the algorithm so we index by
+      // position in that full array, but only update future slots.
+      const updates = (isLiveGame ? rotationsToGenerate : allPlannedRotations)
+        .map((rotation, index) => ({ rotation, generatedIndex: index }))
         .filter(({ rotation }) => rotation.gameMinute > currentMinutes)
-        .map(({ rotation, generated }) => {
+        .map(({ rotation, generatedIndex }) => {
           return client.models.PlannedRotation.update({
             id: rotation.id,
-            plannedSubstitutions: JSON.stringify(generated?.substitutions || []),
+            plannedSubstitutions: JSON.stringify(generatedRotations[generatedIndex]?.substitutions || []),
           });
         });
 

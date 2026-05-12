@@ -1723,10 +1723,10 @@ describe("GameManagement – handleRecalculateRotations uses live lineup", () =>
     });
   });
 
-  it("does not mutate rotations outside scheduled state", async () => {
+  it("only generates future rotations for in-progress games (live game guard)", async () => {
     const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
     const mockedFn = vi.mocked(mockedCalc);
-    mockedFn.mockReturnValue({ rotations: [], warnings: [] });
+    mockedFn.mockReturnValue({ rotations: [{ substitutions: [] }], warnings: [] });
 
     mockUseGameSubscriptions.mockReturnValue({
       ...defaultSubscription,
@@ -1746,8 +1746,25 @@ describe("GameManagement – handleRecalculateRotations uses live lineup", () =>
       await mockCaptures.rotationWidgetProps?.onRecalculateRotations?.();
     });
 
-    expect(mockedFn).not.toHaveBeenCalled();
-    expect(mockPlannedRotationUpdate).not.toHaveBeenCalled();
+    // For in-progress games, the algorithm is called only with the future rotation slots
+    // (not all slots including past ones). Here elapsedSeconds=1800 (30 min) so only
+    // rot-1 at minute 40 is future → totalRotations=1.
+    await waitFor(() => {
+      expect(mockedFn).toHaveBeenCalledTimes(1);
+    });
+    const callArgs = mockedFn.mock.calls[0];
+    expect(callArgs[2]).toBe(1); // totalRotations = 1 (only the 1 future slot)
+
+    // The future rotation slot is updated with substitution content.
+    // Note: normalizeAndCreateRotationSchedule may also call update once to correct
+    // rot-1's rotationNumber (from 1 → 4), so we allow for that extra call.
+    await waitFor(() => {
+      expect(mockPlannedRotationUpdate).toHaveBeenCalled();
+    });
+    const updateCalls = mockPlannedRotationUpdate.mock.calls.map(([payload]: [any]) => payload);
+    const subUpdate = updateCalls.find((c: any) => 'plannedSubstitutions' in c);
+    expect(subUpdate).toBeDefined();
+    expect(subUpdate.id).toBe('rot-1');
   });
 
   it("uses gamePlan.startingLineup as lineup seed when no plannerSnapshot is provided", async () => {
