@@ -881,9 +881,6 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   };
 
   const handleRecalculateRotations = async (options?: GenerateRotationsOptions) => {
-    if (gameState.status !== 'scheduled') {
-      return;
-    }
     if (!gamePlan) return;
 
     if (!options?.skipConfirm) {
@@ -923,8 +920,10 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
           });
       } else {
         // Try gamePlan.startingLineup; fall through to live starters if empty or unparseable.
+        // For in-progress/halftime games, skip the plan snapshot and use live starters so future
+        // rotations are calculated from the actual current field state.
         let lineupFromPlan: { playerId: string; positionId: string }[] | null = null;
-        if (gamePlan.startingLineup) {
+        if (gamePlan.startingLineup && gameState.status === 'scheduled') {
           try {
             const sl = JSON.parse(gamePlan.startingLineup as string) as Array<{ playerId: string; positionId: string }>;
             const filtered = sl.filter((entry): entry is { playerId: string; positionId: string } => {
@@ -2274,7 +2273,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
 
             {activeTab === 'field' && (
               <div
-                className="field-tab game-tab-content"
+                className="field-tab game-tab-content game-tab-content--page-scroll"
                 role="tabpanel"
                 id="game-tab-panel-field"
                 aria-labelledby="game-tab-panel-tab-field"
@@ -2380,7 +2379,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
 
             {activeTab === 'field' && (
               <div
-                className="field-tab game-tab-content"
+                className="field-tab game-tab-content game-tab-content--page-scroll"
                 role="tabpanel"
                 id="game-tab-panel-field"
                 aria-labelledby="game-tab-panel-tab-field"
