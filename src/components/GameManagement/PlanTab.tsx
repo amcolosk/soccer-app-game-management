@@ -1217,6 +1217,7 @@ export function PlanTab({
                     substitutions={(selectedRotation.plannedSubstitutions as string) ?? "[]"}
                     players={players}
                     positions={positions}
+                    beforeLineup={selectedRotationBeforeLineup}
                   />
                 </div>
               )}
@@ -1346,12 +1347,15 @@ export interface RotationSubstitutionsListProps {
   substitutions: string; // JSON stringified PlannedSubstitution[]
   players: PlayerWithRoster[];
   positions: FormationPosition[];
+  /** The lineup just before this rotation executes. Used to resolve blank playerOutId values. */
+  beforeLineup?: Map<string, string>;
 }
 
 export function RotationSubstitutionsList({
   substitutions,
   players,
   positions,
+  beforeLineup,
 }: RotationSubstitutionsListProps) {
   const parsed = useMemo(() => {
     try {
@@ -1378,12 +1382,15 @@ export function RotationSubstitutionsList({
   return (
     <div className="rotation-subs-list">
       {parsed.map((sub: PlannedSubstitution, idx: number) => {
-        const playerOut = playerMap.get(sub.playerOutId);
+        // If playerOutId is blank (stale data), fall back to whoever is at that position
+        // in the computed before-lineup (which is seeded from the authoritative halftime lineup).
+        const resolvedPlayerOutId = sub.playerOutId || beforeLineup?.get(sub.positionId) || '';
+        const playerOut = playerMap.get(resolvedPlayerOutId);
         const playerIn = playerMap.get(sub.playerInId);
         const position = positionMap.get(sub.positionId);
         const playerOutName = playerOut
           ? `${playerOut.firstName ?? ''} ${playerOut.lastName ?? ''}`.trim() || 'Unknown'
-          : sub.playerOutId ? 'Unknown' : '(unfilled)';
+          : resolvedPlayerOutId ? 'Unknown' : '(unfilled)';
         const playerInName = playerIn
           ? `${playerIn.firstName ?? ''} ${playerIn.lastName ?? ''}`.trim() || 'Unknown'
           : sub.playerInId ? 'Unknown' : '(unfilled)';
