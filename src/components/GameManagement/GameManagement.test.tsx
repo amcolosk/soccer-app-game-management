@@ -2578,6 +2578,70 @@ describe("GameManagement – handleRecalculateRotations uses plannerSnapshot lin
     // Total rotations expected = 4 H1 + 1 HT + 4 H2 = 9
     expect(mockPlannedRotationCreate).toHaveBeenCalledTimes(9);
   });
+
+  it("passes plannerSnapshot.halftimeLineup to calculateFairRotations as the halftimeLineup argument", async () => {
+    // Reproduces: changing the halftime goalie in Game Planner then pressing Generate Rotations
+    // produced a blank goalie slot in the first 2nd-half rotation because halftimeLineup was
+    // never forwarded to calculateFairRotations (always passed as `undefined`).
+    const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
+    const mockedFn = vi.mocked(mockedCalc);
+    mockedFn.mockReturnValue({ rotations: [], warnings: [] });
+
+    mockUseTeamData.mockReturnValue({
+      players: [
+        { id: 'gk1', playerNumber: 1, firstName: 'GoalieOne', lastName: 'G', isActive: true, preferredPositions: 'pos-gk' },
+        { id: 'gk2', playerNumber: 2, firstName: 'GoalieTwo', lastName: 'G', isActive: true, preferredPositions: 'pos-gk' },
+        { id: 'p1',  playerNumber: 3, firstName: 'Field',     lastName: 'F', isActive: true, preferredPositions: 'pos-f1' },
+      ],
+      positions: [
+        { id: 'pos-gk', abbreviation: 'GK' },
+        { id: 'pos-f1', abbreviation: 'FW' },
+      ],
+    });
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled', halfLengthMinutes: 20 },
+      lineup: [
+        { id: 'la-gk', gameId: 'game-1', playerId: 'gk1', positionId: 'pos-gk', isStarter: true },
+        { id: 'la-f1', gameId: 'game-1', playerId: 'p1',  positionId: 'pos-f1', isStarter: true },
+      ],
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10, startingLineup: '[]' } as any,
+      plannedRotations: [
+        { id: 'rot-ht', rotationNumber: 3, gameMinute: 20, half: 2, plannedSubstitutions: '[]' } as any,
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+
+    // Coach changed the halftime goalie from gk1 → gk2
+    const halftimeLineup = new Map([['pos-gk', 'gk2'], ['pos-f1', 'p1']]);
+
+    await act(async () => {
+      await mockCaptures.planTabProps?.onGenerateRotations?.({
+        plannerSnapshot: {
+          startingLineup: new Map([['pos-gk', 'gk1'], ['pos-f1', 'p1']]),
+          halftimeLineup,
+          halfLengthMinutes: 20,
+          rotationIntervalMinutes: 10,
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockedFn).toHaveBeenCalled();
+    });
+
+    // 7th argument (index 6) to calculateFairRotations must be the halftime lineup array
+    const halftimeLineupArg = mockedFn.mock.calls[0][6] as Array<{ playerId: string; positionId: string }> | undefined;
+    expect(halftimeLineupArg).toBeDefined();
+    expect(halftimeLineupArg).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ playerId: 'gk2', positionId: 'pos-gk' }),
+        expect.objectContaining({ playerId: 'p1',  positionId: 'pos-f1' }),
+      ])
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

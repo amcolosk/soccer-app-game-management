@@ -992,8 +992,14 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       // manual substitutions. Future rotations then reference players the algorithm thinks are
       // on the bench but who are actually on the field.
       // For scheduled games we generate all rotations but only write future slots (old behaviour).
+      //
+      // Grace window: RotationWidget shows rotations within 2 minutes of the current game time
+      // (gameMinute >= currentMinutes - 2) so a slightly-past rotation stays actionable for the
+      // coach. Recalculate must cover the same window — otherwise a stale rotation sitting in the
+      // grace period never gets updated and keeps showing the same conflict even after recalculate.
+      const RECALC_GRACE_MINUTES = 2;
       const rotationsToGenerate = isLiveGame
-        ? allPlannedRotations.filter(r => r.gameMinute > currentMinutes)
+        ? allPlannedRotations.filter(r => r.gameMinute >= currentMinutes - RECALC_GRACE_MINUTES)
         : allPlannedRotations;
 
       // Compute the effective rotationsPerHalf for the subset being generated.
@@ -1008,6 +1014,17 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
           : -1;
       }
 
+      // Resolve halftime lineup from plannerSnapshot when provided.
+      // This preserves explicit coach overrides (e.g. a goalie swap at halftime) so the
+      // algorithm generates second-half rotations from the correct baseline instead of
+      // auto-computing the halftime transition and ignoring the override.
+      const halftimeLineupForAlgorithm: Array<{ playerId: string; positionId: string }> | undefined =
+        options?.plannerSnapshot?.halftimeLineup && options.plannerSnapshot.halftimeLineup.size > 0
+          ? Array.from(options.plannerSnapshot.halftimeLineup.entries())
+              .filter(([, playerId]) => Boolean(playerId))
+              .map(([positionId, playerId]) => ({ positionId, playerId }))
+          : undefined;
+
       const { rotations: generatedRotations } = calculateFairRotations(
         availableRoster,
         lineupArray,
@@ -1015,17 +1032,21 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         effectiveRotationsPerHalf,
         team.maxPlayersOnField || positions.length,
         goaliePositionId,
-        undefined,
+        halftimeLineupForAlgorithm,
         { rotationIntervalMinutes, halfLengthMinutes, positions, playerAvailabilities, initialPlayTimeMinutes },
       );
 
       // Write generated substitutions to the target rotation slots.
-      // For live games, rotationsToGenerate is already the future-only set; use direct indexing.
+      // For live games, rotationsToGenerate is already the grace-window set; use direct indexing.
       // For scheduled games, allPlannedRotations was passed to the algorithm so we index by
-      // position in that full array, but only update future slots.
+      // position in that full array, but only update future slots (strict > currentMinutes).
       const updates = (isLiveGame ? rotationsToGenerate : allPlannedRotations)
         .map((rotation, index) => ({ rotation, generatedIndex: index }))
-        .filter(({ rotation }) => rotation.gameMinute > currentMinutes)
+        .filter(({ rotation }) =>
+          isLiveGame
+            ? rotation.gameMinute >= currentMinutes - RECALC_GRACE_MINUTES
+            : rotation.gameMinute > currentMinutes
+        )
         .map(({ rotation, generatedIndex }) => {
           return client.models.PlannedRotation.update({
             id: rotation.id,

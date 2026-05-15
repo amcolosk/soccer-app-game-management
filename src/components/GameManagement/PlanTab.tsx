@@ -57,7 +57,7 @@ export interface PreviousGameSummary {
 
 export interface GenerateRotationsOptions {
   skipConfirm?: boolean;
-  plannerSnapshot?: { startingLineup: Map<string, string>; halfLengthMinutes: number; rotationIntervalMinutes: number };
+  plannerSnapshot?: { startingLineup: Map<string, string>; halftimeLineup?: Map<string, string>; halfLengthMinutes: number; rotationIntervalMinutes: number };
 }
 
 function applyUniqueAssignment(
@@ -1022,6 +1022,7 @@ export function PlanTab({
               onClick={() => void onGenerateRotations({
                 plannerSnapshot: {
                   startingLineup: new Map(planner.draft.startingLineup),
+                  halftimeLineup: new Map(effectiveHalftimeLineup),
                   halfLengthMinutes: halfLengthInput,
                   rotationIntervalMinutes: planner.draft.rotationIntervalMinutes,
                 },
