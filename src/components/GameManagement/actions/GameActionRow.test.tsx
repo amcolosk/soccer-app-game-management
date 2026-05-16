@@ -158,6 +158,59 @@ describe('GameActionRow keyboard and focus contract', () => {
     expect(screen.getByText('Only the original author can confirm this delete.')).toBeInTheDocument();
   });
 
+  it('restores focus to invoking button after delete failure so the user can retry', async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn().mockRejectedValue(new Error('Server error'));
+    const onActionError = vi.fn();
+
+    renderWithProvider(
+      <GameActionRow actions={createActions(onDelete)} onActionError={onActionError} />
+    );
+
+    const deleteButton = screen.getByRole('button', { name: 'Delete note' });
+    deleteButton.focus();
+    await user.click(deleteButton);
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+    // Error callback should fire
+    await waitFor(() => {
+      expect(onActionError).toHaveBeenCalledWith('Server error');
+    });
+
+    // Focus should land back on the delete button (re-enabled after failure)
+    await waitFor(() => {
+      expect(deleteButton).not.toBeDisabled();
+      expect(document.activeElement).toBe(deleteButton);
+    });
+  });
+
+  it('exposes an accessible live-region status announcement while delete is in-flight', async () => {
+    const user = userEvent.setup();
+    let resolveDelete!: () => void;
+    const onDelete = vi.fn().mockImplementation(
+      () => new Promise<void>((res) => { resolveDelete = res; })
+    );
+
+    renderWithProvider(<GameActionRow actions={createActions(onDelete)} />);
+
+    const deleteButton = screen.getByRole('button', { name: 'Delete note' });
+    await user.click(deleteButton);
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+    // While in-flight, a live-region status should be present
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toBeInTheDocument();
+      expect(screen.getByRole('status')).toHaveTextContent('Deleting, please wait');
+    });
+
+    // After resolution, the status region should be gone
+    resolveDelete();
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+  });
+
+
   it('blocks duplicate delete submissions while delete is in-flight', async () => {
     const user = userEvent.setup();
     let resolveDelete!: () => void;

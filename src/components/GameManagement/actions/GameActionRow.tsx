@@ -54,7 +54,7 @@ export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActio
         bodyContent: action.confirmDialog.authorReminder ? (
           <>
             <p className="confirm-message">{action.confirmDialog.body}</p>
-            <p className="confirm-message">{action.confirmDialog.authorReminder}</p>
+            <p className="confirm-message confirm-message--secondary">{action.confirmDialog.authorReminder}</p>
           </>
         ) : undefined,
         confirmText: action.confirmDialog.confirmText,
@@ -78,6 +78,12 @@ export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActio
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Action failed';
       onActionError?.(message);
+      // Restore focus to the invoking button after it is re-enabled (setIsBusy(false)
+      // fires in finally) so the user lands on a stable retry target without having
+      // to hunt for focus after a failed delete.
+      window.setTimeout(() => {
+        focusInvokingButton();
+      }, 0);
     } finally {
       isInflightRef.current = false;
       setIsBusy(false);
@@ -113,6 +119,10 @@ export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActio
           <span key={`${action.id}-sr`} className="sr-only">{action.srStatusText}</span>
         ) : null
       ))}
+
+      {isBusy && (
+        <span role="status" className="sr-only">Deleting, please wait\u2026</span>
+      )}
     </>
   );
 }
