@@ -66,10 +66,36 @@ async function openSharedGame(page: Page): Promise<string | null> {
 }
 
 async function ensureGameStartedForQueue(page: Page): Promise<boolean> {
-  const inProgressUiVisible = await page.locator('.game-tab-nav').isVisible({ timeout: 1500 }).catch(() => false);
-  if (inProgressUiVisible) {
+  const commandBandVisible = await page.locator('.command-band__score').first().isVisible({ timeout: 1500 }).catch(() => false);
+  if (commandBandVisible) {
     return true;
   }
+
+  const waitForLiveGameUi = async (timeoutMs: number): Promise<boolean> => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (await page.locator('.command-band__score').first().isVisible({ timeout: 800 }).catch(() => false)) {
+        return true;
+      }
+
+      const availabilityHeading = page.getByRole('heading', { name: 'Player Availability Check' });
+      if (await availabilityHeading.isVisible({ timeout: 800 }).catch(() => false)) {
+        const modalStartButtons = page.getByRole('button', { name: 'Start Game' });
+        const buttonCount = await modalStartButtons.count();
+        for (let i = buttonCount - 1; i >= 0; i -= 1) {
+          const candidate = modalStartButtons.nth(i);
+          if (await candidate.isVisible({ timeout: 500 }).catch(() => false) && await candidate.isEnabled().catch(() => false)) {
+            await candidate.click({ force: true });
+            break;
+          }
+        }
+      }
+
+      await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    }
+
+    return false;
+  };
 
   const parseLineupCounts = async (): Promise<{ chosen: number; expected: number } | null> => {
     const heading = page.locator('.lineup-header h2').first();
@@ -101,13 +127,16 @@ async function ensureGameStartedForQueue(page: Page): Promise<boolean> {
       continue;
     }
 
-    const optionCount = await lineupSelect.locator('option').count();
-    if (optionCount <= 1) {
+    const optionLabels = (await lineupSelect.locator('option').allTextContents())
+      .map((label) => label.trim())
+      .filter((label) => label && label !== 'Unassigned' && !label.includes('(Assigned)'));
+    const nextAvailablePlayer = optionLabels[0];
+    if (!nextAvailablePlayer) {
       await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
       continue;
     }
 
-    await lineupSelect.selectOption({ index: 1 });
+    await lineupSelect.selectOption({ label: nextAvailablePlayer });
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   }
 
@@ -116,11 +145,12 @@ async function ensureGameStartedForQueue(page: Page): Promise<boolean> {
     return false;
   }
 
-  const startButtons = page.getByRole('button', { name: 'Start Game' });
+  const startButtons = page.getByRole('button', { name: /Start/i });
   if (!await startButtons.first().isVisible({ timeout: 2000 }).catch(() => false)) {
-    return await page.locator('.game-tab-nav').isVisible({ timeout: 1500 }).catch(() => false);
+    return await waitForLiveGameUi(15000);
   }
 
+  await expect(startButtons.first()).toBeEnabled({ timeout: 15000 });
   await startButtons.first().click({ force: true });
   await page.waitForTimeout(UI_TIMING.STANDARD);
 
@@ -138,7 +168,7 @@ async function ensureGameStartedForQueue(page: Page): Promise<boolean> {
     }
   }
 
-  return await page.locator('.game-tab-nav').isVisible({ timeout: 5000 }).catch(() => false);
+  return await waitForLiveGameUi(20000);
 }
 
 async function ensurePlannedStartingLineupForOpponent(page: Page, opponent: string): Promise<void> {
@@ -148,50 +178,58 @@ async function ensurePlannedStartingLineupForOpponent(page: Page, opponent: stri
   const gameCard = page.locator('.game-card').filter({ hasText: opponent }).first();
   await expect(gameCard).toBeVisible({ timeout: 10000 });
 
-  const planButton = gameCard.locator('.plan-button').first();
-  await expect(planButton).toBeVisible({ timeout: 5000 });
-  await planButton.click();
+  const openButton = gameCard.locator('.open-game-button').first();
+  await expect(openButton).toBeVisible({ timeout: 5000 });
+  await openButton.click();
   await waitForPageLoad(page);
 
-  await expect(page.locator('.game-planner-container')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('.game-management')).toBeVisible({ timeout: 10000 });
 
-  const rotationsTab = page.getByRole('tab', { name: /Rotations/i });
-  if (await rotationsTab.isVisible({ timeout: 1500 }).catch(() => false)) {
-    await rotationsTab.click();
+  const planTab = page.getByRole('tab', { name: 'Plan' });
+  if (await planTab.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await planTab.click();
     await page.waitForTimeout(UI_TIMING.NAVIGATION);
   }
 
-  const startTab = page.getByRole('tab', { name: 'Start' });
-  if (await startTab.isVisible({ timeout: 1500 }).catch(() => false)) {
-    await startTab.click();
-    await page.waitForTimeout(UI_TIMING.NAVIGATION);
-  }
-
-  let lineupSelects = page.locator('.rotation-details-panel .position-slot select');
+  let lineupSelects = page.locator('.position-lineup-grid .position-slot select');
   let slotCount = await lineupSelects.count();
   if (slotCount === 0) {
-    lineupSelects = page.getByRole('combobox');
+    lineupSelects = page.locator('.starting-lineup-container .player-select');
     slotCount = await lineupSelects.count();
   }
 
   expect(slotCount).toBeGreaterThan(0);
 
-  for (let idx = 0; idx < slotCount; idx += 1) {
-    const select = lineupSelects.nth(idx);
-    const selectedValue = await select.inputValue().catch(() => '');
-    if (selectedValue) continue;
+  const getRemainingLineupSelects = () => {
+    const plannerSelects = page.locator('.position-lineup-grid .position-slot select');
+    return plannerSelects;
+  };
 
-    const optionCount = await select.locator('option').count();
-    if (optionCount > 1) {
-      await select.selectOption({ index: Math.min(idx + 1, optionCount - 1) });
-      await page.waitForTimeout(UI_TIMING.QUICK);
+  for (let attempt = 0; attempt < slotCount * 3; attempt += 1) {
+    const remainingSelects = getRemainingLineupSelects();
+    const remainingCount = await remainingSelects.count();
+    if (remainingCount === 0) {
+      break;
     }
+
+    const select = remainingSelects.first();
+    const optionLabels = (await select.locator('option').allTextContents())
+      .map((label) => label.trim())
+      .filter((label) => label && label !== 'Unassigned' && !label.includes('(Assigned)'));
+    const nextAvailablePlayer = optionLabels[0];
+    if (!nextAvailablePlayer) {
+      await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+      continue;
+    }
+
+    await select.selectOption({ label: nextAvailablePlayer });
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   }
 
-  const createOrUpdatePlanButton = page.locator('button').filter({ hasText: /Create Game Plan|Update Plan/ }).first();
-  await expect(createOrUpdatePlanButton).toBeVisible({ timeout: 10000 });
-  await createOrUpdatePlanButton.click();
-  await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+  await expect.poll(async () => getRemainingLineupSelects().count(), {
+    timeout: 15000,
+    message: 'Expected all planned starter slots to be assigned before starting shared game',
+  }).toBe(0);
 }
 
 async function ensureSharedTeamRosterDepth(page: Page, targetPlayers: number): Promise<void> {
@@ -975,7 +1013,7 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       await page.waitForTimeout(UI_TIMING.QUICK);
     }
 
-    const opponentGoalButton = page.locator('button.btn-goal-opponent').first();
+    const opponentGoalButton = page.getByRole('button', { name: /Goal -/ }).last();
     await expect(opponentGoalButton).toBeVisible({ timeout: 10000 });
     await opponentGoalButton.click({ force: true });
     await expect(page.getByRole('heading', { name: 'Record Goal' })).toBeVisible({ timeout: 5000 });

@@ -155,6 +155,34 @@ describe("BenchTab", () => {
     expect(bobIndex).toBeLessThan(aliceIndex);
   });
 
+  it("uses preferred-position fit as tie-break before jersey number when sortPositionId is provided", () => {
+    const players = [
+      makePlayer("p1", 9, "Alice"),
+      makePlayer("p2", 4, "Bob"),
+    ];
+    (players[0] as any).preferredPositions = "pos-target";
+    (players[1] as any).preferredPositions = "";
+
+    const records = [
+      makeRecord("p1", 300),
+      makeRecord("p2", 300),
+    ];
+
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        playTimeRecords={records as any}
+        sortPositionId="pos-target"
+      />
+    );
+
+    const names = screen.getAllByText(/Alice|Bob/).map(el => el.textContent);
+    const aliceIndex = names.findIndex(n => n?.includes("Alice"));
+    const bobIndex = names.findIndex(n => n?.includes("Bob"));
+    expect(aliceIndex).toBeLessThan(bobIndex);
+  });
+
   // ── Urgency color classes ────────────────────────────────────────────────
   const getProgressFill = (container: HTMLElement) =>
     container.querySelector(".bench-tab__progress-fill");

@@ -24,6 +24,36 @@ These are rules where the system needs to weigh options and make the "best" choi
 * **Rule 2.4 - Playtime Equality:** The rotation algorithm shall attempt to minimize the variance in total playtime among all non-goalie players by the end of the game. (i.e., The system should aim to give everyone roughly equal minutes, treating the 50% rule as a floor, not a target).
 * **Rule 2.5 - Play per Half:** The rotation algorithm shall attempt to have all players on the field at least once each half of the game.  
 
+---
+
+## 3. In-Game Adjustments & Dynamic Replanning (State Conflicts)
+These rules apply when the pre-game plan encounters real-world variations during the match, rendering the original schedule stale. The system relies on the coach to manually trigger a recalculation when the plan becomes stale.
+
+* **Rule 3.1 - Late Arrival / Status Change Integration:** If a player's attendance status changes from "absent/unavailable" to "present/available" during the game, the system must allow the coach to manually regenerate the remaining plan from the current timestamp forward. The late player's minimum playtime target (Rule 1.3) shall be prorated based on their remaining available game time.
+* **Rule 3.2 - Injury / Early Departure Rebalancing:** If a player is marked as injured or leaves early, the system must allow the coach to manually regenerate the remaining plan. The newly generated schedule will distribute the open minutes among the remaining players while adhering to Rule 2.4 (Equality) and maintaining fatigue rules (Rule 2.3).
+* **Rule 3.3 - Manual Override Conflict Resolution:** If a coach manually overrides a scheduled rotation (e.g., changes who goes in/out or ignores a planned substitution), the actual on-field state becomes the new "source of truth." When the coach triggers a recalculation, the algorithm must use this new baseline to generate future scheduled rotations, ensuring Rule 1.1 (Cloning) and Rule 1.2 (Sub Flow) are not violated.
+* **Rule 3.4 - Stale Plan Warning:** If an in-game event or manual override creates a conflict with the *next* planned rotation (e.g., a player scheduled to sub in is already on the field, or a player scheduled to sub out is already on the bench), the system must flag the plan as "stale" or "conflicted" and prompt the coach to manually resolve the conflict or regenerate the plan.
+
+---
+
+## 4. In-Game Rotation Generation
+These rules govern how the algorithm generates new rotation schedules while a game is actively in progress (status `in-progress` or `halftime`). They extend and specialise the hard and soft constraints in Sections 1–2 for the live context.
+
+* **Rule 4.1 - Live Lineup as Baseline:** When generating rotations mid-game, the algorithm must use the actual live on-field lineup — not the original pre-game plan snapshot — as the starting formation. A player is considered "currently on the field" if and only if their `LineupAssignment` record has `isStarter: true`. This live state is the sole source of truth for who occupies each position at the moment of recalculation.
+
+* **Rule 4.2 - Current-Game History Seeding:** The algorithm must seed each player's accumulated play time exclusively from the **current game's** recorded play time records (i.e., `PlayTimeRecord` rows for this game, covering the period from kick-off up to the moment of recalculation). Play time from prior games or prior seasons must not be considered. Minutes already accrued in the current game are treated as committed and cannot be redistributed.
+
+* **Rule 4.3 - Future-Only Generation:** The algorithm must generate rotation slots only from the current game timestamp forward. It must not produce any rotation whose scheduled game-clock time is at or before the current elapsed game time, and must not re-simulate or overwrite any rotation intervals that have already passed.
+
+* **Rule 4.4 - No Immediate Conflict with Live Field State:** Every rotation generated for an in-progress game must be immediately compatible with the live on-field lineup at the time of generation:
+  * A player who is currently on the field (`isStarter: true`) must not appear as `playerIn` in the very next generated rotation (Rule 1.1 — Cloning).
+  * A player who is currently on the bench (not `isStarter: true`) must not appear as `playerOut` in the very next generated rotation (Rule 1.2 — Substitution Flow).
+  * The generated plan must pass the same conflict-detection checks defined in the Rotation Conflict Detection Specification before being persisted.
+
+* **Rule 4.5 - Constraint Priority for In-Game Generation:** In-game rotation generation applies the same two-tier constraint priority as pre-game planning. Hard constraints (Rules 1.1–1.5) must always be satisfied. Soft constraints and fairness balancing (Rules 2.1–2.5) are pursued as a secondary objective only when they do not require violating any hard constraint. When a soft constraint cannot be satisfied without breaking a hard constraint, the soft constraint is silently dropped for that interval.
+
+---
+
 # Test Suite: 5v5 Rotation Algorithm (7-Player Roster)
 
 **Baseline Testing Environment:**
@@ -102,6 +132,14 @@ These are rules where the system needs to weigh options and make the "best" choi
 * **Setup:** Only 5 players are marked as "present." One of them has "GK" preferred.
 * **Expected Result:** * All 5 players are scheduled for 40 minutes (100% playtime).
     * (Rule 2.3) Shift length maximums and positional fatigue rules are ignored, as substitutions are impossible.
+
+**TC-11: Manual Override Conflict Detection**
+* **Objective:** Validate Rule 3.3 and 3.4 when a coach deviates from the plan.
+* **Setup:** At minute 15, Player A is scheduled to sub OUT and Player B is scheduled to sub IN. The coach manually overrides this, leaving Player A on the field and keeping Player B on the bench. In the next scheduled rotation at minute 20, Player B was originally planned to sub OUT.
+* **Expected Result:**
+    * (Rule 3.4) The system flags the minute 20 rotation as conflicted because Player B cannot sub OUT (they are already on the bench) and prompts the coach to regenerate.
+    * (Rule 3.3) Upon the coach selecting to regenerate, the system uses the actual minute 15 state to generate a valid minute 20 rotation, ensuring no "cloning" or invalid flow.
+
 ---
 
 ## Test Suite: 9v9 Rotation Algorithm (14–16 Player Roster)
@@ -147,3 +185,49 @@ These test cases validate the 50% minimum playtime guarantee for 9v9 games with 
 * **Expected Result:**
     * Both bench players (p12, p13) appear on field at some point.
     * All 13 players receive ≥ 30 minutes (50% of 60).
+
+---
+
+## Test Suite: In-Game Rotation Generation
+
+These test cases validate the rules in **Section 4** using the same 5v5 baseline (7 players, 40-minute game, 5-minute intervals) unless otherwise noted.
+
+**TC-IG-01: Live Lineup Used as Baseline (Rule 4.1)**
+* **Objective:** Confirm that mid-game recalculation uses the actual live lineup, not the original pre-game plan snapshot.
+* **Setup:** Pre-game plan assigned Player A at GK and Player B at FWD. At minute 10, the coach manually puts Player C at GK instead of Player A (emergency swap). The coach then triggers a recalculation.
+* **Expected Result:**
+    * (Rule 4.1) The recalculated plan starts with Player C at GK and Player B at FWD — reflecting the live `isStarter: true` assignments — regardless of what the original plan said.
+    * (Rule 4.1) Player A is treated as a bench player in all future generated rotations.
+    * (Rule 1.4) The algorithm does not schedule Player C to leave the GK position until halftime.
+
+**TC-IG-02: Play Time Seeded from Current-Game Records Only (Rule 4.2)**
+* **Objective:** Confirm that the fairness calculation is based solely on the current game's accrued minutes.
+* **Setup:** 5v5 game. At minute 15 the coach triggers recalculation. Player D has played 10 minutes in this game. Player D also played 35 minutes in last week's game (stored in prior `PlayTimeRecord` rows with a different gameId).
+* **Expected Result:**
+    * (Rule 4.2) The algorithm seeds Player D with 10 minutes of committed time, not 45 minutes.
+    * (Rule 2.4) Future rotations attempt to equalise remaining minutes across all players based on each player's current-game accrued time only.
+    * (Rule 4.3) No rotation slot is generated for the 0–15 minute window that has already elapsed.
+
+**TC-IG-03: Future-Only Rotation Slots Generated (Rule 4.3)**
+* **Objective:** Confirm that recalculation produces no rotation entries for the elapsed portion of the game.
+* **Setup:** 5v5 game. Game clock is at minute 18 when recalculation is triggered. Rotation interval is 5 minutes (expected future slots: 20, 25, 30/HT, 35, 40).
+* **Expected Result:**
+    * (Rule 4.3) The generated plan contains rotation entries only at game-clock times strictly greater than 18 minutes (i.e., at 20 min and beyond).
+    * (Rule 4.3) No rotation entry is created for 5, 10, or 15 minutes.
+    * The first generated rotation references the live lineup state at minute 18 as its starting point.
+
+**TC-IG-04: No Immediate Conflict with Live Field State at Generation Time (Rule 4.4)**
+* **Objective:** Confirm that the first generated rotation is immediately compatible with the live lineup.
+* **Setup:** 5v5 game at minute 12. Live lineup: Player A (GK), Player B (DEF), Player C (DEF), Player D (FWD), Player E (FWD). Bench: Player F, Player G. The coach triggers recalculation.
+* **Expected Result:**
+    * (Rule 4.4 / Rule 1.1) None of Players A–E appear as `playerIn` in the first generated rotation.
+    * (Rule 4.4 / Rule 1.2) None of Players F–G appear as `playerOut` in the first generated rotation.
+    * The generated plan passes conflict-detection checks (no `'on-field'` or `'rotation'` conflicts on the immediately upcoming rotation).
+
+**TC-IG-05: Hard Constraints Satisfied Before Soft Constraints (Rule 4.5)**
+* **Objective:** Confirm that fairness balancing does not override hard rules during in-game generation.
+* **Setup:** 5v5 game at minute 20 (halftime). Live GK is Player A (the only GK-eligible player). To perfectly equalise remaining field minutes, the algorithm would need to move Player A off GK mid-second-half. Player A currently has only 15 accrued minutes; all field players have ≥ 20.
+* **Expected Result:**
+    * (Rule 4.5 / Rule 1.5) Player A remains at GK for the entirety of the second half. The algorithm does not violate the Goalie Preference Lock to satisfy fairness.
+    * (Rule 4.5 / Rule 2.4) The algorithm distributes the remaining field minutes as equally as possible among the non-GK players, accepting that Player A will have fewer total minutes as a consequence of the hard constraint.
+    * No hard constraint violation is present in the generated plan.

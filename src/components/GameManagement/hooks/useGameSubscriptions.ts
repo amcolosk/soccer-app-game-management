@@ -134,6 +134,7 @@ export function useGameSubscriptions({
       next: (data) => {
         if (data.items.length > 0) {
           const updatedGame = data.items[0];
+          const localStatus = gameStateRef.current.status;
 
           // If the game is completed, always stop the timer regardless of isRunning.
           // Guard against stale subscription events regressing a completed game back
@@ -154,9 +155,18 @@ export function useGameSubscriptions({
           // or completed write's subscription event.
           const isSecondHalfStartEvent =
             updatedGame.status === 'in-progress' && updatedGame.currentHalf === 2;
+          const isStaleScheduledRegression =
+            updatedGame.status === 'scheduled'
+            && (localStatus === 'in-progress' || localStatus === 'halftime' || localStatus === 'completed');
 
           setGameState(prev => {
             if (prev.status === 'completed') {
+              return prev;
+            }
+            if (
+              updatedGame.status === 'scheduled'
+              && (prev.status === 'in-progress' || prev.status === 'halftime')
+            ) {
               return prev;
             }
             if (
@@ -171,12 +181,12 @@ export function useGameSubscriptions({
 
           // If local state is already completed, skip all timer logic — this
           // event is stale and must not trigger auto-resume or time updates.
-          if (gameStateRef.current.status === 'completed') {
+          if (localStatus === 'completed' || isStaleScheduledRegression) {
             return;
           }
             // Skip timer logic if local state is halftime unless this is a
             // legitimate second-half start from another coach.
-            if (gameStateRef.current.status === 'halftime' && !isSecondHalfStartEvent) {
+            if (localStatus === 'halftime' && !isSecondHalfStartEvent) {
               return;
             }
 
@@ -285,11 +295,28 @@ export function useGameSubscriptions({
       lineupSyncInProgressRef.current = true;
 
       try {
-        // Check local state first (fast path - avoids DB query if data already loaded)
-        if (lineup.length > 0) {
-          console.log(`Lineup already exists locally with ${lineup.length} assignments, skipping sync`);
-          return;
-        }
+        const startingLineup = JSON.parse(gamePlan.startingLineup as string) as Array<{
+          playerId: string;
+          positionId: string;
+        }>;
+
+        const desiredAssignments = startingLineup.filter(
+          (entry): entry is { playerId: string; positionId: string } => !!entry.playerId && !!entry.positionId,
+        );
+        const desiredKeys = new Set(
+          desiredAssignments.map(({ playerId, positionId }) => `${positionId}:${playerId}`),
+        );
+        const localStarterKeys = new Set(
+          lineup
+            .filter((assignment): assignment is typeof assignment & { playerId: string; positionId: string } => !!assignment.playerId && !!assignment.positionId)
+            .map(({ playerId, positionId }) => `${positionId}:${playerId}`),
+        );
+
+        const localLineupAligned = (
+          desiredAssignments.length > 0
+          && lineup.length === desiredAssignments.length
+          && desiredAssignments.every(({ playerId, positionId }) => localStarterKeys.has(`${positionId}:${playerId}`))
+        );
 
         // Query the database to double-check for existing assignments
         // This handles the race condition where subscription hasn't loaded yet
@@ -297,30 +324,84 @@ export function useGameSubscriptions({
           filter: { gameId: { eq: game.id } },
         });
 
-        if (existingAssignments.data.length > 0) {
-          console.log(`Lineup already exists in DB with ${existingAssignments.data.length} assignments, skipping sync`);
+        const existingStarterAssignments = existingAssignments.data.filter(
+          (assignment): assignment is typeof assignment & { id: string; playerId: string; positionId: string } =>
+            !!assignment.id && !!assignment.playerId && !!assignment.positionId,
+        );
+        const existingByPosition = new Map<string, typeof existingStarterAssignments[number]>();
+        const duplicateAssignments: Array<typeof existingStarterAssignments[number]> = [];
+
+        for (const assignment of existingStarterAssignments) {
+          const existingForPosition = existingByPosition.get(assignment.positionId);
+          if (!existingForPosition) {
+            existingByPosition.set(assignment.positionId, assignment);
+            continue;
+          }
+
+          const keepExisting = (existingForPosition.createdAt ?? '') >= (assignment.createdAt ?? '');
+          if (keepExisting) {
+            duplicateAssignments.push(assignment);
+          } else {
+            duplicateAssignments.push(existingForPosition);
+            existingByPosition.set(assignment.positionId, assignment);
+          }
+        }
+
+        const existingKeys = new Set(
+          Array.from(existingByPosition.values()).map(({ playerId, positionId }) => `${positionId}:${playerId}`),
+        );
+
+        if (
+          localLineupAligned
+          && existingByPosition.size === desiredAssignments.length
+          && duplicateAssignments.length === 0
+          && desiredAssignments.every(({ playerId, positionId }) => existingKeys.has(`${positionId}:${playerId}`))
+        ) {
+          console.log(`Lineup already aligned in DB with ${existingByPosition.size} assignments, skipping sync`);
           return;
         }
 
-        // Parse the starting lineup from the game plan
-        const startingLineup = JSON.parse(gamePlan.startingLineup as string) as Array<{
-          playerId: string;
-          positionId: string;
-        }>;
+        const syncOperations: Promise<unknown>[] = [];
 
-        // Create LineupAssignment records for starters
-        const lineupPromises = startingLineup.map(({ playerId, positionId }) =>
-          client.models.LineupAssignment.create({
-            gameId: game.id,
-            playerId,
-            positionId,
-            isStarter: true,
-            coaches: team.coaches,
-          })
-        );
+        for (const staleAssignment of duplicateAssignments) {
+          syncOperations.push(client.models.LineupAssignment.delete({ id: staleAssignment.id }));
+        }
 
-        await Promise.all(lineupPromises);
-        console.log(`Synced ${startingLineup.length} starters from game plan`);
+        for (const { playerId, positionId } of desiredAssignments) {
+          const existingAssignment = existingByPosition.get(positionId);
+          if (!existingAssignment) {
+            syncOperations.push(client.models.LineupAssignment.create({
+              gameId: game.id,
+              playerId,
+              positionId,
+              isStarter: true,
+              coaches: team.coaches,
+            }));
+            continue;
+          }
+
+          if (existingAssignment.playerId !== playerId || existingAssignment.isStarter !== true) {
+            syncOperations.push(client.models.LineupAssignment.update({
+              id: existingAssignment.id,
+              playerId,
+              positionId,
+              isStarter: true,
+            }));
+          }
+        }
+
+        for (const existingAssignment of Array.from(existingByPosition.values())) {
+          if (!desiredKeys.has(`${existingAssignment.positionId}:${existingAssignment.playerId}`)) {
+            syncOperations.push(client.models.LineupAssignment.delete({ id: existingAssignment.id }));
+          }
+        }
+
+        if (syncOperations.length === 0) {
+          return;
+        }
+
+        await Promise.all(syncOperations);
+        console.log(`Synced ${desiredAssignments.length} starters from game plan`);
       } catch (error) {
         handleApiError(error, 'Failed to sync lineup from game plan');
       } finally {
@@ -329,7 +410,7 @@ export function useGameSubscriptions({
     };
 
     void syncLineupFromGamePlan();
-  }, [gamePlan, gameState.status, game.id, team.coaches, lineup.length]);
+  }, [gamePlan, gameState.status, game.id, team.coaches, lineup]);
 
   return {
     gameState,

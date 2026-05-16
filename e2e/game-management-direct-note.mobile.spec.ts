@@ -55,7 +55,7 @@ const SEED_DATA = {
   inProgressOpponent: `E2E Mobile Notes In Progress ${Date.now().toString(36)}`,
 };
 
-const MAX_SEED_ATTEMPTS = 3;
+const MAX_SEED_ATTEMPTS = 5;
 let seededStateReady = false;
 
 function toLocalDateTimeInputValue(date: Date): string {
@@ -205,82 +205,83 @@ async function ensureSeedRoster(page: Page): Promise<void> {
 }
 
 async function ensureStartingLineup(page: Page): Promise<void> {
-  await expect
-    .poll(async () => {
-      const selects = page.getByRole('combobox');
-      const count = await selects.count();
-      if (count === 0) {
-        return true;
+  // Ensure all rostered players are marked available before assigning starters.
+  const availabilityCards = page.locator('.availability-grid .availability-card');
+  const availabilityCount = await availabilityCards.count();
+  for (let i = 0; i < availabilityCount; i += 1) {
+    const card = availabilityCards.nth(i);
+    for (let attempts = 0; attempts < 4; attempts += 1) {
+      const status = ((await card.locator('.availability-status').textContent()) ?? '').trim();
+      if (status === '✓') {
+        break;
       }
-
-      for (let index = 0; index < count; index += 1) {
-        const optionCount = await selects.nth(index).locator('option').count();
-        if (optionCount > 1) {
-          return true;
-        }
-      }
-
-      return false;
-    }, {
-      timeout: 12000,
-      message: 'Expected lineup combobox options to load before assigning players',
-    })
-    .toBe(true);
-
-  const maxPasses = 6;
-
-  for (let pass = 0; pass < maxPasses; pass += 1) {
-    const lineupSelects = page.getByRole('combobox');
-    const slotCount = await lineupSelects.count();
-    if (slotCount === 0) {
-      return;
-    }
-
-    let unassigned = 0;
-    let changed = 0;
-
-    for (let index = 0; index < slotCount; index += 1) {
-      const select = lineupSelects.nth(index);
-      const selectedLabel = (await select.locator('option:checked').textContent().catch(() => '')) ?? '';
-      if (!/select player/i.test(selectedLabel)) {
-        continue;
-      }
-
-      unassigned += 1;
-      const optionCount = await select.locator('option').count();
-      if (optionCount < 2) {
-        continue;
-      }
-
-      await select.selectOption({ index: 1 });
-      changed += 1;
+      await card.click();
       await page.waitForTimeout(UI_TIMING.QUICK);
     }
+  }
 
-    if (unassigned === 0) {
-      return;
-    }
-
-    if (changed === 0) {
-      break;
-    }
-
+  const planTab = page.getByRole('tab', { name: /^Plan$/i });
+  if (await planTab.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await planTab.click();
     await page.waitForTimeout(UI_TIMING.QUICK);
   }
 
-  const remainingSelects = page.getByRole('combobox');
-  const remainingCount = await remainingSelects.count();
-  let remainingUnassigned = 0;
-  for (let index = 0; index < remainingCount; index += 1) {
-    const selectedLabel = (await remainingSelects.nth(index).locator('option:checked').textContent().catch(() => '')) ?? '';
-    if (/select player/i.test(selectedLabel)) {
-      remainingUnassigned += 1;
+  const plannerLineupGrid = page.locator('.position-lineup-grid').first();
+  await expect(plannerLineupGrid).toBeVisible({ timeout: 8000 });
+
+  const listViewButton = page.getByRole('button', { name: 'List' }).first();
+  await listViewButton.scrollIntoViewIfNeeded().catch(() => undefined);
+  await listViewButton.click({ force: true }).catch(() => undefined);
+  await page.waitForTimeout(UI_TIMING.STANDARD);
+
+  // Fill one empty slot at a time and re-evaluate heading to avoid stale-locator drift.
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const remainingSelects = page.locator('.position-lineup-grid select');
+    if (await remainingSelects.count() === 0) {
+      break;
+    }
+
+    const selects = page.locator('.position-lineup-grid select');
+    const selectCount = await selects.count();
+    let filledOne = false;
+
+    for (let index = 0; index < selectCount; index += 1) {
+      const select = selects.nth(index);
+      const currentValue = await select.inputValue().catch(() => '');
+      if (currentValue) {
+        continue;
+      }
+
+      const optionLabels = (await select.locator('option').allTextContents())
+        .map((label) => label.trim())
+        .filter((label) => label && label !== 'Unassigned' && !label.includes('(Assigned)'));
+      const nextAvailablePlayer = optionLabels[0];
+      if (!nextAvailablePlayer) {
+        continue;
+      }
+
+      await select.selectOption({ label: nextAvailablePlayer });
+      await page.waitForTimeout(UI_TIMING.QUICK);
+      filledOne = true;
+      break;
+    }
+
+    if (!filledOne) {
+      const generateRotations = page.getByRole('button', { name: 'Generate Rotations' }).first();
+      if (await generateRotations.isVisible({ timeout: 500 }).catch(() => false)) {
+        await generateRotations.click();
+        await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+      }
+      break;
     }
   }
 
-  if (remainingUnassigned > 0) {
-    throw new Error(`Expected all starting lineup slots to be assigned before starting game (remaining: ${remainingUnassigned})`);
-  }
+  await expect
+    .poll(async () => page.locator('.position-lineup-grid select').count(), {
+      timeout: 10000,
+      message: 'Expected starting lineup to be fully assigned before game start',
+    })
+    .toBe(0);
 }
 
 async function startGameFromScheduledCard(page: Page, opponent: string, finishAtHalftime: boolean): Promise<void> {
@@ -288,16 +289,10 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
   expect(opened).toBeTruthy();
 
   const addNoteButton = page.getByRole('button', { name: 'Add note' });
-  const notesTab = page.getByRole('tab', { name: 'Notes' });
   const statusBadge = page.locator('.command-band__status-badge').first();
 
   const isInProgressUiReady = async (timeoutMs: number): Promise<boolean> => {
-    const addNoteVisible = await addNoteButton.isVisible({ timeout: timeoutMs }).catch(() => false);
-    if (addNoteVisible) return true;
-
-    const notesTabVisible = await notesTab.isVisible({ timeout: timeoutMs }).catch(() => false);
-    if (notesTabVisible) return true;
-    return false;
+    return addNoteButton.isVisible({ timeout: timeoutMs }).catch(() => false);
   };
 
   // If game already in-progress (e.g., serial-mode retry), skip the start-game flow.
@@ -308,9 +303,9 @@ async function startGameFromScheduledCard(page: Page, opponent: string, finishAt
       await clickButton(page, 'Start Game');
       await page.waitForTimeout(UI_TIMING.NAVIGATION);
 
-      const availabilityHeading = page.getByRole('heading', { name: 'Player Availability Check' });
-      if (await availabilityHeading.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await page.getByRole('button', { name: 'Start Game' }).last().click();
+      const availabilityHeading = page.getByRole('heading', { name: /Player Availability/i });
+      if (await availabilityHeading.isVisible({ timeout: 1500 }).catch(() => false)) {
+        await page.getByRole('button', { name: /Start Game/i }).last().click();
         await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
       }
 
@@ -412,9 +407,9 @@ async function ensureSeededState(page: Page): Promise<void> {
       lastError = error;
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error(`❌ Seeding attempt ${attempt} failed: ${errorMsg}`);
-      
-      // Reset the seeded state flag to retry completely
+
       if (attempt < MAX_SEED_ATTEMPTS) {
+        await navigateToApp(page);
         console.log(`🔄 Retrying seeding...`);
       }
     }
@@ -433,8 +428,7 @@ async function ensureSeededState(page: Page): Promise<void> {
 async function navigateToInProgressGame(page: Page): Promise<boolean> {
   await ensureSeededState(page);
 
-  // If localStorage restored the game management view on page load, the CommandBand
-  // note trigger should already be visible when a game is in-progress.
+  // If localStorage restored an in-progress game, the CommandBand note trigger is present.
   const addNoteButton = page.getByRole('button', { name: 'Add note' });
   if (await addNoteButton.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)) {
     return true;
@@ -454,8 +448,12 @@ async function navigateToInProgressGame(page: Page): Promise<boolean> {
     await waitForPageLoad(page);
   }
 
-  // The game is "in-progress" when the note trigger is visible in the CommandBand.
-  return addNoteButton.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false);
+  // If seeded game is still scheduled, transition it now before validating note actions.
+  if (!(await addNoteButton.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false))) {
+    await startGameFromScheduledCard(page, SEED_DATA.inProgressOpponent, false);
+  }
+
+  return addNoteButton.waitFor({ state: 'visible', timeout: 10000 }).then(() => true).catch(() => false);
 }
 
 // ─── single viewport ──────────────────────────────────────────────────────────
@@ -475,8 +473,12 @@ test.describe('Direct Note Entry — Mobile', () => {
       return;
     }
 
+    // Seed on desktop layout for deterministic lineup interactions,
+    // then validate behavior in mobile viewports during tests.
     const context = await browser.newContext({
-      ...devices['iPhone 12'],
+      viewport: { width: 1280, height: 800 },
+      isMobile: false,
+      hasTouch: false,
       storageState: '.auth/user1.json',
     });
     const page = await context.newPage();

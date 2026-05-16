@@ -74,8 +74,8 @@ describe('InvitationRoute', () => {
 
     render(<InvitationRoute />);
 
-    expect(screen.getByText('⚽ TeamTrack')).toBeInTheDocument();
-    expect(screen.getByText('Game Management for Coaches')).toBeInTheDocument();
+    expect(screen.getByText('⚽')).toBeInTheDocument();
+    expect(screen.getByText('TeamTrack')).toBeInTheDocument();
   });
 
   it('Go Home button navigates to / when invitationId is missing', async () => {

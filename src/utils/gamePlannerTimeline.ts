@@ -11,6 +11,8 @@ export interface RotationTimelineItem {
   rotation?: PlannedRotation;
   gameMinute?: number;
   variant: 'starting' | 'rotation' | 'halftime';
+  /** Monotonically increasing 1-based display index for non-halftime rotation items. Undefined for 'starting' and 'halftime' variants. */
+  displayIndex?: number;
 }
 
 function parsePlannedSubstitutions(
@@ -71,6 +73,8 @@ export function buildRotationTimelineItems(
     return items;
   }
 
+  let displayIndex = 0;
+
   for (const rotation of rotations) {
     const isHalftime = rotation.rotationNumber === halftimeRotationNumber;
     if (isHalftime) {
@@ -86,16 +90,19 @@ export function buildRotationTimelineItems(
       continue;
     }
 
+    displayIndex += 1;
+
     items.push({
       key: rotation.id
         ? `rotation-${rotation.rotationNumber}-${rotation.id}`
         : `rotation-${rotation.rotationNumber}-${rotation.gameMinute}`,
-      label: `R${rotation.rotationNumber}`,
+      label: `R${displayIndex}`,
       selection: rotation.rotationNumber,
       substitutionsCount: getRotationSubstitutionsCount(rotation),
       rotation,
       gameMinute: rotation.gameMinute,
       variant: 'rotation',
+      displayIndex,
     });
   }
 
@@ -130,6 +137,8 @@ export function buildPrePlanTimelineItems(
     },
   ];
 
+  let preplanDisplayIndex = 0;
+
   for (let rotationNumber = 1; rotationNumber <= totalRotations; rotationNumber++) {
     const gameMinute = getRotationMinute(
       rotationNumber,
@@ -150,13 +159,16 @@ export function buildPrePlanTimelineItems(
       continue;
     }
 
+    preplanDisplayIndex += 1;
+
     items.push({
       key: `rotation-${rotationNumber}-${gameMinute}-synthetic`,
-      label: `R${rotationNumber}`,
+      label: `R${preplanDisplayIndex}`,
       selection: rotationNumber,
       substitutionsCount: 0,
       gameMinute,
       variant: 'rotation',
+      displayIndex: preplanDisplayIndex,
     });
   }
 

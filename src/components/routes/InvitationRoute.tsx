@@ -30,8 +30,8 @@ export function InvitationRoute() {
       <main className="app-container">
         <header className="app-header">
           <div className="app-branding">
-            <h1>⚽ TeamTrack</h1>
-            <p className="app-tagline">Game Management for Coaches</p>
+            <span className="app-logo">⚽</span>
+            <h1>TeamTrack</h1>
           </div>
         </header>
         <InvitationAcceptance

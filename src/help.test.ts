@@ -2,7 +2,7 @@
  * Tests for src/help.ts — HELP_CONTENT registry validation.
  *
  * These tests enforce the content authoring guidelines:
- * - All 13 HelpScreenKey values are present
+ * - All HelpScreenKey values are present
  * - Each article has required fields with non-empty content
  * - Tasks ≤ 4 per screen, each with ≥ 1 step and ≤ 6 steps
  * - Tips ≤ 3 per screen, each with non-empty text
@@ -18,7 +18,6 @@ const ALL_KEYS: HelpScreenKey[] = [
   'game-in-progress',
   'game-halftime',
   'game-completed',
-  'game-planner',
   'season-reports',
   'manage-teams',
   'manage-players',
@@ -26,6 +25,7 @@ const ALL_KEYS: HelpScreenKey[] = [
   'manage-sharing',
   'manage-app',
   'profile',
+  'formation-visual-editor',
 ];
 
 describe('HELP_CONTENT registry', () => {

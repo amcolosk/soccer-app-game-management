@@ -601,6 +601,13 @@ Three numeric steppers inside the setup card, arranged in two rows:
 #### Tablet Adaptation
 - Master list (left column) + detail/form (right column) pattern
 
+#### Formation Visual Editor (Manage > Formations)
+- Entry: launched from the formation row action Customize Layout; opens as a standalone modal/sheet.
+- Container: centered modal at max `90vh`; editor canvas uses fixed `2:3` pitch aspect ratio with `touch-action: none` to prevent accidental browser gestures while dragging.
+- Interaction: drag position nodes directly, mobile nudge controls move by 2%, and focused nodes support keyboard arrow movement by 2% with aria-live announcements.
+- Actions: Save persists clamped integer coordinates (`1..99`) with optimistic lock on `layoutVersion`; Reset restores last-saved coordinates and clears dirty state; Cancel closes immediately when clean and prompts discard confirmation when dirty.
+- States: loading state during position fetch, save error alert on write failure, conflict warning when `layoutVersion` mismatches, and unsaved-changes guard for close/backdrop attempts.
+
 ---
 
 ### 7.10 Profile

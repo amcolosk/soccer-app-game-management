@@ -1,5 +1,6 @@
 ---
 name: ui-designer
+model: Gemini 3.1 Pro (Preview) (copilot)
 description: "Review implementation plans and product specs for UI, UX, accessibility, mobile-first PWA layout, responsive behavior, visual hierarchy, interaction design, app-wide UI consistency, and UI implementation quality/appropriateness. Ensure explicit alignment with docs/specs/UI-SPEC.md. Use for UI plan review only; not for implementation or orchestration."
 tools: [read, search]
 user-invocable: false

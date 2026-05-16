@@ -64,8 +64,7 @@ export default defineConfig({
     },
     {
       name: 'full',
-      // These specs use `navigateToApp` which requires the smoke project's storageState.
-      // They run via smoke lane only.
+      dependencies: ['setup'],
       testIgnore: [
         '**/game-planner.spec.ts',
         '**/game-management-direct-note.mobile.spec.ts',
@@ -76,7 +75,7 @@ export default defineConfig({
         '**/player-management.spec.ts',
         '**/safe-deletes.spec.ts',
       ],
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], storageState: '.auth/user1.json' },
     },
   ],
 

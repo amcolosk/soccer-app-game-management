@@ -136,8 +136,8 @@ describe("CommandBand", () => {
         gameState={makeGameState({ status: "scheduled" }) as any}
       />
     );
-    expect(screen.queryByRole("button", { name: /⏸/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /▶/ })).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/pause timer/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/resume timer/i)).not.toBeInTheDocument();
   });
 
   // ── Status badges ────────────────────────────────────────────────────────
@@ -160,14 +160,28 @@ describe("CommandBand", () => {
     expect(onAddNote).toHaveBeenCalled();
   });
 
-  it("shows Pre-Game badge when status is scheduled", () => {
+  it("shows Scheduled badge when status is scheduled", () => {
     render(
       <CommandBand
         {...baseProps}
         gameState={makeGameState({ status: "scheduled" }) as any}
       />
     );
-    expect(screen.getByText(/Pre-Game/)).toBeInTheDocument();
+    expect(screen.getByText(/Scheduled/)).toBeInTheDocument();
+  });
+
+  it("disables Start button while scheduled start transition is pending", () => {
+    render(
+      <CommandBand
+        {...baseProps}
+        gameState={makeGameState({ status: "scheduled" }) as any}
+        isStartPending={true}
+      />
+    );
+
+    const startButtons = screen.getAllByRole("button", { name: /Start game/i });
+    expect(startButtons[0]).toBeDisabled();
+    expect(startButtons[0]).toHaveTextContent(/Starting/i);
   });
 
   it("shows Halftime badge when status is halftime", () => {

@@ -55,6 +55,8 @@ export function playerFormReducer(state: PlayerFormState, action: PlayerFormActi
 interface FormationPosition {
   positionName: string;
   abbreviation: string;
+    xPct?: number | null;
+    yPct?: number | null;
 }
 
 export interface FormationFormState {

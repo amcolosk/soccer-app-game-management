@@ -27,6 +27,7 @@ const schema = a.schema({
       positions: a.hasMany('FormationPosition', 'formationId'),
       teams: a.hasMany('Team', 'formationId'),
       coaches: a.string().array(), // Array of user IDs who can access this formation
+        layoutVersion: a.integer().default(0), // Optimistic lock for visual layout saves
     })
     .authorization((allow) => [
       // Delete is intentionally disallowed on the model. Use deleteFormationSafe.
@@ -41,6 +42,8 @@ const schema = a.schema({
       abbreviation: a.string().required(), // e.g., "LF", "CM"
       sortOrder: a.integer(), // Display order for the position
       coaches: a.string().array(), // Array of user IDs who can access this formation position
+        xPct: a.integer(), // X coordinate percentage (1–99) for visual layout; null = use inferred
+        yPct: a.integer(), // Y coordinate percentage (1–99) for visual layout; null = use inferred
     })
     .authorization((allow) => [
       allow.ownersDefinedIn('coaches'), // Full access for coaches

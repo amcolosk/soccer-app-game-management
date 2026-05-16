@@ -498,7 +498,85 @@ describe('rotationPlannerService', () => {
       expect(rotations[0].substitutions).toHaveLength(0);
     });
 
-    it('should fall back to time-based ordering when no preferred positions match', () => {
+    it('reproduces: bench player assigned as H2 GK via halftimeLineup – halftime sub includes GK swap and H2 rotations do not re-swap the GK', () => {
+      // Scenario from user report: coach sets initial formation (GK = gk1) then sets a DIFFERENT
+      // bench player (gk2) as the halftime goalie and presses Generate Rotations.
+      // Before the fix, halftimeLineup was never forwarded to calculateFairRotations, so the
+      // algorithm auto-computed halftime ignoring the GK change. gk2 could end up at a non-GK
+      // position in H2, and a subsequent rotation would try to move them to GK with an empty
+      // playerOutId — rendering as "(unfilled) → gk2 (GK)" in the Game Planner timeline.
+      // After the fix, halftimeLineup is passed and the algorithm uses it as the H2 baseline.
+      const players: SimpleRoster[] = [
+        { id: 'r-gk1', playerId: 'gk1', playerNumber: 1, preferredPositions: 'pos-gk' },
+        { id: 'r-p2',  playerId: 'p2',  playerNumber: 2, preferredPositions: 'pos-lb' },
+        { id: 'r-p3',  playerId: 'p3',  playerNumber: 3, preferredPositions: 'pos-rb' },
+        { id: 'r-p4',  playerId: 'p4',  playerNumber: 4, preferredPositions: 'pos-mid' },
+        { id: 'r-p5',  playerId: 'p5',  playerNumber: 5, preferredPositions: 'pos-fwd' },
+        { id: 'r-gk2', playerId: 'gk2', playerNumber: 6, preferredPositions: 'pos-gk' }, // bench → H2 GK
+        { id: 'r-p7',  playerId: 'p7',  playerNumber: 7, preferredPositions: 'pos-lb' }, // bench
+      ];
+
+      const startingLineup = [
+        { playerId: 'gk1', positionId: 'pos-gk' },
+        { playerId: 'p2',  positionId: 'pos-lb' },
+        { playerId: 'p3',  positionId: 'pos-rb' },
+        { playerId: 'p4',  positionId: 'pos-mid' },
+        { playerId: 'p5',  positionId: 'pos-fwd' },
+      ];
+
+      // Coach-set halftime lineup: swap gk1 → gk2 at GK, swap p2 → p7 at LB.
+      const halftimeLineup = [
+        { playerId: 'gk2', positionId: 'pos-gk' }, // bench player takes over GK
+        { playerId: 'p7',  positionId: 'pos-lb' }, // bench player fills LB
+        { playerId: 'p2',  positionId: 'pos-rb' },
+        { playerId: 'p3',  positionId: 'pos-mid' },
+        { playerId: 'p4',  positionId: 'pos-fwd' },
+      ];
+
+      // half=20min, interval=6min → rotationsPerHalf=2 (rotations at 6, 12 in H1)
+      // total rotations = 5: R1(6), R2(12), HT(20), R3(26), R4(32)
+      const { rotations } = calculateFairRotations(
+        players,
+        startingLineup,
+        5,           // totalRotations
+        2,           // rotationsPerHalf
+        5,           // maxPlayersOnField
+        'pos-gk',    // goaliePositionId
+        halftimeLineup,
+        {
+          rotationIntervalMinutes: 6,
+          halfLengthMinutes: 20,
+          positions: [
+            { id: 'pos-gk', positionName: 'GK', abbreviation: 'GK' },
+            { id: 'pos-lb', positionName: 'LB', abbreviation: 'LB' },
+            { id: 'pos-rb', positionName: 'RB', abbreviation: 'RB' },
+            { id: 'pos-mid', positionName: 'MID', abbreviation: 'MID' },
+            { id: 'pos-fwd', positionName: 'FWD', abbreviation: 'FWD' },
+          ],
+        },
+      );
+
+      expect(rotations).toHaveLength(5);
+
+      // Halftime rotation is index 2 (R1=0, R2=1, HT=2, R3=3, R4=4).
+      const halftimeSubs = rotations[2].substitutions;
+
+      // Must contain the coach-set GK swap: gk1 → gk2
+      const gkSub = halftimeSubs.find(s => s.positionId === 'pos-gk');
+      expect(gkSub).toBeDefined();
+      expect(gkSub?.playerInId).toBe('gk2');
+      expect(gkSub?.playerOutId).toBe('gk1');
+
+      // H2 rotations (indices 3 and 4) must NOT produce a GK sub.
+      // If halftimeLineup was ignored, gk2 could end up at a non-GK position and a later
+      // rotation would try to place them at GK, producing playerOutId='' ("(unfilled)").
+      for (const h2Rotation of [rotations[3], rotations[4]]) {
+        const gkSubInH2 = h2Rotation.substitutions.find(s => s.positionId === 'pos-gk');
+        expect(gkSubInH2).toBeUndefined(); // GK lock: no GK change in H2 rotations
+      }
+    });
+
+    it('should work when bench players have no preferred positions', () => {
       // Bench players have no preferred positions — should still work
       const players: SimpleRoster[] = [
         { id: 'r1', playerId: 'p1', playerNumber: 1 },
@@ -766,6 +844,46 @@ describe('rotationPlannerService', () => {
       expect(incomingIds).toContain('p5');
       expect(incomingIds).not.toContain('p4');
     });
+
+    it('keeps every rotation fully filled with unique players', () => {
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' },
+        { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: 'pos2' },
+        { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: 'pos3' },
+        { id: 'r4', playerId: 'p4', playerNumber: 4, preferredPositions: 'pos4' },
+        { id: 'r5', playerId: 'p5', playerNumber: 5, preferredPositions: 'pos5' },
+        { id: 'r6', playerId: 'p6', playerNumber: 6, preferredPositions: 'pos6' },
+        { id: 'r7', playerId: 'p7', playerNumber: 7, preferredPositions: 'pos1,pos3' },
+        { id: 'r8', playerId: 'p8', playerNumber: 8, preferredPositions: 'pos2,pos4' },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+        { playerId: 'p4', positionId: 'pos4' },
+        { playerId: 'p5', positionId: 'pos5' },
+        { playerId: 'p6', positionId: 'pos6' },
+      ];
+
+      const { rotations } = calculateFairRotations(players, startingLineup, 4, 2, 6);
+
+      const fieldByPosition = new Map<string, string>(
+        startingLineup.map((entry) => [entry.positionId, entry.playerId])
+      );
+
+      expect(fieldByPosition.size).toBe(6);
+
+      for (const rotation of rotations) {
+        rotation.substitutions.forEach((sub) => {
+          fieldByPosition.set(sub.positionId, sub.playerInId);
+        });
+
+        expect(fieldByPosition.size).toBe(6);
+        const onFieldPlayers = Array.from(fieldByPosition.values());
+        expect(new Set(onFieldPlayers).size).toBe(6);
+      }
+    });
   });
 
   describe('calculatePlayTime', () => {
@@ -969,6 +1087,44 @@ describe('rotationPlannerService', () => {
       expect(playTimeMap.get('p7')?.totalMinutes).toBe(10);
       // p8 plays 20-60 = 40 minutes
       expect(playTimeMap.get('p8')?.totalMinutes).toBe(40);
+    });
+
+    it('reports exact player minutes for a known rotation plan', () => {
+      const rotations = [
+        {
+          id: 'rot1',
+          rotationNumber: 1,
+          gameMinute: 10,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p1', playerInId: 'p3', positionId: 'pos1' },
+          ]),
+        },
+        {
+          id: 'rot2',
+          rotationNumber: 2,
+          gameMinute: 20,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p2', playerInId: 'p4', positionId: 'pos2' },
+          ]),
+        },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+      ];
+
+      const playTimeMap = calculatePlayTime(
+        rotations as any,
+        startingLineup,
+        10,
+        30
+      );
+
+      expect(playTimeMap.get('p1')?.totalMinutes).toBe(10);
+      expect(playTimeMap.get('p2')?.totalMinutes).toBe(20);
+      expect(playTimeMap.get('p3')?.totalMinutes).toBe(20);
+      expect(playTimeMap.get('p4')?.totalMinutes).toBe(10);
     });
 
     it('should handle player subbed out and back in later', () => {

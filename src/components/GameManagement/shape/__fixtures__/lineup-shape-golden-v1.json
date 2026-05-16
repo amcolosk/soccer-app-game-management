@@ -1,0 +1,14 @@
+{
+  "version": "soccer-shape-v1",
+  "nodes": [
+    { "positionId": "pos-st", "lane": "fwd", "slotIndex": 0, "xPct": 12, "yPct": 17 },
+    { "positionId": "pos-lw", "lane": "fwd", "slotIndex": 1, "xPct": 50, "yPct": 17 },
+    { "positionId": "pos-rw", "lane": "fwd", "slotIndex": 2, "xPct": 88, "yPct": 17 },
+    { "positionId": "pos-cm", "lane": "mid", "slotIndex": 0, "xPct": 12, "yPct": 40 },
+    { "positionId": "pos-am", "lane": "mid", "slotIndex": 1, "xPct": 88, "yPct": 40 },
+    { "positionId": "pos-cb", "lane": "def", "slotIndex": 0, "xPct": 12, "yPct": 63 },
+    { "positionId": "pos-lb", "lane": "def", "slotIndex": 1, "xPct": 50, "yPct": 63 },
+    { "positionId": "pos-rb", "lane": "def", "slotIndex": 2, "xPct": 88, "yPct": 63 },
+    { "positionId": "pos-gk", "lane": "gk", "slotIndex": 0, "xPct": 50, "yPct": 86 }
+  ]
+}

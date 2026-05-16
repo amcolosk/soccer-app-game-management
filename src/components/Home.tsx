@@ -245,10 +245,10 @@ export function Home() {
         scheduleGameButtonRef.current?.focus();
         break;
       case 6: {
-        // Navigate to first scheduled game's plan
+        // Navigate to first scheduled game (now shows Plan tab in GameManagement)
         const firstScheduledGame = games.find(g => (g.status || 'scheduled') === 'scheduled');
         if (firstScheduledGame) {
-          void navigate(`/game/${firstScheduledGame.id}/plan`);
+          void navigate(`/game/${firstScheduledGame.id}`);
         }
         break;
       }
@@ -475,13 +475,6 @@ export function Home() {
     }
   }, [closeSwipe, confirm]);
 
-  const handlePlanClick = (game: Game) => {
-    const team = getTeam(game.teamId);
-    void navigate(`/game/${game.id}/plan`, {
-      state: JSON.parse(JSON.stringify({ game, team: team || null })),
-    });
-  };
-
   // Group games by status
   const inProgressGames = games.filter(g => {
     const status = g.status || 'scheduled';
@@ -689,15 +682,6 @@ export function Home() {
                         </div>
                       </div>
                       <div className="game-card-actions">
-                        <button
-                          className="plan-button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePlanClick(game);
-                          }}
-                        >
-                          📋 Plan Game
-                        </button>
                         <button
                           className="open-game-button"
                           onClick={(e) => {

@@ -1,0 +1,185 @@
+.soccer-pitch-surface {
+  --soccer-pitch-aspect-ratio: 2 / 3;
+  --soccer-pitch-border-radius: 10px;
+  --soccer-pitch-line-color: var(--pitch-surface-line-color, rgba(255, 255, 255, 0.5));
+  --soccer-pitch-border-color: var(--pitch-surface-border-color, #4caf50);
+  --soccer-pitch-spot-color: var(--pitch-surface-spot-color, rgba(255, 255, 255, 0.7));
+  
+  --soccer-pitch-stripe-light: var(--pitch-surface-background-start, #4caf50);
+  --soccer-pitch-stripe-dark: var(--pitch-surface-background-end, #2d6d3f);
+  
+  --soccer-pitch-background: repeating-linear-gradient(
+    0deg,
+    var(--soccer-pitch-stripe-light),
+    var(--soccer-pitch-stripe-light) 10%,
+    var(--soccer-pitch-stripe-dark) 10%,
+    var(--soccer-pitch-stripe-dark) 20%
+  );
+  
+  --soccer-pitch-penalty-width: 50%;
+  --soccer-pitch-penalty-height: 16%;
+  --soccer-pitch-goal-area-width: 40%;
+  --soccer-pitch-goal-area-height: 35%;
+  --soccer-pitch-center-circle-width: 20%;
+
+  position: relative;
+  aspect-ratio: var(--soccer-pitch-aspect-ratio);
+  border-radius: var(--soccer-pitch-border-radius);
+  border: 2px solid var(--soccer-pitch-border-color);
+  background: var(--soccer-pitch-background);
+  overflow: hidden;
+  flex-shrink: 0;
+  isolation: isolate;
+  box-shadow: inset 0 0 30px rgba(0,0,0,0.15);
+}
+
+.soccer-pitch-surface__markings {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.soccer-pitch-surface__center-line,
+.soccer-pitch-surface__center-circle,
+.soccer-pitch-surface__center-spot,
+.soccer-pitch-surface__penalty-box,
+.soccer-pitch-surface__goal-area,
+.soccer-pitch-surface__penalty-arc,
+.soccer-pitch-surface__penalty-spot,
+.soccer-pitch-surface__corner {
+  position: absolute;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.soccer-pitch-surface__center-line {
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 2px solid var(--soccer-pitch-line-color);
+  transform: translateY(-50%);
+}
+
+.soccer-pitch-surface__center-circle {
+  left: 50%;
+  top: 50%;
+  width: var(--soccer-pitch-center-circle-width);
+  aspect-ratio: 1 / 1;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--soccer-pitch-line-color);
+  border-radius: 50%;
+}
+
+.soccer-pitch-surface__center-spot {
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--soccer-pitch-spot-color);
+}
+
+.soccer-pitch-surface__penalty-box {
+  left: 50%;
+  width: var(--soccer-pitch-penalty-width);
+  height: var(--soccer-pitch-penalty-height);
+  transform: translateX(-50%);
+  border: 2px solid var(--soccer-pitch-line-color);
+}
+
+.soccer-pitch-surface__penalty-box--top {
+  top: 0;
+  border-top: none;
+}
+
+.soccer-pitch-surface__penalty-box--bottom {
+  bottom: 0;
+  border-bottom: none;
+}
+
+.soccer-pitch-surface__goal-area {
+  left: 50%;
+  width: var(--soccer-pitch-goal-area-width);
+  height: var(--soccer-pitch-goal-area-height);
+  transform: translateX(-50%);
+  border: 2px solid var(--soccer-pitch-line-color);
+}
+
+.soccer-pitch-surface__penalty-box--top .soccer-pitch-surface__goal-area {
+  top: 0;
+  border-top: none;
+}
+
+.soccer-pitch-surface__penalty-box--bottom .soccer-pitch-surface__goal-area {
+  bottom: 0;
+  border-bottom: none;
+}
+
+.soccer-pitch-surface__penalty-spot {
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: var(--soccer-pitch-spot-color);
+}
+
+.soccer-pitch-surface__penalty-box--top .soccer-pitch-surface__penalty-spot {
+  top: 75%;
+}
+
+.soccer-pitch-surface__penalty-box--bottom .soccer-pitch-surface__penalty-spot {
+  bottom: 75%;
+}
+
+.soccer-pitch-surface__penalty-arc {
+  left: 50%;
+  width: 40%;
+  aspect-ratio: 1 / 1;
+  border: 2px solid var(--soccer-pitch-line-color);
+  border-radius: 50%;
+}
+
+.soccer-pitch-surface__penalty-box--top .soccer-pitch-surface__penalty-arc {
+  bottom: 0;
+  transform: translate(-50%, 50%);
+  clip-path: polygon(0 50%, 100% 50%, 100% 100%, 0 100%);
+}
+
+.soccer-pitch-surface__penalty-box--bottom .soccer-pitch-surface__penalty-arc {
+  top: 0;
+  transform: translate(-50%, -50%);
+  clip-path: polygon(0 0, 100% 0, 100% 50%, 0 50%);
+}
+
+.soccer-pitch-surface__corner {
+  width: 6%;
+  aspect-ratio: 1 / 1;
+  border: 2px solid var(--soccer-pitch-line-color);
+  border-radius: 50%;
+}
+
+.soccer-pitch-surface__corner--tl {
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+}
+
+.soccer-pitch-surface__corner--tr {
+  top: 0;
+  right: 0;
+  transform: translate(50%, -50%);
+}
+
+.soccer-pitch-surface__corner--bl {
+  bottom: 0;
+  left: 0;
+  transform: translate(-50%, 50%);
+}
+
+.soccer-pitch-surface__corner--br {
+  bottom: 0;
+  right: 0;
+  transform: translate(50%, 50%);
+}

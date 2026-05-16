@@ -21,9 +21,11 @@ const { mockPlannedRotationList } = vi.hoisted(() => ({
   mockPlannedRotationList: vi.fn().mockResolvedValue({ data: [] }),
 }));
 
-const { mockLineupList, mockLineupCreate } = vi.hoisted(() => ({
+const { mockLineupList, mockLineupCreate, mockLineupDelete, mockLineupUpdate } = vi.hoisted(() => ({
   mockLineupList: vi.fn().mockResolvedValue({ data: [] }),
   mockLineupCreate: vi.fn().mockResolvedValue({ data: {} }),
+  mockLineupDelete: vi.fn().mockResolvedValue({ data: {} }),
+  mockLineupUpdate: vi.fn().mockResolvedValue({ data: {} }),
 }));
 
 const { mockUseAmplifyQuery } = vi.hoisted(() => ({
@@ -50,6 +52,8 @@ vi.mock('aws-amplify/data', () => ({
       LineupAssignment: {
         list: mockLineupList,
         create: mockLineupCreate,
+        delete: mockLineupDelete,
+        update: mockLineupUpdate,
       },
     },
   })),
@@ -118,6 +122,8 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     mockUseAmplifyQuery.mockReturnValue({ data: [], isSynced: false });
     mockLineupList.mockResolvedValue({ data: [] });
     mockLineupCreate.mockResolvedValue({ data: {} });
+    mockLineupDelete.mockResolvedValue({ data: {} });
+    mockLineupUpdate.mockResolvedValue({ data: {} });
     mockHandleApiError.mockReset();
     mockPlannedRotationList.mockResolvedValue({ data: [] });
 
@@ -304,6 +310,42 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     expect(setCurrentTime).not.toHaveBeenCalled();
   });
 
+  it('ignores stale scheduled events after local state has already advanced to in-progress', () => {
+    const setIsRunning = vi.fn();
+    const setCurrentTime = vi.fn();
+    const liveGame = createDefaultGame({
+      status: 'in-progress',
+      elapsedSeconds: 300,
+      lastStartTime: new Date(Date.now() - 5_000).toISOString(),
+    });
+    const props = createDefaultProps({
+      isRunning: true,
+      setIsRunning,
+      setCurrentTime,
+      game: liveGame,
+    });
+
+    const { result } = renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      capturedGameNext!({
+        items: [
+          {
+            id: 'game-1',
+            status: 'scheduled',
+            elapsedSeconds: 0,
+            lastStartTime: null,
+            currentHalf: 1,
+          } as Partial<Game>,
+        ],
+      });
+    });
+
+    expect(result.current.gameState.status).toBe('in-progress');
+    expect(setIsRunning).not.toHaveBeenCalled();
+    expect(setCurrentTime).not.toHaveBeenCalled();
+  });
+
   it('blocks stale in-progress half-1 events while local state is halftime', () => {
     const setIsRunning = vi.fn();
     const setCurrentTime = vi.fn();
@@ -459,45 +501,19 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     });
   });
 
-  it('does not sync lineup from gamePlan when local lineup already exists', async () => {
+  it('skips lineup writes when local lineup already exists and DB is aligned', async () => {
     const game = createDefaultGame({ status: 'scheduled' });
     const props = createDefaultProps({ game });
 
     mockUseAmplifyQuery.mockImplementation((model: string) => {
       if (model === 'LineupAssignment') {
-        return { data: [{ id: 'la-1', positionId: 'pos1', playerId: 'p1' }], isSynced: true };
+        return { data: [{ id: 'la-1', positionId: 'pos1', playerId: 'p1', isStarter: true }], isSynced: true };
       }
       return { data: [], isSynced: false };
     });
 
-    let capturedGamePlanNext: ((data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void) | null = null;
-    mockGamePlanObserveQuery.mockReturnValue({
-      subscribe: (handlers: { next: (data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void }) => {
-        capturedGamePlanNext = handlers.next;
-        return makeNoOpSub();
-      },
-    });
-
-    renderHook(() => useGameSubscriptions(props));
-
-    act(() => {
-      capturedGamePlanNext?.({
-        items: [{ id: 'plan-1', startingLineup: JSON.stringify([{ playerId: 'p1', positionId: 'pos1' }]) }],
-      });
-    });
-
-    await waitFor(() => {
-      expect(mockLineupList).not.toHaveBeenCalled();
-      expect(mockLineupCreate).not.toHaveBeenCalled();
-    });
-  });
-
-  it('does not sync lineup from gamePlan when DB already has assignments', async () => {
-    const game = createDefaultGame({ status: 'scheduled' });
-    const props = createDefaultProps({ game });
-
     mockLineupList.mockResolvedValue({
-      data: [{ id: 'la-existing', gameId: 'game-1', playerId: 'p1', positionId: 'pos1' }],
+      data: [{ id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true }],
     });
 
     let capturedGamePlanNext: ((data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void) | null = null;
@@ -519,7 +535,149 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     await waitFor(() => {
       expect(mockLineupList).toHaveBeenCalled();
       expect(mockLineupCreate).not.toHaveBeenCalled();
+      expect(mockLineupUpdate).not.toHaveBeenCalled();
+      expect(mockLineupDelete).not.toHaveBeenCalled();
     });
+  });
+
+  it('does not sync lineup from gamePlan when DB already has assignments', async () => {
+    const game = createDefaultGame({ status: 'scheduled' });
+    const props = createDefaultProps({ game });
+
+    mockLineupList.mockResolvedValue({
+      data: [{ id: 'la-existing', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true }],
+    });
+
+    let capturedGamePlanNext: ((data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void) | null = null;
+    mockGamePlanObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void }) => {
+        capturedGamePlanNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+
+    renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      capturedGamePlanNext?.({
+        items: [{ id: 'plan-1', startingLineup: JSON.stringify([{ playerId: 'p1', positionId: 'pos1' }]) }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockLineupList).toHaveBeenCalled();
+      expect(mockLineupCreate).not.toHaveBeenCalled();
+      expect(mockLineupUpdate).not.toHaveBeenCalled();
+      expect(mockLineupDelete).not.toHaveBeenCalled();
+    });
+  });
+
+  it('fills missing starter assignments when DB lineup is only partially synced', async () => {
+    const game = createDefaultGame({ status: 'scheduled' });
+    const props = createDefaultProps({ game });
+
+    mockUseAmplifyQuery.mockImplementation((model: string) => {
+      if (model === 'LineupAssignment') {
+        return {
+          data: [{ id: 'la-1', positionId: 'pos1', playerId: 'p1', isStarter: true, createdAt: '2026-05-10T00:00:00.000Z' }],
+          isSynced: true,
+        };
+      }
+      return { data: [], isSynced: false };
+    });
+
+    mockLineupList
+      .mockResolvedValueOnce({
+        data: [{ id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true, createdAt: '2026-05-10T00:00:00.000Z' }],
+      })
+      .mockResolvedValue({
+        data: [
+          { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true, createdAt: '2026-05-10T00:00:00.000Z' },
+          { id: 'la-2', gameId: 'game-1', playerId: 'p2', positionId: 'pos2', isStarter: true, createdAt: '2026-05-10T00:00:01.000Z' },
+        ],
+      });
+
+    let capturedGamePlanNext: ((data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void) | null = null;
+    mockGamePlanObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void }) => {
+        capturedGamePlanNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+
+    renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      capturedGamePlanNext?.({
+        items: [{
+          id: 'plan-1',
+          startingLineup: JSON.stringify([
+            { playerId: 'p1', positionId: 'pos1' },
+            { playerId: 'p2', positionId: 'pos2' },
+          ]),
+        }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockLineupList).toHaveBeenCalled();
+      expect(mockLineupCreate).toHaveBeenCalledTimes(1);
+    });
+
+    expect(mockLineupCreate).toHaveBeenCalledWith({
+      gameId: 'game-1',
+      playerId: 'p2',
+      positionId: 'pos2',
+      isStarter: true,
+      coaches: [],
+    });
+    expect(mockLineupUpdate).not.toHaveBeenCalled();
+    expect(mockLineupDelete).not.toHaveBeenCalled();
+  });
+
+  it('cleans duplicate DB starter rows even when local lineup already matches the plan', async () => {
+    const game = createDefaultGame({ status: 'scheduled' });
+    const props = createDefaultProps({ game });
+
+    mockUseAmplifyQuery.mockImplementation((model: string) => {
+      if (model === 'LineupAssignment') {
+        return {
+          data: [{ id: 'la-1', positionId: 'pos1', playerId: 'p1', isStarter: true, createdAt: '2026-05-10T00:00:00.000Z' }],
+          isSynced: true,
+        };
+      }
+      return { data: [], isSynced: false };
+    });
+
+    mockLineupList.mockResolvedValue({
+      data: [
+        { id: 'la-old', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true, createdAt: '2026-05-10T00:00:00.000Z' },
+        { id: 'la-new', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true, createdAt: '2026-05-10T00:00:01.000Z' },
+      ],
+    });
+
+    let capturedGamePlanNext: ((data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void) | null = null;
+    mockGamePlanObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Array<{ id: string; startingLineup?: string | null }> }) => void }) => {
+        capturedGamePlanNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+
+    renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      capturedGamePlanNext?.({
+        items: [{ id: 'plan-1', startingLineup: JSON.stringify([{ playerId: 'p1', positionId: 'pos1' }]) }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(mockLineupList).toHaveBeenCalled();
+      expect(mockLineupDelete).toHaveBeenCalledWith({ id: 'la-old' });
+    });
+    expect(mockLineupCreate).not.toHaveBeenCalled();
+    expect(mockLineupUpdate).not.toHaveBeenCalled();
   });
 
   it('does not sync lineup from gamePlan when game is not scheduled', async () => {
