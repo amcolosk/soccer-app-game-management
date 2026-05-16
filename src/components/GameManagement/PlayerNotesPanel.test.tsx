@@ -3,6 +3,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PlayerNotesPanel } from "./PlayerNotesPanel";
+import { ConfirmProvider } from "../ConfirmModal";
+
+function renderWithProvider(ui: React.ReactElement) {
+  return render(<ConfirmProvider>{ui}</ConfirmProvider>);
+}
 
 vi.mock("../../utils/toast", () => ({
   showWarning: vi.fn(),
@@ -80,7 +85,7 @@ describe("PlayerNotesPanel", () => {
   });
 
   it("shows in-progress note buttons", () => {
-    render(<PlayerNotesPanel {...defaultProps} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
     expect(screen.getByText(/Gold Star/)).toBeInTheDocument();
     expect(screen.getByText(/Yellow Card/)).toBeInTheDocument();
     expect(screen.getByText(/Red Card/)).toBeInTheDocument();
@@ -89,7 +94,7 @@ describe("PlayerNotesPanel", () => {
 
   it("opens modal when note action button is clicked", async () => {
     const user = userEvent.setup();
-    render(<PlayerNotesPanel {...defaultProps} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
 
     await user.click(screen.getByText(/Gold Star/));
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Gold Star");
@@ -98,7 +103,7 @@ describe("PlayerNotesPanel", () => {
 
   it("keeps persistence behind explicit Save only", async () => {
     const user = userEvent.setup();
-    render(<PlayerNotesPanel {...defaultProps} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
 
     await user.click(screen.getByText(/Gold Star/));
     await user.click(screen.getByRole("button", { name: /start english dictation/i }));
@@ -119,7 +124,7 @@ describe("PlayerNotesPanel", () => {
     const user = userEvent.setup();
     speechState.isSupported = false;
 
-    render(<PlayerNotesPanel {...defaultProps} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
     await user.click(screen.getByText(/Gold Star/));
 
     expect(screen.getByText(/Voice capture is not supported in this browser/i)).toBeInTheDocument();
@@ -129,14 +134,14 @@ describe("PlayerNotesPanel", () => {
     const user = userEvent.setup();
     speechState.lowConfidenceDetected = true;
 
-    render(<PlayerNotesPanel {...defaultProps} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
     await user.click(screen.getByText(/Gold Star/));
 
     expect(screen.getByText(/Transcription may be inaccurate/i)).toBeInTheDocument();
   });
 
   it("supports externally controlled shared modal open intent", () => {
-    render(
+    renderWithProvider(
       <PlayerNotesPanel
         {...defaultProps}
         showPanelContent={false}
@@ -153,7 +158,7 @@ describe("PlayerNotesPanel", () => {
 
   it("enforces 500-character limit in note input", async () => {
     const user = userEvent.setup();
-    render(<PlayerNotesPanel {...defaultProps} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
 
     await user.click(screen.getByText(/Gold Star/));
     fireEvent.change(screen.getByLabelText("Note"), { target: { value: "a".repeat(600) } });
@@ -169,7 +174,7 @@ describe("PlayerNotesPanel", () => {
     const user = userEvent.setup();
     speechState.status = "starting";
 
-    render(<PlayerNotesPanel {...defaultProps} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
     await user.click(screen.getByRole("button", { name: /Gold Star/i }));
 
     const dictBtn = screen.getByRole("button", { name: /dictation/i });
@@ -182,7 +187,7 @@ describe("PlayerNotesPanel", () => {
     const user = userEvent.setup();
     speechState.status = "stopping";
 
-    render(<PlayerNotesPanel {...defaultProps} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
     await user.click(screen.getByRole("button", { name: /Gold Star/i }));
 
     const dictBtn = screen.getByRole("button", { name: /dictation/i });
@@ -197,7 +202,7 @@ describe("PlayerNotesPanel", () => {
     const user = userEvent.setup();
     speechState.errorCode = "not-allowed";
 
-    render(<PlayerNotesPanel {...defaultProps} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
     await user.click(screen.getByRole("button", { name: /Gold Star/i }));
 
     expect(screen.getByText(/Microphone permission denied/i)).toBeInTheDocument();
@@ -210,7 +215,7 @@ describe("PlayerNotesPanel", () => {
     speechState.status = "starting";
     speechState.interimTranscript = "testing one two";
 
-    render(<PlayerNotesPanel {...defaultProps} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
     await user.click(screen.getByRole("button", { name: /Gold Star/i }));
 
     // Only the sr-only div should carry aria-live="polite" (not the interim paragraph)
@@ -226,7 +231,7 @@ describe("PlayerNotesPanel", () => {
 
   it("(e) returns focus to the opener button after modal is closed via Cancel", async () => {
     const user = userEvent.setup();
-    render(<PlayerNotesPanel {...defaultProps} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
 
     const goldStarBtn = screen.getByRole("button", { name: /Gold Star/i });
     await user.click(goldStarBtn);
@@ -240,7 +245,7 @@ describe("PlayerNotesPanel", () => {
 
   it("(f1) opens with Gold Star type pre-selected when opened via gold-star button", async () => {
     const user = userEvent.setup();
-    render(<PlayerNotesPanel {...defaultProps} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
 
     await user.click(screen.getByRole("button", { name: /Gold Star/i }));
 
@@ -252,7 +257,7 @@ describe("PlayerNotesPanel", () => {
 
   it("(f2) opens with Yellow Card type pre-selected when opened via yellow-card button", async () => {
     const user = userEvent.setup();
-    render(<PlayerNotesPanel {...defaultProps} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
 
     await user.click(screen.getByRole("button", { name: /Yellow Card/i }));
 
@@ -264,7 +269,7 @@ describe("PlayerNotesPanel", () => {
 
   it("Cancel button dismisses modal in internal mode", async () => {
     const user = userEvent.setup();
-    render(<PlayerNotesPanel {...defaultProps} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
 
     await user.click(screen.getByRole("button", { name: /Gold Star/i }));
     expect(screen.queryByRole("dialog")).toBeInTheDocument();
@@ -277,7 +282,7 @@ describe("PlayerNotesPanel", () => {
     const user = userEvent.setup();
     const onRequestCloseNote = vi.fn();
 
-    render(
+    renderWithProvider(
       <PlayerNotesPanel
         {...defaultProps}
         isNoteModalOpen={true}
@@ -305,7 +310,7 @@ describe("PlayerNotesPanel", () => {
       timestamp: new Date().toISOString(),
     } as any;
 
-    render(
+    renderWithProvider(
       <PlayerNotesPanel
         {...defaultProps}
         gameNotes={[existingNote]}
@@ -329,7 +334,7 @@ describe("PlayerNotesPanel", () => {
       timestamp: new Date().toISOString(),
     } as any;
 
-    render(
+    renderWithProvider(
       <PlayerNotesPanel
         {...defaultProps}
         gameNotes={[noteSavedViaLambda]}
@@ -355,7 +360,7 @@ describe("PlayerNotesPanel", () => {
       timestamp: new Date().toISOString(),
     } as any;
 
-    render(
+    renderWithProvider(
       <PlayerNotesPanel
         {...defaultProps}
         currentUserId="coach-1"
@@ -378,7 +383,7 @@ describe("PlayerNotesPanel", () => {
       timestamp: new Date().toISOString(),
     } as any;
 
-    render(
+    renderWithProvider(
       <PlayerNotesPanel
         {...defaultProps}
         currentUserId="coach-1"
@@ -401,7 +406,7 @@ describe("PlayerNotesPanel", () => {
       timestamp: new Date().toISOString(),
     } as any;
 
-    render(
+    renderWithProvider(
       <PlayerNotesPanel
         {...defaultProps}
         currentUserId="coach-1"
@@ -426,7 +431,7 @@ describe("PlayerNotesPanel", () => {
       timestamp: new Date().toISOString(),
     } as any;
 
-    render(<PlayerNotesPanel {...defaultProps} gameNotes={[editedNote]} />);
+    renderWithProvider(<PlayerNotesPanel {...defaultProps} gameNotes={[editedNote]} />);
 
     expect(screen.getByText("Edited by Coach")).toBeInTheDocument();
   });
@@ -442,7 +447,7 @@ describe("PlayerNotesPanel", () => {
       timestamp: new Date().toISOString(),
     } as any;
 
-    render(
+    renderWithProvider(
       <PlayerNotesPanel
         {...defaultProps}
         currentUserId="coach-1"
@@ -465,7 +470,7 @@ describe("PlayerNotesPanel", () => {
       timestamp: new Date().toISOString(),
     } as any;
 
-    render(
+    renderWithProvider(
       <PlayerNotesPanel
         {...defaultProps}
         currentUserId="coach-1"

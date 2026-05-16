@@ -4,6 +4,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { showSuccess } from "../../utils/toast";
 import { GoalTracker } from "./GoalTracker";
+import { ConfirmProvider } from "../ConfirmModal";
+
+function renderWithProvider(ui: React.ReactElement) {
+  return render(<ConfirmProvider>{ui}</ConfirmProvider>);
+}
 
 vi.mock("aws-amplify/data", () => ({
   generateClient: () => ({
@@ -94,13 +99,13 @@ describe("GoalTracker", () => {
   });
   describe("goal buttons visibility", () => {
     it("shows goal buttons when in-progress", () => {
-      render(<GoalTracker {...defaultProps} />);
+      renderWithProvider(<GoalTracker {...defaultProps} />);
       expect(screen.getByText(/Goal - Us/)).toBeInTheDocument();
       expect(screen.getByText(/Goal - Eagles/)).toBeInTheDocument();
     });
 
     it("shows goal buttons when at halftime", () => {
-      render(
+      renderWithProvider(
         <GoalTracker
           {...defaultProps}
           gameState={makeGameState({ status: "halftime" }) as any}
@@ -110,7 +115,7 @@ describe("GoalTracker", () => {
     });
 
     it("hides goal buttons when scheduled", () => {
-      render(
+      renderWithProvider(
         <GoalTracker
           {...defaultProps}
           gameState={makeGameState({ status: "scheduled" }) as any}
@@ -120,7 +125,7 @@ describe("GoalTracker", () => {
     });
 
     it("shows goal buttons when completed", () => {
-      render(
+      renderWithProvider(
         <GoalTracker
           {...defaultProps}
           gameState={makeGameState({ status: "completed" }) as any}
@@ -131,7 +136,7 @@ describe("GoalTracker", () => {
     });
 
     it("shows opponent name on opponent goal button", () => {
-      render(
+      renderWithProvider(
         <GoalTracker
           {...defaultProps}
           gameState={makeGameState({ opponent: "Sharks" }) as any}
@@ -144,7 +149,7 @@ describe("GoalTracker", () => {
   describe("goal modal", () => {
     it("opens modal with Our Goal when us-button clicked", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} />);
+      renderWithProvider(<GoalTracker {...defaultProps} />);
       await user.click(screen.getByText(/Goal - Us/));
       expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Record Goal");
       expect(screen.getByText(/Our Goal/)).toBeInTheDocument();
@@ -152,14 +157,14 @@ describe("GoalTracker", () => {
 
     it("opens modal with opponent name when opponent-button clicked", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} />);
+      renderWithProvider(<GoalTracker {...defaultProps} />);
       await user.click(screen.getByText(/Goal - Eagles/));
       expect(screen.getByText(/Eagles Goal/)).toBeInTheDocument();
     });
 
     it("shows scorer select for our goal", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} />);
+      renderWithProvider(<GoalTracker {...defaultProps} />);
       await user.click(screen.getByText(/Goal - Us/));
       expect(screen.getByText("Who Scored? *")).toBeInTheDocument();
       expect(screen.getByTestId("goalScorer")).toBeInTheDocument();
@@ -167,7 +172,7 @@ describe("GoalTracker", () => {
 
     it("shows assist select for our goal", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} />);
+      renderWithProvider(<GoalTracker {...defaultProps} />);
       await user.click(screen.getByText(/Goal - Us/));
       expect(screen.getByText(/Assisted By/)).toBeInTheDocument();
       expect(screen.getByTestId("goalAssist")).toBeInTheDocument();
@@ -175,7 +180,7 @@ describe("GoalTracker", () => {
 
     it("hides scorer and assist for opponent goal", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} />);
+      renderWithProvider(<GoalTracker {...defaultProps} />);
       await user.click(screen.getByText(/Goal - Eagles/));
       expect(screen.queryByText("Who Scored? *")).not.toBeInTheDocument();
       expect(screen.queryByTestId("goalScorer")).not.toBeInTheDocument();
@@ -183,7 +188,7 @@ describe("GoalTracker", () => {
 
     it("closes modal when Cancel clicked", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} />);
+      renderWithProvider(<GoalTracker {...defaultProps} />);
       await user.click(screen.getByText(/Goal - Us/));
       expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Record Goal");
       await user.click(screen.getByText("Cancel"));
@@ -192,7 +197,7 @@ describe("GoalTracker", () => {
 
     it("has correct aria-labelledby on record goal modal", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} />);
+      renderWithProvider(<GoalTracker {...defaultProps} />);
       await user.click(screen.getByText(/Goal - Us/));
       const modal = screen.getByRole("dialog", { hidden: true });
       expect(modal).toHaveAttribute("aria-labelledby", "record-goal-modal-title");
@@ -222,39 +227,39 @@ describe("GoalTracker", () => {
     ] as any[];
 
     it("renders goal cards with minute and half", () => {
-      render(<GoalTracker {...defaultProps} goals={goalsData} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsData} />);
       expect(screen.getByText("10'")).toBeInTheDocument();
       expect(screen.getByText("20'")).toBeInTheDocument();
       expect(screen.getAllByText("(1st Half)")).toHaveLength(2);
     });
 
     it("shows scorer name for our goals", () => {
-      render(<GoalTracker {...defaultProps} goals={goalsData} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsData} />);
       expect(screen.getByText("#10 Alice Smith")).toBeInTheDocument();
     });
 
     it("shows assist when present", () => {
-      render(<GoalTracker {...defaultProps} goals={goalsData} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsData} />);
       expect(screen.getByText(/Assist: #7 Bob/)).toBeInTheDocument();
     });
 
     it("shows opponent name for opponent goals", () => {
-      render(<GoalTracker {...defaultProps} goals={goalsData} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsData} />);
       expect(screen.getByText("Eagles")).toBeInTheDocument();
     });
 
     it("shows notes when present", () => {
-      render(<GoalTracker {...defaultProps} goals={goalsData} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsData} />);
       expect(screen.getByText("Great shot")).toBeInTheDocument();
     });
 
     it("does not render goals section when empty", () => {
-      render(<GoalTracker {...defaultProps} goals={[]} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={[]} />);
       expect(screen.queryByText("Goals")).not.toBeInTheDocument();
     });
 
     it("shows empty state in completed when no goals", () => {
-      render(
+      renderWithProvider(
         <GoalTracker
           {...defaultProps}
           gameState={makeGameState({ status: "completed" }) as any}
@@ -288,7 +293,7 @@ describe("GoalTracker", () => {
 
   describe("edit and delete buttons", () => {
     it("shows edit and delete buttons for each goal card in-progress", () => {
-      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
       expect(screen.getByRole("button", { name: /Edit Us goal at 10'/ })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Delete Us goal at 10'/ })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Edit Eagles goal at 20'/ })).toBeInTheDocument();
@@ -296,7 +301,7 @@ describe("GoalTracker", () => {
     });
 
     it("shows edit and delete buttons for each goal card when completed", () => {
-      render(
+      renderWithProvider(
         <GoalTracker
           {...defaultProps}
           gameState={makeGameState({ status: "completed" }) as any}
@@ -311,7 +316,7 @@ describe("GoalTracker", () => {
   describe("goal record", () => {
     it("calls createGoal and does NOT call updateGame in active states", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} />);
+      renderWithProvider(<GoalTracker {...defaultProps} />);
       await user.click(screen.getByText(/Goal - Us/));
       await user.selectOptions(screen.getByTestId("goalScorer"), "p1");
       await user.click(screen.getByRole("button", { name: /^Record Goal$/ }));
@@ -325,7 +330,7 @@ describe("GoalTracker", () => {
 
     it("shows success toast with final score when completed", async () => {
       const user = userEvent.setup();
-      render(
+      renderWithProvider(
         <GoalTracker
           {...defaultProps}
           gameState={makeGameState({ status: "completed", ourScore: 1, opponentScore: 0 }) as any}
@@ -343,7 +348,7 @@ describe("GoalTracker", () => {
 
     it("requires scorer when recording our goal", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} />);
+      renderWithProvider(<GoalTracker {...defaultProps} />);
       await user.click(screen.getByText(/Goal - Us/));
       // Don't select a scorer
       await user.click(screen.getByRole("button", { name: /^Record Goal$/ }));
@@ -354,7 +359,7 @@ describe("GoalTracker", () => {
   describe("goal delete", () => {
     it("uses goal-specific delete confirmation copy without note author reminder", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
 
       await user.click(screen.getByRole("button", { name: /Delete Us goal at 10'/ }));
 
@@ -365,7 +370,7 @@ describe("GoalTracker", () => {
 
     it("calls deleteGoal and does NOT call updateGame in active states", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
       await user.click(screen.getByRole("button", { name: /Delete Us goal at 10'/ }));
       await user.click(screen.getByRole("button", { name: /^Delete$/ }));
       await waitFor(() => expect(mockDeleteGoal).toHaveBeenCalledWith("g1"));
@@ -375,7 +380,7 @@ describe("GoalTracker", () => {
 
     it("shows success toast with final score when completed", async () => {
       const user = userEvent.setup();
-      render(
+      renderWithProvider(
         <GoalTracker
           {...defaultProps}
           gameState={makeGameState({ status: "completed", ourScore: 1, opponentScore: 0 }) as any}
@@ -394,7 +399,7 @@ describe("GoalTracker", () => {
 
     it("does not delete when confirm is cancelled", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
       await user.click(screen.getByRole("button", { name: /Delete Us goal at 10'/ }));
 
       await user.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -403,7 +408,7 @@ describe("GoalTracker", () => {
 
     it("returns focus to delete action button when confirmation is cancelled", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
 
       const deleteButton = screen.getByRole("button", { name: /Delete Us goal at 10'/ });
       await user.click(deleteButton);
@@ -416,7 +421,7 @@ describe("GoalTracker", () => {
 
     it("returns focus to delete action button when delete succeeds", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
 
       const deleteButton = screen.getByRole("button", { name: /Delete Us goal at 10'/ });
       await user.click(deleteButton);
@@ -434,7 +439,7 @@ describe("GoalTracker", () => {
   describe("goal edit", () => {
     it("opens modal pre-populated with goal's scorer, assist, notes", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
       await user.click(screen.getByRole("button", { name: /Edit Us goal at 10'/ }));
       expect(screen.getByRole("heading", { name: /Edit Our Goal/ })).toBeInTheDocument();
       expect(screen.getByTestId("editScorer")).toHaveValue("p1");
@@ -444,7 +449,7 @@ describe("GoalTracker", () => {
 
     it("calls updateGoal with editable fields and does not call updateGame", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
       await user.click(screen.getByRole("button", { name: /Edit Us goal at 10'/ }));
       await user.click(screen.getByText("Save Changes"));
       await waitFor(() => expect(mockUpdateGoal).toHaveBeenCalledWith("g1", {
@@ -457,7 +462,7 @@ describe("GoalTracker", () => {
 
     it("shows success toast with final score when completed", async () => {
       const user = userEvent.setup();
-      render(
+      renderWithProvider(
         <GoalTracker
           {...defaultProps}
           gameState={makeGameState({ status: "completed", ourScore: 1, opponentScore: 0 }) as any}
@@ -475,7 +480,7 @@ describe("GoalTracker", () => {
     it("coerces empty scorer string to undefined when saving opponent goal", async () => {
       const user = userEvent.setup();
       // g2 is opponent goal with null scorerId -> editScorerId starts as ''
-      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
       await user.click(screen.getByRole("button", { name: /Edit Eagles goal at 20'/ }));
       await user.click(screen.getByText("Save Changes"));
       await waitFor(() => expect(mockUpdateGoal).toHaveBeenCalledWith("g2", {
@@ -487,7 +492,7 @@ describe("GoalTracker", () => {
 
     it("requires scorer for scoredByUs=true goal and shows error", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
       await user.click(screen.getByRole("button", { name: /Edit Us goal at 10'/ }));
       // Clear the scorer select to empty
       await user.selectOptions(screen.getByTestId("editScorer"), "");
@@ -498,7 +503,7 @@ describe("GoalTracker", () => {
 
     it("closes modal when Cancel clicked", async () => {
       const user = userEvent.setup();
-      render(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
+      renderWithProvider(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
       await user.click(screen.getByRole("button", { name: /Edit Us goal at 10'/ }));
       expect(screen.getByRole("dialog")).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Cancel" }));
