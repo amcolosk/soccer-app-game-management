@@ -792,6 +792,68 @@ describe("PlanTab", () => {
     expect(onGenerateRotations).toHaveBeenCalledOnce();
   });
 
+  // ── Regression: Save Plan enabled / functional when no gamePlan exists yet ──
+
+  it("Save Plan button is enabled when gamePlan is null even if planner is clean and half-length is unchanged", () => {
+    render(
+      <PlanTab
+        {...defaultProps}
+        gamePlan={null}
+        plannedRotations={[]}
+      />
+    );
+
+    const saveBtn = screen.getByRole("button", { name: /save plan/i });
+    expect(saveBtn).toBeEnabled();
+  });
+
+  it("Save Plan with no existing gamePlan calls savePlan() and onEnsureRotationSchedule with default settings", async () => {
+    const onEnsureRotationSchedule = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <PlanTab
+        {...defaultProps}
+        gamePlan={null}
+        plannedRotations={[]}
+        onEnsureRotationSchedule={onEnsureRotationSchedule}
+      />
+    );
+
+    const saveBtn = screen.getByRole("button", { name: /save plan/i });
+    await userEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(mockPlannerResult.savePlan).toHaveBeenCalledOnce();
+    });
+    expect(onEnsureRotationSchedule).toHaveBeenCalledWith({
+      halfLengthMinutes: 30,
+      rotationIntervalMinutes: 10,
+    });
+  });
+
+  it("Save Plan with no existing gamePlan still calls savePlan() when onEnsureRotationSchedule is not provided", async () => {
+    render(
+      <PlanTab
+        {...defaultProps}
+        gamePlan={null}
+        plannedRotations={[]}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /save plan/i }));
+
+    await waitFor(() => {
+      expect(mockPlannerResult.savePlan).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("Save Plan with existing gamePlan and clean state remains disabled (existing guard intact)", () => {
+    render(<PlanTab {...defaultProps} />);
+
+    const saveBtn = screen.getByRole("button", { name: /save plan/i });
+    expect(saveBtn).toBeDisabled();
+  });
+
   it("Save Plan persists half-length edits even when planner draft is otherwise clean", async () => {
     const onHalfLengthChange = vi.fn().mockResolvedValue(undefined);
     const onEnsureRotationSchedule = vi.fn().mockResolvedValue(undefined);
