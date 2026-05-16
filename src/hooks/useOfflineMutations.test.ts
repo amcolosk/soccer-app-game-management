@@ -18,6 +18,7 @@ const {
   mockRequeuePreserved,
   mockPendingCount,
   mockDeduplicateGameUpdates,
+  mockDeduplicateGameNoteCreates,
   mockFetchAuthSession,
   mockShowWarning,
   mockUseNetworkStatus,
@@ -35,6 +36,7 @@ const {
   mockRequeuePreserved: vi.fn(),
   mockPendingCount: vi.fn(),
   mockDeduplicateGameUpdates: vi.fn(),
+  mockDeduplicateGameNoteCreates: vi.fn(),
   mockFetchAuthSession: vi.fn(),
   mockShowWarning: vi.fn(),
   mockUseNetworkStatus: vi.fn(),
@@ -82,6 +84,7 @@ vi.mock('../services/offlineQueueService', () => ({
   requeuePreserved: mockRequeuePreserved,
   pendingCount: mockPendingCount,
   deduplicateGameUpdates: mockDeduplicateGameUpdates,
+  deduplicateGameNoteCreates: mockDeduplicateGameNoteCreates,
 }));
 
 vi.mock('../utils/toast', () => ({
@@ -149,6 +152,7 @@ describe('useOfflineMutations', () => {
     mockDequeueAll.mockResolvedValue([]);
     mockPendingCount.mockResolvedValue(0);
     mockDeduplicateGameUpdates.mockResolvedValue(undefined);
+    mockDeduplicateGameNoteCreates.mockResolvedValue(undefined);
     mockRequeueFailed.mockResolvedValue(undefined);
     mockRequeuePreserved.mockResolvedValue(undefined);
   });
@@ -510,6 +514,7 @@ describe('useOfflineMutations', () => {
       });
       await flush();
 
+      expect(mockDeduplicateGameNoteCreates).toHaveBeenCalled();
       expect(mockCreateSecureGameNote).toHaveBeenCalledWith({
         gameId: 'g1',
         noteType: 'coaching-point',
