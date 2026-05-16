@@ -43,9 +43,7 @@ These rules govern how the algorithm generates new rotation schedules while a ga
 
 * **Rule 4.2 - Current-Game History Seeding:** The algorithm must seed each player's accumulated play time exclusively from the **current game's** recorded play time records (i.e., `PlayTimeRecord` rows for this game, covering the period from kick-off up to the moment of recalculation). Play time from prior games or prior seasons must not be considered. Minutes already accrued in the current game are treated as committed and cannot be redistributed.
 
-* **Rule 4.3 - Future-Only Generation:** The algorithm must generate rotation slots only from the current game timestamp forward. It must not produce any rotation whose scheduled game-clock time is strictly before `currentMinutes − 2`, and must not re-simulate or overwrite any rotation intervals that fall outside the grace window.
-
-  > **Grace-window exception:** A rotation whose `gameMinute` falls within 2 minutes of the current game time (`gameMinute ≥ currentMinutes − 2`) is considered *actionable* — it is still displayed in the UI so a coach who is slightly late can execute it. When a recalculation is triggered, the algorithm **may overwrite substitutions in this grace-window rotation** to clear stale conflict state and bring it in line with the current live lineup. TC-IG-03 tests the strict-past case (rotations at 5, 10, 15 when the clock is at 18); it does not constrain behaviour for rotations at 16 or 17 minutes.
+* **Rule 4.3 - Future-Only Generation:** The algorithm must generate rotation slots only from the current game timestamp forward. It must not produce any rotation whose scheduled game-clock time is at or before the current elapsed game time, and must not re-simulate or overwrite any rotation intervals that have already passed.
 
 * **Rule 4.4 - No Immediate Conflict with Live Field State:** Every rotation generated for an in-progress game must be immediately compatible with the live on-field lineup at the time of generation:
   * A player who is currently on the field (`isStarter: true`) must not appear as `playerIn` in the very next generated rotation (Rule 1.1 — Cloning).

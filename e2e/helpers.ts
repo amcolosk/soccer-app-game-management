@@ -157,6 +157,8 @@ export async function loginUser(page: Page, email: string, password: string) {
   await page.goto('/');
   await waitForPageLoad(page);
 
+  const authEmailInput = page.locator('input[name="username"], input[type="email"]').first();
+
   // Check if already logged in (bottom nav visible)
   const bottomNav = page.locator('.bottom-nav');
   if (await bottomNav.isVisible({ timeout: 2000 }).catch(() => false)) {
@@ -164,20 +166,56 @@ export async function loginUser(page: Page, email: string, password: string) {
     // Navigate to profile and sign out
     await page.getByRole('link', { name: 'Profile' }).click();
     await page.getByRole('button', { name: 'Sign Out' }).click();
-    await expect(page.getByRole('banner').getByRole('button', { name: 'Log In' })).toBeVisible({ timeout: 10000 });
+    await expect
+      .poll(async () => {
+        if (await authEmailInput.isVisible().catch(() => false)) {
+          return 'auth';
+        }
+
+        const headerLogin = page.getByRole('banner').getByRole('button', { name: 'Log In' });
+        if (await headerLogin.isVisible().catch(() => false)) {
+          return 'landing';
+        }
+
+        return 'transitioning';
+      }, { timeout: 15000, message: 'Expected sign-out to return to either landing page or auth form' })
+      .not.toBe('transitioning');
   }
-  
-  // Check for Landing Page "Log In" button — scope to header to avoid ambiguity
-  // with the second "Log In" button in the hero CTA area
-  const loginButton = page.getByRole('banner').getByRole('button', { name: 'Log In' });
-  if (await loginButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-    console.log('On Landing Page, clicking Log In...');
-    await loginButton.click();
-    await waitForPageLoad(page);
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    if (await authEmailInput.isVisible({ timeout: 1000 }).catch(() => false)) {
+      break;
+    }
+
+    const loginButtons = [
+      page.getByRole('banner').getByRole('button', { name: 'Log In' }).first(),
+      page.getByRole('button', { name: /^Log In$/i }).first(),
+      page.getByRole('button', { name: /Get Started Free|Get Started/i }).first(),
+    ];
+
+    let clickedLogin = false;
+    for (const button of loginButtons) {
+      if (!(await button.isVisible({ timeout: 500 }).catch(() => false))) {
+        continue;
+      }
+
+      console.log(`Opening auth form (attempt ${attempt}/3)...`);
+      await button.click();
+      clickedLogin = true;
+      break;
+    }
+
+    if (!clickedLogin) {
+      break;
+    }
+
+    await authEmailInput.waitFor({ state: 'visible', timeout: 15000 }).catch(() => undefined);
+    await closePWAPrompt(page);
+    await closeWelcomeModal(page);
   }
 
   // Wait for auth UI to load
-  await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 10000 });
+  await authEmailInput.waitFor({ state: 'visible', timeout: 15000 });
   
   // Enter credentials
   await fillInput(page, 'input[name="username"], input[type="email"]', email);
