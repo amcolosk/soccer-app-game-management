@@ -782,7 +782,6 @@ export function PlanTab({
     planner,
     halfLengthInput,
     derivedHalfLength,
-    gamePlan?.rotationIntervalMinutes,
     onHalfLengthChange,
     onEnsureRotationSchedule,
   ]);
