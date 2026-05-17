@@ -764,11 +764,12 @@ export function PlanTab({
           await onHalfLengthChange(snapshotHalfLength);
         }
       }
-      if (planner.isDirty) {
+      const isNewPlan = !gamePlan;
+      if (planner.isDirty || isNewPlan) {
         await planner.savePlan();
       }
 
-      if (scheduleAffectingChange && onEnsureRotationSchedule) {
+      if ((scheduleAffectingChange || isNewPlan) && onEnsureRotationSchedule) {
         await onEnsureRotationSchedule({ halfLengthMinutes: snapshotHalfLength, rotationIntervalMinutes: snapshotInterval });
       }
     } finally {
@@ -777,10 +778,10 @@ export function PlanTab({
   }, [
     isScheduled,
     readOnly,
+    gamePlan,
     planner,
     halfLengthInput,
     derivedHalfLength,
-    gamePlan?.rotationIntervalMinutes,
     onHalfLengthChange,
     onEnsureRotationSchedule,
   ]);
@@ -1009,7 +1010,7 @@ export function PlanTab({
 
           <button
             onClick={handleSavePlan}
-            disabled={isSavingPlan || isRecalculating || (!planner.isDirty && !hasPendingHalfLengthSave)}
+            disabled={isSavingPlan || isRecalculating || (!!gamePlan && !planner.isDirty && !hasPendingHalfLengthSave)}
             className="btn-primary plan-tab__save-btn"
           >
             {isSavingPlan ? "Saving Plan..." : "Save Plan"}

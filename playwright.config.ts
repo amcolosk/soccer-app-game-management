@@ -47,25 +47,16 @@ export default defineConfig({
     },
     {
       name: 'smoke',
-      // Smoke lane is browser wiring confidence only.
-      // Contract/static layers own deep semantics and payload policy assertions.
-      // Target runtime: ≤10 minutes.
-      //
-      // Excluded from smoke (moved to full):
-      //   data-isolation        — requires multi-user login cycling (~3–5 min)
-      //   game-management-direct-note.mobile — heavy game-state seeding + mobile
-      //                           viewport simulation (~8–12 min); UI wiring for
-      //                           notes is covered by the direct-note tests in the
-      //                           full suite; mutation semantics are covered by
-      //                           offlineQueueService.test.ts and
-      //                           PlayerNotesPanel.test.tsx (Vitest)
+      // Smoke lane is browser wiring confidence only (~10 min CI budget).
+      // game-planner and game-management-direct-note.mobile are excluded: their deep
+      // semantics are owned by Vitest integration tests (Layer B), and their full-workflow
+      // seeding pushes the smoke suite well over the 10-minute target.
       testMatch: [
         '**/formation-management.spec.ts',
         '**/team-management.spec.ts',
         '**/player-management.spec.ts',
+        '**/data-isolation.spec.ts',
         '**/safe-deletes.spec.ts',
-        // Wiring-only smoke checks; planner/note semantics owned by Vitest integration tests (Layer B)
-        '**/game-planner.spec.ts',
       ],
       dependencies: ['setup'],
       use: { ...devices['Desktop Chrome'], storageState: '.auth/user1.json' },
@@ -74,8 +65,8 @@ export default defineConfig({
       name: 'full',
       dependencies: ['setup'],
       testIgnore: [
-        '**/game-planner.spec.ts',
         '**/auth.setup.ts',
+        '**/data-isolation.spec.ts',
         '**/formation-management.spec.ts',
         '**/team-management.spec.ts',
         '**/player-management.spec.ts',
