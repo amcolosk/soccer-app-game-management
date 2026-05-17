@@ -1,14 +1,9 @@
 import { useState, useEffect } from "react";
-import { updatePlayerAvailability } from "../../services/rotationPlannerService";
-import { showSuccess } from "../../utils/toast";
-import { handleApiError } from "../../utils/errorHandler";
 import { useAvailability } from "../../contexts/AvailabilityContext";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
 import { isRotationFullyExecuted, isSubEffectivelyExecuted } from "../../utils/rotationConflictUtils";
-import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import type {
   Game,
-  Team,
   PlayerWithRoster,
   FormationPosition,
   GamePlan,
@@ -20,8 +15,6 @@ import type {
 
 interface RotationWidgetProps {
   gameState: Game;
-  game: Game;
-  team: Team;
   players: PlayerWithRoster[];
   positions: FormationPosition[];
   gamePlan: GamePlan | null;
@@ -47,8 +40,6 @@ interface RotationWidgetProps {
 
 export function RotationWidget({
   gameState,
-  game,
-  team,
   players,
   positions,
   gamePlan,
@@ -78,7 +69,6 @@ export function RotationWidget({
       onCloseRotationModal();
     }
   };
-  const [showLateArrivalModal, setShowLateArrivalModal] = useState(false);
 
   const getNextRotation = (): PlannedRotation | null => {
     if (!gamePlan || plannedRotations.length === 0) return null;
@@ -131,24 +121,6 @@ export function RotationWidget({
     } catch { return false; }
   })() : false;
 
-  const handleLateArrival = async (playerId: string) => {
-    try {
-      await updatePlayerAvailability(
-        game.id,
-        playerId,
-        'available',
-        `Arrived late at ${formatGameTimeDisplay(currentTime, gameState.currentHalf || 1)}`,
-        team.coaches || [],
-        null,  // clear stale availableFromMinute — player has now arrived
-        null   // clear availableUntilMinute — player is fully available
-      );
-
-      setShowLateArrivalModal(false);
-      showSuccess('Player marked as available');
-    } catch (error) {
-      handleApiError(error, 'Failed to update player availability');
-    }
-  };
 
   if (gameState.status !== 'in-progress' || !gamePlan) {
     return null;
@@ -215,19 +187,6 @@ export function RotationWidget({
         return null;
       })()}
 
-      {players.some(p => {
-        const status = getPlayerAvailability(p.id);
-        return status === 'absent' || status === 'late-arrival';
-      }) && (
-        <div className="planner-actions">
-          <button
-            onClick={() => setShowLateArrivalModal(true)}
-            className="btn-secondary"
-          >
-            + Add Late Arrival
-          </button>
-        </div>
-      )}
 
       {/* Rotation Modal */}
       {showRotationModal && currentRotation && (
@@ -373,55 +332,6 @@ export function RotationWidget({
                 className="btn-primary"
               >
                 Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Late Arrival Modal */}
-      {showLateArrivalModal && (
-        <div className="modal-overlay" onClick={() => setShowLateArrivalModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>Add Late Arrival</h3>
-            <p className="modal-subtitle">Select a player who has arrived</p>
-
-            <div className="late-arrival-list">
-              {players
-                .filter(p => {
-                  const status = getPlayerAvailability(p.id);
-                  return status === 'absent' || status === 'late-arrival';
-                })
-                .map((player) => (
-                  <button
-                    key={player.id}
-                    className="late-arrival-option"
-                    onClick={() => handleLateArrival(player.id)}
-                  >
-                    <span className="player-number">#{player.playerNumber}</span>
-                    <span className="player-name">
-                      {player.firstName} {player.lastName}
-                    </span>
-                    <span className="status-badge">
-                      {getPlayerAvailability(player.id)}
-                    </span>
-                  </button>
-                ))}
-            </div>
-
-            {players.filter(p => {
-              const status = getPlayerAvailability(p.id);
-              return status === 'absent' || status === 'late-arrival';
-            }).length === 0 && (
-              <p className="empty-state">No players marked as absent or late</p>
-            )}
-
-            <div className="form-actions">
-              <button
-                onClick={() => setShowLateArrivalModal(false)}
-                className="btn-secondary"
-              >
-                Cancel
               </button>
             </div>
           </div>

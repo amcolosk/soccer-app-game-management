@@ -12,7 +12,7 @@ vi.mock("../../contexts/AvailabilityContext", () => ({
   useAvailability: () => ({ getPlayerAvailability: mockGetPlayerAvailability }),
 }));
 
-// Mock service calls (handleLateArrival path)
+// Mock service calls (rotation planner service — late arrival handler moved to BenchTab)
 vi.mock("../../services/rotationPlannerService", () => ({
   updatePlayerAvailability: vi.fn().mockResolvedValue(undefined),
 }));
@@ -24,7 +24,9 @@ vi.mock("../../utils/errorHandler", () => ({
 }));
 
 import { updatePlayerAvailability } from "../../services/rotationPlannerService";
-const mockUpdatePlayerAvailability = vi.mocked(updatePlayerAvailability);
+// updatePlayerAvailability mock kept so the module mock stays consistent; late arrival tests are in BenchTab.test.tsx
+const _mockUpdatePlayerAvailability = vi.mocked(updatePlayerAvailability);
+void _mockUpdatePlayerAvailability; // referenced to satisfy no-unused-vars
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -61,8 +63,6 @@ const positions = [
 
 const baseProps = {
   gameState: makeGameState() as any,
-  game: { id: "game-1" } as any,
-  team: { coaches: ["coach-1"] } as any,
   players,
   positions,
   gamePlan: { id: "gp-1" } as any,
@@ -182,33 +182,14 @@ describe("RotationWidget", () => {
     expect(screen.getByText(/Bob/)).toBeInTheDocument();
   });
 
-  // ── handleLateArrival — clears stale availability window ────────────────
-  it("calls updatePlayerAvailability with null, null as last two args when marking a late-arrival player as arrived", async () => {
-    const user = userEvent.setup();
-
-    // Make p2 (Bob) show as 'late-arrival' so the late-arrival button appears
+  // ── Late arrival button removed from RotationWidget ─────────────────────
+  it("does not render the Add Late Arrival button (moved to BenchTab)", () => {
+    // Even when a player is late-arrival, the button must NOT appear in RotationWidget
     mockGetPlayerAvailability.mockImplementation((id: string) =>
       id === "p2" ? "late-arrival" : "available"
     );
-
     render(<RotationWidget {...baseProps} />);
-
-    // Open the late arrival modal
-    await user.click(screen.getByRole("button", { name: /Add Late Arrival/i }));
-
-    // Click Bob's button in the modal
-    const bobButton = screen.getByRole("button", { name: /Bob/i });
-    await user.click(bobButton);
-
-    expect(mockUpdatePlayerAvailability).toHaveBeenCalledWith(
-      "game-1",
-      "p2",
-      "available",
-      expect.stringContaining("Arrived late"),
-      ["coach-1"],
-      null,
-      null
-    );
+    expect(screen.queryByRole("button", { name: /Add Late Arrival/i })).not.toBeInTheDocument();
   });
 
   // ── Queue All button ─────────────────────────────────────────────────────
