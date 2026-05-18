@@ -5733,38 +5733,33 @@
 @media (max-width: 500px) {
   .planned-sub-item {
     display: grid;
-    grid-template-columns: auto 1fr;
-    grid-template-rows: auto auto;
+    grid-template-columns: auto minmax(0, 1fr);
     gap: 0.5rem 0.75rem;
     align-items: start;
   }
 
-  .sub-position-label {
+  .sub-position-chip {
     grid-column: 1;
     grid-row: 1;
     padding-top: 0.15rem;
   }
 
-  .sub-players {
+  .sub-players-stacked {
     grid-column: 2;
     grid-row: 1;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.35rem;
   }
 
-  .sub-player {
-    width: 100%;
+  .sub-player-row {
+    flex-wrap: wrap;
+    row-gap: 0.2rem;
   }
 
-  .sub-arrow {
-    font-size: 1rem;
-    padding-left: 0.25rem;
+  .sub-conflict-banner {
+    grid-column: 1 / -1;
   }
 
   .btn-queue-sub {
     grid-column: 1 / -1;
-    grid-row: 2;
     width: 100%;
     text-align: center;
     padding: 0.5rem;
