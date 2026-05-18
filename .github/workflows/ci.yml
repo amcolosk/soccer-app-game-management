@@ -80,7 +80,7 @@ jobs:
           fi
 
           is_mainline=false
-          if [[ "$is_push_main" == "true" || "$is_merge_group" == "true" || \
+          if [[ "$is_merge_group" == "true" || \
                 "$is_workflow_dispatch" == "true" ]]; then
             is_mainline=true
           fi

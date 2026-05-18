@@ -42,7 +42,7 @@ const SEED_DATA = {
   },
   team: {
     name: `E2E Mobile Notes Team ${Date.now().toString(36)}`,
-    halfLength: '5',
+    halfLength: '25',
     maxPlayers: '5',
   },
   players: [
