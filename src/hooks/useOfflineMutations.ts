@@ -10,6 +10,7 @@ import {
   requeuePreserved,
   pendingCount as getQueuePendingCount,
   deduplicateGameUpdates,
+  deduplicateGameNoteCreates,
   type QueuedMutation,
 } from '../services/offlineQueueService';
 import { useNetworkStatus } from './useNetworkStatus';
@@ -402,6 +403,7 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
 
     try {
       await deduplicateGameUpdates();
+      await deduplicateGameNoteCreates();
       const items = await dequeueAll();
 
       // Separate cross-user items (must not count toward retryCount) from

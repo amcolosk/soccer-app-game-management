@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node -e \"const fs=require('fs');if(!fs.existsSync('amplify_outputs.json'))fs.copyFileSync('amplify_outputs.ci.json','amplify_outputs.json');\"",
+    "prebuild": "node scripts/setup-amplify-outputs.mjs",
     "build": "tsc && vite build",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
     "lint:security": "eslint . --report-unused-disable-directives",

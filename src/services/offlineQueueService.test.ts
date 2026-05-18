@@ -36,6 +36,7 @@ import {
   requeuePreserved,
   pendingCount,
   deduplicateGameUpdates,
+  deduplicateGameNoteCreates,
   type QueuedMutation,
 } from './offlineQueueService';
 
@@ -291,6 +292,100 @@ describe('offlineQueueService', () => {
 
     it('no-ops on an empty queue', async () => {
       await expect(deduplicateGameUpdates()).resolves.toBeUndefined();
+    });
+  });
+
+  // ── deduplicateGameNoteCreates ───────────────────────────────────────────
+
+  describe('deduplicateGameNoteCreates', () => {
+    function makeNote(overrides: Partial<QueuedMutation> = {}): QueuedMutation {
+      return makeItem({
+        model: 'GameNote',
+        operation: 'create',
+        payload: {
+          gameId: 'game-1',
+          noteType: 'other',
+          playerId: 'player-1',
+          gameSeconds: 30,
+          half: 1,
+          notes: 'Played well',
+        },
+        ...overrides,
+      });
+    }
+
+    it('keeps only the earliest duplicate GameNote.create entry', async () => {
+      const first  = makeNote({ id: 'n1', enqueuedAt: 100 });
+      const second = makeNote({ id: 'n2', enqueuedAt: 200 });
+      const third  = makeNote({ id: 'n3', enqueuedAt: 300 });
+      for (const n of [first, second, third]) store.set(n.id, n);
+
+      await deduplicateGameNoteCreates();
+
+      expect(store.has('n1')).toBe(true);
+      expect(store.has('n2')).toBe(false);
+      expect(store.has('n3')).toBe(false);
+    });
+
+    it('preserves entries that differ only in notes text', async () => {
+      const n1 = makeNote({ id: 'n1', enqueuedAt: 100, payload: { gameId: 'g1', noteType: 'other', playerId: 'p1', gameSeconds: 10, half: 1, notes: 'Good run' } });
+      const n2 = makeNote({ id: 'n2', enqueuedAt: 200, payload: { gameId: 'g1', noteType: 'other', playerId: 'p1', gameSeconds: 10, half: 1, notes: 'Bad tackle' } });
+      store.set(n1.id, n1);
+      store.set(n2.id, n2);
+
+      await deduplicateGameNoteCreates();
+
+      expect(store.size).toBe(2);
+    });
+
+    it('deduplicates independently per composite key', async () => {
+      const a1 = makeNote({ id: 'a1', enqueuedAt: 100, payload: { gameId: 'g1', noteType: 'gold-star', playerId: 'p1', gameSeconds: 5, half: 1, notes: 'Great' } });
+      const a2 = makeNote({ id: 'a2', enqueuedAt: 200, payload: { gameId: 'g1', noteType: 'gold-star', playerId: 'p1', gameSeconds: 5, half: 1, notes: 'Great' } });
+      const b1 = makeNote({ id: 'b1', enqueuedAt: 100, payload: { gameId: 'g2', noteType: 'gold-star', playerId: 'p1', gameSeconds: 5, half: 1, notes: 'Great' } });
+      const b2 = makeNote({ id: 'b2', enqueuedAt: 200, payload: { gameId: 'g2', noteType: 'gold-star', playerId: 'p1', gameSeconds: 5, half: 1, notes: 'Great' } });
+      for (const n of [a1, a2, b1, b2]) store.set(n.id, n);
+
+      await deduplicateGameNoteCreates();
+
+      expect(store.size).toBe(2);
+      expect(store.has('a1')).toBe(true);
+      expect(store.has('b1')).toBe(true);
+    });
+
+    it('treats null and undefined playerId as equivalent', async () => {
+      const withNull      = makeNote({ id: 'n1', enqueuedAt: 100, payload: { gameId: 'g1', noteType: 'other', playerId: null,      gameSeconds: 10, half: 1, notes: 'X' } });
+      const withUndefined = makeNote({ id: 'n2', enqueuedAt: 200, payload: { gameId: 'g1', noteType: 'other', playerId: undefined, gameSeconds: 10, half: 1, notes: 'X' } });
+      store.set(withNull.id, withNull);
+      store.set(withUndefined.id, withUndefined);
+
+      await deduplicateGameNoteCreates();
+
+      expect(store.size).toBe(1);
+      expect(store.has('n1')).toBe(true);
+    });
+
+    it('leaves non-GameNote.create items untouched', async () => {
+      const gameUpdate = makeItem({ id: 'gu', model: 'Game', operation: 'update', payload: { id: 'g1' } });
+      const noteUpdate = makeNote({ id: 'nu', operation: 'update' });
+      store.set(gameUpdate.id, gameUpdate);
+      store.set(noteUpdate.id, noteUpdate);
+
+      await deduplicateGameNoteCreates();
+
+      expect(store.size).toBe(2);
+    });
+
+    it('does not remove a single GameNote.create entry', async () => {
+      const only = makeNote({ id: 'only', enqueuedAt: 100 });
+      store.set(only.id, only);
+
+      await deduplicateGameNoteCreates();
+
+      expect(store.has('only')).toBe(true);
+    });
+
+    it('no-ops on an empty queue', async () => {
+      await expect(deduplicateGameNoteCreates()).resolves.toBeUndefined();
     });
   });
 });

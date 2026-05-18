@@ -133,3 +133,63 @@ export async function deduplicateGameUpdates(): Promise<void> {
 
   await tx.done;
 }
+
+/**
+ * Removes exact-duplicate GameNote.create entries from the queue.
+ *
+ * Two entries are considered duplicates when all of the following fields match:
+ * gameId, noteType, playerId, gameSeconds, half, notes.  null and undefined are
+ * normalised to '' for comparison so that absent optional fields never create
+ * false negatives.
+ *
+ * Unlike deduplicateGameUpdates (latest-wins), here we keep the EARLIEST entry
+ * (lowest enqueuedAt).  A note is an immutable create-only record: there is no
+ * meaningful "more recent state", so the first enqueue is the canonical one and
+ * any later duplicates are the result of rapid double-submits or queue replays.
+ */
+export async function deduplicateGameNoteCreates(): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const all = await tx.store.getAll();
+
+  const noteCreates = all.filter(
+    (item) => item.model === 'GameNote' && item.operation === 'create'
+  );
+
+  type NotePayload = {
+    gameId?: string;
+    noteType?: string;
+    playerId?: string | null;
+    gameSeconds?: number | null;
+    half?: number | null;
+    notes?: string | null;
+  };
+
+  const norm = (v: unknown): string => (v == null ? '' : String(v));
+
+  const byKey = new Map<string, QueuedMutation[]>();
+  for (const item of noteCreates) {
+    const p = item.payload as NotePayload;
+    const key = [
+      norm(p.gameId),
+      norm(p.noteType),
+      norm(p.playerId),
+      norm(p.gameSeconds),
+      norm(p.half),
+      norm(p.notes),
+    ].join('|');
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)!.push(item);
+  }
+
+  for (const [, entries] of byKey) {
+    if (entries.length <= 1) continue;
+    // Keep the entry with the lowest enqueuedAt (earliest / canonical); delete the rest
+    const sorted = [...entries].sort((a, b) => a.enqueuedAt - b.enqueuedAt);
+    for (const item of sorted.slice(1)) {
+      await tx.store.delete(item.id);
+    }
+  }
+
+  await tx.done;
+}
