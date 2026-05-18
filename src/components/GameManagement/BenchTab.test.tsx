@@ -10,6 +10,7 @@ const mockShowSuccess = vi.hoisted(() => vi.fn());
 const mockShowWarning = vi.hoisted(() => vi.fn());
 const mockShowInfo = vi.hoisted(() => vi.fn());
 const mockShowError = vi.hoisted(() => vi.fn());
+const mockUpdatePlayerAvailability = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
 vi.mock("../ConfirmModal", () => ({
   useConfirm: () => mockConfirm,
@@ -28,6 +29,14 @@ vi.mock("../../utils/toast", () => ({
   showWarning: (...args: unknown[]) => mockShowWarning(...args),
   showInfo: (...args: unknown[]) => mockShowInfo(...args),
   showError: (...args: unknown[]) => mockShowError(...args),
+}));
+
+vi.mock("../../services/rotationPlannerService", () => ({
+  updatePlayerAvailability: (...args: unknown[]) => mockUpdatePlayerAvailability(...args),
+}));
+
+vi.mock("../../utils/errorHandler", () => ({
+  handleApiError: vi.fn(),
 }));
 
 const HALF_LENGTH = 1800; // 30 minutes
@@ -485,5 +494,154 @@ describe("BenchTab", () => {
       expect(screen.getByText(/^Synced$/i)).toBeInTheDocument();
     });
     expect(mockShowSuccess).toHaveBeenCalledWith("Player status updated.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Late arrival button — relocated from RotationWidget to BenchTab
+// ---------------------------------------------------------------------------
+describe("BenchTab — late arrival", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockConfirm.mockResolvedValue(true);
+    mockUpdatePlayerAvailability.mockResolvedValue(undefined);
+  });
+
+  it("shows the Add Late Arrival button when a player is absent and allowSubstitution is true", () => {
+    const players = [makePlayer("p1", 7, "Alice"), makePlayer("p2", 5, "Bob")];
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        playerAvailabilities={[{ id: "pa-2", playerId: "p2", status: "absent" }] as any}
+        allowSubstitution={true}
+      />
+    );
+    expect(screen.getByRole("button", { name: /Add Late Arrival/i })).toBeInTheDocument();
+  });
+
+  it("shows the Add Late Arrival button when a player is late-arrival and allowSubstitution is true", () => {
+    const players = [makePlayer("p1", 7, "Alice"), makePlayer("p2", 5, "Bob")];
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        playerAvailabilities={[{ id: "pa-2", playerId: "p2", status: "late-arrival" }] as any}
+        allowSubstitution={true}
+      />
+    );
+    expect(screen.getByRole("button", { name: /Add Late Arrival/i })).toBeInTheDocument();
+  });
+
+  it("does NOT show the Add Late Arrival button when allowSubstitution is false", () => {
+    const players = [makePlayer("p1", 7, "Alice"), makePlayer("p2", 5, "Bob")];
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        playerAvailabilities={[{ id: "pa-2", playerId: "p2", status: "absent" }] as any}
+        allowSubstitution={false}
+        onSelectPlayer={() => undefined}
+      />
+    );
+    expect(screen.queryByRole("button", { name: /Add Late Arrival/i })).not.toBeInTheDocument();
+  });
+
+  it("does NOT show the Add Late Arrival button when no players are absent or late-arrival", () => {
+    const players = [makePlayer("p1", 7, "Alice")];
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        playerAvailabilities={[]}
+        allowSubstitution={true}
+      />
+    );
+    expect(screen.queryByRole("button", { name: /Add Late Arrival/i })).not.toBeInTheDocument();
+  });
+
+  it("opens the late arrival modal when the button is clicked", async () => {
+    const user = userEvent.setup();
+    const players = [makePlayer("p1", 7, "Alice"), makePlayer("p2", 5, "Bob")];
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        playerAvailabilities={[{ id: "pa-2", playerId: "p2", status: "absent" }] as any}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: /Add Late Arrival/i }));
+    expect(screen.getByRole("heading", { name: /Add Late Arrival/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Mark Bob Test as arrived/i })).toBeInTheDocument();
+  });
+
+  it("calls updatePlayerAvailability with null, null (clears stale window) when marking a late-arrival player as arrived", async () => {
+    const user = userEvent.setup();
+    const players = [makePlayer("p1", 7, "Alice"), makePlayer("p2", 5, "Bob")];
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        playerAvailabilities={[{ id: "pa-2", playerId: "p2", status: "late-arrival" }] as any}
+        gameId="game-1"
+        coaches={["coach-1"]}
+        currentHalf={1}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /Add Late Arrival/i }));
+    await user.click(screen.getByRole("button", { name: /Mark Bob Test as arrived/i }));
+
+    await waitFor(() => {
+      expect(mockUpdatePlayerAvailability).toHaveBeenCalledWith(
+        "game-1",
+        "p2",
+        "available",
+        expect.stringContaining("Arrived late"),
+        ["coach-1"],
+        null,
+        null
+      );
+    });
+    expect(mockShowSuccess).toHaveBeenCalledWith("Player marked as available");
+  });
+
+  it("closes the late arrival modal after a successful late arrival action", async () => {
+    const user = userEvent.setup();
+    const players = [makePlayer("p1", 7, "Alice"), makePlayer("p2", 5, "Bob")];
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        playerAvailabilities={[{ id: "pa-2", playerId: "p2", status: "absent" }] as any}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /Add Late Arrival/i }));
+    expect(screen.getByRole("heading", { name: /Add Late Arrival/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Mark Bob Test as arrived/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: /Add Late Arrival/i })).not.toBeInTheDocument();
+    });
+  });
+
+  it("closes the late arrival modal when Cancel is clicked", async () => {
+    const user = userEvent.setup();
+    const players = [makePlayer("p1", 7, "Alice"), makePlayer("p2", 5, "Bob")];
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        playerAvailabilities={[{ id: "pa-2", playerId: "p2", status: "absent" }] as any}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /Add Late Arrival/i }));
+    expect(screen.getByRole("heading", { name: /Add Late Arrival/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Cancel/i }));
+    expect(screen.queryByRole("heading", { name: /Add Late Arrival/i })).not.toBeInTheDocument();
   });
 });

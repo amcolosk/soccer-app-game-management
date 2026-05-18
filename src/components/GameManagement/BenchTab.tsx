@@ -4,12 +4,15 @@ import {
   formatPlayTime,
   isPlayerCurrentlyPlaying,
 } from "../../utils/playTimeCalculations";
+import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { isPlayerInLineup } from "../../utils/lineupUtils";
 import { useConfirm } from "../ConfirmModal";
 import type { GameMutationInput } from "../../hooks/useOfflineMutations";
 import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
 import { showError, showInfo, showSuccess, showWarning } from "../../utils/toast";
+import { handleApiError } from "../../utils/errorHandler";
 import { getPlayerAvailabilityStatus } from "../../utils/availabilityUtils";
+import { updatePlayerAvailability } from "../../services/rotationPlannerService";
 import { sortBenchPlayersByPriority } from "./shape/lineupInteractionAdapter";
 import type {
   PlayerWithRoster,
@@ -26,6 +29,7 @@ interface BenchTabProps {
   halfLengthSeconds: number;
   gameId?: string;
   coaches?: string[];
+  currentHalf?: number;
   playerAvailabilities?: PlayerAvailability[];
   mutations?: GameMutationInput;
   isOnline?: boolean;
@@ -76,6 +80,7 @@ export function BenchTab({
   halfLengthSeconds,
   gameId,
   coaches,
+  currentHalf = 1,
   playerAvailabilities = [],
   mutations,
   isOnline = navigator.onLine,
@@ -91,6 +96,7 @@ export function BenchTab({
   const pendingMutationsRef = useRef(0);
   const debounceByPlayerRef = useRef<Record<string, number>>({});
   const clearTimerByPlayerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [showLateArrivalModal, setShowLateArrivalModal] = useState(false);
 
   useEffect(() => {
     const clearTimerByPlayer = clearTimerByPlayerRef.current;
@@ -325,6 +331,30 @@ export function BenchTab({
     }
   };
 
+  const lateArrivalPlayers = players.filter(p => {
+    const s = getPlayerAvailabilityStatus(p.id, playerAvailabilities);
+    return s === 'absent' || s === 'late-arrival';
+  });
+
+  const handleLateArrival = async (playerId: string) => {
+    if (!gameId) return;
+    try {
+      await updatePlayerAvailability(
+        gameId,
+        playerId,
+        'available',
+        `Arrived late at ${formatGameTimeDisplay(currentTime, currentHalf)}`,
+        coaches || [],
+        null,  // clear stale availableFromMinute — player has now arrived
+        null   // clear availableUntilMinute — player is fully available
+      );
+      setShowLateArrivalModal(false);
+      showSuccess('Player marked as available');
+    } catch (error) {
+      handleApiError(error, 'Failed to update player availability');
+    }
+  };
+
   return (
     <div className="bench-tab">
       <div className="sr-only" aria-live="polite">{announcement}</div>
@@ -439,6 +469,17 @@ export function BenchTab({
         </div>
       )}
 
+      {allowSubstitution && lateArrivalPlayers.length > 0 && (
+        <div className="planner-actions">
+          <button
+            onClick={() => setShowLateArrivalModal(true)}
+            className="btn-secondary"
+          >
+            + Add Late Arrival
+          </button>
+        </div>
+      )}
+
       {onFieldPlayers.length > 0 && (
         <div className="bench-tab__section">
           <div className="bench-tab__section-header bench-tab__section-header--muted">
@@ -474,6 +515,48 @@ export function BenchTab({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Late Arrival Modal */}
+      {showLateArrivalModal && (
+        <div className="modal-overlay" onClick={() => setShowLateArrivalModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>Add Late Arrival</h3>
+            <p className="modal-subtitle">Select a player who has arrived</p>
+
+            <div className="late-arrival-list">
+              {lateArrivalPlayers.map((player) => (
+                <button
+                  key={player.id}
+                  className="late-arrival-option"
+                  onClick={() => handleLateArrival(player.id)}
+                  aria-label={`Mark ${player.firstName} ${player.lastName} as arrived`}
+                >
+                  <span className="player-number">#{player.playerNumber}</span>
+                  <span className="player-name">
+                    {player.firstName} {player.lastName}
+                  </span>
+                  <span className="status-badge">
+                    {getPlayerAvailabilityStatus(player.id, playerAvailabilities)}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {lateArrivalPlayers.length === 0 && (
+              <p className="empty-state">No players marked as absent or late</p>
+            )}
+
+            <div className="form-actions">
+              <button
+                onClick={() => setShowLateArrivalModal(false)}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

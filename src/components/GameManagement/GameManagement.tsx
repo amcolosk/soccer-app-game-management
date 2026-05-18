@@ -2179,8 +2179,6 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         {/* Rotation and late-arrival modals (always mounted for in-progress) */}
         <RotationWidget
           gameState={gameState}
-          game={game}
-          team={team}
           players={players}
           positions={positions}
           gamePlan={gamePlan}
@@ -2487,6 +2485,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                   halfLengthSeconds={halfLengthSeconds}
                   gameId={game.id}
                   coaches={Array.isArray(team.coaches) ? team.coaches : undefined}
+                  currentHalf={gameState.currentHalf ?? 1}
                   playerAvailabilities={playerAvailabilities}
                   mutations={mutations}
                   isOnline={isOnline}
