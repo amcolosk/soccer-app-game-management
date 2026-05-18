@@ -6358,12 +6358,20 @@
   font-size: 0.9rem;
   font-weight: 500;
   color: var(--text-primary);
+  /* Allow the label to shrink below its content width so text-overflow
+     ellipsis can engage on narrow screens. Without this, a flex item's
+     implicit min-width: auto prevents truncation from working. */
+  min-width: 0;
 }
 
 .bench-tab__player-time {
   font-size: 0.8rem;
   color: var(--text-secondary);
   font-family: monospace;
+  /* Prevent the time badge from being squeezed away when the player label
+     is long — it pairs with min-width: 0 on the label. */
+  flex-shrink: 0;
+  margin-left: 0.5rem;
 }
 
 .bench-tab__progress-bar {
@@ -6531,14 +6539,31 @@
 }
 
 @media (max-width: 640px) {
+  /* Keep side-by-side: flexible player row + compact fixed-width trailing action */
   .bench-tab__player-row-container {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 5.5rem;
   }
 
   .bench-tab__injury-action {
-    border-left: none;
-    border-top: 1px solid var(--border-color);
+    /* Retain the border-left; remove the stacking border-top */
+    border-left: 1px solid var(--border-color);
+    border-top: none;
     border-radius: 0;
+    font-size: 0.75rem;
+    padding: 0.4rem 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    white-space: normal;
+    line-height: 1.2;
+  }
+
+  /* Prevent long player names from colliding with the trailing action */
+  .bench-tab__player-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 

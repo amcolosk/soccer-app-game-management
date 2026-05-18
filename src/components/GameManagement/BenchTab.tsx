@@ -359,8 +359,8 @@ export function BenchTab({
     <div className="bench-tab">
       <div className="sr-only" aria-live="polite">{announcement}</div>
       {benchPlayers.length === 0 && (
-        <p className="empty-state" style={{ padding: "1rem" }}>
-          No bench players available.
+        <p className="empty-state">
+          All players are on the field.
         </p>
       )}
 
@@ -458,8 +458,8 @@ export function BenchTab({
                         : `Mark ${player.firstName} ${player.lastName} injured`}
                     >
                       {isActionPending
-                        ? (isInjured ? "Marking Available..." : "Marking Injured...")
-                        : (isInjured ? "Mark Available" : "Mark Injured")}
+                        ? "Saving\u2026"
+                        : (isInjured ? "Recover" : "Injure")}
                     </button>
                   )}
                 </div>

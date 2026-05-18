@@ -105,7 +105,7 @@ describe("BenchTab", () => {
     const players = [makePlayer("p1", 7, "Alice")];
     const lineup = [makeLineupAssignment("p1")];
     render(<BenchTab {...defaultProps} players={players as any} lineup={lineup as any} />);
-    expect(screen.getByText(/No bench players available/i)).toBeInTheDocument();
+    expect(screen.getByText(/All players are on the field/i)).toBeInTheDocument();
   });
 
   it("does not show the bench section header when bench is empty", () => {
@@ -494,6 +494,50 @@ describe("BenchTab", () => {
       expect(screen.getByText(/^Synced$/i)).toBeInTheDocument();
     });
     expect(mockShowSuccess).toHaveBeenCalledWith("Player status updated.");
+  });
+
+  // ── Compact visible label format ─────────────────────────────────────────
+  it("displays the visible player label in #number firstName lastName format", () => {
+    const players = [makePlayer("p1", 7, "Alice")];
+    render(<BenchTab {...defaultProps} players={players as any} />);
+    // The label span shows a compact "#N Name" format — this is what appears
+    // visually on the row, distinct from any aria-label on action buttons.
+    expect(screen.getByText(/#7 Alice Test/)).toBeInTheDocument();
+  });
+
+  it("visible label and aria-label on injury button are independently correct", () => {
+    const players = [makePlayer("p1", 10, "Jordan")];
+    render(<BenchTab {...defaultProps} players={players as any} />);
+
+    // Visible compact label
+    expect(screen.getByText(/#10 Jordan Test/)).toBeInTheDocument();
+
+    // Injury action button is accessed via aria-label, not visible text
+    const injureBtn = screen.getByRole("button", { name: /mark jordan test injured/i });
+    expect(injureBtn).toBeInTheDocument();
+    // The button's visible text is the compact "Injure" label, not the full name
+    expect(injureBtn).toHaveTextContent("Injure");
+  });
+
+  it("shows compact visible label for on-field players in on-field section", () => {
+    const players = [
+      makePlayer("p1", 3, "Sam"),   // on field via active record + lineup
+    ];
+    // Put Sam in the lineup so they don't also appear on bench
+    const lineup = [makeLineupAssignment("p1")];
+    const records = [makeActiveRecord("p1")];
+    render(
+      <BenchTab
+        {...defaultProps}
+        players={players as any}
+        lineup={lineup as any}
+        playTimeRecords={records as any}
+        currentTime={300}
+      />
+    );
+    // Sam is in the On Field section — verify label format and section header
+    expect(screen.getByText(/On Field/i)).toBeInTheDocument();
+    expect(screen.getByText(/#3 Sam Test/)).toBeInTheDocument();
   });
 });
 
