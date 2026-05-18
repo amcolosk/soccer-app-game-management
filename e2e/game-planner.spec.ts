@@ -162,10 +162,14 @@ async function openGamePlanner(page: Page) {
   await page.waitForTimeout(UI_TIMING.NAVIGATION);
 
   const gameCard = page.locator('.game-card', { hasText: TEST_DATA.game.opponent });
+  // Wait for the card to be in the DOM before clicking — DynamoDB subscription
+  // delivery can take a few seconds in CI after navigation.
+  await expect(gameCard).toBeVisible({ timeout: 10000 });
   await gameCard.locator('.open-game-button').click();
-  await page.waitForTimeout(UI_TIMING.NAVIGATION);
+  await waitForPageLoad(page);
 
-  await expect(page.locator('.game-management')).toBeVisible({ timeout: 5000 });
+  // Use a CI-safe timeout (15 s) matching the global expect.timeout in playwright.config.ts.
+  await expect(page.locator('.game-management')).toBeVisible({ timeout: 15000 });
   const gameUrlMatch = page.url().match(/\/game\/([^/?#]+)/);
   return gameUrlMatch?.[1] ?? null;
 }

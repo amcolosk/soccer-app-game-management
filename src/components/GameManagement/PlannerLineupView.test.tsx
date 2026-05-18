@@ -419,7 +419,7 @@ describe("GK position — any player can be assigned (Rule 1.5 preference displa
   });
 });
 
-describe("PlannerLineupView – non-GK dropdown includes already-assigned players (regression)", () => {
+describe("PlannerLineupView – dropdown filtering: excludes assigned-elsewhere and unavailable players", () => {
   const fwPosition = { id: "pos-fw", abbreviation: "FW", positionName: "Forward" } as FormationPosition;
   const midPosition = { id: "pos-mid", abbreviation: "MID", positionName: "Midfielder" } as FormationPosition;
   const gkPosition2 = { id: "pos-gk2", abbreviation: "GK", positionName: "Goalkeeper" } as FormationPosition;
@@ -430,11 +430,13 @@ describe("PlannerLineupView – non-GK dropdown includes already-assigned player
     { id: "p3", firstName: "Carol", lastName: "C", playerNumber: 3, preferredPositions: "pos-gk2" } as PlayerWithRoster,
   ];
 
-  const renderPlanner = (ui: React.ReactElement) =>
-    render(<AvailabilityProvider availabilities={[]}>{ui}</AvailabilityProvider>);
+  const renderPlanner = (
+    ui: React.ReactElement,
+    availabilities: Array<{ playerId: string; status: string }> = [],
+  ) => render(<AvailabilityProvider availabilities={availabilities}>{ui}</AvailabilityProvider>);
 
-  it("shows already-assigned outfield player in another outfield position dropdown", () => {
-    // p1 is assigned to FW; MID dropdown should still show p1 (not exclude it)
+  it("excludes already-assigned outfield player from another outfield position dropdown", () => {
+    // p1 is assigned to FW; MID dropdown should NOT contain p1
     renderPlanner(
       <PlannerLineupView
         displayLineup={new Map([["pos-fw", "p1"]])}
@@ -446,10 +448,10 @@ describe("PlannerLineupView – non-GK dropdown includes already-assigned player
 
     const midSelect = screen.getByRole("combobox", { name: "Player for MID" });
     const optionValues = Array.from(midSelect.querySelectorAll("option")).map((o) => o.value);
-    expect(optionValues).toContain("p1");
+    expect(optionValues).not.toContain("p1");
   });
 
-  it("marks already-assigned outfield player with (Assigned) suffix in another position dropdown", () => {
+  it("does not show (Assigned) suffix – assigned players are simply absent from the dropdown", () => {
     renderPlanner(
       <PlannerLineupView
         displayLineup={new Map([["pos-fw", "p1"]])}
@@ -461,11 +463,12 @@ describe("PlannerLineupView – non-GK dropdown includes already-assigned player
 
     const midSelect = screen.getByRole("combobox", { name: "Player for MID" });
     const optionTexts = Array.from(midSelect.querySelectorAll("option")).map((o) => o.textContent ?? "");
-    expect(optionTexts.some((t) => t.includes("Alice A") && t.includes("(Assigned)"))).toBe(true);
+    expect(optionTexts.every((t) => !t.includes("(Assigned)"))).toBe(true);
+    expect(optionTexts.every((t) => !t.includes("Alice A"))).toBe(true);
   });
 
   it("does NOT mark current occupant with (Assigned) in their own slot's dropdown", () => {
-    // p1 is assigned to FW; the FW dropdown should show p1 without (Assigned)
+    // p1 is assigned to FW; the FW slot shows a card (not a select); card should not show "(Assigned)"
     renderPlanner(
       <PlannerLineupView
         displayLineup={new Map([["pos-fw", "p1"]])}
@@ -475,12 +478,9 @@ describe("PlannerLineupView – non-GK dropdown includes already-assigned player
       />
     );
 
-    // p1 is shown as an assigned card, not a select; but if select existed, no (Assigned) expected
-    // In this case the slot has an assigned card, so verify the card shows p1 normally
     const slot = screen.getByText("FW").closest(".position-slot");
     expect(slot).not.toBeNull();
     expect(within(slot as HTMLElement).getByText("Alice A")).toBeInTheDocument();
-    // No "(Assigned)" text in the slot card
     expect(within(slot as HTMLElement).queryByText(/(Assigned)/)).not.toBeInTheDocument();
   });
 
@@ -510,5 +510,77 @@ describe("PlannerLineupView – non-GK dropdown includes already-assigned player
     expect(p3Option?.textContent).toContain("⭐");
     expect(p1Option?.textContent).not.toContain("(Not eligible for GK)");
     expect(p2Option?.textContent).not.toContain("(Not eligible for GK)");
+  });
+
+  it("excludes absent players from the dropdown", () => {
+    renderPlanner(
+      <PlannerLineupView
+        displayLineup={new Map()}
+        positions={[fwPosition]}
+        players={allPlayers}
+        isReadOnly={false}
+      />,
+      [{ playerId: "p2", status: "absent" }],
+    );
+
+    const select = screen.getByRole("combobox", { name: "Player for FW" });
+    const optionValues = Array.from(select.querySelectorAll("option")).map((o) => o.value);
+    expect(optionValues).not.toContain("p2");
+    expect(optionValues).toContain("p1");
+    expect(optionValues).toContain("p3");
+  });
+
+  it("excludes injured players from the dropdown", () => {
+    renderPlanner(
+      <PlannerLineupView
+        displayLineup={new Map()}
+        positions={[fwPosition]}
+        players={allPlayers}
+        isReadOnly={false}
+      />,
+      [{ playerId: "p1", status: "injured" }],
+    );
+
+    const select = screen.getByRole("combobox", { name: "Player for FW" });
+    const optionValues = Array.from(select.querySelectorAll("option")).map((o) => o.value);
+    expect(optionValues).not.toContain("p1");
+    expect(optionValues).toContain("p2");
+    expect(optionValues).toContain("p3");
+  });
+
+  it("includes late-arrival players in the dropdown", () => {
+    renderPlanner(
+      <PlannerLineupView
+        displayLineup={new Map()}
+        positions={[fwPosition]}
+        players={allPlayers}
+        isReadOnly={false}
+      />,
+      [{ playerId: "p3", status: "late-arrival" }],
+    );
+
+    const select = screen.getByRole("combobox", { name: "Player for FW" });
+    const optionValues = Array.from(select.querySelectorAll("option")).map((o) => o.value);
+    expect(optionValues).toContain("p3");
+  });
+
+  it("does not show (Absent) or (Injured) label suffixes – unavailable players are simply absent from the dropdown", () => {
+    renderPlanner(
+      <PlannerLineupView
+        displayLineup={new Map()}
+        positions={[fwPosition]}
+        players={allPlayers}
+        isReadOnly={false}
+      />,
+      [
+        { playerId: "p1", status: "absent" },
+        { playerId: "p2", status: "injured" },
+      ],
+    );
+
+    const select = screen.getByRole("combobox", { name: "Player for FW" });
+    const optionTexts = Array.from(select.querySelectorAll("option")).map((o) => o.textContent ?? "");
+    expect(optionTexts.every((t) => !t.includes("(Absent)"))).toBe(true);
+    expect(optionTexts.every((t) => !t.includes("(Injured)"))).toBe(true);
   });
 });

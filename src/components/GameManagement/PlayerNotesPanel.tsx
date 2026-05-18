@@ -80,6 +80,7 @@ export function PlayerNotesPanel({
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteText, setEditingNoteText] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [isSavingNote, setIsSavingNote] = useState(false);
 
   const { getSwipeProps, getSwipeStyle, close: closeSwipe } = useSwipeActions({ openWidthPx: 156, maxDistancePx: 180 });
 
@@ -259,6 +260,8 @@ export function PlayerNotesPanel({
   };
 
   const handleSaveNote = async () => {
+    if (isSavingNote) return;
+    setIsSavingNote(true);
     try {
       // For completed games, use the total game time; otherwise use current half time
       const timeInSeconds = gameState.status === 'completed' ? currentTime : getCurrentGameTime();
@@ -278,6 +281,8 @@ export function PlayerNotesPanel({
       onNoteSaved?.();
     } catch (error) {
       handleApiError(error, 'Failed to save note');
+    } finally {
+      setIsSavingNote(false);
     }
   };
 
@@ -403,7 +408,7 @@ export function PlayerNotesPanel({
     }
   };
 
-  const saveDisabled = noteText.trim().length === 0 || isTransientVoiceState;
+  const saveDisabled = noteText.trim().length === 0 || isTransientVoiceState || isSavingNote;
 
   const dictationUnavailableText = "Voice capture is not supported in this browser. Type your note manually, or use iPhone keyboard dictation (tap the microphone key on the keyboard).";
 
@@ -689,7 +694,7 @@ export function PlayerNotesPanel({
             </div>
 
             <div className="form-actions note-modal__footer-actions">
-              <button onClick={handleSaveNote} className="btn-primary" disabled={saveDisabled}>
+              <button onClick={() => void handleSaveNote()} className="btn-primary" disabled={saveDisabled}>
                 Save Note
               </button>
               <button onClick={closeNoteModal} className="btn-secondary" disabled={isFinalizing}>
