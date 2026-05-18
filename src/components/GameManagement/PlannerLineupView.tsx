@@ -201,19 +201,15 @@ export function PlannerLineupView({
     currentAssignedPlayerId: string,
   ): PlayerWithRoster[] => {
     return [...players]
+      .filter((player) => {
+        // Always keep the player currently occupying this slot (edge case: in lineup but not found in playerMap).
+        if (player.id === currentAssignedPlayerId) return true;
+        // Exclude players already assigned to a different position.
+        if (assignedPlayerIds.has(player.id)) return false;
+        // Exclude absent or injured players; late-arrival and other statuses remain selectable.
+        return !isUnavailableStatus(getPlayerAvailability(player.id));
+      })
       .sort((a, b) => {
-        // Demote absent/injured and already-assigned players to the bottom.
-        const aAssignedElsewhere = a.id !== currentAssignedPlayerId && assignedPlayerIds.has(a.id);
-        const bAssignedElsewhere = b.id !== currentAssignedPlayerId && assignedPlayerIds.has(b.id);
-        const aUnavailable = isUnavailableStatus(getPlayerAvailability(a.id));
-        const bUnavailable = isUnavailableStatus(getPlayerAvailability(b.id));
-        const aDemoted = aAssignedElsewhere || aUnavailable;
-        const bDemoted = bAssignedElsewhere || bUnavailable;
-
-        if (aDemoted !== bDemoted) {
-          return aDemoted ? 1 : -1;
-        }
-
         const aPreferred = parsePreferredPositions(a.preferredPositions).has(position.id);
         const bPreferred = parsePreferredPositions(b.preferredPositions).has(position.id);
 
@@ -365,19 +361,9 @@ export function PlannerLineupView({
                       <option value="">Unassigned</option>
                       {sortedPlayers.map((player) => {
                         const isPreferred = parsePreferredPositions(player.preferredPositions).has(pos.id);
-                        const isAssignedElsewhere = player.id !== assignedPlayerId && assignedPlayerIds.has(player.id);
-                        const playerAvailStatus = getPlayerAvailability(player.id);
                         const num = player.playerNumber != null ? `#${player.playerNumber} ` : "";
                         const displayName = `${num}${getPlayerDisplayName(player)}`;
-                        const baseLabel = isPreferred ? `⭐ ${displayName}` : displayName;
-                        let optionLabel = baseLabel;
-                        if (playerAvailStatus === "absent") {
-                          optionLabel = `${baseLabel} (Absent)`;
-                        } else if (playerAvailStatus === "injured") {
-                          optionLabel = `${baseLabel} (Injured)`;
-                        } else if (isAssignedElsewhere) {
-                          optionLabel = `${baseLabel} (Assigned)`;
-                        }
+                        const optionLabel = isPreferred ? `⭐ ${displayName}` : displayName;
 
                         return (
                           <option key={player.id} value={player.id}>
