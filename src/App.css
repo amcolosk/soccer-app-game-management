@@ -278,6 +278,11 @@
   white-space: pre-line;
 }
 
+.confirm-message--secondary {
+  color: #777;
+  font-size: 0.875rem;
+}
+
 .confirm-actions {
   display: flex;
   gap: 0.75rem;

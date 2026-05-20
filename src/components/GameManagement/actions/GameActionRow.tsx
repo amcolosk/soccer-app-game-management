@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { GameActionDescriptor } from './actionContract';
 import { sortGameActions } from './actionContract';
+import { useConfirm } from '../../ConfirmModal';
 
 interface GameActionRowProps {
   actions: GameActionDescriptor[];
@@ -9,21 +10,26 @@ interface GameActionRowProps {
 }
 
 export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActionError }: GameActionRowProps) {
+  const confirm = useConfirm();
   const sortedActions = useMemo(() => sortGameActions(actions), [actions]);
-  const [pendingAction, setPendingAction] = useState<GameActionDescriptor | null>(null);
   const [isBusy, setIsBusy] = useState(false);
-  const [modalError, setModalError] = useState('');
   const invokingButtonRef = useRef<HTMLButtonElement | null>(null);
+  /** Ref-based guard so that duplicate invocations are blocked synchronously,
+   *  even before a React state update can commit. */
+  const isInflightRef = useRef(false);
 
   const focusInvokingButton = useCallback(() => {
-    if (invokingButtonRef.current && invokingButtonRef.current.isConnected) {
-      invokingButtonRef.current.focus({ preventScroll: true });
-      return true;
-    }
-    return false;
+    const btn = invokingButtonRef.current;
+    if (!btn || !btn.isConnected) return false;
+    btn.focus({ preventScroll: true });
+    return true;
   }, []);
 
-  const restoreFocusAfterModalClose = useCallback((actionId?: GameActionDescriptor['id']) => {
+  /** Schedules focus restoration after an action completes successfully.
+   *  Runs in a setTimeout so it fires after ConfirmProvider's own focus
+   *  restoration attempt; if the invoking button is gone (row unmounted after
+   *  delete), falls back to the section heading. */
+  const scheduleFocusAfterAction = useCallback((actionId?: GameActionDescriptor['id']) => {
     window.setTimeout(() => {
       const restored = focusInvokingButton();
       if (!restored && actionId === 'delete' && headingIdForDeleteSuccessFocus) {
@@ -35,63 +41,54 @@ export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActio
 
   const invokeAction = async (action: GameActionDescriptor, trigger: HTMLButtonElement) => {
     if (action.disabled) return;
+    if (isInflightRef.current) return;
 
     invokingButtonRef.current = trigger;
 
     if (action.confirmDialog) {
-      setModalError('');
-      setPendingAction(action);
-      return;
+      // Block re-entry while the shared confirm modal is open.
+      isInflightRef.current = true;
+      const confirmed = await confirm({
+        title: action.confirmDialog.title,
+        message: action.confirmDialog.body,
+        bodyContent: action.confirmDialog.authorReminder ? (
+          <>
+            <p className="confirm-message">{action.confirmDialog.body}</p>
+            <p className="confirm-message confirm-message--secondary">{action.confirmDialog.authorReminder}</p>
+          </>
+        ) : undefined,
+        confirmText: action.confirmDialog.confirmText,
+        cancelText: action.confirmDialog.cancelText,
+        variant: 'danger',
+      });
+
+      if (!confirmed) {
+        // ConfirmProvider handles focus restoration for cancel.
+        isInflightRef.current = false;
+        return;
+      }
     }
 
+    isInflightRef.current = true;
+    setIsBusy(true);
+    const actionId = action.id;
     try {
       await action.onAction();
+      scheduleFocusAfterAction(actionId);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Action failed';
       onActionError?.(message);
-    }
-  };
-
-  const handleCancel = useCallback(() => {
-    const cancelledActionId = pendingAction?.id;
-    setPendingAction(null);
-    setModalError('');
-    restoreFocusAfterModalClose(cancelledActionId);
-  }, [pendingAction, restoreFocusAfterModalClose]);
-
-  const handleConfirm = async () => {
-    if (!pendingAction) return;
-
-    setIsBusy(true);
-    const confirmedActionId = pendingAction.id;
-    try {
-      await pendingAction.onAction();
-      setPendingAction(null);
-      setModalError('');
-      restoreFocusAfterModalClose(confirmedActionId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Action failed';
-      setModalError(message);
-      onActionError?.(message);
+      // Restore focus to the invoking button after it is re-enabled (setIsBusy(false)
+      // fires in finally) so the user lands on a stable retry target without having
+      // to hunt for focus after a failed delete.
+      window.setTimeout(() => {
+        focusInvokingButton();
+      }, 0);
     } finally {
+      isInflightRef.current = false;
       setIsBusy(false);
     }
   };
-
-  useEffect(() => {
-    if (!pendingAction?.confirmDialog) return;
-
-    const handleDocumentEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      handleCancel();
-    };
-
-    document.addEventListener('keydown', handleDocumentEscape);
-    return () => {
-      document.removeEventListener('keydown', handleDocumentEscape);
-    };
-  }, [handleCancel, pendingAction?.confirmDialog]);
 
   return (
     <>
@@ -103,10 +100,10 @@ export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActio
             className={action.kind === 'destructive' ? 'btn-delete game-action-btn' : 'btn-secondary game-action-btn'}
             aria-label={action.ariaLabel}
             onClick={(event) => void invokeAction(action, event.currentTarget)}
-            disabled={action.disabled}
+            disabled={action.disabled || isBusy}
             title={action.disabledReason}
           >
-            {action.label}
+            {isBusy && action.id === 'delete' ? 'Deleting\u2026' : action.label}
           </button>
         ))}
       </div>
@@ -123,25 +120,8 @@ export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActio
         ) : null
       ))}
 
-      {pendingAction?.confirmDialog && (
-        <div className="confirm-overlay" onClick={handleCancel}>
-          <div className="confirm-modal confirm-modal--danger" onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true">
-            <h3 className="confirm-title">{pendingAction.confirmDialog.title}</h3>
-            <p className="confirm-message">{pendingAction.confirmDialog.body}</p>
-            {pendingAction.confirmDialog.authorReminder && (
-              <p className="confirm-message">{pendingAction.confirmDialog.authorReminder}</p>
-            )}
-            {modalError && <p className="error-message" aria-live="assertive">{modalError}</p>}
-            <div className="confirm-actions">
-              <button className="confirm-btn confirm-btn--cancel" onClick={handleCancel} autoFocus>
-                {pendingAction.confirmDialog.cancelText}
-              </button>
-              <button className="confirm-btn confirm-btn--confirm confirm-btn--danger" onClick={() => void handleConfirm()} disabled={isBusy}>
-                {isBusy ? 'Deleting...' : pendingAction.confirmDialog.confirmText}
-              </button>
-            </div>
-          </div>
-        </div>
+      {isBusy && (
+        <span role="status" className="sr-only">Deleting, please wait\u2026</span>
       )}
     </>
   );

@@ -12,6 +12,11 @@ import {
 interface ConfirmOptions {
   title?: string;
   message: string;
+  /** Optional rich body content rendered in place of the plain `message` paragraph.
+   * The container element still carries `aria-describedby` so screen readers
+   * announce all child text. `message` is still required as a plain-text
+   * fallback / summary for callers that do not provide `bodyContent`. */
+  bodyContent?: ReactNode;
   confirmText?: string;
   cancelText?: string;
   variant?: 'danger' | 'warning' | 'default';
@@ -111,9 +116,15 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 {state.title}
               </h3>
             )}
-            <p id={messageId} className="confirm-message">
-              {state.message}
-            </p>
+            {state.bodyContent ? (
+              <div id={messageId} className="confirm-body">
+                {state.bodyContent}
+              </div>
+            ) : (
+              <p id={messageId} className="confirm-message">
+                {state.message}
+              </p>
+            )}
             <div className="confirm-actions">
               <button
                 className="confirm-btn confirm-btn--cancel"
