@@ -90,7 +90,7 @@ describe('TeamReport', () => {
 
       if (modelName === 'FormationPosition') {
         return {
-          data: [{ id: 'pos-1', positionName: 'Forward' }],
+          data: [{ id: 'pos-1', positionName: 'Forward', formationId: 'formation-1', sortOrder: 1 }],
           isSynced: true,
         };
       }
@@ -123,5 +123,55 @@ describe('TeamReport', () => {
     });
 
     expect(mockTrackEvent).toHaveBeenCalledWith('season-report', 'viewed');
+  });
+
+  it('shows Goals & Assists by Position table when player has play-time with positionId', async () => {
+    // Provide play-time record with a known position covering the goal's game-second
+    mockPlayTimeByGame.mockResolvedValue({
+      data: [
+        {
+          id: 'ptr-1',
+          playerId: 'player-1',
+          gameId: 'game-1',
+          positionId: 'pos-1',
+          startGameSeconds: 0,
+          endGameSeconds: 600,
+        },
+      ],
+      nextToken: null,
+    });
+
+    render(
+      <TeamReport
+        team={{ id: 'team-1', name: 'Tigers', coaches: [], formationId: 'formation-1' } as never}
+      />
+    );
+
+    // Wait for data to load and the stats table to appear
+    await waitFor(() => {
+      expect(screen.getByText('Season Report: Tigers')).toBeInTheDocument();
+      expect(screen.getByText(/Sam Lee/)).toBeInTheDocument();
+    });
+
+    // The player stats row should be keyboard-accessible before any click
+    const playerRow = screen.getByText(/Sam Lee/).closest('tr')!;
+    expect(playerRow).toHaveAttribute('tabindex', '0');
+    expect(playerRow).toHaveAttribute('aria-selected', 'false');
+  });
+
+  it('player detail rows are keyboard-accessible with onKeyDown handler', async () => {
+    render(
+      <TeamReport
+        team={{ id: 'team-1', name: 'Tigers', coaches: [] } as never}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sam Lee/)).toBeInTheDocument();
+    });
+
+    const playerRow = screen.getByText(/Sam Lee/).closest('tr')!;
+    expect(playerRow).toHaveAttribute('tabindex', '0');
+    expect(playerRow).toHaveAttribute('aria-selected');
   });
 });

@@ -9,6 +9,15 @@
 import type { PlayTimeRecord } from "../types/schema";
 
 /**
+ * Row shape for goals / assists attributed to a field position.
+ */
+export interface PositionGoalAssistRow {
+  position: string;
+  goals: number;
+  assists: number;
+}
+
+/**
  * Calculate total play time for a player from their PlayTimeRecords
  * 
  * Now uses game time (elapsed seconds) instead of real-world timestamps.
@@ -167,4 +176,121 @@ export function isPlayerCurrentlyPlaying(
   return playTimeRecords.some(
     r => r.playerId === playerId && (r.endGameSeconds === null || r.endGameSeconds === undefined)
   );
+}
+
+/**
+ * Normalize play-time records for a completed single game:
+ * any record without an endGameSeconds is treated as ending at gameEndSeconds.
+ *
+ * This is the shared helper used by CompletedPlayTimeSummary and any other
+ * caller that needs closed intervals for a single game.
+ *
+ * @param records - Raw PlayTimeRecords (may contain unclosed records)
+ * @param gameEndSeconds - The game's final elapsed seconds
+ * @returns New array where all records have a defined endGameSeconds
+ */
+export function normalizeCompletedRecords(
+  records: PlayTimeRecord[],
+  gameEndSeconds: number
+): PlayTimeRecord[] {
+  return records.map(r =>
+    r.endGameSeconds == null ? { ...r, endGameSeconds: gameEndSeconds } : r
+  );
+}
+
+/**
+ * Attribute goals and assists to field positions using play-time intervals.
+ *
+ * For each goal / assist event the player was involved in, the function
+ * finds the play-time record whose interval [startGameSeconds, endGameSeconds]
+ * covers the event's gameSeconds and maps it to the recorded position name.
+ * Events whose game-second falls outside any known interval (or whose
+ * gameSeconds is null) are attributed to the sentinel "Unknown position".
+ *
+ * All positions that appear in the player's play-time records are included
+ * in the result (with 0 goals / 0 assists where applicable) so the caller
+ * always sees a stable, complete table.
+ *
+ * Rows are sorted by:
+ *  1. sortOrder ascending (nulls after known orders)
+ *  2. positionName ascending
+ *  3. "Unknown position" always last
+ *
+ * @param playerId      - The player's ID
+ * @param playTimeRecords - Normalized records (all endGameSeconds defined)
+ * @param goalEvents    - Goal records to attribute
+ * @param positions     - Map of positionId → { positionName, sortOrder }
+ * @returns Sorted array of PositionGoalAssistRow
+ */
+export function calculateGoalsAssistsByPosition(
+  playerId: string,
+  playTimeRecords: PlayTimeRecord[],
+  goalEvents: Array<{
+    scorerId?: string | null;
+    assistId?: string | null;
+    gameSeconds?: number | null;
+    gameId: string;
+  }>,
+  positions: Map<string, { positionName: string; sortOrder?: number | null }>
+): PositionGoalAssistRow[] {
+  const playerRecords = playTimeRecords.filter(r => r.playerId === playerId);
+
+  // Accumulator: positionName → { goals, assists, sortOrder }
+  const rowMap = new Map<string, { goals: number; assists: number; sortOrder: number | null }>();
+
+  // Seed all positions from the player's play-time records so every
+  // played position appears in the result even with 0 goals / 0 assists.
+  playerRecords.forEach(r => {
+    const pos = r.positionId ? positions.get(r.positionId) : null;
+    const posName = pos?.positionName ?? 'Unknown position';
+    if (!rowMap.has(posName)) {
+      rowMap.set(posName, {
+        goals: 0,
+        assists: 0,
+        sortOrder: pos?.sortOrder ?? null,
+      });
+    }
+  });
+
+  // Find the position name for a given (gameId, gameSeconds) pair.
+  const findPosition = (gameId: string, gameSeconds: number | null | undefined): string => {
+    if (gameSeconds == null) return 'Unknown position';
+    const record = playerRecords.find(
+      r =>
+        r.gameId === gameId &&
+        r.startGameSeconds <= gameSeconds &&
+        (r.endGameSeconds != null ? gameSeconds <= r.endGameSeconds : false)
+    );
+    if (!record) return 'Unknown position';
+    const pos = record.positionId ? positions.get(record.positionId) : null;
+    return pos?.positionName ?? 'Unknown position';
+  };
+
+  // Attribute goals and assists.
+  goalEvents.forEach(g => {
+    if (g.scorerId === playerId) {
+      const posName = findPosition(g.gameId, g.gameSeconds);
+      const row = rowMap.get(posName) ?? { goals: 0, assists: 0, sortOrder: null };
+      rowMap.set(posName, { ...row, goals: row.goals + 1 });
+    }
+    if (g.assistId === playerId) {
+      const posName = findPosition(g.gameId, g.gameSeconds);
+      const row = rowMap.get(posName) ?? { goals: 0, assists: 0, sortOrder: null };
+      rowMap.set(posName, { ...row, assists: row.assists + 1 });
+    }
+  });
+
+  // Sort and flatten.
+  return Array.from(rowMap.entries())
+    .sort(([nameA, dataA], [nameB, dataB]) => {
+      const isUnknownA = nameA === 'Unknown position';
+      const isUnknownB = nameB === 'Unknown position';
+      if (isUnknownA && !isUnknownB) return 1;
+      if (!isUnknownA && isUnknownB) return -1;
+      const orderA = dataA.sortOrder != null ? dataA.sortOrder : Number.MAX_SAFE_INTEGER;
+      const orderB = dataB.sortOrder != null ? dataB.sortOrder : Number.MAX_SAFE_INTEGER;
+      if (orderA !== orderB) return orderA - orderB;
+      return nameA.localeCompare(nameB);
+    })
+    .map(([position, data]) => ({ position, goals: data.goals, assists: data.assists }));
 }

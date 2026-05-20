@@ -8,8 +8,10 @@ import { sortRosterByNumber } from "../utils/playerUtils";
 import {
   calculatePlayerPlayTime,
   calculatePlayTimeByPosition,
+  calculateGoalsAssistsByPosition,
   formatPlayTime,
   countGamesPlayed,
+  type PositionGoalAssistRow,
 } from "../utils/playTimeCalculations";
 import {
   calculatePlayerGoals,
@@ -50,6 +52,7 @@ interface PlayerDetails {
   yellowCards: Array<{ game: Game; minute: number; half: number }>;
   redCards: Array<{ game: Game; minute: number; half: number }>;
   playTimeByPosition: Map<string, number>;
+  goalsAssistsByPosition: PositionGoalAssistRow[];
 }
 
 export function TeamReport({ team }: TeamReportProps) {
@@ -67,6 +70,9 @@ export function TeamReport({ team }: TeamReportProps) {
   const [selectedRoster, setSelectedRoster] = useState<TeamRoster | null>(null);
   const [playerDetails, setPlayerDetails] = useState<PlayerDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+
+  // Ref used to return keyboard focus to the clicked row after closing details.
+  const lastSelectedRowRef = useRef<HTMLTableRowElement | null>(null);
 
   // Store full data for details view
   const [allGoals, setAllGoals] = useState<Goal[]>([]);
@@ -463,17 +469,35 @@ export function TeamReport({ team }: TeamReportProps) {
           return r;
         });
  
-      // Create position map with position names
+      // Create position map with position names and sort order
+      // Team-scoped: filter to positions belonging to the team's formation when available.
+      const teamFormationId = team.formationId ?? null;
       const positionsMap = new Map(
-        allPositions.map(p => [p.id, { positionName: p.positionName }])
+        allPositions
+          .filter(p => teamFormationId == null || p.formationId === teamFormationId)
+          .map(p => [p.id, { positionName: p.positionName, sortOrder: p.sortOrder ?? null }])
       );
+
+      // Fallback: if the filtered map is empty (no matching formation), use all positions.
+      const effectivePositionsMap = positionsMap.size > 0
+        ? positionsMap
+        : new Map(allPositions.map(p => [p.id, { positionName: p.positionName, sortOrder: p.sortOrder ?? null }]));
 
       // Calculate play time by position
       // No need to pass currentGameTime since these are completed games
       const playTimeByPosition = calculatePlayTimeByPosition(
         player.id,
         playerPlayTime,
-        positionsMap
+        effectivePositionsMap
+      );
+
+      // Attribute goals and assists to field positions via play-time intervals.
+      const teamGoalsForAttribution = allGoals.filter(g => g && teamGameIds.has(g.gameId));
+      const goalsAssistsByPosition = calculateGoalsAssistsByPosition(
+        player.id,
+        playerPlayTime,
+        teamGoalsForAttribution,
+        effectivePositionsMap
       );
 
       setPlayerDetails({
@@ -484,6 +508,7 @@ export function TeamReport({ team }: TeamReportProps) {
         yellowCards,
         redCards,
         playTimeByPosition,
+        goalsAssistsByPosition,
       });
     } catch (error) {
       handleApiError(error, 'Failed to load player details');
@@ -551,9 +576,21 @@ export function TeamReport({ team }: TeamReportProps) {
                 {playerStats.map((stat) => (
                   <tr
                     key={stat.player.id}
-                    onClick={() => {
+                    ref={selectedPlayer?.id === stat.player.id ? lastSelectedRowRef : null}
+                    tabIndex={0}
+                    aria-selected={selectedPlayer?.id === stat.player.id}
+                    onClick={(e) => {
+                      lastSelectedRowRef.current = e.currentTarget;
                       setSelectedRoster(stat.roster);
                       void loadPlayerDetails(stat.player);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        lastSelectedRowRef.current = e.currentTarget;
+                        setSelectedRoster(stat.roster);
+                        void loadPlayerDetails(stat.player);
+                      }
                     }}
                     className={`clickable-row ${selectedPlayer?.id === stat.player.id ? 'selected' : ''}`}
                   >
@@ -585,7 +622,14 @@ export function TeamReport({ team }: TeamReportProps) {
                   {selectedPlayer.firstName} {selectedPlayer.lastName} 
                   {selectedRoster?.playerNumber !== undefined && ` #${selectedRoster.playerNumber}`}
                 </h2>
-                <button onClick={() => setSelectedPlayer(null)} className="btn-secondary">
+                <button
+                  onClick={() => {
+                    setSelectedPlayer(null);
+                    // Return keyboard focus to the row that triggered this detail panel.
+                    setTimeout(() => lastSelectedRowRef.current?.focus(), 0);
+                  }}
+                  className="btn-secondary"
+                >
                   Close Details
                 </button>
               </div>
@@ -611,9 +655,41 @@ export function TeamReport({ team }: TeamReportProps) {
                     </div>
                   )}
 
+                  {/* Goals & Assists by Position */}
+                  {playerDetails.goalsAssistsByPosition.length > 0 && (
+                    <div className="details-card">
+                      <h3>📍 Goals &amp; Assists by Position</h3>
+                      <table className="goals-assists-by-position-table" aria-label="Goals and assists by field position">
+                        <thead>
+                          <tr>
+                            <th scope="col">Position</th>
+                            <th scope="col">⚽ Goals</th>
+                            <th scope="col">🎯 Assists</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {playerDetails.goalsAssistsByPosition.map((row) => (
+                            <tr key={row.position}>
+                              <th scope="row">
+                                {row.position}
+                                {row.position === 'Unknown position' && (
+                                  <span className="goals-assists-by-position-table__unknown-note">
+                                    {' '}(position not recorded)
+                                  </span>
+                                )}
+                              </th>
+                              <td>{row.goals}</td>
+                              <td>{row.assists}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
                   {/* Goals */}
                   {playerDetails.goals.length > 0 && (
-                    <div className="details-card">
+                    <div className="details-card details-card--full-width">
                       <h3>⚽ Goals ({playerDetails.goals.length})</h3>
                       <div className="event-list">
                         {playerDetails.goals.map((goal, idx) => (
@@ -632,7 +708,7 @@ export function TeamReport({ team }: TeamReportProps) {
 
                   {/* Assists */}
                   {playerDetails.assists.length > 0 && (
-                    <div className="details-card">
+                    <div className="details-card details-card--full-width">
                       <h3>🎯 Assists ({playerDetails.assists.length})</h3>
                       <div className="event-list">
                         {playerDetails.assists.map((assist, idx) => (
@@ -651,7 +727,7 @@ export function TeamReport({ team }: TeamReportProps) {
 
                   {/* Gold Stars */}
                   {playerDetails.goldStars.length > 0 && (
-                    <div className="details-card">
+                    <div className="details-card details-card--full-width">
                       <h3>⭐ Gold Stars ({playerDetails.goldStars.length})</h3>
                       <div className="event-list">
                         {playerDetails.goldStars.map((star, idx) => (
@@ -670,7 +746,7 @@ export function TeamReport({ team }: TeamReportProps) {
 
                   {/* Yellow Cards */}
                   {playerDetails.yellowCards.length > 0 && (
-                    <div className="details-card">
+                    <div className="details-card details-card--full-width">
                       <h3>🟨 Yellow Cards ({playerDetails.yellowCards.length})</h3>
                       <div className="event-list">
                         {playerDetails.yellowCards.map((card, idx) => (
@@ -689,7 +765,7 @@ export function TeamReport({ team }: TeamReportProps) {
 
                   {/* Red Cards */}
                   {playerDetails.redCards.length > 0 && (
-                    <div className="details-card">
+                    <div className="details-card details-card--full-width">
                       <h3>🟥 Red Cards ({playerDetails.redCards.length})</h3>
                       <div className="event-list">
                         {playerDetails.redCards.map((card, idx) => (
