@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { handleApiError } from "../../utils/errorHandler";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { showWarning } from "../../utils/toast";
+import { isLikelyIOS } from "../../utils/deviceDetect";
 import { resolveAttributionLabel, type TeamCoachProfileDTO } from "../../services/coachDisplayNameService";
 import { PlayerSelect } from "../PlayerSelect";
 import type { GameMutationInput } from "../../hooks/useOfflineMutations";
@@ -570,8 +571,14 @@ export function PlayerNotesPanel({
                 placeholder="Update note text"
                 rows={4}
                 autoFocus
+                aria-describedby={isLikelyIOS() ? "edit-note-ios-shake-tip" : undefined}
               />
               <div className="char-counter">{editingNoteText.length} / {MAX_NOTE_LENGTH}</div>
+              {isLikelyIOS() && (
+                <p id="edit-note-ios-shake-tip" className="note-modal__voice-hint">
+                  iPhone/iPad tip: shaking the device can open the iOS Undo Typing dialog. To avoid it, turn off Settings &gt; Accessibility &gt; Touch &gt; Shake to Undo.
+                </p>
+              )}
             </div>
             <div className="form-actions">
               <button type="button" className="btn-primary" onClick={() => void saveEditedNote()} disabled={isSavingEdit}>
@@ -686,10 +693,16 @@ export function PlayerNotesPanel({
                 placeholder="Add your note here..."
                 rows={4}
                 style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', resize: 'vertical' }}
+                aria-describedby={isLikelyIOS() ? "live-note-ios-shake-tip" : undefined}
               />
               <div className="char-counter">{noteText.length} / {MAX_NOTE_LENGTH}</div>
               {truncatedByDictation && (
                 <p className="note-modal__truncation-warning">Dictation was truncated at 500 characters.</p>
+              )}
+              {isLikelyIOS() && (
+                <p id="live-note-ios-shake-tip" className="note-modal__voice-hint">
+                  iPhone/iPad tip: shaking the device can open the iOS Undo Typing dialog. To avoid it, turn off Settings &gt; Accessibility &gt; Touch &gt; Shake to Undo.
+                </p>
               )}
             </div>
 

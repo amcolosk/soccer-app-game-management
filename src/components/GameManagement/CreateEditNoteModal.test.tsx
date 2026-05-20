@@ -12,6 +12,10 @@ vi.mock('../../utils/toast', () => ({
   showError: mockShowError,
 }));
 
+vi.mock('../../utils/deviceDetect', () => ({
+  isLikelyIOS: vi.fn(() => false),
+}));
+
 const players = [
   { id: 'p1', playerNumber: 9, firstName: 'Mia', lastName: 'Jones' },
 ] as never[];
@@ -132,5 +136,45 @@ describe('CreateEditNoteModal', () => {
     expect(noteInput).toHaveFocus();
     expect(screen.getByRole('option', { name: 'General Note' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '#9 Mia Jones' })).toBeInTheDocument();
+  });
+
+  describe('iOS shake-to-undo tip', () => {
+    it('does not render the tip on non-iOS', () => {
+      render(
+        <CreateEditNoteModal
+          isOpen={true}
+          mode={'create'}
+          players={players}
+          onClose={vi.fn()}
+          onSubmit={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+
+      expect(screen.queryByText(/Shake to Undo/i)).not.toBeInTheDocument();
+    });
+
+    it('renders tip and aria-describedby on iOS', async () => {
+      const { isLikelyIOS } = await import('../../utils/deviceDetect');
+      vi.mocked(isLikelyIOS).mockReturnValue(true);
+
+      render(
+        <CreateEditNoteModal
+          isOpen={true}
+          mode={'create'}
+          players={players}
+          onClose={vi.fn()}
+          onSubmit={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+
+      const tip = screen.getByText(/Shake to Undo/i);
+      expect(tip).toBeInTheDocument();
+      expect(tip.id).toBe('create-note-ios-shake-tip');
+
+      const textarea = screen.getByLabelText('Coaching note text');
+      expect(textarea).toHaveAttribute('aria-describedby', 'create-note-ios-shake-tip');
+
+      vi.mocked(isLikelyIOS).mockReturnValue(false);
+    });
   });
 });
