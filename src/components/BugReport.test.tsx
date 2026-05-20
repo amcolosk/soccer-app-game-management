@@ -10,6 +10,8 @@
  *  - Successful submission shows the success screen
  *  - Issue number is displayed when the API returns one
  *  - Cancel button calls onClose
+ *  - debugContext is automatically appended to the steps payload (no manual copy-button required)
+ *  - Automatic-inclusion hint is shown when debugContext is present; absent otherwise
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
