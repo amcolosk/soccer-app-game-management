@@ -8,6 +8,7 @@ import { sortRosterByNumber } from "../utils/playerUtils";
 import {
   calculatePlayerPlayTime,
   calculatePlayTimeByPosition,
+  calculateGoalsByPosition,
   formatPlayTime,
   countGamesPlayed,
 } from "../utils/playTimeCalculations";
@@ -81,7 +82,9 @@ export function TeamReport({ team }: TeamReportProps) {
   const { data: allGames, isSynced: gamesSynced } = useAmplifyQuery('Game', {
     filter: { teamId: { eq: team.id } },
   }, [team.id]);
-  const { data: allPositions, isSynced: positionsSynced } = useAmplifyQuery('FormationPosition');
+  const { data: allPositions, isSynced: positionsSynced } = useAmplifyQuery('FieldPosition', {
+    filter: { teamId: { eq: team.id } },
+  }, [team.id]);
 
   // Track sync status for Phase 2 data (fetched via list(), not observeQuery)
   const [phase2Synced, setPhase2Synced] = useState(false);
@@ -317,6 +320,13 @@ export function TeamReport({ team }: TeamReportProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allSynced, allPlayTimeRecords, teamRosters, players, allGames, allGoals, allNotes]);
 
+  const goalsByPosition = useMemo(() => {
+    const positionsMap = new Map(
+      allPositions.map(position => [position.id, { positionName: position.positionName }])
+    );
+    return calculateGoalsByPosition(allGoals, allPlayTimeRecords, positionsMap);
+  }, [allGoals, allPlayTimeRecords, allPositions]);
+
   const calculateStats = () => {
     const teamGameIds = new Set(allGames.map(g => g.id));
     
@@ -532,6 +542,35 @@ export function TeamReport({ team }: TeamReportProps) {
               </div>
             </div>
           </div>
+
+          {goalsByPosition.length > 0 && (
+            <section
+              className="goals-by-position-section"
+              aria-labelledby="goals-by-position-heading"
+            >
+              <h2 id="goals-by-position-heading">Goals by Position</h2>
+              <div className="stats-table-container">
+                <table className="stats-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Position</th>
+                      <th scope="col">Goals</th>
+                      <th scope="col">Assists</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {goalsByPosition.map(row => (
+                      <tr key={row.positionId}>
+                        <th scope="row">{row.positionName}</th>
+                        <td>{row.goals}</td>
+                        <td>{row.assists}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           <div className="stats-table-container">
             <table className="stats-table">

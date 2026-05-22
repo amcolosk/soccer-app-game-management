@@ -6,7 +6,7 @@
  * consistent calculations across the application.
  */
 
-import type { PlayTimeRecord } from "../types/schema";
+import type { Goal, PlayTimeRecord } from "../types/schema";
 
 /**
  * Calculate total play time for a player from their PlayTimeRecords
@@ -172,4 +172,117 @@ export function isPlayerCurrentlyPlaying(
   return playTimeRecords.some(
     r => r.playerId === playerId && (r.endGameSeconds === null || r.endGameSeconds === undefined)
   );
+}
+
+export interface GoalsByPositionRow {
+  positionId: string;
+  positionName: string;
+  goals: number;
+  assists: number;
+}
+
+/**
+ * Calculate goals grouped by field position using play-time interval attribution.
+ *
+ * Attribution rules:
+ * - Count only goals where scoredByUs is true.
+ * - Goal must have scorerId and gameSeconds.
+ * - Match the scorer's play-time records by game and interval.
+ * - If multiple records match, select deterministically by:
+ *   1) latest startGameSeconds
+ *   2) earliest endGameSeconds (null treated as Infinity)
+ *   3) lexicographic record id
+ * - Omit goals when no matching interval, no positionId, or unmapped positionId.
+ *
+ * Output is sorted deterministically by:
+ * - goals desc
+ * - assists desc
+ * - positionName asc
+ * - positionId asc
+ */
+export function calculateGoalsByPosition(
+  goals: Goal[],
+  playTimeRecords: PlayTimeRecord[],
+  positions: Map<string, { positionName: string }>
+): GoalsByPositionRow[] {
+  const goalsByPosition = new Map<string, GoalsByPositionRow>();
+
+  const attributeStatToPosition = (
+    goal: Goal,
+    playerId: string | null | undefined,
+    statKey: 'goals' | 'assists'
+  ) => {
+    if (!playerId) {
+      return;
+    }
+
+    const matchingRecords = playTimeRecords.filter(record => {
+      if (record.gameId !== goal.gameId || record.playerId !== playerId) {
+        return false;
+      }
+      const recordEnd = record.endGameSeconds ?? Number.POSITIVE_INFINITY;
+      return record.startGameSeconds <= goal.gameSeconds! && goal.gameSeconds! < recordEnd;
+    });
+
+    if (matchingRecords.length === 0) {
+      return;
+    }
+
+    const attributedRecord = matchingRecords.sort((a, b) => {
+      if (a.startGameSeconds !== b.startGameSeconds) {
+        return b.startGameSeconds - a.startGameSeconds;
+      }
+      const aEnd = a.endGameSeconds ?? Number.POSITIVE_INFINITY;
+      const bEnd = b.endGameSeconds ?? Number.POSITIVE_INFINITY;
+      if (aEnd !== bEnd) {
+        return aEnd - bEnd;
+      }
+      return a.id.localeCompare(b.id);
+    })[0];
+
+    if (!attributedRecord?.positionId) {
+      return;
+    }
+
+    const position = positions.get(attributedRecord.positionId);
+    if (!position) {
+      return;
+    }
+
+    const existing = goalsByPosition.get(attributedRecord.positionId);
+    if (existing) {
+      existing[statKey] += 1;
+      return;
+    }
+
+    goalsByPosition.set(attributedRecord.positionId, {
+      positionId: attributedRecord.positionId,
+      positionName: position.positionName,
+      goals: statKey === 'goals' ? 1 : 0,
+      assists: statKey === 'assists' ? 1 : 0,
+    });
+  };
+
+  goals.forEach(goal => {
+    if (!goal.scoredByUs || !goal.scorerId || goal.gameSeconds === null || goal.gameSeconds === undefined) {
+      return;
+    }
+
+    attributeStatToPosition(goal, goal.scorerId, 'goals');
+    attributeStatToPosition(goal, goal.assistId, 'assists');
+  });
+
+  return Array.from(goalsByPosition.values()).sort((a, b) => {
+    if (a.goals !== b.goals) {
+      return b.goals - a.goals;
+    }
+    if (a.assists !== b.assists) {
+      return b.assists - a.assists;
+    }
+    const byName = a.positionName.localeCompare(b.positionName);
+    if (byName !== 0) {
+      return byName;
+    }
+    return a.positionId.localeCompare(b.positionId);
+  });
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import { within } from '@testing-library/dom';
 import { TeamReport } from './SeasonReport';
 
 const {
@@ -88,7 +89,7 @@ describe('TeamReport', () => {
         };
       }
 
-      if (modelName === 'FormationPosition') {
+      if (modelName === 'FieldPosition') {
         return {
           data: [{ id: 'pos-1', positionName: 'Forward' }],
           isSynced: true,
@@ -100,7 +101,7 @@ describe('TeamReport', () => {
 
     mockPlayTimeByGame.mockResolvedValue({ data: [], nextToken: null });
     mockGoalList.mockResolvedValue({
-      data: [{ id: 'goal-1', gameId: 'game-1', scorerId: 'player-1', gameSeconds: 120, half: 1 }],
+      data: [{ id: 'goal-1', gameId: 'game-1', scoredByUs: true, scorerId: 'player-1', gameSeconds: 120, half: 1 }],
       nextToken: null,
     });
     mockGameNoteList.mockResolvedValue({ data: [], nextToken: null });
@@ -123,5 +124,159 @@ describe('TeamReport', () => {
     });
 
     expect(mockTrackEvent).toHaveBeenCalledWith('season-report', 'viewed');
+  });
+
+  it('renders goals by position from field-position attribution', async () => {
+    mockPlayTimeByGame.mockResolvedValue({
+      data: [
+        {
+          id: 'ptr-1',
+          gameId: 'game-1',
+          playerId: 'player-1',
+          positionId: 'pos-1',
+          startGameSeconds: 0,
+          endGameSeconds: 600,
+        },
+      ],
+      nextToken: null,
+    });
+
+    render(
+      <TeamReport
+        team={{ id: 'team-1', name: 'Tigers', coaches: [] } as never}
+      />
+    );
+
+    await waitFor(() => {
+      const heading = screen.getByRole('heading', { name: 'Goals by Position' });
+      expect(heading).toBeInTheDocument();
+      const section = heading.closest('section');
+      expect(section).not.toBeNull();
+      expect(within(section as HTMLElement).getByRole('columnheader', { name: 'Assists' })).toBeInTheDocument();
+      expect(within(section as HTMLElement).getByRole('rowheader', { name: 'Forward' })).toBeInTheDocument();
+      const rows = within(section as HTMLElement).getAllByRole('row');
+      expect(within(rows[1]).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['1', '0']);
+    });
+  });
+
+  it('renders assists-inclusive goals-by-position rows sorted by goals then assists', async () => {
+    mockUseAmplifyQuery.mockImplementation((modelName: string) => {
+      if (modelName === 'TeamRoster') {
+        return {
+          data: [{ id: 'roster-1', teamId: 'team-1', playerId: 'player-1', playerNumber: 10 }],
+          isSynced: true,
+        };
+      }
+
+      if (modelName === 'Player') {
+        return {
+          data: [{ id: 'player-1', firstName: 'Sam', lastName: 'Lee' }],
+          isSynced: true,
+        };
+      }
+
+      if (modelName === 'Game') {
+        return {
+          data: [
+            {
+              id: 'game-1',
+              teamId: 'team-1',
+              status: 'completed',
+              elapsedSeconds: 600,
+              ourScore: 2,
+              opponentScore: 0,
+              gameDate: '2030-06-01',
+              opponent: 'Rivals',
+            },
+          ],
+          isSynced: true,
+        };
+      }
+
+      if (modelName === 'FieldPosition') {
+        return {
+          data: [
+            { id: 'pos-1', positionName: 'Forward' },
+            { id: 'pos-2', positionName: 'Midfielder' },
+          ],
+          isSynced: true,
+        };
+      }
+
+      return { data: [], isSynced: true };
+    });
+
+    mockPlayTimeByGame.mockResolvedValue({
+      data: [
+        {
+          id: 'ptr-forward-scorer',
+          gameId: 'game-1',
+          playerId: 'player-1',
+          positionId: 'pos-1',
+          startGameSeconds: 0,
+          endGameSeconds: 600,
+        },
+        {
+          id: 'ptr-forward-assist',
+          gameId: 'game-1',
+          playerId: 'player-2',
+          positionId: 'pos-1',
+          startGameSeconds: 0,
+          endGameSeconds: 600,
+        },
+        {
+          id: 'ptr-mid-scorer',
+          gameId: 'game-1',
+          playerId: 'player-3',
+          positionId: 'pos-2',
+          startGameSeconds: 0,
+          endGameSeconds: 600,
+        },
+      ],
+      nextToken: null,
+    });
+
+    mockGoalList.mockResolvedValue({
+      data: [
+        { id: 'goal-1', gameId: 'game-1', scoredByUs: true, scorerId: 'player-1', assistId: 'player-2', gameSeconds: 120, half: 1 },
+        { id: 'goal-2', gameId: 'game-1', scoredByUs: true, scorerId: 'player-3', gameSeconds: 240, half: 1 },
+      ],
+      nextToken: null,
+    });
+
+    render(
+      <TeamReport
+        team={{ id: 'team-1', name: 'Tigers', coaches: [] } as never}
+      />
+    );
+
+    await waitFor(() => {
+      const heading = screen.getByRole('heading', { name: 'Goals by Position' });
+      const section = heading.closest('section') as HTMLElement;
+      const rowHeaders = within(section).getAllByRole('rowheader');
+      expect(rowHeaders.map(row => row.textContent)).toEqual(['Forward', 'Midfielder']);
+
+      const rows = within(section).getAllByRole('row');
+      expect(within(rows[1]).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['1', '1']);
+      expect(within(rows[2]).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['1', '0']);
+    });
+  });
+
+  it('omits goals by position section when goals cannot be attributed', async () => {
+    mockGoalList.mockResolvedValue({
+      data: [{ id: 'goal-2', gameId: 'game-1', scoredByUs: false, scorerId: 'player-1', gameSeconds: 120, half: 1 }],
+      nextToken: null,
+    });
+
+    render(
+      <TeamReport
+        team={{ id: 'team-1', name: 'Tigers', coaches: [] } as never}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Season Report: Tigers')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('heading', { name: 'Goals by Position' })).not.toBeInTheDocument();
   });
 });
