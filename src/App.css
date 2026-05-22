@@ -4115,6 +4115,14 @@
   letter-spacing: 0.15em;
 }
 
+.goals-by-position-section {
+  margin-bottom: 2rem;
+}
+
+.goals-by-position-section h2 {
+  margin: 0 0 0.75rem;
+}
+
 .stats-table-container {
   overflow-x: auto;
   border-radius: 12px;

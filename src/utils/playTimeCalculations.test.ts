@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import {
   calculatePlayerPlayTime,
   calculatePlayTimeByPosition,
+  calculateGoalsByPosition,
   formatPlayTime,
   countGamesPlayed,
   isPlayerCurrentlyPlaying,
@@ -19,6 +20,17 @@ interface PlayTimeRecord {
   positionId?: string | null;
   startGameSeconds: number;
   endGameSeconds?: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface Goal {
+  id: string;
+  gameId: string;
+  scoredByUs: boolean;
+  gameSeconds: number;
+  scorerId?: string | null;
+  assistId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -432,6 +444,335 @@ describe('playTimeCalculations', () => {
 
       const isPlaying = isPlayerCurrentlyPlaying(mockPlayerId, records);
       expect(isPlaying).toBe(false); // Other player is playing, not this one
+    });
+  });
+
+  describe('calculateGoalsByPosition', () => {
+    const positions = new Map([
+      ['pos-fw', { positionName: 'Forward' }],
+      ['pos-mf', { positionName: 'Midfielder' }],
+    ]);
+
+    it('counts only scoredByUs goals and attributes by matching play-time interval', () => {
+      const goals: Goal[] = [
+        {
+          id: 'goal-1',
+          gameId: mockGameId,
+          scoredByUs: true,
+          gameSeconds: 120,
+          scorerId: mockPlayerId,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        {
+          id: 'goal-2',
+          gameId: mockGameId,
+          scoredByUs: false,
+          gameSeconds: 200,
+          scorerId: mockPlayerId,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'rec-fw',
+          playerId: mockPlayerId,
+          gameId: mockGameId,
+          positionId: 'pos-fw',
+          startGameSeconds: 0,
+          endGameSeconds: 600,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+
+      expect(calculateGoalsByPosition(goals as never, records as never, positions)).toEqual([
+        { positionId: 'pos-fw', positionName: 'Forward', goals: 1, assists: 0 },
+      ]);
+    });
+
+    it('attributes assists by matching assistant play-time interval', () => {
+      const goals: Goal[] = [
+        {
+          id: 'goal-1',
+          gameId: mockGameId,
+          scoredByUs: true,
+          gameSeconds: 240,
+          scorerId: mockPlayerId,
+          assistId: 'assist-player',
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'rec-scorer',
+          playerId: mockPlayerId,
+          gameId: mockGameId,
+          positionId: 'pos-fw',
+          startGameSeconds: 0,
+          endGameSeconds: 600,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        {
+          id: 'rec-assist',
+          playerId: 'assist-player',
+          gameId: mockGameId,
+          positionId: 'pos-mf',
+          startGameSeconds: 0,
+          endGameSeconds: 600,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+
+      expect(calculateGoalsByPosition(goals as never, records as never, positions)).toEqual([
+        { positionId: 'pos-fw', positionName: 'Forward', goals: 1, assists: 0 },
+        { positionId: 'pos-mf', positionName: 'Midfielder', goals: 0, assists: 1 },
+      ]);
+    });
+
+    it('uses deterministic tie-break when intervals overlap', () => {
+      const goals: Goal[] = [
+        {
+          id: 'goal-1',
+          gameId: mockGameId,
+          scoredByUs: true,
+          gameSeconds: 400,
+          scorerId: mockPlayerId,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'rec-early',
+          playerId: mockPlayerId,
+          gameId: mockGameId,
+          positionId: 'pos-fw',
+          startGameSeconds: 0,
+          endGameSeconds: 900,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        {
+          id: 'rec-late',
+          playerId: mockPlayerId,
+          gameId: mockGameId,
+          positionId: 'pos-mf',
+          startGameSeconds: 300,
+          endGameSeconds: 900,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+
+      expect(calculateGoalsByPosition(goals as never, records as never, positions)).toEqual([
+        { positionId: 'pos-mf', positionName: 'Midfielder', goals: 1, assists: 0 },
+      ]);
+    });
+
+    it('omits assist attribution when interval/position data is invalid', () => {
+      const goals: Goal[] = [
+        {
+          id: 'goal-1',
+          gameId: mockGameId,
+          scoredByUs: true,
+          gameSeconds: 200,
+          scorerId: mockPlayerId,
+          assistId: 'assist-player',
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'rec-scorer',
+          playerId: mockPlayerId,
+          gameId: mockGameId,
+          positionId: 'pos-fw',
+          startGameSeconds: 0,
+          endGameSeconds: 600,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        {
+          id: 'rec-assist-unmapped',
+          playerId: 'assist-player',
+          gameId: mockGameId,
+          positionId: 'pos-unknown',
+          startGameSeconds: 0,
+          endGameSeconds: 300,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+
+      expect(calculateGoalsByPosition(goals as never, records as never, positions)).toEqual([
+        { positionId: 'pos-fw', positionName: 'Forward', goals: 1, assists: 0 },
+      ]);
+    });
+
+    it('handles open-ended intervals for goal and assist attribution', () => {
+      const goals: Goal[] = [
+        {
+          id: 'goal-1',
+          gameId: mockGameId,
+          scoredByUs: true,
+          gameSeconds: 500,
+          scorerId: mockPlayerId,
+          assistId: 'assist-player',
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'rec-scorer-open',
+          playerId: mockPlayerId,
+          gameId: mockGameId,
+          positionId: 'pos-fw',
+          startGameSeconds: 0,
+          endGameSeconds: null,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        {
+          id: 'rec-assist-open',
+          playerId: 'assist-player',
+          gameId: mockGameId,
+          positionId: 'pos-mf',
+          startGameSeconds: 0,
+          endGameSeconds: null,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+
+      expect(calculateGoalsByPosition(goals as never, records as never, positions)).toEqual([
+        { positionId: 'pos-fw', positionName: 'Forward', goals: 1, assists: 0 },
+        { positionId: 'pos-mf', positionName: 'Midfielder', goals: 0, assists: 1 },
+      ]);
+    });
+
+    it('omits unmatched, null-position, and unmapped position attributions', () => {
+      const goals: Goal[] = [
+        {
+          id: 'goal-unmatched',
+          gameId: mockGameId,
+          scoredByUs: true,
+          gameSeconds: 750,
+          scorerId: mockPlayerId,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        {
+          id: 'goal-null-position',
+          gameId: mockGameId,
+          scoredByUs: true,
+          gameSeconds: 100,
+          scorerId: mockPlayerId,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        {
+          id: 'goal-unmapped-position',
+          gameId: mockGameId,
+          scoredByUs: true,
+          gameSeconds: 200,
+          scorerId: mockPlayerId,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'rec-null-position',
+          playerId: mockPlayerId,
+          gameId: mockGameId,
+          positionId: null,
+          startGameSeconds: 0,
+          endGameSeconds: 150,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        {
+          id: 'rec-unmapped-position',
+          playerId: mockPlayerId,
+          gameId: mockGameId,
+          positionId: 'pos-unknown',
+          startGameSeconds: 150,
+          endGameSeconds: 300,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+
+      expect(calculateGoalsByPosition(goals as never, records as never, positions)).toEqual([]);
+    });
+
+    it('sorts rows by goals desc then assists desc then deterministic ties', () => {
+      const goals: Goal[] = [
+        {
+          id: 'goal-a',
+          gameId: mockGameId,
+          scoredByUs: true,
+          gameSeconds: 100,
+          scorerId: mockPlayerId,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        {
+          id: 'goal-b',
+          gameId: mockGameId,
+          scoredByUs: true,
+          gameSeconds: 200,
+          scorerId: mockPlayerId,
+          assistId: 'assist-player',
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'rec-b',
+          playerId: mockPlayerId,
+          gameId: mockGameId,
+          positionId: 'pos-mf',
+          startGameSeconds: 150,
+          endGameSeconds: 300,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        {
+          id: 'rec-a',
+          playerId: mockPlayerId,
+          gameId: mockGameId,
+          positionId: 'pos-fw',
+          startGameSeconds: 0,
+          endGameSeconds: 150,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+        {
+          id: 'rec-assist',
+          playerId: 'assist-player',
+          gameId: mockGameId,
+          positionId: 'pos-fw',
+          startGameSeconds: 150,
+          endGameSeconds: 300,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ];
+
+      expect(calculateGoalsByPosition(goals as never, records as never, positions)).toEqual([
+        { positionId: 'pos-fw', positionName: 'Forward', goals: 1, assists: 1 },
+        { positionId: 'pos-mf', positionName: 'Midfielder', goals: 1, assists: 0 },
+      ]);
     });
   });
 });
