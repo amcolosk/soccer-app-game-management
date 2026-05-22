@@ -1706,6 +1706,43 @@ describe("GameManagement – getPlanConflicts on-field detection", () => {
     const onFieldConflict = conflicts?.find((c: any) => c.type === 'on-field');
     expect(onFieldConflict).toBeUndefined();
   });
+
+  it("TC-IG-04: first rotation generated from live lineup produces no on-field conflicts via getPlanConflicts (Rule 4.4)", () => {
+    // Setup: player-A is on field at pos1; player-C is on the bench.
+    // The saved plannedRotations have one rotation that subs player-C in for player-A at pos1.
+    // With the live lineup [A@pos1], C is NOT already on the field — so no on-field conflict.
+    const generatedRotation = {
+      id: 'rot-generated',
+      rotationNumber: 1,
+      gameMinute: 40,
+      half: 2,
+      plannedSubstitutions: JSON.stringify([
+        { playerInId: 'player-C', playerOutId: 'player-A', positionId: 'pos1' },
+      ]),
+    };
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+      lineup: [
+        // player-A is on the field; player-C is NOT on the field
+        { id: 'la-A', gameId: 'game-1', playerId: 'player-A', positionId: 'pos1', isStarter: true },
+      ],
+      plannedRotations: [generatedRotation],
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10 } as any,
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+
+    const conflicts = mockCaptures.rotationWidgetProps?.getPlanConflicts?.();
+    expect(conflicts).toBeDefined();
+
+    // The rotation subs in player-C who is NOT on the field → should not be flagged as on-field conflict
+    const onFieldConflict = conflicts.find(
+      (c: any) => c.type === 'on-field' && c.rotationNumbers?.includes(1)
+    );
+    expect(onFieldConflict).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

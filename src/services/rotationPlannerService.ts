@@ -139,6 +139,14 @@ export function calculateFairRotations(
     return prefersPosition(playerId, goaliePositionId);
   };
 
+  // GK-only: player's SOLE preferred position is the GK slot (not an outfield player listing GK as one of many)
+  const isGkOnlyPlayer = (playerId: string): boolean => {
+    if (!goaliePositionId) return false;
+    const prefs = preferredPositionsMap.get(playerId);
+    if (!prefs) return false;
+    return prefs.size === 1 && prefs.has(goaliePositionId);
+  };
+
   // Pre-loop validation
   // TC-09: Check for GK-preferred players
   if (goaliePositionId) {
@@ -311,9 +319,59 @@ export function calculateFairRotations(
           .map(id => ({ id, time: playTimeMinutes.get(id) ?? 0 }))
           .sort((a, b) => a.time - b.time);
 
-        const hasGkBench = goaliePositionId ? benchWithTime.some(p => isGkPreferred(p.id)) : false;
+        // Only block the current GK from being swapped when they are a dedicated GK-only player
+        // and there is no dedicated GK replacement on the bench. When the current GK is a
+        // generalist (lists GK as one of many preferences), any GK-preferred bench player qualifies.
+        const currentGkPlayerId = goaliePositionId
+          ? Array.from(currentField).find(id => positionMap.get(id) === goaliePositionId)
+          : undefined;
+        const currentGkIsDedicated = currentGkPlayerId ? isGkOnlyPlayer(currentGkPlayerId) : false;
+        const gkBenchChecker = currentGkIsDedicated ? isGkOnlyPlayer : isGkPreferred;
+        const hasGkBench = goaliePositionId ? benchWithTime.some(p => gkBenchChecker(p.id)) : false;
 
+        // Fatigue-based forced-off at halftime.
+        // Only applied for live-game regeneration (initialPlayTimeMinutes provided).
+        // Pre-game planning uses pure play-time fairness at halftime, not fatigue limits.
+        // Limit to 1 player per position group to avoid rotating all strikers out simultaneously.
+        const halftimeForcedOff: string[] = [];
+        if (options?.positions && options.initialPlayTimeMinutes && options.initialPlayTimeMinutes.size > 0) {
+          const forcedOffByGroup = new Map<string, number>();
+          for (const id of currentField) {
+            if (goaliePositionId && positionMap.get(id) === goaliePositionId) continue;
+            const pos = positionMap.get(id);
+            if (!pos) continue;
+            const group = positionGroupMap.get(pos) ?? 'UNKNOWN';
+            const maxCont = MAX_CONTINUOUS_ROTATIONS[group as keyof typeof MAX_CONTINUOUS_ROTATIONS] ?? Infinity;
+            if (!isFinite(maxCont)) continue;
+            if ((continuousRotations.get(id) ?? 0) < maxCont) continue;
+            const alreadyInGroup = forcedOffByGroup.get(group) ?? 0;
+            if (alreadyInGroup >= 1) continue;
+            halftimeForcedOff.push(id);
+            forcedOffByGroup.set(group, alreadyInGroup + 1);
+          }
+        }
+
+        // Also force off injured/removed players at halftime (in currentField but not in playerById)
+        for (const id of currentField) {
+          if (playerById.has(id)) continue;
+          if (goaliePositionId && positionMap.get(id) === goaliePositionId) continue;
+          if (!halftimeForcedOff.includes(id)) halftimeForcedOff.push(id);
+        }
+
+        const subsNeeded = Math.min(maxPlayersOnField, benchWithTime.length);
+        const positionsToFill: string[] = [];
+        const playersOut: string[] = [];
+
+        // Forced-off players go first
+        for (const id of halftimeForcedOff) {
+          if (playersOut.length >= subsNeeded) break;
+          playersOut.push(id);
+          positionsToFill.push(positionMap.get(id)!);
+        }
+
+        // Fill remaining slots with most-time field players (excluding GK unless hasGkBench)
         const fieldWithTime = Array.from(currentField)
+          .filter(id => !playersOut.includes(id))
           .map(pid => ({
             id: pid,
             time: playTimeMinutes.get(pid) ?? 0,
@@ -321,19 +379,12 @@ export function calculateFairRotations(
           }))
           .sort((a, b) => b.time - a.time);
 
-        const subsNeeded = Math.min(maxPlayersOnField, benchWithTime.length);
-        const positionsToFill: string[] = [];
-        const playersOut: string[] = [];
-        let swapped = 0;
-
         for (const fp of fieldWithTime) {
-          if (swapped >= subsNeeded) break;
-          const pos = positionMap.get(fp.id)!;
-          // GK can only be swapped if there's a GK-preferred bench candidate
+          if (playersOut.length >= subsNeeded) break;
+          // GK can only be swapped if there's a dedicated GK bench candidate
           if (fp.isGk && !hasGkBench) continue;
-          positionsToFill.push(pos);
+          positionsToFill.push(positionMap.get(fp.id)!);
           playersOut.push(fp.id);
-          swapped++;
         }
 
         const assignments = assignPlayersToPositions(positionsToFill, benchWithTime, true);
@@ -374,6 +425,14 @@ export function calculateFairRotations(
           }
         }
 
+        // Force off players removed from the active roster (e.g., injured mid-game).
+        // These players are in currentField but not in playerById (filtered out as unavailable).
+        for (const id of currentField) {
+          if (playerById.has(id)) continue;
+          if (goaliePositionId && positionMap.get(id) === goaliePositionId) continue;
+          if (!forcedOff.includes(id)) forcedOff.push(id);
+        }
+
         // Fatigue-based forced-off (only when position data available)
         if (options?.positions) {
           for (const id of currentField) {
@@ -388,7 +447,8 @@ export function calculateFairRotations(
               // reach their 50% play-time threshold (same condition as the bench mustOn rule).
               // Without this guard a STRIKER rotated off at the last interval may finish below 50%.
               const played = playTimeMinutes.get(id) ?? 0;
-              const p = playerById.get(id)!;
+              const p = playerById.get(id);
+              if (!p) continue; // removed from roster (already in forcedOff above)
               const availTime = (p.availableUntilMinute ?? totalGameMinutes) - (p.availableFromMinute ?? 0);
               const threshold = availTime * 0.5;
               if (played + minutesRemaining <= threshold) continue;
@@ -634,8 +694,8 @@ export function validateRotationPlan(
     errors.push('No rotations planned');
     return errors;
   }
-  
-  // Track field state
+
+  // Track field state (planned progression, for sequential-rotation checks)
   const fieldState = new Set<string>();
   
   rotations.forEach((rotation, index) => {
@@ -662,12 +722,12 @@ export function validateRotationPlan(
     // Check that players being subbed out are actually on field
     subs.forEach(sub => {
       if (index === 0) {
-        // First rotation - can't validate yet
+        // First rotation - can't validate yet via planned fieldState
       } else if (!fieldState.has(sub.playerOutId)) {
         errors.push(`Rotation ${rotation.rotationNumber}: Player ${sub.playerOutId} not on field`);
       }
       
-      // Apply substitution
+      // Apply substitution to the planned field state
       fieldState.delete(sub.playerOutId);
       fieldState.add(sub.playerInId);
     });
