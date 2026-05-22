@@ -686,8 +686,7 @@ export function calculatePlayTime(
  */
 export function validateRotationPlan(
   rotations: PlannedRotation[],
-  maxPlayersOnField: number,
-  liveLineup?: Array<{ playerId: string }>
+  maxPlayersOnField: number
 ): string[] {
   const errors: string[] = [];
   
@@ -695,11 +694,6 @@ export function validateRotationPlan(
     errors.push('No rotations planned');
     return errors;
   }
-
-  // When a live lineup is provided, check each rotation's playerOut against the
-  // current live field. This detects stale rotations where the coach has deviated
-  // from the plan and a planned playerOut is no longer on the field.
-  const liveFieldSet = liveLineup ? new Set(liveLineup.map(p => p.playerId)) : null;
 
   // Track field state (planned progression, for sequential-rotation checks)
   const fieldState = new Set<string>();
@@ -731,14 +725,6 @@ export function validateRotationPlan(
         // First rotation - can't validate yet via planned fieldState
       } else if (!fieldState.has(sub.playerOutId)) {
         errors.push(`Rotation ${rotation.rotationNumber}: Player ${sub.playerOutId} not on field`);
-      }
-
-      // Stale-rotation detection: if a live lineup was provided, each sub's playerOut
-      // must be on the actual live field. If not, the rotation is stale/conflicted.
-      if (liveFieldSet && !liveFieldSet.has(sub.playerOutId)) {
-        errors.push(
-          `Rotation ${rotation.rotationNumber}: Player ${sub.playerOutId} is stale — not on field`
-        );
       }
       
       // Apply substitution to the planned field state
