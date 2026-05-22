@@ -451,4 +451,31 @@ describe("RotationWidget – stale rotation conflict detection", () => {
     expect(screen.getByText(/Next Rotation:/i)).toBeInTheDocument();
     expect(screen.getByText(/conflict/i)).toBeInTheDocument();
   });
+
+  it("E: disables queue actions when playerIn is already on the field in another position", () => {
+    const onQueueSubstitution = vi.fn();
+    const trueConflictRotation = makeRotation(12);
+    const lineupWithBoth = [
+      { id: "la-p1", gameId: "game-1", playerId: "p1", positionId: "pos-1", isStarter: true },
+      { id: "la-p2", gameId: "game-1", playerId: "p2", positionId: "pos-2", isStarter: true },
+    ] as any[];
+
+    render(
+      <RotationWidget
+        {...baseProps}
+        plannedRotations={[trueConflictRotation] as any}
+        lineup={lineupWithBoth}
+        currentTime={600}
+        isRotationModalOpen={true}
+        onCloseRotationModal={vi.fn()}
+        onQueueSubstitution={onQueueSubstitution}
+      />
+    );
+
+    expect(
+      screen.getByRole("button", { name: /Queue sub: Alice off, Bob on for FW/i })
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Queue All/i })).toBeDisabled();
+    expect(onQueueSubstitution).not.toHaveBeenCalled();
+  });
 });

@@ -25,7 +25,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // ---------------------------------------------------------------------------
@@ -196,6 +196,14 @@ const lineupAlice: LineupAssignment = {
   id: 'la-1',
   positionId: 'pos-1',
   playerId: 'player-1',
+  gameId: 'game-1',
+  isStarter: true,
+} as unknown as LineupAssignment;
+
+const lineupBob: LineupAssignment = {
+  id: 'la-2',
+  positionId: 'pos-2',
+  playerId: 'player-2',
   gameId: 'game-1',
   isStarter: true,
 } as unknown as LineupAssignment;
@@ -399,6 +407,28 @@ describe('SubstitutionPanel', () => {
     expect(onQueueAdd).toHaveBeenCalledWith('player-2', 'pos-1');
   });
 
+  it('prevents queueing a player who is already on the field in another position', async () => {
+    const user = userEvent.setup();
+    const onQueueAdd = vi.fn();
+    mockIsPlayerCurrentlyPlaying.mockReturnValue(false);
+
+    render(
+      <SubstitutionPanel
+        {...defaultProps}
+        onQueueAdd={onQueueAdd}
+        lineup={[lineupAlice, lineupBob]}
+        substitutionRequest={pos1}
+      />,
+    );
+
+    const bobRow = screen.getByText(/Bob Jones/i).closest('.sub-player-item');
+    expect(bobRow).not.toBeNull();
+    await user.click(within(bobRow as HTMLElement).getByTitle('Add to substitution queue'));
+
+    expect(onQueueAdd).not.toHaveBeenCalled();
+    expect(mockShowWarning).toHaveBeenCalledWith('This player is already on the field in another position');
+  });
+
   it('"Sub Now" button in modal calls executeSubstitution', async () => {
     const user = userEvent.setup();
     // Alice is currently playing (pos-1), so only Bob appears as available
@@ -409,6 +439,31 @@ describe('SubstitutionPanel', () => {
     await user.click(screen.getByTitle('Substitute immediately'));
 
     await waitFor(() => expect(mockExecuteSubstitution).toHaveBeenCalled());
+  });
+
+  it('"Sub All Now" removes queued item when incoming player is already on the field elsewhere', async () => {
+    const user = userEvent.setup();
+    const onQueueRemove = vi.fn();
+    const queue: SubQueue[] = [{ id: 'q-1', playerId: 'player-2', positionId: 'pos-1' }];
+
+    render(
+      <SubstitutionPanel
+        {...defaultProps}
+        lineup={[lineupAlice, lineupBob]}
+        substitutionQueue={queue}
+        onQueueRemove={onQueueRemove}
+      />,
+    );
+
+    await user.click(screen.getByTitle('Execute all queued substitutions at once'));
+
+    await waitFor(() => {
+      expect(mockExecuteSubstitution).not.toHaveBeenCalled();
+      expect(onQueueRemove).toHaveBeenCalledWith('q-1');
+      expect(mockShowWarning).toHaveBeenCalledWith(
+        'Queued substitution removed: player is already on the field in another position.',
+      );
+    });
   });
 
   // ── Modal dismissal -----------------------------------------------------

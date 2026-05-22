@@ -58,6 +58,24 @@ export function RotationWidget({
   const { getPlayerAvailability } = useAvailability();
   const [internalShowRotationModal, setInternalShowRotationModal] = useState(false);
   const [currentRotation, setCurrentRotation] = useState<PlannedRotation | null>(null);
+  const hasOnFieldConflict = (sub: PlannedSubstitution) => {
+    const playerInOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerInId) ?? false;
+    const playerOutOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerOutId) ?? false;
+    return playerInOnField && playerOutOnField;
+  };
+
+  const isQueueEligible = (sub: PlannedSubstitution) => {
+    const inAvailability = getPlayerAvailability(sub.playerInId);
+    const isQueued = substitutionQueue.some(
+      q => q.playerId === sub.playerInId && q.positionId === sub.positionId
+    );
+    return (
+      inAvailability === 'available'
+      && !isQueued
+      && !isSubEffectivelyExecuted(sub, lineup ?? [])
+      && !hasOnFieldConflict(sub)
+    );
+  };
 
   // Support both controlled (isRotationModalOpen prop) and uncontrolled modal state.
   const showRotationModal =
@@ -96,11 +114,7 @@ export function RotationWidget({
     try {
       const subs: PlannedSubstitution[] = JSON.parse(currentRotation.plannedSubstitutions as string);
       subs.forEach(sub => {
-        const inAvailability = getPlayerAvailability(sub.playerInId);
-        const isQueued = substitutionQueue.some(
-          q => q.playerId === sub.playerInId && q.positionId === sub.positionId
-        );
-        if (inAvailability === 'available' && !isQueued) {
+        if (isQueueEligible(sub)) {
           onQueueSubstitution(sub.playerInId, sub.positionId);
         }
       });
@@ -111,13 +125,7 @@ export function RotationWidget({
   const canQueueAll = currentRotation ? (() => {
     try {
       const subs: PlannedSubstitution[] = JSON.parse(currentRotation.plannedSubstitutions as string);
-      return subs.some(sub => {
-        const inAvailability = getPlayerAvailability(sub.playerInId);
-        const isQueued = substitutionQueue.some(
-          q => q.playerId === sub.playerInId && q.positionId === sub.positionId
-        );
-        return inAvailability === 'available' && !isQueued;
-      });
+      return subs.some(sub => isQueueEligible(sub));
     } catch { return false; }
   })() : false;
 
@@ -232,7 +240,7 @@ export function RotationWidget({
                     q => q.playerId === sub.playerInId && q.positionId === sub.positionId
                   );
 
-                  const canQueue = inAvailability === 'available' && !isQueued;
+                  const canQueue = isQueueEligible(sub);
 
                   const getAvailabilityBadge = (status: string) => {
                     if (status === 'available') {
@@ -271,9 +279,7 @@ export function RotationWidget({
                         </div>
                       </div>
                       {(() => {
-                        const playerInOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerInId) ?? false;
-                        const playerOutOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerOutId) ?? false;
-                        return (playerInOnField && playerOutOnField) && (
+                        return hasOnFieldConflict(sub) && (
                           <div className="sub-conflict-banner" role="alert">
                             <span aria-hidden="true">⚠️</span>
                             <span>
