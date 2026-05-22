@@ -6603,8 +6603,13 @@
 }
 
 .plan-tab__save-btn,
-.plan-tab__generate-btn {
+.plan-tab__generate-btn,
+.plan-tab__export-btn {
   width: 100%;
+}
+
+.plan-tab__export-btn {
+  min-height: 44px;
 }
 
 .rotation-settings-section-label {
