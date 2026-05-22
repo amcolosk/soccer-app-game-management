@@ -884,6 +884,258 @@ describe('rotationPlannerService', () => {
         expect(new Set(onFieldPlayers).size).toBe(6);
       }
     });
+
+    // ---------------------------------------------------------------------------
+    // Applied-lineup invariant harness (Issues #6, #115)
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Simulates each rotation interval from the given starting lineup and asserts:
+     *   (1) Field occupancy stays exactly maxPlayersOnField (no duplicate positions)
+     *   (2) All field player IDs are unique (no cloned player — Rule 1.1)
+     *   (3) No non-halftime substitution targets the goalkeeper position (Rule 1.4)
+     *
+     * @param rotations         Output from calculateFairRotations
+     * @param startingLineup    Initial field assignments
+     * @param maxPlayersOnField Expected field size at every interval
+     * @param goaliePositionId  The GK position ID, or undefined to skip Rule 1.4 check
+     * @param halftimeIndex     0-based index of the halftime rotation (default = rotationsPerHalf)
+     */
+    function assertLineupInvariants(
+      rotations: Array<{ substitutions: PlannedSubstitution[] }>,
+      startingLineup: Array<{ playerId: string; positionId: string }>,
+      maxPlayersOnField: number,
+      goaliePositionId?: string,
+      halftimeIndex?: number,
+    ): void {
+      // Track position → player mapping so we can detect duplicate occupancy
+      const fieldByPos = new Map<string, string>(
+        startingLineup.map(s => [s.positionId, s.playerId])
+      );
+
+      rotations.forEach((rotation, idx) => {
+        const isHalftime = idx === halftimeIndex;
+
+        // Apply substitutions
+        rotation.substitutions.forEach(sub => {
+          fieldByPos.set(sub.positionId, sub.playerInId);
+
+          // Rule 1.4: no non-halftime sub may target the GK position
+          if (!isHalftime && goaliePositionId && sub.positionId === goaliePositionId) {
+            throw new Error(
+              `Rule 1.4 violation at rotation index ${idx}: non-halftime sub at GK position ` +
+              `(${goaliePositionId}) — playerIn=${sub.playerInId}, playerOut=${sub.playerOutId}`
+            );
+          }
+        });
+
+        // Rule: field occupancy equals maxPlayersOnField
+        expect(fieldByPos.size).toBe(maxPlayersOnField);
+
+        // Rule 1.1: all field players are unique (no duplicated player ID)
+        const onFieldPlayers = Array.from(fieldByPos.values());
+        expect(new Set(onFieldPlayers).size).toBe(maxPlayersOnField);
+      });
+    }
+
+    it('TC-9v9-02: 9v9 with 16-player roster gives each player ≥ 30 min and passes lineup invariants (issue #6 regression)', () => {
+      // 9 field positions, 16 players (9 starters + 7 bench)
+      // 60-min game, 10-min interval, 30-min halves → rotationsPerHalf=2, totalRotations=5
+      // Rule: every player gets ≥ 30 min (50 % of 60)
+      const positions9 = [
+        { id: 'gol', abbreviation: 'Gol' }, // GK
+        { id: 'ld',  abbreviation: 'LD'  },
+        { id: 'cb',  abbreviation: 'CB'  },
+        { id: 'rd',  abbreviation: 'RD'  },
+        { id: 'dm',  abbreviation: 'DM'  },
+        { id: 'lm',  abbreviation: 'LM'  },
+        { id: 'rm',  abbreviation: 'RM'  },
+        { id: 'lw',  abbreviation: 'LW'  },
+        { id: 'st',  abbreviation: 'ST'  },
+      ];
+
+      const players16: SimpleRoster[] = Array.from({ length: 16 }, (_, i) => ({
+        id: `r${i + 1}`,
+        playerId: `p${i + 1}`,
+        playerNumber: i + 1,
+        preferredPositions: positions9[i % positions9.length].id,
+      }));
+
+      // Give GK (p1) a GK-only preference so it stays locked
+      players16[0] = { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'gol' };
+
+      const startingLineup9 = positions9.map((pos, i) => ({
+        playerId: `p${i + 1}`,
+        positionId: pos.id,
+      }));
+
+      const { rotations } = calculateFairRotations(
+        players16,
+        startingLineup9,
+        5,          // totalRotations
+        2,          // rotationsPerHalf
+        9,          // maxPlayersOnField
+        'gol',      // goaliePositionId
+        undefined,
+        { rotationIntervalMinutes: 10, halfLengthMinutes: 30, positions: positions9 },
+      );
+
+      expect(rotations).toHaveLength(5);
+
+      // Applied-lineup invariant harness (halftime is index 2 = rotationsPerHalf)
+      assertLineupInvariants(rotations, startingLineup9, 9, 'gol', 2);
+
+      // Simulate play time to verify every player gets ≥ 30 min
+      const fieldIds = new Set(startingLineup9.map(s => s.playerId));
+      const playTime = new Map<string, number>(players16.map(p => [p.playerId, 0]));
+      const rotationMinutes = [10, 20, 30, 40, 50]; // gameMinute per rotation
+      let prevMinute = 0;
+
+      rotations.forEach((rot, idx) => {
+        const currMinute = rotationMinutes[idx];
+        const elapsed = currMinute - prevMinute;
+        fieldIds.forEach(id => playTime.set(id, (playTime.get(id) ?? 0) + elapsed));
+        rot.substitutions.forEach(sub => {
+          fieldIds.delete(sub.playerOutId);
+          fieldIds.add(sub.playerInId);
+        });
+        prevMinute = currMinute;
+      });
+      // Final interval 50 → 60
+      fieldIds.forEach(id => playTime.set(id, (playTime.get(id) ?? 0) + 10));
+
+      players16.forEach(p => {
+        expect(playTime.get(p.playerId) ?? 0).toBeGreaterThanOrEqual(30);
+      });
+    });
+
+    it('TC-11v11-01: 11v11 with 16-player roster gives each player ≥ 30 min and passes lineup invariants', () => {
+      // 11 field positions, 16 players (11 starters + 5 bench)
+      // 60-min game, 10-min interval, 30-min halves → rotationsPerHalf=2, totalRotations=5
+      const positions11 = Array.from({ length: 11 }, (_, i) => ({
+        id: `pos${i + 1}`,
+        abbreviation: i === 0 ? 'GK' : `P${i + 1}`,
+      }));
+
+      const players16: SimpleRoster[] = Array.from({ length: 16 }, (_, i) => ({
+        id: `r${i + 1}`,
+        playerId: `p${i + 1}`,
+        playerNumber: i + 1,
+        preferredPositions: positions11[i % positions11.length].id,
+      }));
+
+      players16[0] = { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' };
+
+      const startingLineup11 = positions11.map((pos, i) => ({
+        playerId: `p${i + 1}`,
+        positionId: pos.id,
+      }));
+
+      const { rotations } = calculateFairRotations(
+        players16,
+        startingLineup11,
+        5,
+        2,
+        11,
+        'pos1',
+        undefined,
+        { rotationIntervalMinutes: 10, halfLengthMinutes: 30, positions: positions11 },
+      );
+
+      expect(rotations).toHaveLength(5);
+
+      // Invariant harness: halftime is index 2
+      assertLineupInvariants(rotations, startingLineup11, 11, 'pos1', 2);
+
+      // Simulate play time
+      const fieldIds = new Set(startingLineup11.map(s => s.playerId));
+      const playTime = new Map<string, number>(players16.map(p => [p.playerId, 0]));
+      const rotationMinutes = [10, 20, 30, 40, 50];
+      let prevMinute = 0;
+
+      rotations.forEach((rot, idx) => {
+        const currMinute = rotationMinutes[idx];
+        const elapsed = currMinute - prevMinute;
+        fieldIds.forEach(id => playTime.set(id, (playTime.get(id) ?? 0) + elapsed));
+        rot.substitutions.forEach(sub => {
+          fieldIds.delete(sub.playerOutId);
+          fieldIds.add(sub.playerInId);
+        });
+        prevMinute = currMinute;
+      });
+      fieldIds.forEach(id => playTime.set(id, (playTime.get(id) ?? 0) + 10));
+
+      players16.forEach(p => {
+        expect(playTime.get(p.playerId) ?? 0).toBeGreaterThanOrEqual(30);
+      });
+    });
+
+    it('TC-11v11-02: 11v11 with 13-player roster — both bench players appear on field and all get ≥ 30 min', () => {
+      // 11 field positions, 13 players (11 starters + 2 bench)
+      // 60-min game, 10-min interval, 30-min halves
+      const positions11 = Array.from({ length: 11 }, (_, i) => ({
+        id: `pos${i + 1}`,
+        abbreviation: i === 0 ? 'GK' : `P${i + 1}`,
+      }));
+
+      const players13: SimpleRoster[] = Array.from({ length: 13 }, (_, i) => ({
+        id: `r${i + 1}`,
+        playerId: `p${i + 1}`,
+        playerNumber: i + 1,
+        preferredPositions: positions11[i % positions11.length].id,
+      }));
+
+      players13[0] = { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' };
+
+      const startingLineup11 = positions11.map((pos, i) => ({
+        playerId: `p${i + 1}`,
+        positionId: pos.id,
+      }));
+
+      const { rotations } = calculateFairRotations(
+        players13,
+        startingLineup11,
+        5,
+        2,
+        11,
+        'pos1',
+        undefined,
+        { rotationIntervalMinutes: 10, halfLengthMinutes: 30, positions: positions11 },
+      );
+
+      expect(rotations).toHaveLength(5);
+
+      // Invariant harness
+      assertLineupInvariants(rotations, startingLineup11, 11, 'pos1', 2);
+
+      // Both bench players (p12, p13) must appear on field at some point
+      const everyPlayerInSub = new Set<string>();
+      rotations.forEach(rot => rot.substitutions.forEach(sub => everyPlayerInSub.add(sub.playerInId)));
+      expect(everyPlayerInSub.has('p12')).toBe(true);
+      expect(everyPlayerInSub.has('p13')).toBe(true);
+
+      // Play time ≥ 30 min for all
+      const fieldIds = new Set(startingLineup11.map(s => s.playerId));
+      const playTime = new Map<string, number>(players13.map(p => [p.playerId, 0]));
+      const rotationMinutes = [10, 20, 30, 40, 50];
+      let prevMinute = 0;
+
+      rotations.forEach((rot, idx) => {
+        const currMinute = rotationMinutes[idx];
+        const elapsed = currMinute - prevMinute;
+        fieldIds.forEach(id => playTime.set(id, (playTime.get(id) ?? 0) + elapsed));
+        rot.substitutions.forEach(sub => {
+          fieldIds.delete(sub.playerOutId);
+          fieldIds.add(sub.playerInId);
+        });
+        prevMinute = currMinute;
+      });
+      fieldIds.forEach(id => playTime.set(id, (playTime.get(id) ?? 0) + 10));
+
+      players13.forEach(p => {
+        expect(playTime.get(p.playerId) ?? 0).toBeGreaterThanOrEqual(30);
+      });
+    });
   });
 
   describe('calculatePlayTime', () => {
@@ -1585,6 +1837,7 @@ describe('rotationPlannerService', () => {
 
       expect(errors).toHaveLength(0);
     });
+
   });
 
   describe('calculateRotationMinute', () => {
@@ -1911,6 +2164,106 @@ describe('rotationPlannerService', () => {
     });
   });
 
+  describe('In-Game Rotation Generation', () => {
+    // 5v5, 7 players. 40-min game, 20-min halves, 5-min intervals.
+    // Positions: GK, DF, DF, FW, FW
+    const ALL_POSITIONS = 'pos-gk, pos-def1, pos-def2, pos-fwd1, pos-fwd2';
+    const opts = {
+      rotationIntervalMinutes: 5, halfLengthMinutes: 20,
+      positions: [
+        { id: 'pos-gk',   abbreviation: 'GK' },
+        { id: 'pos-def1', abbreviation: 'DF' },
+        { id: 'pos-def2', abbreviation: 'DF' },
+        { id: 'pos-fwd1', abbreviation: 'FW' },
+        { id: 'pos-fwd2', abbreviation: 'FW' },
+      ],
+      initialPlayTimeMinutes: new Map<string, number>([
+        ['p1', 15], ['p2', 15], ['p3', 15], ['p4', 15], ['p5', 10], ['p6', 10], ['p7', 10]
+      ]),
+    };
+    const livePlayers: SimpleRoster[] = [
+      { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos-gk' }, // GK only
+      { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: ALL_POSITIONS },
+      { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: ALL_POSITIONS },
+      { id: 'r4', playerId: 'p4', playerNumber: 4, preferredPositions: ALL_POSITIONS },
+      { id: 'r5', playerId: 'p5', playerNumber: 5, preferredPositions: ALL_POSITIONS },
+      { id: 'r6', playerId: 'p6', playerNumber: 6, preferredPositions: ALL_POSITIONS },
+      { id: 'r7', playerId: 'p7', playerNumber: 7, preferredPositions: ALL_POSITIONS },
+    ];
+    const liveLineup = [
+      { playerId: 'p1', positionId: 'pos-gk' },
+      { playerId: 'p2', positionId: 'pos-def1' },
+      { playerId: 'p3', positionId: 'pos-def2' },
+      { playerId: 'p6', positionId: 'pos-fwd1' },
+      { playerId: 'p7', positionId: 'pos-fwd2' },
+    ]; // Bench: p4, p5. (p6, p7 came in at min 10)
+
+    it('TC-IG-01: Generates from current live game state — correctly identifies bench players and field players', () => {
+      // Generation for the rest of the game (total=6, perHalf=3). Next rot is #4 (min 20 / HT)
+      const { rotations } = calculateFairRotations(
+        livePlayers, liveLineup, 3, 0, 5, 'pos-gk', undefined, opts
+      );
+
+      // Verify the first generated rotation (HT) subs in the bench players (p4, p5)
+      expect(rotations).toBeDefined();
+      expect(rotations.length).toBeGreaterThan(0);
+      const firstRotIns = rotations[0].substitutions.map(s => s.playerInId);
+      expect(firstRotIns).toContain('p4');
+      expect(firstRotIns).toContain('p5');
+    });
+
+    it('TC-IG-02: Retains fatigue/time limits from history — forces striker off if continuous', () => {
+      // Simulate p6 having been on field for too long (1 continuous interval as FW/STRIKER)
+      const { rotations } = calculateFairRotations(
+        livePlayers, liveLineup, 3, 0, 5, 'pos-gk', undefined, opts
+      );
+
+      // p6 should be forced off in the next rotation
+      expect(rotations[0].substitutions.map(s => s.playerOutId)).toContain('p6');
+    });
+
+    it('TC-IG-03: Incorporates live time accumulation to normalize 50% guarantees over the remaining minutes', () => {
+      const { rotations } = calculateFairRotations(
+        livePlayers, liveLineup, 3, 0, 5, 'pos-gk', undefined, opts
+      );
+
+      // p6 and p7 have less accumulated time (10m) than p2, p3 (15m).
+      // They should not be prioritized for subbing out unless forced by fatigue.
+      // After forcing p6 out due to fatigue, p7 should ideally stay on.
+      const p7Out = rotations[0].substitutions.some(s => s.playerOutId === 'p7');
+      expect(p7Out).toBe(false);
+    });
+
+    it('TC-IG-04: Responds dynamically to a late arrival mid-game', () => {
+      // p8 arrives at minute 15. The generation at minute 15 sees them on the bench.
+      const playersWithLate = [...livePlayers, { id: 'r8', playerId: 'p8', playerNumber: 8, preferredPositions: ALL_POSITIONS }];
+      const optsLate = { ...opts, initialPlayTimeMinutes: new Map(opts.initialPlayTimeMinutes).set('p8', 0) };
+
+      const { rotations } = calculateFairRotations(
+        playersWithLate, liveLineup, 3, 0, 5, 'pos-gk', undefined, optsLate
+      );
+
+      // p8 has 0 minutes, should be prioritized for subbing in immediately
+      const ins = rotations[0].substitutions.map(s => s.playerInId);
+      expect(ins).toContain('p8');
+    });
+
+    it('TC-IG-05: Removes an injured player mid-game and recalculates the remainder', () => {
+      // p2 is marked injured
+      const optsInjured = { ...opts, playerAvailabilities: [{ playerId: 'p2', status: 'injured' as const }] };
+      const { rotations } = calculateFairRotations(
+        livePlayers, liveLineup, 3, 0, 5, 'pos-gk', undefined, optsInjured
+      );
+
+      // p2 must be subbed off in the very first generated rotation and never return
+      const outs0 = rotations[0].substitutions.map(s => s.playerOutId);
+      expect(outs0).toContain('p2');
+
+      const allIns = rotations.flatMap(r => r.substitutions.map(s => s.playerInId));
+      expect(allIns).not.toContain('p2');
+    });
+  });
+
   // ─────────────────────────────────────────────────────────────────────────
   // 9v9 and 11v11 scenarios — Rule 1.3 (50% minimum playtime guarantee)
   // ─────────────────────────────────────────────────────────────────────────
@@ -2036,6 +2389,56 @@ describe('rotationPlannerService', () => {
       });
 
       // Rule 1.3: all 14 players must reach the 50% threshold (30 minutes)
+      const minutes = computePlayMinutes9v9(startingLineup, rotations, ROTATION_MINUTES_60, GAME_END_60);
+      players.forEach(p => {
+        const pt = minutes.get(p.playerId) ?? 0;
+        expect(pt).toBeGreaterThanOrEqual(MIN_PLAYTIME_50PCT);
+      });
+    });
+
+    it('TC-HR-01: High-Ratio Bench Guarantee (15 players, 9 positions) — all players meet 50% minimum', () => {
+      // 15 players: 9 starters + 6 bench.
+      const ALL_POS = 'gk, cb1, cb2, ld, rd, cm1, cm2, lw, st';
+
+      const players: SimpleRoster[] = [
+        { id: 'r1',  playerId: 'gk',  playerNumber: 1,  preferredPositions: 'gk'  },
+        { id: 'r2',  playerId: 'p2',  playerNumber: 2,  preferredPositions: 'cb1' },
+        { id: 'r3',  playerId: 'p3',  playerNumber: 3,  preferredPositions: 'cb2' },
+        { id: 'r4',  playerId: 'p4',  playerNumber: 4,  preferredPositions: 'ld'  },
+        { id: 'r5',  playerId: 'p5',  playerNumber: 5,  preferredPositions: 'rd'  },
+        { id: 'r6',  playerId: 'p6',  playerNumber: 6,  preferredPositions: 'cm1' },
+        { id: 'r7',  playerId: 'p7',  playerNumber: 7,  preferredPositions: 'cm2' },
+        { id: 'r8',  playerId: 'p8',  playerNumber: 8,  preferredPositions: 'lw'  },
+        { id: 'r9',  playerId: 'p9',  playerNumber: 9,  preferredPositions: 'st'  },
+        { id: 'r10', playerId: 'p10', playerNumber: 10, preferredPositions: ALL_POS },
+        { id: 'r11', playerId: 'p11', playerNumber: 11, preferredPositions: ALL_POS },
+        { id: 'r12', playerId: 'p12', playerNumber: 12, preferredPositions: ALL_POS },
+        { id: 'r13', playerId: 'p13', playerNumber: 13, preferredPositions: ALL_POS },
+        { id: 'r14', playerId: 'p14', playerNumber: 14, preferredPositions: ALL_POS },
+        { id: 'r15', playerId: 'p15', playerNumber: 15, preferredPositions: ALL_POS },
+      ];
+
+      const startingLineup = [
+        { playerId: 'gk', positionId: 'gk'  },
+        { playerId: 'p2', positionId: 'cb1' },
+        { playerId: 'p3', positionId: 'cb2' },
+        { playerId: 'p4', positionId: 'ld'  },
+        { playerId: 'p5', positionId: 'rd'  },
+        { playerId: 'p6', positionId: 'cm1' },
+        { playerId: 'p7', positionId: 'cm2' },
+        { playerId: 'p8', positionId: 'lw'  },
+        { playerId: 'p9', positionId: 'st'  },
+      ];
+
+      const { rotations } = calculateFairRotations(
+        players, startingLineup,
+        5, 2, 9, 'gk', undefined,
+        { rotationIntervalMinutes: INTERVAL_10, halfLengthMinutes: HALF_LENGTH_60, positions: positions9v9 },
+      );
+
+      expect(rotations).toHaveLength(5);
+
+      // Rule 1.3: all 15 players must reach the 50% threshold (30 minutes)
       const minutes = computePlayMinutes9v9(startingLineup, rotations, ROTATION_MINUTES_60, GAME_END_60);
       players.forEach(p => {
         const pt = minutes.get(p.playerId) ?? 0;

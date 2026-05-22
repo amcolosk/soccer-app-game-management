@@ -254,6 +254,87 @@ describe("PlanTab", () => {
     expect(screen.getByText("50m")).toBeInTheDocument();
   });
 
+  it("projects correct minutes when stored HT rotation has empty subs but halftimeLineup swaps the goalkeeper (issue #119 regression)", () => {
+    // Scenario: 30-min halves, 10-min interval → rotationsPerHalf=2, halftimeRotationNumber=3.
+    // H1 GK is Ryan (player-gk1). The coach sets Ethan (player-gk2) as H2 GK via the halftime
+    // lineup editor AFTER generating rotations, so the stored HT PlannedRotation (rotNum=3,
+    // gameMinute=30) still has plannedSubstitutions='[]'. Without the fix, calculatePlayTime
+    // sees no HT sub → Ryan stays on field all 60 min (wrong). With the fix, the syntheticHtRotation
+    // subs are injected into the projection-only pass and Ryan correctly gets 30m.
+    const gkPos: FormationPosition = { id: "pos-gk", name: "Goalkeeper", abbreviation: "GK" } as FormationPosition;
+    const fwPos: FormationPosition = { id: "pos-f", name: "Forward", abbreviation: "FW" } as FormationPosition;
+
+    const issueGame: Game = { id: "game-119", status: "scheduled", halfLengthMinutes: 30 } as Game;
+    const issueTeam: Team = {
+      id: "team-1",
+      coaches: ["coach-1"],
+      halfLengthMinutes: 30,
+      formation: { positions: [gkPos, fwPos] } as any,
+    } as Team;
+
+    const issuePlayers = [
+      { id: "player-gk1", firstName: "Ryan", lastName: "H1GK" },
+      { id: "player-gk2", firstName: "Ethan", lastName: "H2GK" },
+      { id: "player-f1", firstName: "Field", lastName: "Player" },
+    ];
+
+    // HT rotation (rotNum=3) stored with empty subs — this is the bug trigger.
+    const issuePlannedRotations: PlannedRotation[] = [
+      { id: "rot-1", half: 1, gameMinute: 10, rotationNumber: 1, plannedSubstitutions: "[]" } as PlannedRotation,
+      { id: "rot-2", half: 1, gameMinute: 20, rotationNumber: 2, plannedSubstitutions: "[]" } as PlannedRotation,
+      { id: "rot-3", half: 2, gameMinute: 30, rotationNumber: 3, plannedSubstitutions: "[]" } as PlannedRotation,
+      { id: "rot-4", half: 2, gameMinute: 40, rotationNumber: 4, plannedSubstitutions: "[]" } as PlannedRotation,
+      { id: "rot-5", half: 2, gameMinute: 50, rotationNumber: 5, plannedSubstitutions: "[]" } as PlannedRotation,
+    ];
+
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      draft: {
+        ...mockPlannerResult.draft,
+        startingLineup: new Map([
+          ["pos-gk", "player-gk1"],
+          ["pos-f", "player-f1"],
+        ]),
+        halftimeLineup: new Map(), // planner draft has no explicit overrides
+        rotationIntervalMinutes: 10,
+      },
+    });
+
+    render(
+      <PlanTab
+        {...defaultProps}
+        game={issueGame}
+        gameState={issueGame}
+        team={issueTeam}
+        players={issuePlayers as any}
+        positions={[gkPos, fwPos]}
+        lineup={[
+          { positionId: "pos-gk", playerId: "player-gk1", isStarter: true } as LineupAssignment,
+          { positionId: "pos-f", playerId: "player-f1", isStarter: true } as LineupAssignment,
+        ]}
+        plannedRotations={issuePlannedRotations}
+        gamePlan={{ id: "plan-119", gameId: "game-119", rotationIntervalMinutes: 10, startingLineup: JSON.stringify([{ positionId: "pos-gk", playerId: "player-gk1" }, { positionId: "pos-f", playerId: "player-f1" }]) } as any}
+        // H2 GK swap: player-gk2 takes over at pos-gk for the entire second half
+        halftimeLineup={new Map([["pos-gk", "player-gk2"]])}
+      />
+    );
+
+    // Ryan H1GK should show 30m (H1 only — swapped out at HT via the effective halftime lineup)
+    const ryanLabel = screen.getByText("Ryan H1GK", { selector: ".playtime-label" });
+    const ryanContainer = ryanLabel.closest(".playtime-bar-container")!;
+    expect(within(ryanContainer).getByText("30m", { selector: ".playtime-minutes" })).toBeInTheDocument();
+
+    // Ethan H2GK should show 30m (H2 only — enters at HT)
+    const ethanLabel = screen.getByText("Ethan H2GK", { selector: ".playtime-label" });
+    const ethanContainer = ethanLabel.closest(".playtime-bar-container")!;
+    expect(within(ethanContainer).getByText("30m", { selector: ".playtime-minutes" })).toBeInTheDocument();
+
+    // Field Player should show 60m (entire game, no subs)
+    const fieldLabel = screen.getByText("Field Player", { selector: ".playtime-label" });
+    const fieldContainer = fieldLabel.closest(".playtime-bar-container")!;
+    expect(within(fieldContainer).getByText("60m", { selector: ".playtime-minutes" })).toBeInTheDocument();
+  });
+
   it("uses canonical rotations-per-half formula floor(halfLength/interval)-1", () => {
     render(<PlanTab {...defaultProps} />);
 
