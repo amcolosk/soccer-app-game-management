@@ -41,6 +41,10 @@ interface SubstitutionPanelProps {
   mutations: GameMutationInput;
 }
 
+const DUPLICATE_ON_FIELD_WARNING = "This player is already on the field in another position";
+const QUEUED_DUPLICATE_ON_FIELD_WARNING =
+  "Queued substitution removed: player is already on the field in another position.";
+
 export function SubstitutionPanel({
   gameState,
   game,
@@ -107,7 +111,7 @@ export function SubstitutionPanel({
 
   const handleQueueSubstitution = (playerId: string, positionId: string) => {
     if (isStarterInAnotherPosition(playerId, positionId)) {
-      showWarning("This player is already on the field in another position");
+      showWarning(DUPLICATE_ON_FIELD_WARNING);
       return;
     }
 
@@ -170,7 +174,7 @@ export function SubstitutionPanel({
 
         if (isStarterInAnotherPosition(newPlayerId, positionId)) {
           onQueueRemove(queueItem.id);
-          showWarning('Queued substitution removed: player is already on the field in another position.');
+          showWarning(QUEUED_DUPLICATE_ON_FIELD_WARNING);
           continue;
         }
 
@@ -227,7 +231,7 @@ export function SubstitutionPanel({
     if (isStarterInAnotherPosition(newPlayerId, positionId)) {
       executingIdsRef.current.delete(queueItem.id);
       onQueueRemove(queueItem.id);
-      showWarning('Queued substitution removed: player is already on the field in another position.');
+      showWarning(QUEUED_DUPLICATE_ON_FIELD_WARNING);
       return;
     }
 
@@ -265,7 +269,7 @@ export function SubstitutionPanel({
     if (!currentAssignment) return;
 
     if (isStarterInAnotherPosition(newPlayerId, substitutionPosition.id)) {
-      showWarning("This player is already on the field in another position");
+      showWarning(DUPLICATE_ON_FIELD_WARNING);
       return;
     }
 
@@ -295,7 +299,7 @@ export function SubstitutionPanel({
 
   const handleAssignPosition = async (positionId: string, playerId: string) => {
     if (isStarterInAnotherPosition(playerId, positionId)) {
-      showWarning("This player is already on the field in another position");
+      showWarning(DUPLICATE_ON_FIELD_WARNING);
       return;
     }
 

@@ -58,10 +58,12 @@ export function RotationWidget({
   const { getPlayerAvailability } = useAvailability();
   const [internalShowRotationModal, setInternalShowRotationModal] = useState(false);
   const [currentRotation, setCurrentRotation] = useState<PlannedRotation | null>(null);
+  const isIncomingPlayerOnField = (sub: PlannedSubstitution) =>
+    lineup?.some(l => l.isStarter && l.playerId === sub.playerInId) ?? false;
+
   const hasOnFieldConflict = (sub: PlannedSubstitution) => {
-    const playerInOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerInId) ?? false;
     const playerOutOnField = lineup?.some(l => l.isStarter && l.playerId === sub.playerOutId) ?? false;
-    return playerInOnField && playerOutOnField;
+    return isIncomingPlayerOnField(sub) && playerOutOnField;
   };
 
   const isQueueEligible = (sub: PlannedSubstitution) => {
@@ -73,7 +75,7 @@ export function RotationWidget({
       inAvailability === 'available'
       && !isQueued
       && !isSubEffectivelyExecuted(sub, lineup ?? [])
-      && !hasOnFieldConflict(sub)
+      && !isIncomingPlayerOnField(sub)
     );
   };
 

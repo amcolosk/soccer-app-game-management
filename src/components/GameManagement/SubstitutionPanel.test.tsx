@@ -25,7 +25,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // ---------------------------------------------------------------------------
@@ -421,9 +421,8 @@ describe('SubstitutionPanel', () => {
       />,
     );
 
-    const bobRow = screen.getByText(/Bob Jones/i).closest('.sub-player-item');
-    expect(bobRow).not.toBeNull();
-    await user.click(within(bobRow as HTMLElement).getByTitle('Add to substitution queue'));
+    await waitFor(() => expect(screen.getAllByTitle('Add to substitution queue')).toHaveLength(2));
+    await user.click(screen.getAllByTitle('Add to substitution queue')[1]);
 
     expect(onQueueAdd).not.toHaveBeenCalled();
     expect(mockShowWarning).toHaveBeenCalledWith('This player is already on the field in another position');
