@@ -84,6 +84,56 @@ describe('rotationPlannerService', () => {
       expect(warnings).toContain('No available players-all have been marked injured.');
     });
 
+    it('adds diagnostics when starting lineup contains duplicate players or positions', () => {
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' },
+        { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: 'pos2' },
+      ];
+
+      const { warnings } = calculateFairRotations(
+        players,
+        [
+          { playerId: 'p1', positionId: 'pos1' },
+          { playerId: 'p1', positionId: 'pos2' },
+          { playerId: 'p2', positionId: 'pos2' },
+        ],
+        1,
+        0,
+        2,
+      );
+
+      expect(warnings).toContain('Starting lineup has duplicate player assignments: p1.');
+      expect(warnings).toContain('Starting lineup has duplicate position assignments: pos2.');
+    });
+
+    it('adds diagnostics when halftime lineup contains duplicate players or positions', () => {
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' },
+        { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: 'pos2' },
+        { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: 'pos3' },
+      ];
+
+      const { warnings } = calculateFairRotations(
+        players,
+        [
+          { playerId: 'p1', positionId: 'pos1' },
+          { playerId: 'p2', positionId: 'pos2' },
+        ],
+        1,
+        0,
+        2,
+        undefined,
+        [
+          { playerId: 'p3', positionId: 'pos1' },
+          { playerId: 'p3', positionId: 'pos2' },
+          { playerId: 'p2', positionId: 'pos2' },
+        ],
+      );
+
+      expect(warnings).toContain('Halftime lineup has duplicate player assignments: p3.');
+      expect(warnings).toContain('Halftime lineup has duplicate position assignments: pos2.');
+    });
+
     it('should create 4 rotations for 30-minute halves with 10-minute intervals', () => {
       // 30 min halves, 10 min intervals = 2 rotations per half = 4 total
       const players: SimpleRoster[] = [
