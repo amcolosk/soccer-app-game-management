@@ -6,7 +6,7 @@
  * consistent calculations across the application.
  */
 
-import type { PlayTimeRecord } from "../types/schema";
+import type { Goal, PlayTimeRecord } from "../types/schema";
 
 /**
  * Row shape for goals / assists attributed to a field position.
@@ -203,6 +203,52 @@ export function normalizeCompletedRecords(
   );
 }
 
+function getAttributedPlayTimeRecord(
+  playTimeRecords: PlayTimeRecord[],
+  playerId: string,
+  gameId: string,
+  gameSeconds: number
+): PlayTimeRecord | null {
+  const candidates = playTimeRecords.filter(record => {
+    if (record.playerId !== playerId || record.gameId !== gameId) {
+      return false;
+    }
+
+    const recordEnd = record.endGameSeconds ?? Number.POSITIVE_INFINITY;
+    return record.startGameSeconds <= gameSeconds && gameSeconds <= recordEnd;
+  });
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort((a, b) => {
+    if (a.startGameSeconds !== b.startGameSeconds) {
+      return b.startGameSeconds - a.startGameSeconds;
+    }
+
+    const aEnd = a.endGameSeconds ?? Number.POSITIVE_INFINITY;
+    const bEnd = b.endGameSeconds ?? Number.POSITIVE_INFINITY;
+    if (aEnd !== bEnd) {
+      return aEnd - bEnd;
+    }
+
+    return a.id.localeCompare(b.id);
+  })[0];
+}
+
+function resolvePositionName(
+  record: PlayTimeRecord | null,
+  positions: Map<string, { positionName: string }>
+): string | null {
+  if (!record?.positionId) {
+    return null;
+  }
+
+  const position = positions.get(record.positionId);
+  return position ? position.positionName : null;
+}
+
 /**
  * Calculate goals and assists attributed to field positions at the team level.
  *
@@ -241,43 +287,19 @@ export function calculateTeamGoalsAssistsByPosition(
   // Accumulator: positionName → { goals, assists }
   const rowMap = new Map<string, { goals: number; assists: number }>();
 
-  /**
-   * Resolve the active position name for a player at a specific game second.
-   * Returns null when no matching record exists or the position is not in the map.
-   * Null/undefined endGameSeconds is treated as an open-ended (active) interval.
-   * Deterministic tie-break: greatest startGameSeconds wins.
-   */
-  const resolvePosition = (
-    playerId: string,
-    gameId: string,
-    gameSeconds: number
-  ): string | null => {
-    const candidates = playTimeRecords.filter(
-      r =>
-        r.playerId === playerId &&
-        r.gameId === gameId &&
-        r.startGameSeconds <= gameSeconds &&
-        (r.endGameSeconds == null || gameSeconds <= r.endGameSeconds)
-    );
-    if (candidates.length === 0) return null;
-
-    // Deterministic: pick the record with the greatest startGameSeconds.
-    const record = candidates.reduce((best, r) =>
-      r.startGameSeconds > best.startGameSeconds ? r : best
-    );
-
-    if (!record.positionId) return null;
-    const pos = positions.get(record.positionId);
-    return pos ? pos.positionName : null;
-  };
-
   for (const goal of ourGoals) {
     // Goals with no gameSeconds cannot be attributed to a position.
     if (goal.gameSeconds == null) continue;
 
     // Attribute the scorer.
     if (goal.scorerId) {
-      const posName = resolvePosition(goal.scorerId, goal.gameId, goal.gameSeconds);
+      const record = getAttributedPlayTimeRecord(
+        playTimeRecords,
+        goal.scorerId,
+        goal.gameId,
+        goal.gameSeconds
+      );
+      const posName = resolvePositionName(record, positions);
       if (posName !== null) {
         const row = rowMap.get(posName) ?? { goals: 0, assists: 0 };
         rowMap.set(posName, { goals: row.goals + 1, assists: row.assists });
@@ -286,7 +308,13 @@ export function calculateTeamGoalsAssistsByPosition(
 
     // Attribute the assister independently.
     if (goal.assistId) {
-      const posName = resolvePosition(goal.assistId, goal.gameId, goal.gameSeconds);
+      const record = getAttributedPlayTimeRecord(
+        playTimeRecords,
+        goal.assistId,
+        goal.gameId,
+        goal.gameSeconds
+      );
+      const posName = resolvePositionName(record, positions);
       if (posName !== null) {
         const row = rowMap.get(posName) ?? { goals: 0, assists: 0 };
         rowMap.set(posName, { goals: row.goals, assists: row.assists + 1 });
@@ -360,12 +388,7 @@ export function calculateGoalsAssistsByPosition(
   // Find the position name for a given (gameId, gameSeconds) pair.
   const findPosition = (gameId: string, gameSeconds: number | null | undefined): string => {
     if (gameSeconds == null) return 'Unknown position';
-    const record = playerRecords.find(
-      r =>
-        r.gameId === gameId &&
-        r.startGameSeconds <= gameSeconds &&
-        (r.endGameSeconds != null ? gameSeconds <= r.endGameSeconds : false)
-    );
+    const record = getAttributedPlayTimeRecord(playerRecords, playerId, gameId, gameSeconds);
     if (!record) return 'Unknown position';
     const pos = record.positionId ? positions.get(record.positionId) : null;
     return pos?.positionName ?? 'Unknown position';
@@ -398,4 +421,100 @@ export function calculateGoalsAssistsByPosition(
       return nameA.localeCompare(nameB);
     })
     .map(([position, data]) => ({ position, goals: data.goals, assists: data.assists }));
+}
+
+export interface GoalsByPositionRow {
+  positionId: string;
+  positionName: string;
+  goals: number;
+  assists: number;
+}
+
+/**
+ * Calculate goals grouped by field position using play-time interval attribution.
+ *
+ * Attribution rules:
+ * - Count only goals where scoredByUs is true.
+ * - Goal must have scorerId and gameSeconds.
+ * - Match the scorer's play-time records by game and interval.
+ * - If multiple records match, select deterministically by:
+ *   1) latest startGameSeconds
+ *   2) earliest endGameSeconds (null treated as Infinity)
+ *   3) lexicographic record id
+ * - Omit goals when no matching interval, no positionId, or unmapped positionId.
+ *
+ * Output is sorted deterministically by:
+ * - goals desc
+ * - assists desc
+ * - positionName asc
+ * - positionId asc
+ */
+export function calculateGoalsByPosition(
+  goals: Goal[],
+  playTimeRecords: PlayTimeRecord[],
+  positions: Map<string, { positionName: string }>
+): GoalsByPositionRow[] {
+  const goalsByPosition = new Map<string, GoalsByPositionRow>();
+
+  const attributeStatToPosition = (
+    goal: Goal,
+    playerId: string | null | undefined,
+    statKey: 'goals' | 'assists'
+  ) => {
+    if (!playerId) {
+      return;
+    }
+
+    const attributedRecord = getAttributedPlayTimeRecord(
+      playTimeRecords,
+      playerId,
+      goal.gameId,
+      goal.gameSeconds!
+    );
+
+    if (!attributedRecord?.positionId) {
+      return;
+    }
+
+    const position = positions.get(attributedRecord.positionId);
+    if (!position) {
+      return;
+    }
+
+    const existing = goalsByPosition.get(attributedRecord.positionId);
+    if (existing) {
+      existing[statKey] += 1;
+      return;
+    }
+
+    goalsByPosition.set(attributedRecord.positionId, {
+      positionId: attributedRecord.positionId,
+      positionName: position.positionName,
+      goals: statKey === 'goals' ? 1 : 0,
+      assists: statKey === 'assists' ? 1 : 0,
+    });
+  };
+
+  goals.forEach(goal => {
+    if (!goal.scoredByUs || !goal.scorerId || goal.gameSeconds === null || goal.gameSeconds === undefined) {
+      return;
+    }
+
+    attributeStatToPosition(goal, goal.scorerId, 'goals');
+    attributeStatToPosition(goal, goal.assistId, 'assists');
+  });
+
+  return Array.from(goalsByPosition.values()).sort((a, b) => {
+    if (a.goals !== b.goals) {
+      return b.goals - a.goals;
+    }
+    if (a.assists !== b.assists) {
+      return b.assists - a.assists;
+    }
+    const byName = a.positionName.localeCompare(b.positionName);
+    if (byName !== 0) {
+      return byName;
+    }
+    return a.positionId.localeCompare(b.positionId);
+  });
 }

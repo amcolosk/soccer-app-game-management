@@ -13,6 +13,8 @@ import {
   computeLineupAtRotation,
   computeLineupDiff,
 } from "../../utils/gamePlannerUtils";
+import { exportRotationPlanLocally } from "./shape/exportRotationPlan";
+import type { RotationPlanColumn } from "./shape/exportRotationPlan";
 import {
   mergeHalftimeLineup,
   deriveExplicitOverrides,
@@ -830,6 +832,75 @@ export function PlanTab({
     await saveHalfLength(team.halfLengthMinutes ?? 30);
   }, [saveHalfLength, team.halfLengthMinutes]);
 
+  /** Exports the current rotation plan as a CSV file and triggers a browser download. */
+  const handleExportPlan = useCallback(() => {
+    if (!gamePlan) return;
+
+    const h1Rotations = effectivePlannedRotations
+      .filter((r) => r.half === 1)
+      .sort((a, b) => (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0));
+    const h2Rotations = effectivePlannedRotations
+      .filter((r) => r.half === 2)
+      .sort((a, b) => (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0));
+
+    const h1Rows = h1Rotations.map((r) => ({
+      rotationNumber: r.rotationNumber ?? 0,
+      plannedSubstitutions: (r.plannedSubstitutions as string) ?? "[]",
+    }));
+    const h2Rows = h2Rotations.map((r) => ({
+      rotationNumber: r.rotationNumber ?? 0,
+      plannedSubstitutions: (r.plannedSubstitutions as string) ?? "[]",
+    }));
+
+    const columns: RotationPlanColumn[] = [];
+    columns.push({ label: "Start", lineup: new Map(planner.draft.startingLineup) });
+
+    for (const rot of h1Rotations) {
+      const rotNum = rot.rotationNumber ?? 0;
+      const lineup = computeLineupAtRotation(planner.draft.startingLineup, h1Rows, rotNum);
+      columns.push({ label: `R${rotNum} ${rot.gameMinute ?? "?"}′`, lineup });
+    }
+
+    columns.push({ label: "HT", lineup: new Map(effectiveHalftimeLineup) });
+
+    for (const rot of h2Rotations) {
+      const rotNum = rot.rotationNumber ?? 0;
+      const lineup = computeLineupAtRotation(effectiveHalftimeLineup, h2Rows, rotNum);
+      columns.push({ label: `R${rotNum} ${rot.gameMinute ?? "?"}′`, lineup });
+    }
+
+    const playersById = new Map<string, string>();
+    for (const player of players) {
+      playersById.set(
+        player.id,
+        `${player.firstName ?? ""} ${player.lastName ?? ""}`.trim() || player.id
+      );
+    }
+
+    exportRotationPlanLocally({
+      fileStem: `game-${game.id}`,
+      positions: positions.map((p) => ({
+        id: p.id,
+        positionName: p.positionName ?? p.abbreviation ?? p.id,
+      })),
+      columns,
+      playTimeRows: projectedPlayTimeRows.map((r) => ({
+        playerName: r.playerName,
+        totalMinutes: r.totalMinutes,
+      })),
+      playersById,
+    });
+  }, [
+    gamePlan,
+    planner.draft.startingLineup,
+    effectivePlannedRotations,
+    effectiveHalftimeLineup,
+    players,
+    positions,
+    projectedPlayTimeRows,
+    game.id,
+  ]);
+
   const requestTimelineSelection = useCallback((nextKey: string): boolean => {
     if (nextKey === selectedKey) return true;
 
@@ -1295,7 +1366,24 @@ export function PlanTab({
         </div>
       )}
 
-      {/* 9. Copy-from-game modal */}
+      {/* 9. Export plan as CSV */}
+      {gamePlan && (
+        <button
+          type="button"
+          className="btn-secondary plan-tab__export-btn"
+          onClick={handleExportPlan}
+          disabled={effectivePlannedRotations.length === 0}
+          title={
+            effectivePlannedRotations.length === 0
+              ? "No rotations to export yet"
+              : undefined
+          }
+        >
+          Export Plan as CSV
+        </button>
+      )}
+
+      {/* 10. Copy-from-game modal */}
       {isCopyModalOpen && onCloseCopyModal && (
         <div
           className="modal-overlay"

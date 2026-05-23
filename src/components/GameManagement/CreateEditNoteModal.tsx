@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { showError } from "../../utils/toast";
+import { isLikelyIOS } from "../../utils/deviceDetect";
 import type { PlayerWithRoster } from "./types";
 
 type InitialNote = {
@@ -129,8 +130,14 @@ export function CreateEditNoteModal({
             onChange={(event) => setNoteText(event.target.value)}
             placeholder="e.g., Focus on transitions in midfield"
             aria-label="Coaching note text"
+            aria-describedby={isLikelyIOS() ? "create-note-ios-shake-tip" : undefined}
           />
           <div className="char-counter" aria-live="polite">{counterLabel}</div>
+          {isLikelyIOS() && (
+            <p id="create-note-ios-shake-tip" className="note-modal__voice-hint">
+              iPhone/iPad tip: shaking the device can open the iOS Undo Typing dialog. To avoid it, turn off Settings &gt; Accessibility &gt; Touch &gt; Shake to Undo.
+            </p>
+          )}
         </div>
 
         <div className="form-group">

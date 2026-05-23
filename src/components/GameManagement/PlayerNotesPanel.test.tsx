@@ -16,6 +16,10 @@ vi.mock("../../utils/toast", () => ({
   showInfo: vi.fn(),
 }));
 
+vi.mock("../../utils/deviceDetect", () => ({
+  isLikelyIOS: vi.fn(() => false),
+}));
+
 const speechState: {
   isSupported: boolean;
   status: string;
@@ -480,5 +484,71 @@ describe("PlayerNotesPanel", () => {
 
     expect(screen.getAllByRole("button", { name: "Edit note", hidden: true })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Delete note", hidden: true })).toHaveLength(1);
+  });
+
+  // ── iOS shake-to-undo tip ─────────────────────────────────────────────────
+
+  describe("iOS shake-to-undo tip", () => {
+    it("does not render the tip in the live note modal on non-iOS", async () => {
+      const user = userEvent.setup();
+      renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
+
+      await user.click(screen.getByRole("button", { name: /Gold Star/i }));
+
+      expect(screen.queryByText(/Shake to Undo/i)).not.toBeInTheDocument();
+    });
+
+    it("renders tip and aria-describedby in the live note modal on iOS", async () => {
+      const user = userEvent.setup();
+      const { isLikelyIOS } = await import("../../utils/deviceDetect");
+      vi.mocked(isLikelyIOS).mockReturnValue(true);
+
+      renderWithProvider(<PlayerNotesPanel {...defaultProps} />);
+      await user.click(screen.getByRole("button", { name: /Gold Star/i }));
+
+      const tip = screen.getByText(/Shake to Undo/i);
+      expect(tip).toBeInTheDocument();
+      expect(tip.id).toBe("live-note-ios-shake-tip");
+
+      const textarea = screen.getByLabelText("Note");
+      expect(textarea).toHaveAttribute("aria-describedby", "live-note-ios-shake-tip");
+
+      vi.mocked(isLikelyIOS).mockReturnValue(false);
+    });
+
+    it("renders tip and aria-describedby in the edit note modal on iOS", async () => {
+      const user = userEvent.setup();
+      const { isLikelyIOS } = await import("../../utils/deviceDetect");
+      vi.mocked(isLikelyIOS).mockReturnValue(true);
+
+      const existingNote = {
+        id: "note-edit-ios",
+        noteType: "other",
+        gameSeconds: 600,
+        half: 1,
+        authorId: "coach-1",
+        notes: "Check shape",
+        timestamp: new Date().toISOString(),
+      } as any;
+
+      renderWithProvider(
+        <PlayerNotesPanel
+          {...defaultProps}
+          currentUserId="coach-1"
+          gameNotes={[existingNote]}
+        />
+      );
+
+      await user.click(screen.getByRole("button", { name: "Edit note" }));
+
+      const tips = screen.getAllByText(/Shake to Undo/i);
+      const editTip = tips.find((el) => el.id === "edit-note-ios-shake-tip");
+      expect(editTip).toBeDefined();
+
+      const textarea = screen.getByLabelText("Note");
+      expect(textarea).toHaveAttribute("aria-describedby", "edit-note-ios-shake-tip");
+
+      vi.mocked(isLikelyIOS).mockReturnValue(false);
+    });
   });
 });

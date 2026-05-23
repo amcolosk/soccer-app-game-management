@@ -88,7 +88,9 @@ export function TeamReport({ team }: TeamReportProps) {
   const { data: allGames, isSynced: gamesSynced } = useAmplifyQuery('Game', {
     filter: { teamId: { eq: team.id } },
   }, [team.id]);
-  const { data: allPositions, isSynced: positionsSynced } = useAmplifyQuery('FormationPosition');
+  const { data: allPositions, isSynced: positionsSynced } = useAmplifyQuery('FieldPosition', {
+    filter: { teamId: { eq: team.id } },
+  }, [team.id]);
 
   // Track sync status for Phase 2 data (fetched via list(), not observeQuery)
   const [phase2Synced, setPhase2Synced] = useState(false);
@@ -121,21 +123,16 @@ export function TeamReport({ team }: TeamReportProps) {
     trackEvent(AnalyticsEvents.SEASON_REPORT_VIEWED.category, AnalyticsEvents.SEASON_REPORT_VIEWED.action);
   }, []);
 
-  // Positions map filtered to the team's formation, with an all-positions
-  // fallback when no formation is set or no matching positions are found.
-  // Used both by the team-level Goals & Assists by Position table and by
-  // loadPlayerDetails (which also computes it locally for its own use).
+  // FieldPosition records are already queried team-scoped, so this memo is a
+  // straightforward id -> display metadata map reused across report sections.
   const effectivePositionsMap = useMemo(() => {
-    const teamFormationId = team.formationId ?? null;
-    const filtered = new Map(
-      allPositions
-        .filter(p => teamFormationId == null || p.formationId === teamFormationId)
-        .map(p => [p.id, { positionName: p.positionName, sortOrder: p.sortOrder ?? null }])
+    return new Map(
+      allPositions.map(position => [
+        position.id,
+        { positionName: position.positionName, sortOrder: position.sortOrder ?? null },
+      ])
     );
-    return filtered.size > 0
-      ? filtered
-      : new Map(allPositions.map(p => [p.id, { positionName: p.positionName, sortOrder: p.sortOrder ?? null }]));
-  }, [allPositions, team.formationId]);
+  }, [allPositions]);
 
   // Team-level Goals & Assists by Position, derived from already-loaded data.
   const teamGoalsAssistsByPosition = useMemo((): PositionGoalAssistRow[] => {
@@ -495,20 +492,6 @@ export function TeamReport({ team }: TeamReportProps) {
           return r;
         });
  
-      // Create position map with position names and sort order
-      // Team-scoped: filter to positions belonging to the team's formation when available.
-      const teamFormationId = team.formationId ?? null;
-      const positionsMap = new Map(
-        allPositions
-          .filter(p => teamFormationId == null || p.formationId === teamFormationId)
-          .map(p => [p.id, { positionName: p.positionName, sortOrder: p.sortOrder ?? null }])
-      );
-
-      // Fallback: if the filtered map is empty (no matching formation), use all positions.
-      const effectivePositionsMap = positionsMap.size > 0
-        ? positionsMap
-        : new Map(allPositions.map(p => [p.id, { positionName: p.positionName, sortOrder: p.sortOrder ?? null }]));
-
       // Calculate play time by position
       // No need to pass currentGameTime since these are completed games
       const playTimeByPosition = calculatePlayTimeByPosition(
@@ -586,7 +569,7 @@ export function TeamReport({ team }: TeamReportProps) {
 
           {/* Team-Level Goals & Assists by Position */}
           {teamGoalsAssistsByPosition.length > 0 && (
-            <section className="team-goals-by-position-section">
+            <section className="goals-by-position-section team-goals-by-position-section">
               <h2 className="section-heading">⚽ Goals &amp; Assists by Position</h2>
               <div className="stats-table-container">
                 <table

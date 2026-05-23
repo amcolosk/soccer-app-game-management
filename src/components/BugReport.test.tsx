@@ -10,10 +10,12 @@
  *  - Successful submission shows the success screen
  *  - Issue number is displayed when the API returns one
  *  - Cancel button calls onClose
+ *  - debugContext is automatically appended to the steps payload (no manual copy-button required)
+ *  - Automatic-inclusion hint is shown when debugContext is present; absent otherwise
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // ---------------------------------------------------------------------------
@@ -430,121 +432,81 @@ describe("BugReport – debugContext", () => {
     mockCreateGitHubIssue.mockResolvedValue({ data: null });
   });
 
-  it("does not render debug snapshot button without debugContext", () => {
+  it("does not render a 'Copy debug context' button without debugContext", () => {
     renderBugReport();
     expect(screen.queryByRole("button", { name: /Copy debug context/i })).not.toBeInTheDocument();
   });
 
-  it("renders debug snapshot button when debugContext is provided", () => {
+  it("does not render a 'Copy debug context' button even when debugContext is provided", () => {
     renderBugReport(vi.fn(), { debugContext: mockDebugString });
-    expect(screen.getByRole("button", { name: /Copy debug context/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Copy debug context/i })).not.toBeInTheDocument();
   });
 
-  it("clicking the button pre-populates steps textarea with snapshot text", async () => {
+  it("shows an automatic-inclusion hint when debugContext is provided", () => {
+    renderBugReport(vi.fn(), { debugContext: mockDebugString });
+    expect(screen.getByText(/debug context will be automatically included with your report/i)).toBeInTheDocument();
+  });
+
+  it("does not show the debug hint when debugContext is absent", () => {
+    renderBugReport();
+    expect(screen.queryByText(/debug context will be automatically included/i)).not.toBeInTheDocument();
+  });
+
+  it("automatically includes debugContext in the steps payload without any user interaction", async () => {
     const user = userEvent.setup();
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: vi.fn().mockResolvedValue(undefined) },
-      writable: true,
-      configurable: true,
-    });
-
     renderBugReport(vi.fn(), { debugContext: mockDebugString });
-    await user.click(screen.getByRole("button", { name: /Copy debug context/i }));
 
-    const stepsTextarea = screen.getByRole("textbox", { name: /steps to reproduce/i });
-    expect((stepsTextarea as HTMLTextAreaElement).value).toContain('Game Planner Debug Snapshot');
+    await user.type(screen.getByRole("textbox", { name: /what went wrong/i }), "Something broke");
+    await user.click(screen.getByRole("button", { name: /submit report/i }));
+
+    await waitFor(() => expect(mockCreateGitHubIssue).toHaveBeenCalled());
+
+    const arg = mockCreateGitHubIssue.mock.calls[0][0];
+    expect(arg.steps).toContain('Game Planner Debug Snapshot');
+    expect(arg.steps).toContain('Rotation interval: 10 min');
+    expect(arg.steps).toContain('#7 — available');
+    expect(arg.steps).toContain('#12 — late-arrival');
   });
 
-  it("snapshot includes rotation interval, half length, max players, player count", async () => {
+  it("combines user-typed steps with debugContext in the payload when both are present", async () => {
     const user = userEvent.setup();
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: vi.fn().mockResolvedValue(undefined) },
-      writable: true,
-      configurable: true,
-    });
-
     renderBugReport(vi.fn(), { debugContext: mockDebugString });
-    await user.click(screen.getByRole("button", { name: /Copy debug context/i }));
 
-    const stepsTextarea = screen.getByRole("textbox", { name: /steps to reproduce/i });
-    const value = (stepsTextarea as HTMLTextAreaElement).value;
-    expect(value).toContain('Rotation interval: 10 min');
-    expect(value).toContain('Half length: 30 min');
-    expect(value).toContain('Max players on field: 7');
-    expect(value).toContain('Available players: 9');
+    await user.type(screen.getByRole("textbox", { name: /what went wrong/i }), "Something broke");
+    await user.type(screen.getByRole("textbox", { name: /steps to reproduce/i }), "1. Click save");
+    await user.click(screen.getByRole("button", { name: /submit report/i }));
+
+    await waitFor(() => expect(mockCreateGitHubIssue).toHaveBeenCalled());
+
+    const arg = mockCreateGitHubIssue.mock.calls[0][0];
+    expect(arg.steps).toContain('1. Click save');
+    expect(arg.steps).toContain('Game Planner Debug Snapshot');
   });
 
-  it("snapshot includes player jersey number and status", async () => {
+  it("sends only user-typed steps in the payload when debugContext is absent", async () => {
     const user = userEvent.setup();
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: vi.fn().mockResolvedValue(undefined) },
-      writable: true,
-      configurable: true,
-    });
+    renderBugReport();
 
-    renderBugReport(vi.fn(), { debugContext: mockDebugString });
-    await user.click(screen.getByRole("button", { name: /Copy debug context/i }));
+    await user.type(screen.getByRole("textbox", { name: /what went wrong/i }), "Something broke");
+    await user.type(screen.getByRole("textbox", { name: /steps to reproduce/i }), "1. Click save");
+    await user.click(screen.getByRole("button", { name: /submit report/i }));
 
-    const stepsTextarea = screen.getByRole("textbox", { name: /steps to reproduce/i });
-    const value = (stepsTextarea as HTMLTextAreaElement).value;
-    expect(value).toContain('#7 — available');
-    expect(value).toContain('#12 — late-arrival');
+    await waitFor(() => expect(mockCreateGitHubIssue).toHaveBeenCalled());
+
+    const arg = mockCreateGitHubIssue.mock.calls[0][0];
+    expect(arg.steps).toBe('1. Click save');
   });
 
-  it("clicking the button calls navigator.clipboard.writeText", async () => {
+  it("sends steps as undefined when both user steps and debugContext are absent", async () => {
     const user = userEvent.setup();
-    const mockWriteText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: mockWriteText },
-      writable: true,
-      configurable: true,
-    });
+    renderBugReport();
 
-    renderBugReport(vi.fn(), { debugContext: mockDebugString });
-    await user.click(screen.getByRole("button", { name: /Copy debug context/i }));
+    await user.type(screen.getByRole("textbox", { name: /what went wrong/i }), "Something broke");
+    await user.click(screen.getByRole("button", { name: /submit report/i }));
 
-    expect(mockWriteText).toHaveBeenCalledWith(expect.stringContaining('Game Planner Debug Snapshot'));
-  });
+    await waitFor(() => expect(mockCreateGitHubIssue).toHaveBeenCalled());
 
-  it("shows Copied feedback and then resets after timeout", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: vi.fn().mockResolvedValue(undefined) },
-      writable: true,
-      configurable: true,
-    });
-
-    renderBugReport(vi.fn(), { debugContext: mockDebugString });
-    await user.click(screen.getByRole("button", { name: /Copy debug context/i }));
-
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /Copied to clipboard/i })).toBeInTheDocument()
-    );
-
-    await act(async () => {
-      vi.advanceTimersByTime(2100);
-    });
-
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /Copy debug context/i })).toBeInTheDocument()
-    );
-
-    vi.useRealTimers();
-  });
-
-  it("still pre-populates steps when clipboard API is unavailable", async () => {
-    const user = userEvent.setup();
-    Object.defineProperty(navigator, 'clipboard', {
-      value: undefined,
-      writable: true,
-      configurable: true,
-    });
-
-    renderBugReport(vi.fn(), { debugContext: mockDebugString });
-    await user.click(screen.getByRole("button", { name: /Copy debug context/i }));
-
-    const stepsTextarea = screen.getByRole("textbox", { name: /steps to reproduce/i });
-    expect((stepsTextarea as HTMLTextAreaElement).value).toContain('Game Planner Debug Snapshot');
+    const arg = mockCreateGitHubIssue.mock.calls[0][0];
+    expect(arg.steps).toBeUndefined();
   });
 });

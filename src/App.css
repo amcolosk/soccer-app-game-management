@@ -4115,6 +4115,14 @@
   letter-spacing: 0.15em;
 }
 
+.goals-by-position-section {
+  margin-bottom: 2rem;
+}
+
+.goals-by-position-section h2 {
+  margin: 0 0 0.75rem;
+}
+
 .stats-table-container {
   overflow-x: auto;
   border-radius: 12px;
@@ -6704,8 +6712,13 @@
 }
 
 .plan-tab__save-btn,
-.plan-tab__generate-btn {
+.plan-tab__generate-btn,
+.plan-tab__export-btn {
   width: 100%;
+}
+
+.plan-tab__export-btn {
+  min-height: 44px;
 }
 
 .rotation-settings-section-label {

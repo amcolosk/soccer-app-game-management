@@ -24,20 +24,6 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [issueNumber, setIssueNumber] = useState<number | null>(null);
   const [issueUrl, setIssueUrl] = useState<string | null>(null);
-  const [copySuccess, setCopySuccess] = useState(false);
-
-  function handleCopySnapshot() {
-    if (!debugContext) return;
-    // Pre-populate steps textarea immediately (synchronous)
-    setSteps(prev => prev ? `${prev}\n\n${debugContext}` : debugContext as string);
-    // Copy to clipboard (may fail in non-secure context — that's fine)
-    navigator.clipboard?.writeText(debugContext as string).then(() => {
-      setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 2000);
-    }).catch(() => {
-      // Clipboard failed — steps are already pre-populated, no further action needed
-    });
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,11 +51,14 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
         version: import.meta.env.VITE_APP_VERSION || '1.1.0',
       };
 
+      // Combine user-entered steps with any available debug context snapshot
+      const combinedSteps = [steps, debugContext].filter(Boolean).join('\n\n') || undefined;
+
       // Send bug report to GitHub Issues via Lambda
       const result = await client.mutations.createGitHubIssue({
         type: severity === 'feature-request' ? 'FEATURE_REQUEST' : 'BUG',
         description,
-        steps: steps || undefined,
+        steps: combinedSteps,
         severity,
         systemInfo: JSON.stringify(systemInfo),
       });
@@ -151,16 +140,8 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
         {debugContext && (
           <div className="debug-snapshot-row">
             <p className="debug-snapshot-hint">
-              Debug context available — click to add it to the steps field.
+              Debug context will be automatically included with your report.
             </p>
-            <button
-              type="button"
-              className="btn-secondary debug-snapshot-btn"
-              onClick={handleCopySnapshot}
-              disabled={isBusy}
-            >
-              {copySuccess ? '✓ Copied to clipboard' : 'Copy debug context'}
-            </button>
           </div>
         )}
 
@@ -218,7 +199,7 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
 
           <div className="bug-report-info">
             <small>
-              System information will be automatically included to help diagnose the issue.
+              System information{debugContext ? ' and debug context' : ''} will be automatically included to help diagnose the issue.
             </small>
           </div>
 
