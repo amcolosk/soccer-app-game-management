@@ -35,7 +35,8 @@ export interface PositionGoalAssistRow {
 export function calculatePlayerPlayTime(
   playerId: string,
   playTimeRecords: PlayTimeRecord[],
-  currentGameTime?: number
+  currentGameTime?: number,
+  halftimeOffsetSeconds?: number
 ): number {
   const playerRecords = playTimeRecords.filter(r => r.playerId === playerId);
   let totalSeconds = 0;
@@ -49,6 +50,10 @@ export function calculatePlayerPlayTime(
     } else if (currentGameTime !== undefined) {
       // Record is active - calculate from start to current game time
       recordDuration = currentGameTime - record.startGameSeconds;
+      // Deduct halftime pause for records that started before the halftime break occurred
+      if (halftimeOffsetSeconds !== undefined && halftimeOffsetSeconds > 0 && record.startGameSeconds < halftimeOffsetSeconds) {
+        recordDuration -= halftimeOffsetSeconds;
+      }
     }
     // If no endGameSeconds and no currentGameTime provided, duration is 0
 

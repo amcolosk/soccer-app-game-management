@@ -441,8 +441,24 @@ export function PlanTab({
       return { ...rotation, plannedSubstitutions: "[]" };
     });
 
+    // Issue #119: Normalize the HT rotation for play-time projection.
+    // (a) The stored PlannedRotation may have stale or empty plannedSubstitutions when the
+    //     halftime lineup was changed via the lineup builder after rotations were generated.
+    // (b) The synthetic HT sentinel has gameMinute:0 — normalize to halfLengthMinutes so
+    //     calculatePlayTime computes correct segment durations in both H1 and H2.
+    const projectionRotations = sanitizedRotations.map((rotation) => {
+      if (rotation.rotationNumber !== halftimeRotationNumber) return rotation;
+      return {
+        ...rotation,
+        gameMinute: halfLengthMinutes,
+        ...(syntheticHtRotation !== null
+          ? { plannedSubstitutions: syntheticHtRotation.plannedSubstitutions }
+          : {}),
+      };
+    });
+
     const playTimeMap = calculatePlayTime(
-      sanitizedRotations,
+      projectionRotations,
       startingLineupArr,
       planner.draft.rotationIntervalMinutes,
       totalGameMinutes
@@ -468,7 +484,7 @@ export function PlanTab({
     }
 
     return rows.sort((a, b) => b.totalMinutes - a.totalMinutes);
-  }, [players, planner.draft.startingLineup, planner.draft.rotationIntervalMinutes, effectivePlannedRotationsWithHt, totalGameMinutes]);
+  }, [players, planner.draft.startingLineup, planner.draft.rotationIntervalMinutes, effectivePlannedRotationsWithHt, totalGameMinutes, halfLengthMinutes, syntheticHtRotation, halftimeRotationNumber]);
 
   // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Callbacks Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 

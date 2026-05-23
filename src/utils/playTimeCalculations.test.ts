@@ -162,6 +162,46 @@ describe('playTimeCalculations', () => {
       const total = calculatePlayerPlayTime(mockPlayerId, records);
       expect(total).toBe(1200); // Only first record
     });
+
+    it('TC-HT-01: calculatePlayerPlayTime includes halftime offset — correctly excludes halftime pause', () => {
+      // Simulate: Game starts T=0. Halftime starts T=1800 (30m). Second half starts T=2400 (40m). Current T=4200 (70m).
+      // Total game time is 60m (3600s), Halftime was 10m (600s).
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'rec-1', playerId: mockPlayerId, gameId: mockGameId, positionId: 'pos-1',
+          startGameSeconds: 0,
+          endGameSeconds: null, // Still on field
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+        }
+      ];
+
+      // Assuming calculatePlayerPlayTime signature takes a halftimeOffsetSeconds in the future.
+      // We will write the test as it should work after implementation. If the signature doesn't support it,
+      // it will fail (which is the goal of this test phase).
+      const total = calculatePlayerPlayTime(mockPlayerId, records, 4200, 600); // 4200s elapsed, 600s HT offset
+      
+      // Expected total: 4200 - 600 = 3600 seconds (60 mins)
+      expect(total).toBe(3600);
+    });
+
+    it('TC-HT-02: calculatePlayerPlayTime for halftime subs — computes correct duration for sub-on at second half start', () => {
+      // Game started T=0. HT T=1800. H2 started T=2400. Current T=4200.
+      // Player subbed ON at T=2400 (start of second half).
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'rec-1', playerId: mockPlayerId, gameId: mockGameId, positionId: 'pos-1',
+          startGameSeconds: 2400,
+          endGameSeconds: null, // Still on field
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+        }
+      ];
+
+      // Since they came on AT 2400, their play time is simply currentGameTime(4200) - startGameSeconds(2400) = 1800s.
+      // Halftime offset (600s) shouldn't double-penalize them if startGameSeconds is already past the offset.
+      const total = calculatePlayerPlayTime(mockPlayerId, records, 4200, 600);
+      
+      expect(total).toBe(1800); // 30 mins
+    });
   });
 
   describe('calculatePlayTimeByPosition', () => {
