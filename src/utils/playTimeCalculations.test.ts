@@ -6,7 +6,10 @@ import { describe, it, expect } from 'vitest';
 import {
   calculatePlayerPlayTime,
   calculatePlayTimeByPosition,
+  calculateGoalsAssistsByPosition,
+  calculateTeamGoalsAssistsByPosition,
   calculateGoalsByPosition,
+  normalizeCompletedRecords,
   formatPlayTime,
   countGamesPlayed,
   isPlayerCurrentlyPlaying,
@@ -172,7 +175,7 @@ describe('playTimeCalculations', () => {
       expect(total).toBe(1200); // Only first record
     });
 
-    it('TC-HT-01: calculatePlayerPlayTime includes halftime offset — correctly excludes halftime pause', () => {
+    it('TC-HT-01: calculatePlayerPlayTime includes halftime offset G�� correctly excludes halftime pause', () => {
       // Simulate: Game starts T=0. Halftime starts T=1800 (30m). Second half starts T=2400 (40m). Current T=4200 (70m).
       // Total game time is 60m (3600s), Halftime was 10m (600s).
       const records: PlayTimeRecord[] = [
@@ -193,7 +196,7 @@ describe('playTimeCalculations', () => {
       expect(total).toBe(3600);
     });
 
-    it('TC-HT-02: calculatePlayerPlayTime for halftime subs — computes correct duration for sub-on at second half start', () => {
+    it('TC-HT-02: calculatePlayerPlayTime for halftime subs G�� computes correct duration for sub-on at second half start', () => {
       // Game started T=0. HT T=1800. H2 started T=2400. Current T=4200.
       // Player subbed ON at T=2400 (start of second half).
       const records: PlayTimeRecord[] = [
@@ -447,6 +450,339 @@ describe('playTimeCalculations', () => {
     });
   });
 
+  describe('normalizeCompletedRecords', () => {
+    it('should close unclosed records using gameEndSeconds', () => {
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'r1',
+          playerId: mockPlayerId,
+          gameId: mockGameId,
+          startGameSeconds: 0,
+          endGameSeconds: null,
+          createdAt: '',
+          updatedAt: '',
+        },
+        {
+          id: 'r2',
+          playerId: mockPlayerId,
+          gameId: mockGameId,
+          startGameSeconds: 600,
+          endGameSeconds: 900,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ];
+      const result = normalizeCompletedRecords(records, 1200);
+      expect(result[0].endGameSeconds).toBe(1200);
+      expect(result[1].endGameSeconds).toBe(900); // already closed, unchanged
+    });
+
+    it('should not mutate original records', () => {
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'r1',
+          playerId: mockPlayerId,
+          gameId: mockGameId,
+          startGameSeconds: 0,
+          endGameSeconds: null,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ];
+      normalizeCompletedRecords(records, 600);
+      expect(records[0].endGameSeconds).toBeNull();
+    });
+  });
+
+  describe('calculateGoalsAssistsByPosition', () => {
+    const positions = new Map([
+      ['pos-fwd', { positionName: 'Forward', sortOrder: 1 }],
+      ['pos-mid', { positionName: 'Midfielder', sortOrder: 2 }],
+      ['pos-def', { positionName: 'Defender', sortOrder: 3 }],
+    ]);
+
+    it('attributes a goal to the position active at that game-second', () => {
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'r1', playerId: mockPlayerId, gameId: mockGameId,
+          positionId: 'pos-fwd', startGameSeconds: 0, endGameSeconds: 600,
+          createdAt: '', updatedAt: '',
+        },
+      ];
+      const goals = [{ scorerId: mockPlayerId, assistId: null, gameSeconds: 300, gameId: mockGameId }];
+      const result = calculateGoalsAssistsByPosition(mockPlayerId, records, goals, positions);
+      const row = result.find(r => r.position === 'Forward');
+      expect(row?.goals).toBe(1);
+      expect(row?.assists).toBe(0);
+    });
+
+    it('attributes an assist to the position active at that game-second', () => {
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'r1', playerId: mockPlayerId, gameId: mockGameId,
+          positionId: 'pos-mid', startGameSeconds: 0, endGameSeconds: 600,
+          createdAt: '', updatedAt: '',
+        },
+      ];
+      const goals = [{ scorerId: 'other', assistId: mockPlayerId, gameSeconds: 400, gameId: mockGameId }];
+      const result = calculateGoalsAssistsByPosition(mockPlayerId, records, goals, positions);
+      const row = result.find(r => r.position === 'Midfielder');
+      expect(row?.assists).toBe(1);
+      expect(row?.goals).toBe(0);
+    });
+
+    it('seeds all play-time positions with 0s even without events', () => {
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'r1', playerId: mockPlayerId, gameId: mockGameId,
+          positionId: 'pos-fwd', startGameSeconds: 0, endGameSeconds: 600,
+          createdAt: '', updatedAt: '',
+        },
+        {
+          id: 'r2', playerId: mockPlayerId, gameId: mockGameId,
+          positionId: 'pos-def', startGameSeconds: 600, endGameSeconds: 1200,
+          createdAt: '', updatedAt: '',
+        },
+      ];
+      const result = calculateGoalsAssistsByPosition(mockPlayerId, records, [], positions);
+      expect(result.some(r => r.position === 'Forward')).toBe(true);
+      expect(result.some(r => r.position === 'Defender')).toBe(true);
+      result.forEach(r => {
+        expect(r.goals).toBe(0);
+        expect(r.assists).toBe(0);
+      });
+    });
+
+    it('places "Unknown position" last', () => {
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'r1', playerId: mockPlayerId, gameId: mockGameId,
+          positionId: null, startGameSeconds: 0, endGameSeconds: 600,
+          createdAt: '', updatedAt: '',
+        },
+        {
+          id: 'r2', playerId: mockPlayerId, gameId: mockGameId,
+          positionId: 'pos-fwd', startGameSeconds: 600, endGameSeconds: 1200,
+          createdAt: '', updatedAt: '',
+        },
+      ];
+      const result = calculateGoalsAssistsByPosition(mockPlayerId, records, [], positions);
+      expect(result[result.length - 1].position).toBe('Unknown position');
+    });
+
+    it('sorts rows by sortOrder ascending', () => {
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'r1', playerId: mockPlayerId, gameId: mockGameId,
+          positionId: 'pos-def', startGameSeconds: 0, endGameSeconds: 400,
+          createdAt: '', updatedAt: '',
+        },
+        {
+          id: 'r2', playerId: mockPlayerId, gameId: mockGameId,
+          positionId: 'pos-fwd', startGameSeconds: 400, endGameSeconds: 800,
+          createdAt: '', updatedAt: '',
+        },
+        {
+          id: 'r3', playerId: mockPlayerId, gameId: mockGameId,
+          positionId: 'pos-mid', startGameSeconds: 800, endGameSeconds: 1200,
+          createdAt: '', updatedAt: '',
+        },
+      ];
+      const result = calculateGoalsAssistsByPosition(mockPlayerId, records, [], positions);
+      expect(result.map(r => r.position)).toEqual(['Forward', 'Midfielder', 'Defender']);
+    });
+
+    it('attributes goal with null gameSeconds to Unknown position', () => {
+      const records: PlayTimeRecord[] = [
+        {
+          id: 'r1', playerId: mockPlayerId, gameId: mockGameId,
+          positionId: 'pos-fwd', startGameSeconds: 0, endGameSeconds: 600,
+          createdAt: '', updatedAt: '',
+        },
+      ];
+      const goals = [{ scorerId: mockPlayerId, assistId: null, gameSeconds: null, gameId: mockGameId }];
+      const result = calculateGoalsAssistsByPosition(mockPlayerId, records, goals, positions);
+      const unknown = result.find(r => r.position === 'Unknown position');
+      expect(unknown?.goals).toBe(1);
+    });
+  });
+
+  describe('calculateTeamGoalsAssistsByPosition', () => {
+    const positions = new Map([
+      ['pos-fwd', { positionName: 'Forward' }],
+      ['pos-mid', { positionName: 'Midfielder' }],
+      ['pos-def', { positionName: 'Defender' }],
+    ]);
+
+    const makeRecord = (
+      playerId: string,
+      gameId: string,
+      positionId: string,
+      start: number,
+      end: number | null
+    ): PlayTimeRecord => ({
+      id: `r-${playerId}-${start}`,
+      playerId,
+      gameId,
+      positionId,
+      startGameSeconds: start,
+      endGameSeconds: end,
+      createdAt: '',
+      updatedAt: '',
+    });
+
+    it('attributes a scorer goal to the active position at that game-second', () => {
+      const records = [makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600)];
+      const goals = [{ scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 300, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({ position: 'Forward', goals: 1, assists: 0 });
+    });
+
+    it('attributes an assister independently of scorer', () => {
+      const records = [
+        makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600),
+        makeRecord('player-2', 'game-1', 'pos-mid', 0, 600),
+      ];
+      const goals = [{ scoredByUs: true, scorerId: 'player-1', assistId: 'player-2', gameSeconds: 300, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      const fwdRow = result.find(r => r.position === 'Forward')!;
+      const midRow = result.find(r => r.position === 'Midfielder')!;
+      expect(fwdRow).toEqual({ position: 'Forward', goals: 1, assists: 0 });
+      expect(midRow).toEqual({ position: 'Midfielder', goals: 0, assists: 1 });
+    });
+
+    it('filters out goals where scoredByUs is false', () => {
+      const records = [makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600)];
+      const goals = [{ scoredByUs: false, scorerId: 'player-1', assistId: null, gameSeconds: 300, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(0);
+    });
+
+    it('filters out goals where scoredByUs is null', () => {
+      const records = [makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600)];
+      const goals = [{ scoredByUs: null, scorerId: 'player-1', assistId: null, gameSeconds: 300, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(0);
+    });
+
+    it('omits scorer event when no matching PlayTimeRecord exists G�� no Unknown row', () => {
+      const records: PlayTimeRecord[] = []; // no records at all
+      const goals = [{ scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 300, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(0);
+    });
+
+    it('omits scorer event when positionId is not in the positions map', () => {
+      const records = [makeRecord('player-1', 'game-1', 'pos-unknown', 0, 600)];
+      const goals = [{ scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 300, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(0);
+    });
+
+    it('treats null endGameSeconds as an open-ended interval', () => {
+      // Record has no end (active/unclosed). Should still match any gameSeconds >= start.
+      const records = [makeRecord('player-1', 'game-1', 'pos-fwd', 0, null)];
+      const goals = [{ scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 900, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({ position: 'Forward', goals: 1, assists: 0 });
+    });
+
+    it('applies deterministic overlap rule: chooses record with greatest startGameSeconds', () => {
+      // Two overlapping open-ended records for the same player. The one with
+      // the greater startGameSeconds (pos-mid, start=300) should win.
+      const records = [
+        makeRecord('player-1', 'game-1', 'pos-fwd', 0, null),    // start=0, open
+        makeRecord('player-1', 'game-1', 'pos-mid', 300, null),  // start=300, open
+      ];
+      const goals = [{ scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 450, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(1);
+      expect(result[0].position).toBe('Midfielder');
+    });
+
+    it('sorts rows by goals descending then assists descending', () => {
+      // player-4 plays pos-gk which is NOT in the positions map.
+      // Goals scored by player-4 (scorer contribution omitted) are used to
+      // generate clean assists for other positions without inflating their goal tallies.
+      const records = [
+        makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600),
+        makeRecord('player-2', 'game-1', 'pos-mid', 0, 600),
+        makeRecord('player-3', 'game-1', 'pos-def', 0, 600),
+        makeRecord('player-4', 'game-1', 'pos-gk', 0, 600), // pos-gk not in positions map
+      ];
+      const goals = [
+        // Forward: 3 goals, 0 assists
+        { scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 50, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 100, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 150, gameId: 'game-1' },
+        // Midfielder: 2 goals, 1 assist
+        { scoredByUs: true, scorerId: 'player-2', assistId: null, gameSeconds: 200, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-2', assistId: null, gameSeconds: 250, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-4', assistId: 'player-2', gameSeconds: 300, gameId: 'game-1' },
+        // Defender: 1 goal, 2 assists
+        { scoredByUs: true, scorerId: 'player-3', assistId: null, gameSeconds: 350, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-4', assistId: 'player-3', gameSeconds: 400, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-4', assistId: 'player-3', gameSeconds: 450, gameId: 'game-1' },
+      ];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result.map(r => r.position)).toEqual(['Forward', 'Midfielder', 'Defender']);
+      expect(result[0]).toEqual({ position: 'Forward', goals: 3, assists: 0 });
+      expect(result[1]).toEqual({ position: 'Midfielder', goals: 2, assists: 1 });
+      expect(result[2]).toEqual({ position: 'Defender', goals: 1, assists: 2 });
+    });
+
+    it('breaks goals tie by assists descending', () => {
+      // player-4 plays pos-gk (not in positions map) so their scorer contribution
+      // is omitted, letting us give player-2 (mid) 2 clean assists without extra goals.
+      const records = [
+        makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600),
+        makeRecord('player-2', 'game-1', 'pos-mid', 0, 600),
+        makeRecord('player-4', 'game-1', 'pos-gk', 0, 600), // pos-gk not in positions map
+      ];
+      const goals = [
+        // Forward: 1 goal, 0 assists
+        { scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 100, gameId: 'game-1' },
+        // Midfielder: 1 goal, 2 assists (via goals scored by unmapped player-4)
+        { scoredByUs: true, scorerId: 'player-2', assistId: null, gameSeconds: 200, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-4', assistId: 'player-2', gameSeconds: 300, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-4', assistId: 'player-2', gameSeconds: 400, gameId: 'game-1' },
+      ];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      // Both positions have 1 goal; Midfielder wins tie with 2 assists vs 0.
+      expect(result[0].position).toBe('Midfielder');
+      expect(result[1].position).toBe('Forward');
+    });
+
+    it('skips goals with null gameSeconds', () => {
+      const records = [makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600)];
+      const goals = [{ scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: null, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(0);
+    });
+
+    it('returns empty array when there are no goals', () => {
+      const records = [makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600)];
+      const result = calculateTeamGoalsAssistsByPosition([], records, positions);
+      expect(result).toHaveLength(0);
+    });
+
+    it('accumulates multiple goals for the same position across games', () => {
+      const records = [
+        makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600),
+        makeRecord('player-1', 'game-2', 'pos-fwd', 0, 600),
+      ];
+      const goals = [
+        { scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 300, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 300, gameId: 'game-2' },
+      ];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({ position: 'Forward', goals: 2, assists: 0 });
+    });
+  });
+
   describe('calculateGoalsByPosition', () => {
     const positions = new Map([
       ['pos-fw', { positionName: 'Forward' }],
@@ -574,7 +910,7 @@ describe('playTimeCalculations', () => {
       ]);
     });
 
-    it('omits assist attribution when interval/position data is invalid', () => {
+    it('omits assist attribution when interval or position data is invalid', () => {
       const goals: Goal[] = [
         {
           id: 'goal-1',

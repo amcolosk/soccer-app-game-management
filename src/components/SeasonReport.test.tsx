@@ -91,7 +91,7 @@ describe('TeamReport', () => {
 
       if (modelName === 'FieldPosition') {
         return {
-          data: [{ id: 'pos-1', positionName: 'Forward' }],
+          data: [{ id: 'pos-1', positionName: 'Forward', sortOrder: 1 }],
           isSynced: true,
         };
       }
@@ -131,8 +131,8 @@ describe('TeamReport', () => {
       data: [
         {
           id: 'ptr-1',
-          gameId: 'game-1',
           playerId: 'player-1',
+          gameId: 'game-1',
           positionId: 'pos-1',
           startGameSeconds: 0,
           endGameSeconds: 600,
@@ -148,15 +148,29 @@ describe('TeamReport', () => {
     );
 
     await waitFor(() => {
-      const heading = screen.getByRole('heading', { name: 'Goals by Position' });
-      expect(heading).toBeInTheDocument();
-      const section = heading.closest('section');
-      expect(section).not.toBeNull();
-      expect(within(section as HTMLElement).getByRole('columnheader', { name: 'Assists' })).toBeInTheDocument();
-      expect(within(section as HTMLElement).getByRole('rowheader', { name: 'Forward' })).toBeInTheDocument();
-      const rows = within(section as HTMLElement).getAllByRole('row');
+      const table = screen.getByRole('table', { name: 'Team goals and assists by field position' });
+      expect(table).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Goals & Assists by Position/i })).toBeInTheDocument();
+      expect(within(table).getByRole('rowheader', { name: 'Forward' })).toBeInTheDocument();
+      const rows = within(table).getAllByRole('row');
       expect(within(rows[1]).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['1', '0']);
     });
+  });
+
+  it('player detail rows are keyboard-accessible with onKeyDown handler', async () => {
+    render(
+      <TeamReport
+        team={{ id: 'team-1', name: 'Tigers', coaches: [] } as never}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sam Lee/)).toBeInTheDocument();
+    });
+
+    const playerRow = screen.getByText(/Sam Lee/).closest('tr')!;
+    expect(playerRow).toHaveAttribute('tabindex', '0');
+    expect(playerRow).toHaveAttribute('aria-selected', 'false');
   });
 
   it('renders assists-inclusive goals-by-position rows sorted by goals then assists', async () => {
@@ -251,12 +265,11 @@ describe('TeamReport', () => {
     );
 
     await waitFor(() => {
-      const heading = screen.getByRole('heading', { name: 'Goals by Position' });
-      const section = heading.closest('section') as HTMLElement;
-      const rowHeaders = within(section).getAllByRole('rowheader');
+      const table = screen.getByRole('table', { name: 'Team goals and assists by field position' });
+      const rowHeaders = within(table).getAllByRole('rowheader');
       expect(rowHeaders.map(row => row.textContent)).toEqual(['Forward', 'Midfielder']);
 
-      const rows = within(section).getAllByRole('row');
+      const rows = within(table).getAllByRole('row');
       expect(within(rows[1]).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['1', '1']);
       expect(within(rows[2]).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['1', '0']);
     });
@@ -277,6 +290,7 @@ describe('TeamReport', () => {
     await waitFor(() => {
       expect(screen.getByText('Season Report: Tigers')).toBeInTheDocument();
     });
-    expect(screen.queryByRole('heading', { name: 'Goals by Position' })).not.toBeInTheDocument();
+
+    expect(screen.queryByRole('table', { name: 'Team goals and assists by field position' })).not.toBeInTheDocument();
   });
 });
