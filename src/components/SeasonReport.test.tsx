@@ -96,6 +96,13 @@ describe('TeamReport', () => {
         };
       }
 
+      if (modelName === 'FormationPosition') {
+        return {
+          data: [],
+          isSynced: true,
+        };
+      }
+
       return { data: [], isSynced: true };
     });
 
@@ -154,6 +161,82 @@ describe('TeamReport', () => {
       expect(within(table).getByRole('rowheader', { name: 'Forward' })).toBeInTheDocument();
       const rows = within(table).getAllByRole('row');
       expect(within(rows[1]).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['1', '0']);
+    });
+  });
+
+  it('renders goals by position from formation-position attribution', async () => {
+    mockUseAmplifyQuery.mockImplementation((modelName: string) => {
+      if (modelName === 'TeamRoster') {
+        return {
+          data: [{ id: 'roster-1', teamId: 'team-1', playerId: 'player-1', playerNumber: 10 }],
+          isSynced: true,
+        };
+      }
+
+      if (modelName === 'Player') {
+        return {
+          data: [{ id: 'player-1', firstName: 'Sam', lastName: 'Lee' }],
+          isSynced: true,
+        };
+      }
+
+      if (modelName === 'Game') {
+        return {
+          data: [
+            {
+              id: 'game-1',
+              teamId: 'team-1',
+              status: 'completed',
+              elapsedSeconds: 600,
+              ourScore: 1,
+              opponentScore: 0,
+              gameDate: '2030-06-01',
+              opponent: 'Rivals',
+            },
+          ],
+          isSynced: true,
+        };
+      }
+
+      if (modelName === 'FieldPosition') {
+        return { data: [], isSynced: true };
+      }
+
+      if (modelName === 'FormationPosition') {
+        return {
+          data: [{ id: 'form-pos-1', positionName: 'Center Midfielder', sortOrder: 1 }],
+          isSynced: true,
+        };
+      }
+
+      return { data: [], isSynced: true };
+    });
+
+    mockPlayTimeByGame.mockResolvedValue({
+      data: [
+        {
+          id: 'ptr-1',
+          playerId: 'player-1',
+          gameId: 'game-1',
+          positionId: 'form-pos-1',
+          startGameSeconds: 0,
+          endGameSeconds: 600,
+        },
+      ],
+      nextToken: null,
+    });
+
+    render(
+      <TeamReport
+        team={{ id: 'team-1', name: 'Tigers', formationId: 'formation-1', coaches: [] } as never}
+      />
+    );
+
+    await waitFor(() => {
+      const table = screen.getByRole('table', { name: 'Team goals and assists by field position' });
+      expect(table).toBeInTheDocument();
+      expect(within(table).getByRole('rowheader', { name: 'Center Midfielder' })).toBeInTheDocument();
+      expect(screen.queryByRole('rowheader', { name: 'Unknown position' })).not.toBeInTheDocument();
     });
   });
 
