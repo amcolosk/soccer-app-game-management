@@ -4115,6 +4115,14 @@
   letter-spacing: 0.15em;
 }
 
+.goals-by-position-section {
+  margin-bottom: 2rem;
+}
+
+.goals-by-position-section h2 {
+  margin: 0 0 0.75rem;
+}
+
 .stats-table-container {
   overflow-x: auto;
   border-radius: 12px;
@@ -4180,6 +4188,41 @@
   z-index: 3;
 }
 
+/* Generic sticky first-column hook – used where the first-column label is not
+   a player name (e.g. position-name cells in the team goals/assists table).
+   Do not use .player-name on non-player cells; use this class instead. */
+.sticky-first-col {
+  font-weight: 600;
+  min-width: 130px;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--card-background);
+  transition: background 0.2s;
+}
+
+.stats-table thead th.sticky-first-col {
+  background: var(--primary-green);
+  color: white;
+  z-index: 3;
+}
+
+.stats-table tbody tr:hover th.sticky-first-col {
+  background: #e8f5e9;
+}
+
+/* Team-level Goals & Assists by Position section */
+.team-goals-by-position-section {
+  margin-bottom: 2rem;
+}
+
+.section-heading {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 1rem 0;
+}
+
 @media (max-width: 480px) {
   .stats-table th,
   .stats-table td {
@@ -4188,7 +4231,9 @@
   }
 
   .stats-table td.player-name,
-  .stats-table th.player-name {
+  .stats-table th.player-name,
+  .stats-table td.sticky-first-col,
+  .stats-table th.sticky-first-col {
     padding: 0.5rem 0.6rem;
     min-width: 100px;
   }
@@ -4374,6 +4419,70 @@
   font-size: 0.9em;
   white-space: nowrap;
   margin-left: 1rem;
+}
+
+/* Goals & Assists by Position table */
+.goals-assists-by-position-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.goals-assists-by-position-table th,
+.goals-assists-by-position-table td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.goals-assists-by-position-table thead th {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: var(--card-background);
+}
+
+.goals-assists-by-position-table tbody tr:last-child th,
+.goals-assists-by-position-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.goals-assists-by-position-table tbody tr:hover {
+  background: var(--card-background);
+}
+
+.goals-assists-by-position-table tbody th[scope="row"] {
+  font-weight: 600;
+  color: var(--text-primary);
+  /* Prevent very long position names from overflowing on small phones */
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.goals-assists-by-position-table__unknown-note {
+  font-weight: 400;
+  color: var(--text-secondary);
+  font-size: 0.85em;
+}
+
+/* Tablet (≥ 768px): show Play Time and Goals/Assists cards side-by-side */
+@media (min-width: 768px) {
+  .details-content {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* Make the first two cards (play-time and goals/assists by position) sit
+     side-by-side; the remaining event-list cards span the full width. */
+  .details-card:nth-child(1),
+  .details-card:nth-child(2) {
+    /* already in 2-col grid — they tile naturally */
+  }
+
+  .details-card--full-width {
+    grid-column: 1 / -1;
+  }
 }
 
 /* Sharing Section Styles */
