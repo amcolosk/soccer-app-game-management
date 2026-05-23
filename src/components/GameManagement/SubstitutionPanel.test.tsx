@@ -421,7 +421,7 @@ describe('SubstitutionPanel', () => {
     // Setup: Alice is in the lineup (pos-1); Bob is NOT in the lineup but his
     // PlayTimeRecord is still "open" (simulating stale subscription state).
     mockIsPlayerInLineup.mockImplementation((playerId: string) => playerId === 'player-1');
-    mockIsPlayerCurrentlyPlaying.mockImplementation((_playerId: string) => true); // stale: both players appear "playing"
+    mockIsPlayerCurrentlyPlaying.mockImplementation(() => true); // stale: both players appear "playing"
 
     render(<SubstitutionPanel {...defaultProps} substitutionRequest={pos1} />);
 
