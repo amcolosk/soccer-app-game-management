@@ -199,6 +199,106 @@ export function normalizeCompletedRecords(
 }
 
 /**
+ * Calculate goals and assists attributed to field positions at the team level.
+ *
+ * Only goals where `scoredByUs === true` are counted.
+ * Scorer and assister positions are resolved independently using the active
+ * PlayTimeRecord at `goal.gameSeconds`. Records with null/undefined
+ * `endGameSeconds` are treated as open-ended active intervals.
+ *
+ * If multiple records match the same player/game/second, the record with the
+ * greatest `startGameSeconds` is chosen (deterministic overlap rule).
+ *
+ * Events with no matching PlayTimeRecord or an unmapped `positionId` are
+ * silently omitted — no "Unknown" row is produced for this table.
+ *
+ * Rows are sorted by goals descending, then assists descending.
+ *
+ * @param goalEvents      - Goal records (all games / team-scoped)
+ * @param playTimeRecords - All relevant PlayTimeRecords (team-scoped)
+ * @param positions       - Map of positionId → { positionName }
+ * @returns Sorted array of PositionGoalAssistRow
+ */
+export function calculateTeamGoalsAssistsByPosition(
+  goalEvents: Array<{
+    scoredByUs?: boolean | null;
+    scorerId?: string | null;
+    assistId?: string | null;
+    gameSeconds?: number | null;
+    gameId: string;
+  }>,
+  playTimeRecords: PlayTimeRecord[],
+  positions: Map<string, { positionName: string }>
+): PositionGoalAssistRow[] {
+  // Only count goals scored by our team.
+  const ourGoals = goalEvents.filter(g => g.scoredByUs === true);
+
+  // Accumulator: positionName → { goals, assists }
+  const rowMap = new Map<string, { goals: number; assists: number }>();
+
+  /**
+   * Resolve the active position name for a player at a specific game second.
+   * Returns null when no matching record exists or the position is not in the map.
+   * Null/undefined endGameSeconds is treated as an open-ended (active) interval.
+   * Deterministic tie-break: greatest startGameSeconds wins.
+   */
+  const resolvePosition = (
+    playerId: string,
+    gameId: string,
+    gameSeconds: number
+  ): string | null => {
+    const candidates = playTimeRecords.filter(
+      r =>
+        r.playerId === playerId &&
+        r.gameId === gameId &&
+        r.startGameSeconds <= gameSeconds &&
+        (r.endGameSeconds == null || gameSeconds <= r.endGameSeconds)
+    );
+    if (candidates.length === 0) return null;
+
+    // Deterministic: pick the record with the greatest startGameSeconds.
+    const record = candidates.reduce((best, r) =>
+      r.startGameSeconds > best.startGameSeconds ? r : best
+    );
+
+    if (!record.positionId) return null;
+    const pos = positions.get(record.positionId);
+    return pos ? pos.positionName : null;
+  };
+
+  for (const goal of ourGoals) {
+    // Goals with no gameSeconds cannot be attributed to a position.
+    if (goal.gameSeconds == null) continue;
+
+    // Attribute the scorer.
+    if (goal.scorerId) {
+      const posName = resolvePosition(goal.scorerId, goal.gameId, goal.gameSeconds);
+      if (posName !== null) {
+        const row = rowMap.get(posName) ?? { goals: 0, assists: 0 };
+        rowMap.set(posName, { goals: row.goals + 1, assists: row.assists });
+      }
+    }
+
+    // Attribute the assister independently.
+    if (goal.assistId) {
+      const posName = resolvePosition(goal.assistId, goal.gameId, goal.gameSeconds);
+      if (posName !== null) {
+        const row = rowMap.get(posName) ?? { goals: 0, assists: 0 };
+        rowMap.set(posName, { goals: row.goals, assists: row.assists + 1 });
+      }
+    }
+  }
+
+  // Sort by goals descending, then assists descending.
+  return Array.from(rowMap.entries())
+    .sort(([, dataA], [, dataB]) => {
+      if (dataB.goals !== dataA.goals) return dataB.goals - dataA.goals;
+      return dataB.assists - dataA.assists;
+    })
+    .map(([position, data]) => ({ position, goals: data.goals, assists: data.assists }));
+}
+
+/**
  * Attribute goals and assists to field positions using play-time intervals.
  *
  * For each goal / assist event the player was involved in, the function

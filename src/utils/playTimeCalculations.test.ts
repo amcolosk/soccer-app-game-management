@@ -7,6 +7,7 @@ import {
   calculatePlayerPlayTime,
   calculatePlayTimeByPosition,
   calculateGoalsAssistsByPosition,
+  calculateTeamGoalsAssistsByPosition,
   normalizeCompletedRecords,
   formatPlayTime,
   countGamesPlayed,
@@ -551,6 +552,182 @@ describe('playTimeCalculations', () => {
       const result = calculateGoalsAssistsByPosition(mockPlayerId, records, goals, positions);
       const unknown = result.find(r => r.position === 'Unknown position');
       expect(unknown?.goals).toBe(1);
+    });
+  });
+
+  describe('calculateTeamGoalsAssistsByPosition', () => {
+    const positions = new Map([
+      ['pos-fwd', { positionName: 'Forward' }],
+      ['pos-mid', { positionName: 'Midfielder' }],
+      ['pos-def', { positionName: 'Defender' }],
+    ]);
+
+    const makeRecord = (
+      playerId: string,
+      gameId: string,
+      positionId: string,
+      start: number,
+      end: number | null
+    ): PlayTimeRecord => ({
+      id: `r-${playerId}-${start}`,
+      playerId,
+      gameId,
+      positionId,
+      startGameSeconds: start,
+      endGameSeconds: end,
+      createdAt: '',
+      updatedAt: '',
+    });
+
+    it('attributes a scorer goal to the active position at that game-second', () => {
+      const records = [makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600)];
+      const goals = [{ scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 300, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({ position: 'Forward', goals: 1, assists: 0 });
+    });
+
+    it('attributes an assister independently of scorer', () => {
+      const records = [
+        makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600),
+        makeRecord('player-2', 'game-1', 'pos-mid', 0, 600),
+      ];
+      const goals = [{ scoredByUs: true, scorerId: 'player-1', assistId: 'player-2', gameSeconds: 300, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      const fwdRow = result.find(r => r.position === 'Forward')!;
+      const midRow = result.find(r => r.position === 'Midfielder')!;
+      expect(fwdRow).toEqual({ position: 'Forward', goals: 1, assists: 0 });
+      expect(midRow).toEqual({ position: 'Midfielder', goals: 0, assists: 1 });
+    });
+
+    it('filters out goals where scoredByUs is false', () => {
+      const records = [makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600)];
+      const goals = [{ scoredByUs: false, scorerId: 'player-1', assistId: null, gameSeconds: 300, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(0);
+    });
+
+    it('filters out goals where scoredByUs is null', () => {
+      const records = [makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600)];
+      const goals = [{ scoredByUs: null, scorerId: 'player-1', assistId: null, gameSeconds: 300, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(0);
+    });
+
+    it('omits scorer event when no matching PlayTimeRecord exists – no Unknown row', () => {
+      const records: PlayTimeRecord[] = []; // no records at all
+      const goals = [{ scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 300, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(0);
+    });
+
+    it('omits scorer event when positionId is not in the positions map', () => {
+      const records = [makeRecord('player-1', 'game-1', 'pos-unknown', 0, 600)];
+      const goals = [{ scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 300, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(0);
+    });
+
+    it('treats null endGameSeconds as an open-ended interval', () => {
+      // Record has no end (active/unclosed). Should still match any gameSeconds >= start.
+      const records = [makeRecord('player-1', 'game-1', 'pos-fwd', 0, null)];
+      const goals = [{ scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 900, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({ position: 'Forward', goals: 1, assists: 0 });
+    });
+
+    it('applies deterministic overlap rule: chooses record with greatest startGameSeconds', () => {
+      // Two overlapping open-ended records for the same player. The one with
+      // the greater startGameSeconds (pos-mid, start=300) should win.
+      const records = [
+        makeRecord('player-1', 'game-1', 'pos-fwd', 0, null),    // start=0, open
+        makeRecord('player-1', 'game-1', 'pos-mid', 300, null),  // start=300, open
+      ];
+      const goals = [{ scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 450, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(1);
+      expect(result[0].position).toBe('Midfielder');
+    });
+
+    it('sorts rows by goals descending then assists descending', () => {
+      // player-4 plays pos-gk which is NOT in the positions map.
+      // Goals scored by player-4 (scorer contribution omitted) are used to
+      // generate clean assists for other positions without inflating their goal tallies.
+      const records = [
+        makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600),
+        makeRecord('player-2', 'game-1', 'pos-mid', 0, 600),
+        makeRecord('player-3', 'game-1', 'pos-def', 0, 600),
+        makeRecord('player-4', 'game-1', 'pos-gk', 0, 600), // pos-gk not in positions map
+      ];
+      const goals = [
+        // Forward: 3 goals, 0 assists
+        { scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 50, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 100, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 150, gameId: 'game-1' },
+        // Midfielder: 2 goals, 1 assist
+        { scoredByUs: true, scorerId: 'player-2', assistId: null, gameSeconds: 200, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-2', assistId: null, gameSeconds: 250, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-4', assistId: 'player-2', gameSeconds: 300, gameId: 'game-1' },
+        // Defender: 1 goal, 2 assists
+        { scoredByUs: true, scorerId: 'player-3', assistId: null, gameSeconds: 350, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-4', assistId: 'player-3', gameSeconds: 400, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-4', assistId: 'player-3', gameSeconds: 450, gameId: 'game-1' },
+      ];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result.map(r => r.position)).toEqual(['Forward', 'Midfielder', 'Defender']);
+      expect(result[0]).toEqual({ position: 'Forward', goals: 3, assists: 0 });
+      expect(result[1]).toEqual({ position: 'Midfielder', goals: 2, assists: 1 });
+      expect(result[2]).toEqual({ position: 'Defender', goals: 1, assists: 2 });
+    });
+
+    it('breaks goals tie by assists descending', () => {
+      // player-4 plays pos-gk (not in positions map) so their scorer contribution
+      // is omitted, letting us give player-2 (mid) 2 clean assists without extra goals.
+      const records = [
+        makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600),
+        makeRecord('player-2', 'game-1', 'pos-mid', 0, 600),
+        makeRecord('player-4', 'game-1', 'pos-gk', 0, 600), // pos-gk not in positions map
+      ];
+      const goals = [
+        // Forward: 1 goal, 0 assists
+        { scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 100, gameId: 'game-1' },
+        // Midfielder: 1 goal, 2 assists (via goals scored by unmapped player-4)
+        { scoredByUs: true, scorerId: 'player-2', assistId: null, gameSeconds: 200, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-4', assistId: 'player-2', gameSeconds: 300, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-4', assistId: 'player-2', gameSeconds: 400, gameId: 'game-1' },
+      ];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      // Both positions have 1 goal; Midfielder wins tie with 2 assists vs 0.
+      expect(result[0].position).toBe('Midfielder');
+      expect(result[1].position).toBe('Forward');
+    });
+
+    it('skips goals with null gameSeconds', () => {
+      const records = [makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600)];
+      const goals = [{ scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: null, gameId: 'game-1' }];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(0);
+    });
+
+    it('returns empty array when there are no goals', () => {
+      const records = [makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600)];
+      const result = calculateTeamGoalsAssistsByPosition([], records, positions);
+      expect(result).toHaveLength(0);
+    });
+
+    it('accumulates multiple goals for the same position across games', () => {
+      const records = [
+        makeRecord('player-1', 'game-1', 'pos-fwd', 0, 600),
+        makeRecord('player-1', 'game-2', 'pos-fwd', 0, 600),
+      ];
+      const goals = [
+        { scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 300, gameId: 'game-1' },
+        { scoredByUs: true, scorerId: 'player-1', assistId: null, gameSeconds: 300, gameId: 'game-2' },
+      ];
+      const result = calculateTeamGoalsAssistsByPosition(goals, records, positions);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({ position: 'Forward', goals: 2, assists: 0 });
     });
   });
 });

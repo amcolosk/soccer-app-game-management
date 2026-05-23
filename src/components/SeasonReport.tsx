@@ -9,6 +9,7 @@ import {
   calculatePlayerPlayTime,
   calculatePlayTimeByPosition,
   calculateGoalsAssistsByPosition,
+  calculateTeamGoalsAssistsByPosition,
   formatPlayTime,
   countGamesPlayed,
   type PositionGoalAssistRow,
@@ -119,6 +120,31 @@ export function TeamReport({ team }: TeamReportProps) {
   useEffect(() => {
     trackEvent(AnalyticsEvents.SEASON_REPORT_VIEWED.category, AnalyticsEvents.SEASON_REPORT_VIEWED.action);
   }, []);
+
+  // Positions map filtered to the team's formation, with an all-positions
+  // fallback when no formation is set or no matching positions are found.
+  // Used both by the team-level Goals & Assists by Position table and by
+  // loadPlayerDetails (which also computes it locally for its own use).
+  const effectivePositionsMap = useMemo(() => {
+    const teamFormationId = team.formationId ?? null;
+    const filtered = new Map(
+      allPositions
+        .filter(p => teamFormationId == null || p.formationId === teamFormationId)
+        .map(p => [p.id, { positionName: p.positionName, sortOrder: p.sortOrder ?? null }])
+    );
+    return filtered.size > 0
+      ? filtered
+      : new Map(allPositions.map(p => [p.id, { positionName: p.positionName, sortOrder: p.sortOrder ?? null }]));
+  }, [allPositions, team.formationId]);
+
+  // Team-level Goals & Assists by Position, derived from already-loaded data.
+  const teamGoalsAssistsByPosition = useMemo((): PositionGoalAssistRow[] => {
+    if (allGoals.length === 0 || allPlayTimeRecords.length === 0) return [];
+    const teamGameIds = new Set(allGames.map(g => g.id));
+    const teamGoals = allGoals.filter(g => g && teamGameIds.has(g.gameId));
+    const teamPlayTimeRecords = allPlayTimeRecords.filter(r => r && teamGameIds.has(r.gameId));
+    return calculateTeamGoalsAssistsByPosition(teamGoals, teamPlayTimeRecords, effectivePositionsMap);
+  }, [allGoals, allPlayTimeRecords, allGames, effectivePositionsMap]);
 
   // Phase 2: Once games are loaded, fetch PlayTimeRecords via gameId index query,
   // and fetch Goals/GameNotes via per-game paginated list() calls. This avoids
@@ -558,8 +584,39 @@ export function TeamReport({ team }: TeamReportProps) {
             </div>
           </div>
 
+          {/* Team-Level Goals & Assists by Position */}
+          {teamGoalsAssistsByPosition.length > 0 && (
+            <section className="team-goals-by-position-section">
+              <h2 className="section-heading">⚽ Goals &amp; Assists by Position</h2>
+              <div className="stats-table-container">
+                <table
+                  className="stats-table"
+                  aria-label="Team goals and assists by field position"
+                >
+                  <thead>
+                    <tr>
+                      <th scope="col" className="sticky-first-col">Position</th>
+                      <th scope="col">⚽<span className="col-label"> Goals</span></th>
+                      <th scope="col">🎯<span className="col-label"> Assists</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {teamGoalsAssistsByPosition.map((row) => (
+                      <tr key={row.position}>
+                        <th scope="row" className="sticky-first-col">{row.position}</th>
+                        <td className="stat-goals">{row.goals}</td>
+                        <td className="stat-assists">{row.assists}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          <h2 className="section-heading">Player Statistics</h2>
           <div className="stats-table-container">
-            <table className="stats-table">
+            <table className="stats-table" aria-label="Player season statistics">
               <thead>
                 <tr>
                   <th className="player-name">Player</th>
