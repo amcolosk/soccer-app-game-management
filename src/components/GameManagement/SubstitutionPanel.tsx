@@ -40,6 +40,10 @@ interface SubstitutionPanelProps {
   mutations: GameMutationInput;
 }
 
+const DUPLICATE_ON_FIELD_WARNING = "This player is already on the field in another position";
+const QUEUED_DUPLICATE_ON_FIELD_WARNING =
+  "Queued substitution removed: player is already on the field in another position.";
+
 export function SubstitutionPanel({
   gameState,
   game,
@@ -95,8 +99,20 @@ export function SubstitutionPanel({
 
   const isInLineup = (playerId: string) => isPlayerInLineup(playerId, lineup);
   const getPlayerPlayTimeSeconds = (playerId: string) => calculatePlayerPlayTime(playerId, playTimeRecords, currentTime);
+  const isStarterInAnotherPosition = (playerId: string, positionId: string) =>
+    lineup.some(
+      (assignment) =>
+        assignment.isStarter &&
+        assignment.playerId === playerId &&
+        assignment.positionId !== positionId,
+    );
 
   const handleQueueSubstitution = (playerId: string, positionId: string) => {
+    if (isStarterInAnotherPosition(playerId, positionId)) {
+      showWarning(DUPLICATE_ON_FIELD_WARNING);
+      return;
+    }
+
     const alreadyQueued = substitutionQueue.some(
       q => q.playerId === playerId && q.positionId === positionId
     );
@@ -154,6 +170,12 @@ export function SubstitutionPanel({
           continue;
         }
 
+        if (isStarterInAnotherPosition(newPlayerId, positionId)) {
+          onQueueRemove(queueItem.id);
+          showWarning(QUEUED_DUPLICATE_ON_FIELD_WARNING);
+          continue;
+        }
+
         const oldPlayerId = currentAssignment.playerId;
 
         await executeSubstitution(
@@ -204,6 +226,13 @@ export function SubstitutionPanel({
       return;
     }
 
+    if (isStarterInAnotherPosition(newPlayerId, positionId)) {
+      executingIdsRef.current.delete(queueItem.id);
+      onQueueRemove(queueItem.id);
+      showWarning(QUEUED_DUPLICATE_ON_FIELD_WARNING);
+      return;
+    }
+
     const oldPlayerId = currentAssignment.playerId;
 
     try {
@@ -237,6 +266,11 @@ export function SubstitutionPanel({
     );
     if (!currentAssignment) return;
 
+    if (isStarterInAnotherPosition(newPlayerId, substitutionPosition.id)) {
+      showWarning(DUPLICATE_ON_FIELD_WARNING);
+      return;
+    }
+
     const oldPlayerId = currentAssignment.playerId;
 
     try {
@@ -262,6 +296,11 @@ export function SubstitutionPanel({
   };
 
   const handleAssignPosition = async (positionId: string, playerId: string) => {
+    if (isStarterInAnotherPosition(playerId, positionId)) {
+      showWarning(DUPLICATE_ON_FIELD_WARNING);
+      return;
+    }
+
     try {
       await mutations.createLineupAssignment({
         gameId: game.id,

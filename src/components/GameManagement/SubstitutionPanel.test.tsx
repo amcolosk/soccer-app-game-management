@@ -200,6 +200,14 @@ const lineupAlice: LineupAssignment = {
   isStarter: true,
 } as unknown as LineupAssignment;
 
+const lineupBob: LineupAssignment = {
+  id: 'la-2',
+  positionId: 'pos-2',
+  playerId: 'player-2',
+  gameId: 'game-1',
+  isStarter: true,
+} as unknown as LineupAssignment;
+
 const defaultProps = {
   gameState: makeGame('in-progress'),
   game: makeGame('in-progress'),
@@ -399,6 +407,27 @@ describe('SubstitutionPanel', () => {
     expect(onQueueAdd).toHaveBeenCalledWith('player-2', 'pos-1');
   });
 
+  it('prevents queueing a player who is already on the field in another position', async () => {
+    const user = userEvent.setup();
+    const onQueueAdd = vi.fn();
+    mockIsPlayerCurrentlyPlaying.mockReturnValue(false);
+
+    render(
+      <SubstitutionPanel
+        {...defaultProps}
+        onQueueAdd={onQueueAdd}
+        lineup={[lineupAlice, lineupBob]}
+        substitutionRequest={pos1}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getAllByTitle('Add to substitution queue')).toHaveLength(2));
+    await user.click(screen.getAllByTitle('Add to substitution queue')[1]);
+
+    expect(onQueueAdd).not.toHaveBeenCalled();
+    expect(mockShowWarning).toHaveBeenCalledWith('This player is already on the field in another position');
+  });
+
   it('"Sub Now" button in modal calls executeSubstitution', async () => {
     const user = userEvent.setup();
     // Alice is in the lineup (pos-1), so only Bob appears as available
@@ -409,6 +438,31 @@ describe('SubstitutionPanel', () => {
     await user.click(screen.getByTitle('Substitute immediately'));
 
     await waitFor(() => expect(mockExecuteSubstitution).toHaveBeenCalled());
+  });
+
+  it('"Sub All Now" removes queued item when incoming player is already on the field elsewhere', async () => {
+    const user = userEvent.setup();
+    const onQueueRemove = vi.fn();
+    const queue: SubQueue[] = [{ id: 'q-1', playerId: 'player-2', positionId: 'pos-1' }];
+
+    render(
+      <SubstitutionPanel
+        {...defaultProps}
+        lineup={[lineupAlice, lineupBob]}
+        substitutionQueue={queue}
+        onQueueRemove={onQueueRemove}
+      />,
+    );
+
+    await user.click(screen.getByTitle('Execute all queued substitutions at once'));
+
+    await waitFor(() => {
+      expect(mockExecuteSubstitution).not.toHaveBeenCalled();
+      expect(onQueueRemove).toHaveBeenCalledWith('q-1');
+      expect(mockShowWarning).toHaveBeenCalledWith(
+        'Queued substitution removed: player is already on the field in another position.',
+      );
+    });
   });
 
   it('shows bench player even when their PlayTimeRecord is still open (race-condition fix)', async () => {
