@@ -5,7 +5,6 @@ import { handleApiError } from "../../utils/errorHandler";
 import { useConfirm } from "../ConfirmModal";
 import {
   calculatePlayerPlayTime,
-  isPlayerCurrentlyPlaying,
 } from "../../utils/playTimeCalculations";
 import {
   isPlayerInLineup,
@@ -99,7 +98,6 @@ export function SubstitutionPanel({
   }, [getPlayerAvailability, onQueueRemove, shouldFilterInjured, substitutionQueue]);
 
   const isInLineup = (playerId: string) => isPlayerInLineup(playerId, lineup);
-  const isCurrentlyPlaying = (playerId: string) => isPlayerCurrentlyPlaying(playerId, playTimeRecords);
   const getPlayerPlayTimeSeconds = (playerId: string) => calculatePlayerPlayTime(playerId, playTimeRecords, currentTime);
   const isStarterInAnotherPosition = (playerId: string, positionId: string) =>
     lineup.some(
@@ -446,7 +444,7 @@ export function SubstitutionPanel({
                       const positionAbbr = currentPosition?.abbreviation || '';
 
                       const availablePlayers = players
-                        .filter(p => isEmptyPosition ? !isInLineup(p.id) : !isCurrentlyPlaying(p.id))
+                        .filter(p => !isInLineup(p.id))
                         .filter(p => !substitutionQueue.some(q => q.playerId === p.id))
                         .filter(p => {
                           const status = getPlayerAvailability(p.id);
@@ -456,7 +454,7 @@ export function SubstitutionPanel({
                         });
 
                       const candidatePlayers = players
-                        .filter(p => isEmptyPosition ? !isInLineup(p.id) : !isCurrentlyPlaying(p.id))
+                        .filter(p => !isInLineup(p.id))
                         .filter(p => !substitutionQueue.some(q => q.playerId === p.id))
                         .filter(p => getPlayerAvailability(p.id) !== 'absent');
                       const hasInjuredOnly = shouldFilterInjured

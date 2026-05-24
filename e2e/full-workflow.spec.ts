@@ -1047,7 +1047,9 @@ async function verifyTeamTotals(page: Page, gameData: any) {
   }
   
   // Wait for all observeQuery subscriptions to finish syncing (table renders only after full sync)
-  await expect(page.locator('.stats-table')).toBeVisible({ timeout: 30000 });
+  // Use accessible name to target the player stats table specifically; a second .stats-table now exists
+  // for the team-level Goals & Assists by Position section and would trigger Playwright strict mode.
+  await expect(page.getByRole('table', { name: 'Player season statistics' })).toBeVisible({ timeout: 30000 });
   
   // Verify total goals in summary
   const goalsSummary = page.locator('.summary-card').filter({ hasText: 'Total Goals' });
@@ -1072,7 +1074,27 @@ async function verifyTeamTotals(page: Page, gameData: any) {
     )
     .toBe(gameData.goldStars);
   console.log(`✓ Total gold stars verified: ${gameData.goldStars}`);
-  
+
+  // Verify Goals & Assists by Position table (team-level section)
+  const goalsPositionTable = page.getByRole('table', { name: 'Team goals and assists by field position' });
+  await expect(goalsPositionTable).toBeVisible({ timeout: 30000 });
+  // Confirm at least one position row rendered with attributed goals
+  await expect
+    .poll(
+      async () => {
+        const rows = await goalsPositionTable.locator('tbody tr').all();
+        let totalGoals = 0;
+        for (const row of rows) {
+          const text = await row.locator('.stat-goals').textContent();
+          totalGoals += Number.parseInt(text ?? '0', 10) || 0;
+        }
+        return totalGoals;
+      },
+      { timeout: 30000, message: 'Goals & Assists by Position table had no attributed goals' },
+    )
+    .toBeGreaterThan(0);
+  console.log('✓ Goals & Assists by Position table rendered with attributed goals');
+
   // Verify individual player stats
   for (const scorer of gameData.scorers) {
     const playerRow = page.locator('tr').filter({ hasText: scorer });

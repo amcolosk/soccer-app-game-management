@@ -391,8 +391,8 @@ describe('SubstitutionPanel', () => {
   it('"Queue" button adds player to queue via onQueueAdd', async () => {
     const user = userEvent.setup();
     const onQueueAdd = vi.fn();
-    // Alice is currently playing (pos-1), so only Bob appears as available
-    mockIsPlayerCurrentlyPlaying.mockImplementation((playerId: string) => playerId === 'player-1');
+    // Alice is in the lineup (pos-1), so only Bob appears as available
+    mockIsPlayerInLineup.mockImplementation((playerId: string) => playerId === 'player-1');
     render(
       <SubstitutionPanel
         {...defaultProps}
@@ -430,8 +430,8 @@ describe('SubstitutionPanel', () => {
 
   it('"Sub Now" button in modal calls executeSubstitution', async () => {
     const user = userEvent.setup();
-    // Alice is currently playing (pos-1), so only Bob appears as available
-    mockIsPlayerCurrentlyPlaying.mockImplementation((playerId: string) => playerId === 'player-1');
+    // Alice is in the lineup (pos-1), so only Bob appears as available
+    mockIsPlayerInLineup.mockImplementation((playerId: string) => playerId === 'player-1');
     render(<SubstitutionPanel {...defaultProps} substitutionRequest={pos1} />);
 
     await waitFor(() => expect(screen.getAllByTitle('Substitute immediately')).toHaveLength(1));
@@ -465,6 +465,24 @@ describe('SubstitutionPanel', () => {
     });
   });
 
+  it('shows bench player even when their PlayTimeRecord is still open (race-condition fix)', async () => {
+    // Regression: before the fix, a bench player whose PlayTimeRecord had not yet
+    // been closed (subscription lag after a substitution) would be excluded from the
+    // substitution candidate list because isCurrentlyPlaying returned true.
+    // The fix uses isInLineup instead, which relies on lineup assignments — the
+    // reliable source of truth — so the player always appears correctly on the bench.
+    //
+    // Setup: Alice is in the lineup (pos-1); Bob is NOT in the lineup but his
+    // PlayTimeRecord is still "open" (simulating stale subscription state).
+    mockIsPlayerInLineup.mockImplementation((playerId: string) => playerId === 'player-1');
+    mockIsPlayerCurrentlyPlaying.mockImplementation(() => true); // stale: both players appear "playing"
+
+    render(<SubstitutionPanel {...defaultProps} substitutionRequest={pos1} />);
+
+    // Bob should still appear as an available substitute despite the stale PTR
+    await waitFor(() => expect(screen.getByText(/Bob Jones/)).toBeInTheDocument());
+  });
+
   // ── Modal dismissal -----------------------------------------------------
 
   it('Close button hides the modal', async () => {
@@ -480,7 +498,7 @@ describe('SubstitutionPanel', () => {
   });
 
   it('filters injured players from substitution candidates', async () => {
-    mockIsPlayerCurrentlyPlaying.mockImplementation((playerId: string) => playerId === 'player-1');
+    mockIsPlayerInLineup.mockImplementation((playerId: string) => playerId === 'player-1');
     mockGetPlayerAvailability.mockImplementation((playerId: string) =>
       playerId === 'player-2' ? 'injured' : 'available',
     );

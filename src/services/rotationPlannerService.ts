@@ -98,6 +98,13 @@ export function calculateFairRotations(
   const rotationIntervalMinutes = options?.rotationIntervalMinutes ?? 5;
   const halfLengthMinutes = options?.halfLengthMinutes ?? 30;
   const totalGameMinutes = halfLengthMinutes * 2;
+  const collectDuplicates = (values: string[]): string[] => {
+    const counts = new Map<string, number>();
+    values.forEach((value) => counts.set(value, (counts.get(value) ?? 0) + 1));
+    return Array.from(counts.entries())
+      .filter(([, count]) => count > 1)
+      .map(([value]) => value);
+  };
 
   const filteredAvailablePlayers = availablePlayers.filter(
     (player) => !isPlayerInjured(player.playerId, options?.playerAvailabilities),
@@ -148,6 +155,36 @@ export function calculateFairRotations(
   };
 
   // Pre-loop validation
+  const duplicateStartingPlayers = collectDuplicates(startingLineup.map((entry) => entry.playerId));
+  if (duplicateStartingPlayers.length > 0) {
+    warnings.push(
+      `Starting lineup has duplicate player assignments: ${duplicateStartingPlayers.join(', ')}.`
+    );
+  }
+
+  const duplicateStartingPositions = collectDuplicates(startingLineup.map((entry) => entry.positionId));
+  if (duplicateStartingPositions.length > 0) {
+    warnings.push(
+      `Starting lineup has duplicate position assignments: ${duplicateStartingPositions.join(', ')}.`
+    );
+  }
+
+  if (halftimeLineup && halftimeLineup.length > 0) {
+    const duplicateHalftimePlayers = collectDuplicates(halftimeLineup.map((entry) => entry.playerId));
+    if (duplicateHalftimePlayers.length > 0) {
+      warnings.push(
+        `Halftime lineup has duplicate player assignments: ${duplicateHalftimePlayers.join(', ')}.`
+      );
+    }
+
+    const duplicateHalftimePositions = collectDuplicates(halftimeLineup.map((entry) => entry.positionId));
+    if (duplicateHalftimePositions.length > 0) {
+      warnings.push(
+        `Halftime lineup has duplicate position assignments: ${duplicateHalftimePositions.join(', ')}.`
+      );
+    }
+  }
+
   // TC-09: Check for GK-preferred players
   if (goaliePositionId) {
     const hasGoalieCandidates = filteredAvailablePlayers.some(p => isGkPreferred(p.playerId));
