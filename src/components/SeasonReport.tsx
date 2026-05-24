@@ -91,10 +91,22 @@ export function TeamReport({ team }: TeamReportProps) {
   const { data: allPositions, isSynced: positionsSynced } = useAmplifyQuery('FieldPosition', {
     filter: { teamId: { eq: team.id } },
   }, [team.id]);
+  const { data: formationPositions, isSynced: formationPositionsSynced } = useAmplifyQuery(
+    'FormationPosition',
+    team.formationId
+      ? { filter: { formationId: { eq: team.formationId } } }
+      : undefined,
+    [team.formationId]
+  );
 
   // Track sync status for Phase 2 data (fetched via list(), not observeQuery)
   const [phase2Synced, setPhase2Synced] = useState(false);
-  const allSynced = rostersSynced && playersSynced && gamesSynced && positionsSynced && phase2Synced;
+  const allSynced = rostersSynced
+    && playersSynced
+    && gamesSynced
+    && positionsSynced
+    && (!team.formationId || formationPositionsSynced)
+    && phase2Synced;
 
   const seasonReportDebugContext = useMemo((): SeasonReportDebugContext => ({
     teamIdPrefix: team.id.slice(0, 8),
@@ -123,16 +135,27 @@ export function TeamReport({ team }: TeamReportProps) {
     trackEvent(AnalyticsEvents.SEASON_REPORT_VIEWED.category, AnalyticsEvents.SEASON_REPORT_VIEWED.action);
   }, []);
 
-  // FieldPosition records are already queried team-scoped, so this memo is a
-  // straightforward id -> display metadata map reused across report sections.
+  // Support both legacy team FieldPosition ids and formation-scoped
+  // FormationPosition ids persisted in lineup/play-time records.
   const effectivePositionsMap = useMemo(() => {
-    return new Map(
-      allPositions.map(position => [
-        position.id,
-        { positionName: position.positionName, sortOrder: position.sortOrder ?? null },
-      ])
-    );
-  }, [allPositions]);
+    const positionsMap = new Map<string, { positionName: string; sortOrder: number | null }>();
+
+    allPositions.forEach(position => {
+      positionsMap.set(position.id, {
+        positionName: position.positionName,
+        sortOrder: position.sortOrder ?? null,
+      });
+    });
+
+    formationPositions.forEach(position => {
+      positionsMap.set(position.id, {
+        positionName: position.positionName,
+        sortOrder: position.sortOrder ?? null,
+      });
+    });
+
+    return positionsMap;
+  }, [allPositions, formationPositions]);
 
   // Team-level Goals & Assists by Position, derived from already-loaded data.
   const teamGoalsAssistsByPosition = useMemo((): PositionGoalAssistRow[] => {
