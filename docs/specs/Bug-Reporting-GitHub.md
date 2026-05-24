@@ -77,7 +77,7 @@ Labels are idempotent — creating them when they already exist is a no-op.
 | Variable | Value |
 |----------|-------|
 | `GITHUB_TOKEN` | Fine-grained PAT with `repo:issues:write` on this repo |
-| `GITHUB_REPO` | `owner/repo` (e.g. `amcol/soccer-app-game-management`) |
+| `GITHUB_REPO` | `owner/repo` (e.g. `amcolosk/soccer-app-game-management`) |
 
 Both must be set as Amplify Function secrets / environment variables (never committed).
 

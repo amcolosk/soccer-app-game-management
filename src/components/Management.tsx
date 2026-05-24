@@ -1826,7 +1826,7 @@ export function Management() {
                 <span className="info-label">Source Code:</span>
                 <span className="info-value">
                   <a 
-                    href="https://github.com/amcol/soccer-app-game-management" 
+                    href="https://github.com/amcolosk/soccer-app-game-management" 
                     target="_blank" 
                     rel="noopener noreferrer"
                     style={{ color: '#2e8555', textDecoration: 'underline' }}
