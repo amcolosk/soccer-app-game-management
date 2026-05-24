@@ -1,5 +1,5 @@
 import type { PlayerWithRoster, PlayTimeRecord } from "./types";
-import { calculatePlayerPlayTime, formatPlayTime } from "../../utils/playTimeCalculations";
+import { calculatePlayerPlayTime, formatPlayTime, normalizeCompletedRecords } from "../../utils/playTimeCalculations";
 
 interface CompletedPlayTimeSummaryProps {
   players: PlayerWithRoster[];
@@ -13,12 +13,7 @@ export function CompletedPlayTimeSummary({
   gameEndSeconds,
 }: CompletedPlayTimeSummaryProps) {
   // Normalize records: treat null/undefined endGameSeconds as gameEndSeconds
-  const normalizedRecords: PlayTimeRecord[] = playTimeRecords.map((r) => {
-    if (r.endGameSeconds === null || r.endGameSeconds === undefined) {
-      return { ...r, endGameSeconds: gameEndSeconds };
-    }
-    return r;
-  });
+  const normalizedRecords: PlayTimeRecord[] = normalizeCompletedRecords(playTimeRecords, gameEndSeconds);
 
   // Sort players by jersey number ascending, null/undefined last
   const sortedPlayers = [...players].sort(

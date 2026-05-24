@@ -14,8 +14,13 @@ import type {
 
 Element.prototype.scrollIntoView = vi.fn();
 
-const { mockConfirm } = vi.hoisted(() => ({
+const { mockConfirm, mockExportRotationPlanLocally } = vi.hoisted(() => ({
   mockConfirm: vi.fn().mockResolvedValue(true),
+  mockExportRotationPlanLocally: vi.fn().mockReturnValue({ filename: "game-1.rotation-plan.csv" }),
+}));
+
+vi.mock("./shape/exportRotationPlan", () => ({
+  exportRotationPlanLocally: mockExportRotationPlanLocally,
 }));
 
 vi.mock("../ConfirmModal", () => ({
@@ -1325,6 +1330,74 @@ describe("PlanTab", () => {
         />
       );
       expect(screen.getByRole("button", { name: /copy from game/i })).toBeDisabled();
+    });
+  });
+
+  // ── Export Plan as CSV ──────────────────────────────────────────────────────
+
+  describe("Export Plan as CSV button", () => {
+    beforeEach(() => {
+      mockExportRotationPlanLocally.mockClear();
+    });
+
+    it("renders the export button when gamePlan exists", () => {
+      render(<PlanTab {...defaultProps} />);
+      expect(screen.getByRole("button", { name: /export plan as csv/i })).toBeInTheDocument();
+    });
+
+    it("does not render the export button when gamePlan is null", () => {
+      render(<PlanTab {...defaultProps} gamePlan={null} plannedRotations={[]} />);
+      expect(
+        screen.queryByRole("button", { name: /export plan as csv/i })
+      ).not.toBeInTheDocument();
+    });
+
+    it("disables the export button when there are no effective planned rotations", () => {
+      render(<PlanTab {...defaultProps} gamePlan={mockGamePlan} plannedRotations={[]} />);
+      const btn = screen.getByRole("button", { name: /export plan as csv/i });
+      expect(btn).toBeDisabled();
+      expect(btn).toHaveAttribute("title", "No rotations to export yet");
+    });
+
+    it("enables the export button when effective planned rotations exist", () => {
+      render(<PlanTab {...defaultProps} />);
+      const btn = screen.getByRole("button", { name: /export plan as csv/i });
+      expect(btn).toBeEnabled();
+      expect(btn).not.toHaveAttribute("title");
+    });
+
+    it("calls exportRotationPlanLocally when the button is clicked", () => {
+      render(<PlanTab {...defaultProps} />);
+      fireEvent.click(screen.getByRole("button", { name: /export plan as csv/i }));
+      expect(mockExportRotationPlanLocally).toHaveBeenCalledTimes(1);
+    });
+
+    it("passes the correct fileStem to exportRotationPlanLocally", () => {
+      render(<PlanTab {...defaultProps} />);
+      fireEvent.click(screen.getByRole("button", { name: /export plan as csv/i }));
+      const callArgs = mockExportRotationPlanLocally.mock.calls[0][0];
+      expect(callArgs.fileStem).toBe(`game-${mockGame.id}`);
+    });
+
+    it("passes a Start column plus rotation columns to exportRotationPlanLocally", () => {
+      render(<PlanTab {...defaultProps} />);
+      fireEvent.click(screen.getByRole("button", { name: /export plan as csv/i }));
+      const callArgs = mockExportRotationPlanLocally.mock.calls[0][0];
+      // Should have at least a Start column and a HT column
+      const labels: string[] = callArgs.columns.map((c: { label: string }) => c.label);
+      expect(labels[0]).toBe("Start");
+      expect(labels).toContain("HT");
+    });
+
+    it("is still visible in read-only mode when gamePlan exists", () => {
+      render(
+        <PlanTab
+          {...defaultProps}
+          readOnly={true}
+          game={{ ...mockGame, status: "in-progress" } as Game}
+        />
+      );
+      expect(screen.getByRole("button", { name: /export plan as csv/i })).toBeInTheDocument();
     });
   });
 });

@@ -2,14 +2,14 @@
 ## Implementation Plan
 
 **Feature:** "As a coach, I'd like to see what position a player was playing when they scored goals across the team, aggregated in the Season Report."
-**Status:** Ready for implementation
-**Last Updated:** 2026-04-26
+**Status:** Revised after architecture and UI review
+**Last Updated:** 2026-05-22
 
 ---
 
 ## 1. Overview
 
-Add a team-level "Goals by Position" table to the Season Report that shows how many goals and assists each field position contributed across all completed games in the season. No schema changes are required — position is inferred at goal-time by cross-referencing the scorer's `PlayTimeRecord` active at `goal.gameSeconds`.
+Add a team-level "Goals by Position" table to the Season Report that shows how many goals and assists each field position contributed across all completed team goals in the season. No schema changes or new fetches are required. Position is inferred at goal-time by cross-referencing the scorer's or assister's `PlayTimeRecord` active at `goal.gameSeconds`.
 
 **Example output:**
 
@@ -27,153 +27,190 @@ Add a team-level "Goals by Position" table to the Season Report that shows how m
 | # | Requirement |
 |---|---|
 | R1 | Show a team-level table in the Season Report: Position / Goals / Assists |
-| R2 | Position is inferred from the scorer's active `PlayTimeRecord` at `goal.gameSeconds` |
-| R3 | Assists are attributed to the position the assisting player was occupying at the same game second |
+| R2 | Infer scorer position from the active `PlayTimeRecord` at `goal.gameSeconds` |
+| R3 | Infer assister position independently at the same `goal.gameSeconds` |
 | R4 | Only goals where `scoredByUs === true` are counted |
-| R5 | Goals/assists with no matching `PlayTimeRecord` are silently omitted (no "Unknown" row) |
-| R6 | Open-ended records (`endGameSeconds === null`) treat the player as still on the field |
-| R7 | Table is sorted by Goals descending; ties broken by Assists descending |
-| R8 | Table is only rendered when at least one position has goals or assists > 0 |
-| R9 | No new data fetching — all required data (`allGoals`, `allPlayTimeRecords`, `allPositions`) is already loaded in `SeasonReport.tsx` |
+| R5 | Omit scorer or assister events with no matching `PlayTimeRecord`; do not render an `Unknown` row |
+| R6 | Treat `endGameSeconds === null` or `undefined` as an open-ended active interval |
+| R7 | Sort rows by Goals descending, then Assists descending |
+| R8 | Render the section only when at least one row remains after omission rules |
+| R9 | No new data fetching; `SeasonReport.tsx` uses already-loaded `allGoals`, `allPlayTimeRecords`, and `allPositions` |
+| R10 | If overlapping active intervals exist for the same player/game/second, choose the matching record with the greatest `startGameSeconds` |
+| R11 | The change is additive; existing player-level `calculateGoalsAssistsByPosition` semantics stay unchanged unless separate targeted regression coverage justifies an explicitly approved fix |
+| R12 | Add an explicit heading for the new team-level section and an explicit heading above the existing player stats table so the document outline remains correct after inserting the new table |
+| R13 | Give both the new team-level table and the existing player stats table accessible names via `caption` or `aria-label`/`aria-labelledby` |
+| R14 | In the new team-level table, column headers must use `scope="col"` and position-name cells must use `scope="row"` |
+| R15 | Do not reuse the `.player-name` class for position cells; add a generic sticky first-column selector/class so the new table can share the sticky visual treatment without semantically mislabeling position cells |
 
 ---
 
 ## 3. Architecture Decisions
 
-### 3.1 Where the Logic Lives
-The position-inference algorithm belongs in `src/utils/playTimeCalculations.ts`. This module already owns all play-time and position-related calculations (`calculatePlayTimeByPosition`, `calculatePlayerPlayTime`, etc.), and the new function follows the same input/output pattern.
+### 3.1 Utility Ownership
+`src/utils/playTimeCalculations.ts` owns the full team-table calculation: active-position resolution, `scoredByUs` filtering for this table only, omission of missing or unmapped positions before aggregation, aggregation, and final sort order.
 
-### 3.2 No Schema Change
-The `Goal` model has no `positionId`. Rather than adding one (which would require a migration and backfill), position is inferred at query time using the cross-reference:
+### 3.2 Thin SeasonReport Integration
+`src/components/SeasonReport.tsx` should only:
 
-```
-Goal.scorerId + Goal.gameId + Goal.gameSeconds
-  → PlayTimeRecord where playerId = scorerId
-                      AND gameId  = Goal.gameId
-                      AND startGameSeconds <= gameSeconds
-                      AND (endGameSeconds IS NULL OR endGameSeconds >= gameSeconds)
-  → positionId → positionName
-```
+1. Prepare team-scoped inputs from already-loaded data.
+2. Memoize the derived table rows.
+3. Conditionally render the section when rows exist.
 
-This is O(n×m) per game but the record counts are small (< 30 PTRs, < 20 goals per game), so no indexing is needed.
+It should not re-implement attribution rules.
 
-### 3.3 Open-Ended PlayTimeRecord Handling
-A record with `endGameSeconds === null` means the player was still on the field when the game was completed or when the last snapshot was written. For purposes of position inference, any `goal.gameSeconds >= record.startGameSeconds` is treated as a match when `endGameSeconds` is null.
+### 3.3 No Schema or Fetch Changes
+The `Goal` model has no `positionId`, and this feature should not add one. Position is inferred at render-time using existing `Goal`, `PlayTimeRecord`, and `FormationPosition` data already loaded by Season Report.
 
-### 3.4 Scorer vs. Assister — Independent Lookups
-The goal scorer and the assister may be playing different positions. Each is looked up independently using the same PTR cross-reference. A goal can therefore contribute one tally to the scorer's position and a separate tally to the assister's position (or none if no matching PTR).
+### 3.4 Deterministic Active-Record Resolution
+Add one new private helper inside `playTimeCalculations.ts` that resolves the active `PlayTimeRecord` for a given `playerId`, `gameId`, and `gameSeconds`. It must:
 
-### 3.5 Placement in SeasonReport
-The new table is placed **between the summary cards and the player stats table** — it is team-level context, not per-player detail, so it belongs with the team summary content above the individual breakdown.
+1. Match records where `startGameSeconds <= gameSeconds`.
+2. Treat `endGameSeconds == null` as open-ended and therefore still active.
+3. Otherwise require `gameSeconds <= endGameSeconds`.
+4. If multiple records match, choose the one with the greatest `startGameSeconds`.
 
-### 3.6 CSS Strategy
-Add a scoped BEM block `.goals-by-position` to `App.css`, following the existing pattern used for `.season-report-summary` and `.stats-table`. The table should be consistent with the existing `.stats-table` styling.
+This resolves overlapping intervals deterministically without changing the data model.
+
+### 3.5 Additive Scope
+The only new public API required for this feature is a team-level aggregation utility. Do not refactor the existing player-level `calculateGoalsAssistsByPosition` to share the new semantics during this feature unless targeted regression tests first prove there is no unintended outward behavior change beyond any separately approved open-ended interval fix.
+
+### 3.6 Omission Rules
+For the new team-level table only:
+
+1. Filter to `scoredByUs === true` before attribution.
+2. Omit scorer attribution when no active record matches, `positionId` is missing, or the `positionId` is not in the positions map.
+3. Omit assister attribution under the same rules.
+4. Do not synthesize an `Unknown` row.
+
+### 3.7 Placement, Headings, and Styling
+Render the new section between the summary cards and the player stats table. Add an explicit section heading for the new team-level table and a matching heading for the existing player stats table so the page outline remains correct after insertion. Add only the minimal section-level styling needed in `App.css`, reusing existing Season Report table styling where practical.
+
+### 3.8 Table Accessibility
+Both Season Report tables in the main content area must have explicit accessible names. The implementation may use either visible `caption` elements or `aria-label`/`aria-labelledby`, but the plan should prefer heading-linked labeling so the visible heading and table name stay aligned.
+
+For the new team-level table specifically:
+
+1. Mark each header cell in the header row with `scope="col"`.
+2. Render the position name as a row header cell with `scope="row"`.
+3. Keep the existing conditional render behavior so the section is absent when there are no rows.
+
+### 3.9 Generic Sticky First Column
+The existing player stats table uses `.player-name` for sticky first-column behavior. Do not extend that semantic class to position cells. Instead, extract the sticky-first-column presentation into a generic selector or class that both tables can use, while leaving `.player-name` available only for player-name-specific typography or content styling.
 
 ---
 
 ## 4. File-by-File Change List
 
 ### 4.1 `src/utils/playTimeCalculations.ts`
-**Add:** Export function `calculateGoalsByPosition`
+**Add:** One private active-record resolver and one exported team-level aggregation utility.
 
 ```ts
-export interface GoalsByPositionEntry {
-  positionName: string;
+interface TeamPositionGoalAssistRow {
+  position: string;
   goals: number;
   assists: number;
 }
 
-export function calculateGoalsByPosition(
+export function calculateTeamGoalsAssistsByPosition(
   goals: Goal[],
   playTimeRecords: PlayTimeRecord[],
-  positionsMap: Map<string, { positionName: string }>
-): GoalsByPositionEntry[]
+  positions: Map<string, { positionName: string }>
+): TeamPositionGoalAssistRow[]
 ```
 
-**Logic:**
-1. Filter `goals` to `g.scoredByUs === true`.
-2. Build an accumulator `Map<positionName, {goals, assists}>`.
-3. For each qualifying goal:
-   - Lookup scorer's position: find PTR where `playerId === g.scorerId && gameId === g.gameId && startGameSeconds <= g.gameSeconds && (endGameSeconds === null || endGameSeconds >= g.gameSeconds)`. If found and `positionId` is in `positionsMap`, increment `goals`.
-   - If `g.assistId` is set, run the same lookup for `g.assistId`; if found, increment `assists`.
-4. Convert accumulator to array, sort by `goals` desc then `assists` desc.
-5. Return the sorted array (omit rows where both `goals === 0 && assists === 0`).
-
-**Inputs use types already imported in the file:** `Goal`, `PlayTimeRecord` from `src/types/schema.ts`.
-
----
+**Planned logic:**
+1. Keep the existing exported player-level helper unchanged for this feature.
+2. Add a private resolver that returns the single active record for a player/game/second using the overlap rule above.
+3. Filter goals to `scoredByUs === true`.
+4. Resolve scorer and assister positions independently for each qualifying goal.
+5. Skip any scorer or assister attribution when no active record is found, `positionId` is absent, or the `positionId` is unmapped.
+6. Aggregate counts in a `Map<positionName, { goals, assists }>`.
+7. Return only rows that received at least one goal or assist.
+8. Sort by goals descending, then assists descending.
 
 ### 4.2 `src/utils/playTimeCalculations.test.ts`
-**Add:** Test suite for `calculateGoalsByPosition`
+**Add:** Focused tests for the new team-level utility, plus targeted regression coverage only if existing helper behavior is intentionally touched.
 
 Test cases:
+
 | Case | Description |
 |---|---|
-| Basic goal bucketing | Goal at gameSeconds=30, PTR covers 0–60, correct positionName incremented |
-| Assist in different position | Scorer at Left Wing, assister at Offensive Mid — two separate rows updated |
-| `scoredByUs === false` excluded | Opponent goals ignored regardless of scorer/assister |
-| No matching PTR — omitted | Goal exists but no PTR covers that second; row not created |
-| Open-ended PTR (`endGameSeconds === null`) | Goal at second 70, PTR starts at 45 with null end — correctly matched |
-| Sorting | Two positions with different goal counts produce correct descending order |
-| Tie-breaking | Equal goals sorted by assists descending |
-
----
+| Basic goal bucketing | Goal at second 30, scorer PTR covers the event, matching position gets one goal |
+| Independent assist attribution | Scorer and assister are in different active positions, so separate rows increment |
+| `scoredByUs === false` excluded | Opponent goals never affect the team table |
+| Missing PTR omitted | Event with no active PTR produces no row |
+| Missing or unmapped `positionId` omitted | Matching PTR exists but cannot map to a position row |
+| Open-ended interval match | `endGameSeconds == null` still counts as active at the goal second |
+| Overlap resolution | Two active records overlap and the one with the greatest `startGameSeconds` wins |
+| Final sorting | Rows sort by goals desc, then assists desc |
+| Existing helper regression guard | Only needed if implementation intentionally changes existing player-level helper behavior |
 
 ### 4.3 `src/components/SeasonReport.tsx`
-**Add 1:** Import `calculateGoalsByPosition` and `GoalsByPositionEntry` from `playTimeCalculations`.
+**Add:** A memoized team-level table derivation using already-loaded data, plus explicit headings and accessible names for both main Season Report tables.
 
-**Add 2:** `useMemo` for `goalsByPosition`:
+Planned shape:
+
 ```ts
 const goalsByPosition = useMemo(() => {
-  if (!allGoals.length || !allPlayTimeRecords.length) return [];
+  if (!allGoals.length || !allPlayTimeRecords.length || !allPositions.length) {
+    return [];
+  }
+
   const positionsMap = new Map(
-    allPositions.map(p => [p.id, { positionName: p.positionName ?? 'Unknown' }])
+    allPositions
+      .filter(position => Boolean(position.positionName))
+      .map(position => [position.id, { positionName: position.positionName! }])
   );
-  const teamGoals = allGoals.filter(g => teamGameIds.has(g.gameId));
-  const teamPTRs  = allPlayTimeRecords.filter(r => teamGameIds.has(r.gameId));
-  return calculateGoalsByPosition(teamGoals, teamPTRs, positionsMap);
+
+  const teamGoals = allGoals.filter(goal => teamGameIds.has(goal.gameId));
+  const teamPlayTimeRecords = allPlayTimeRecords.filter(record => teamGameIds.has(record.gameId));
+
+  return calculateTeamGoalsAssistsByPosition(teamGoals, teamPlayTimeRecords, positionsMap);
 }, [allGoals, allPlayTimeRecords, allPositions, teamGameIds]);
 ```
 
-**Add 3:** Render new section between summary cards and player stats table:
-```tsx
-{goalsByPosition.length > 0 && (
-  <section className="goals-by-position">
-    <h3>Goals by Position</h3>
-    <table className="stats-table">
-      <thead>
-        <tr>
-          <th>Position</th>
-          <th>Goals</th>
-          <th>Assists</th>
-        </tr>
-      </thead>
-      <tbody>
-        {goalsByPosition.map(row => (
-          <tr key={row.positionName}>
-            <td>{row.positionName}</td>
-            <td>{row.goals}</td>
-            <td>{row.assists}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </section>
-)}
-```
+Then render the section between the summary cards and player stats table only when `goalsByPosition.length > 0`.
 
----
+UI-specific markup requirements:
+1. Add a visible heading for the new team-level section, for example `Goals & Assists by Position`.
+2. Add a visible heading immediately above the existing player stats table, for example `Player Statistics`.
+3. Ensure the new team-level table has an explicit accessible name tied to its heading via `aria-labelledby` or a visible `caption`.
+4. Ensure the existing player stats table also has an explicit accessible name tied to its heading via `aria-labelledby` or a visible `caption`.
+5. Use `scope="col"` on the new table's header row and `scope="row"` on the position-name cells.
+6. Apply the new generic sticky first-column class or selector to the new table's first column instead of reusing `.player-name`.
 
-### 4.4 `src/App.css`
-**Add:** Styles for `.goals-by-position` section header, consistent with existing season report card/section styling. Reuse `.stats-table` for the table itself — no new table styles needed.
+### 4.4 `src/components/SeasonReport.test.tsx`
+**Add:** Integration-style rendering checks for the new team table, plus accessibility assertions for the revised headings and table names.
+
+Test cases:
+
+| Case | Description |
+|---|---|
+| Section renders with rows | Team-scoped goal + matching PTR + mapped position renders the section and counts |
+| Section hidden when all events are omitted | Missing PTR, unmapped position, or only opponent goals leaves no section |
+| Assists count independently in UI | Different scorer and assister positions render on separate rows |
+| Overlap rule reflected in UI | Fixture with overlapping PTRs renders counts on the row chosen by the greatest `startGameSeconds` |
+| Main table headings present | New team section heading and existing player stats heading both render in the correct order |
+| Main tables have accessible names | Tests query both tables by accessible name rather than only by text content |
+| New table header scopes | Column headers expose `scope="col"` and position cells expose `scope="row"` |
+
+### 4.5 `src/App.css`
+**Add:** Minimal `.goals-by-position` wrapper and heading styles consistent with nearby Season Report sections. Reuse existing table styling where practical, but extract the sticky first-column behavior from `.player-name` into a generic selector or class shared by the player stats table and the new team table.
+
+CSS-specific expectations:
+1. Keep `.player-name` for player-name-specific styling only.
+2. Introduce a generic sticky first-column hook such as `.stats-table__first-column` or an equivalent scoped selector.
+3. Update hover and mobile rules so they target the generic sticky first-column hook, with any player-name-specific typography left on `.player-name`.
+4. Avoid introducing a separate visual system for the new table when the existing stats-table styles can be reused with minimal additions.
 
 ---
 
 ## 5. Out of Scope
 
-- Adding `positionId` directly to the `Goal` model (schema change not needed)
-- Per-player goals-by-position breakdown in the player detail panel
-- Fixing the pre-existing `scoredByUs` filtering gap in the per-player stats table (separate bug)
+- Adding `positionId` directly to the `Goal` model
+- Any schema, subscription, or fetch changes
+- Refactoring existing player-level `calculateGoalsAssistsByPosition` onto the new resolver or new semantics without separate approval and regression coverage
+- Fixing the pre-existing `scoredByUs` mismatch in existing player totals or player-detail attribution beyond this new team table
 - Position breakdown for opponent goals conceded
 
 ---
@@ -182,15 +219,17 @@ const goalsByPosition = useMemo(() => {
 
 | Layer | What | Where |
 |---|---|---|
-| Unit | `calculateGoalsByPosition` — all 7 cases above | `playTimeCalculations.test.ts` |
-| Integration | `SeasonReport` renders table when data present; hidden when no data | `SeasonReport.test.tsx` (if it exists) or new test file |
-| Gate | `npm run gate:commit` (lint + test:run + build) | Before commit |
+| Unit | `calculateTeamGoalsAssistsByPosition` with omission rules, open-ended intervals, overlap resolution, and final sorting | `src/utils/playTimeCalculations.test.ts` |
+| Regression | Existing player-level helper only if implementation intentionally changes it | `src/utils/playTimeCalculations.test.ts` |
+| Integration | `SeasonReport` renders or hides the team table based on memoized rows from already-loaded data, with explicit headings and accessible table names | `src/components/SeasonReport.test.tsx` |
+| Gate | `npm run gate:commit` | Before commit |
 
 ---
 
 ## 7. Verification Steps
 
-1. `npm run test:run` — new unit tests pass
-2. `npm run gate:commit` — full gate green
-3. Manual: open Season Report for a team with game history → "Goals by Position" table appears with correct position names, goal counts, and assist counts, sorted goals-descending
-4. Manual: open Season Report for a team with no game data → table is absent (no empty section rendered)
+1. `npm run test:run` passes with new unit and Season Report tests.
+2. `npm run gate:commit` passes.
+3. Manual: open Season Report for a team with qualifying goals and mapped positions -> the table appears with correct counts sorted by goals desc then assists desc.
+4. Manual: validate a fixture with overlapping active PTRs -> attribution follows the record with the greatest `startGameSeconds`.
+5. Manual: validate a fixture where all events are omitted -> the section is absent and no `Unknown` row appears.
