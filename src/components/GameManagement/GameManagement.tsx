@@ -37,6 +37,7 @@ import { LineupPanel } from "./LineupPanel";
 import { PlanTab, type GenerateRotationsOptions } from "./PlanTab";
 import type { PlannedRotationsUpdateInput, PlannerMutationResult } from "./PlanTab";
 import { CompletedPlayTimeSummary } from "./CompletedPlayTimeSummary";
+import { CompletedGameTimeline } from "./CompletedGameTimeline";
 import { OfflineBanner } from "../OfflineBanner";
 import type { Game, Team, FormationPosition, PlannedRotation, SubQueue } from "./types";
 import { AvailabilityProvider } from "../../contexts/AvailabilityContext";
@@ -2589,6 +2590,14 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
               players={players}
               playTimeRecords={playTimeRecords}
               gameEndSeconds={gameState.elapsedSeconds ?? 0}
+            />
+            <CompletedGameTimeline
+              players={players}
+              playTimeRecords={playTimeRecords}
+              goals={goals}
+              positions={positions}
+              gameEndSeconds={gameState.elapsedSeconds ?? 0}
+              halfLengthSeconds={halfLengthSeconds}
             />
             <GoalTracker {...sharedGoalTrackerProps} />
             <PreGameNotesPanel
