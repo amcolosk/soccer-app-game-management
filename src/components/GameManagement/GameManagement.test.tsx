@@ -147,6 +147,14 @@ vi.mock("./CompletedPlayTimeSummary", () => ({
   CompletedPlayTimeSummary: () => <div data-testid="completed-play-time-summary" />,
 }));
 
+const mockCgtCaptures: { goalsProp?: unknown[] } = {};
+vi.mock("./CompletedGameTimeline", () => ({
+  CompletedGameTimeline: vi.fn((props: any) => {
+    mockCgtCaptures.goalsProp = props.goals;
+    return <div data-testid="completed-game-timeline" />;
+  }),
+}));
+
 // ---------------------------------------------------------------------------
 // Router wrapper helper
 // ---------------------------------------------------------------------------
@@ -2771,5 +2779,88 @@ describe("GameManagement – handleEnsureRotationSchedule", () => {
     for (const payload of createdPayloads) {
       expect(payload.plannedSubstitutions).toBe('[]');
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CompletedGameTimeline integration
+// ---------------------------------------------------------------------------
+
+const makeGoalRecord = (id: string, scoredByUs: boolean, gameSeconds: number) => ({
+  id,
+  gameId: 'game-1',
+  scoredByUs,
+  gameSeconds,
+  timestamp: new Date().toISOString(),
+  coaches: ['coach-1'],
+  half: 1,
+  scorerId: null,
+  assistId: null,
+  notes: null,
+} as any);
+
+describe("GameManagement – CompletedGameTimeline integration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCgtCaptures.goalsProp = undefined;
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+  });
+
+  it("renders CompletedGameTimeline in completed state", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'completed', elapsedSeconds: 3600 },
+      goals: [],
+    });
+    renderWithRouter(
+      <GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />
+    );
+    expect(screen.getByTestId("completed-game-timeline")).toBeInTheDocument();
+  });
+
+  it("does not render CompletedGameTimeline outside completed state", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+    });
+    renderWithRouter(
+      <GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />
+    );
+    expect(screen.queryByTestId("completed-game-timeline")).not.toBeInTheDocument();
+  });
+
+  it("passes initial goals to CompletedGameTimeline", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'completed', elapsedSeconds: 3600 },
+      goals: [makeGoalRecord("g1", true, 900)],
+    });
+    renderWithRouter(
+      <GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />
+    );
+    expect(Array.isArray(mockCgtCaptures.goalsProp)).toBe(true);
+    expect((mockCgtCaptures.goalsProp as unknown[]).length).toBe(1);
+  });
+
+  it("re-renders CompletedGameTimeline with updated goals when subscription changes", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'completed', elapsedSeconds: 3600 },
+      goals: [],
+    });
+    const { rerender } = renderWithRouter(
+      <GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />
+    );
+    expect((mockCgtCaptures.goalsProp as unknown[]).length).toBe(0);
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'completed', elapsedSeconds: 3600 },
+      goals: [makeGoalRecord("g1", true, 900), makeGoalRecord("g2", false, 2700)],
+    });
+    rerender(
+      <GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />
+    );
+    expect((mockCgtCaptures.goalsProp as unknown[]).length).toBe(2);
   });
 });

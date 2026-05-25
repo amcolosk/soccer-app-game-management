@@ -1,5 +1,6 @@
 import type { PlayerWithRoster, PlayTimeRecord } from "./types";
 import { calculatePlayerPlayTime, formatPlayTime, normalizeCompletedRecords } from "../../utils/playTimeCalculations";
+import { compareByJerseyNumber } from "./completedGameTimelineSort";
 
 interface CompletedPlayTimeSummaryProps {
   players: PlayerWithRoster[];
@@ -15,10 +16,8 @@ export function CompletedPlayTimeSummary({
   // Normalize records: treat null/undefined endGameSeconds as gameEndSeconds
   const normalizedRecords: PlayTimeRecord[] = normalizeCompletedRecords(playTimeRecords, gameEndSeconds);
 
-  // Sort players by jersey number ascending, null/undefined last
-  const sortedPlayers = [...players].sort(
-    (a, b) => (a.playerNumber ?? 999) - (b.playerNumber ?? 999)
-  );
+  // Sort players by jersey number ascending, null/undefined last (shared comparator)
+  const sortedPlayers = [...players].sort(compareByJerseyNumber);
 
   return (
     <section
