@@ -56,8 +56,7 @@ export interface GameManagementDebugContext {
   planConflictCount: number;
   substitutionQueueLength: number;
   lineupDetail: string;
-  nextPlannedRotationMeta: string;
-  nextPlannedRotationSubstitutions: string;
+  allPlannedRotationDetails: string;
 }
 
 export interface SeasonReportDebugContext {

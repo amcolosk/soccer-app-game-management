@@ -655,7 +655,7 @@ describe("GameManagement – debug snapshot details", () => {
       .map(args => args[0])
       .find((value): value is string => typeof value === 'string' && value.includes('Game Management Debug Snapshot'));
 
-  it("includes compact lineup and next rotation substitution details in debug context", async () => {
+  it("includes compact lineup and all rotation details in debug context", async () => {
     mockUseGameSubscriptions.mockReturnValue({
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
@@ -700,11 +700,11 @@ describe("GameManagement – debug snapshot details", () => {
 
     expect(snapshot).toBeDefined();
     expect(snapshot).toContain('lineupDetail: p1@pos1|p2@pos2');
-    expect(snapshot).toContain('nextPlannedRotationMeta: rotation=3,minute=40,half=2');
-    expect(snapshot).toContain('nextPlannedRotationSubstitutions: p1>p7@pos1|p2>p8@pos2');
+    // All rotations are shown, sorted by (half, minute, rotationNumber)
+    expect(snapshot).toContain('allPlannedRotationDetails: R1,min=20,H=1:p-old>p-new@pos9||R3,min=40,H=2:p1>p7@pos1|p2>p8@pos2');
   });
 
-  it("shows invalid-json marker when next rotation plannedSubstitutions is invalid JSON", async () => {
+  it("shows invalid-json marker in allPlannedRotationDetails when plannedSubstitutions is invalid JSON", async () => {
     mockUseGameSubscriptions.mockReturnValue({
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
@@ -729,10 +729,10 @@ describe("GameManagement – debug snapshot details", () => {
 
     const snapshot = getDebugSnapshot();
     expect(snapshot).toBeDefined();
-    expect(snapshot).toContain('nextPlannedRotationSubstitutions: (invalid-json)');
+    expect(snapshot).toContain('allPlannedRotationDetails: R2,min=40,H=2:(invalid-json)');
   });
 
-  it("shows invalid-json-shape marker when next rotation plannedSubstitutions parses to a non-array", async () => {
+  it("shows invalid-json-shape marker in allPlannedRotationDetails when plannedSubstitutions parses to a non-array", async () => {
     mockUseGameSubscriptions.mockReturnValue({
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
@@ -757,10 +757,10 @@ describe("GameManagement – debug snapshot details", () => {
 
     const snapshot = getDebugSnapshot();
     expect(snapshot).toBeDefined();
-    expect(snapshot).toContain('nextPlannedRotationSubstitutions: (invalid-json-shape)');
+    expect(snapshot).toContain('allPlannedRotationDetails: R2,min=40,H=2:(invalid-json-shape)');
   });
 
-  it("shows none marker when next rotation plannedSubstitutions is an empty string", async () => {
+  it("shows none marker in allPlannedRotationDetails when plannedSubstitutions is an empty string", async () => {
     mockUseGameSubscriptions.mockReturnValue({
       ...defaultSubscription,
       gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
@@ -785,7 +785,7 @@ describe("GameManagement – debug snapshot details", () => {
 
     const snapshot = getDebugSnapshot();
     expect(snapshot).toBeDefined();
-    expect(snapshot).toContain('nextPlannedRotationSubstitutions: (none)');
+    expect(snapshot).toContain('allPlannedRotationDetails: R2,min=40,H=2:(none)');
   });
 });
 
