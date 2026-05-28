@@ -665,40 +665,37 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
           .sort()
           .join('|');
 
-    const currentGameMinute = Math.floor(currentTime / 60);
-    const nextPlannedRotation = plannedRotations
-      .filter(r => (r.gameMinute ?? -1) > currentGameMinute)
-      .sort((a, b) => {
-        const minuteDiff = (a.gameMinute ?? Number.MAX_SAFE_INTEGER) - (b.gameMinute ?? Number.MAX_SAFE_INTEGER);
-        if (minuteDiff !== 0) return minuteDiff;
-        return (a.rotationNumber ?? Number.MAX_SAFE_INTEGER) - (b.rotationNumber ?? Number.MAX_SAFE_INTEGER);
-      })[0];
+    const sortedRotations = [...plannedRotations].sort((a, b) => {
+      const halfDiff = (a.half ?? Number.MAX_SAFE_INTEGER) - (b.half ?? Number.MAX_SAFE_INTEGER);
+      if (halfDiff !== 0) return halfDiff;
+      const minuteDiff = (a.gameMinute ?? Number.MAX_SAFE_INTEGER) - (b.gameMinute ?? Number.MAX_SAFE_INTEGER);
+      if (minuteDiff !== 0) return minuteDiff;
+      return (a.rotationNumber ?? Number.MAX_SAFE_INTEGER) - (b.rotationNumber ?? Number.MAX_SAFE_INTEGER);
+    });
 
-    let nextPlannedRotationMeta = '(none)';
-    let nextPlannedRotationSubstitutions = '(none)';
-    if (nextPlannedRotation) {
-      nextPlannedRotationMeta = [
-        `rotation=${nextPlannedRotation.rotationNumber ?? '(unknown)'}`,
-        `minute=${nextPlannedRotation.gameMinute ?? '(unknown)'}`,
-        `half=${nextPlannedRotation.half ?? '(unknown)'}`,
-      ].join(',');
-
-      try {
-        const rawSubstitutions = nextPlannedRotation.plannedSubstitutions;
-        const parsed = typeof rawSubstitutions === 'string'
-          ? JSON.parse(rawSubstitutions || '[]')
-          : rawSubstitutions;
-        if (Array.isArray(parsed)) {
-          const parsedSubs = (parsed as Array<Partial<PlannedSubstitution>>)
-            .map(s => `${s.playerOutId ?? '(unknown-out)'}>${s.playerInId ?? '(unknown-in)'}@${s.positionId ?? '(unknown-position)'}`)
-            .sort();
-          nextPlannedRotationSubstitutions = parsedSubs.length > 0 ? parsedSubs.join('|') : '(none)';
-        } else {
-          nextPlannedRotationSubstitutions = '(invalid-json-shape)';
+    let allPlannedRotationDetails = '(none)';
+    if (sortedRotations.length > 0) {
+      allPlannedRotationDetails = sortedRotations.map(r => {
+        const meta = `R${r.rotationNumber ?? '(unknown)'},min=${r.gameMinute ?? '(unknown)'},H=${r.half ?? '(unknown)'}`;
+        let subsStr: string;
+        try {
+          const rawSubstitutions = r.plannedSubstitutions;
+          const parsed = typeof rawSubstitutions === 'string'
+            ? JSON.parse(rawSubstitutions || '[]')
+            : rawSubstitutions;
+          if (Array.isArray(parsed)) {
+            const parsedSubs = (parsed as Array<Partial<PlannedSubstitution>>)
+              .map(s => `${s.playerOutId ?? '(unknown-out)'}>${s.playerInId ?? '(unknown-in)'}@${s.positionId ?? '(unknown-position)'}`)
+              .sort();
+            subsStr = parsedSubs.length > 0 ? parsedSubs.join('|') : '(none)';
+          } else {
+            subsStr = '(invalid-json-shape)';
+          }
+        } catch {
+          subsStr = '(invalid-json)';
         }
-      } catch {
-        nextPlannedRotationSubstitutions = '(invalid-json)';
-      }
+        return `${meta}:${subsStr}`;
+      }).join('||');
     }
 
     return {
@@ -724,8 +721,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       planConflictCount,
       substitutionQueueLength: substitutionQueue.length,
       lineupDetail,
-      nextPlannedRotationMeta,
-      nextPlannedRotationSubstitutions,
+      allPlannedRotationDetails,
     };
   }, [gameState, currentTime, halfLengthSeconds, isRunning, activeTab, players, lineup,
       playTimeRecords, goals, gameNotes, playerAvailabilities, gamePlan, plannedRotations,

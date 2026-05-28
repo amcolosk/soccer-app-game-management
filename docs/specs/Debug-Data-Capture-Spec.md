@@ -129,7 +129,7 @@ isCreatingGame: false
 | `elapsedSeconds` | `number` | Current game clock in seconds |
 | `halfLengthSeconds` | `number` | Configured half length in seconds |
 | `isRunning` | `boolean` | Whether the timer is running |
-| `activeTab` | `GameTab` | Active tab: `field \| bench \| goals \| notes` |
+| `activeTab` | `GameTab` | Active tab: `field \| bench \| goals \| notes \| plan` |
 | `rosterSize` | `number` | Players loaded for this team |
 | `lineupCount` | `number` | Total `LineupAssignment` records |
 | `starterCount` | `number` | Starters (`isStarter === true`) |
@@ -144,8 +144,10 @@ isCreatingGame: false
 | `plannedRotationCount` | `number` | Number of `PlannedRotation` records |
 | `planConflictCount` | `number` | Always `0` (simplified; conflict logic is complex) |
 | `substitutionQueueLength` | `number` | Pending substitutions in the queue |
+| `lineupDetail` | `string` | All lineup assignments encoded as sorted `playerId@positionId` pairs joined by `\|`; `(none)` when lineup is empty |
+| `allPlannedRotationDetails` | `string` | All planned rotations encoded as `R{N},min={M},H={H}:{subs}` entries joined by `\|\|`, sorted by half then minute then rotation number; each rotation's substitutions are sorted `playerOutId>playerInId@positionId` pairs joined by `\|`; `(none)` when no rotations exist |
 
-**Notes:** `availabilityByStatus` is serialized as `key=N` pairs inside the snapshot.
+**Notes:** `availabilityByStatus` is serialized as `key=N` pairs inside the snapshot. Substitution player and position values in `lineupDetail` and `allPlannedRotationDetails` are raw UUIDs. The `allPlannedRotationDetails` field covers **all** rotations — past and future — so a bug report filed on the plan tab captures the full rotation schedule regardless of current game time.
 
 **Example snapshot:**
 
@@ -157,7 +159,7 @@ currentHalf: 1
 elapsedSeconds: 847
 halfLengthSeconds: 1800
 isRunning: true
-activeTab: field
+activeTab: plan
 rosterSize: 12
 lineupCount: 7
 starterCount: 7
@@ -172,6 +174,8 @@ planExists: true
 plannedRotationCount: 4
 planConflictCount: 0
 substitutionQueueLength: 0
+lineupDetail: <uuid>@<posUUID>|<uuid>@<posUUID>|...
+allPlannedRotationDetails: R1,min=10,H=1:<outId>><inId>@<posId>||R2,min=20,H=1:(none)||R1,min=10,H=2:<outId>><inId>@<posId>||R2,min=20,H=2:(none)
 -----------------------------------
 ```
 
