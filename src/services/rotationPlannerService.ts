@@ -272,6 +272,9 @@ export function calculateFairRotations(
   // Track current field state
   const currentField = new Set(startingLineup.map(s => s.playerId));
   const positionMap = new Map(startingLineup.map(s => [s.playerId, s.positionId]));
+  let lockedGoaliePlayerId = goaliePositionId
+    ? startingLineup.find((entry) => entry.positionId === goaliePositionId)?.playerId
+    : undefined;
 
   // Play time tracking (minutes)
   const playTimeMinutes = new Map<string, number>();
@@ -345,6 +348,10 @@ export function calculateFairRotations(
           positionMap.set(newPlayerId, positionId);
         }
 
+        if (goaliePositionId) {
+          lockedGoaliePlayerId = halftimeLineup.find((entry) => entry.positionId === goaliePositionId)?.playerId;
+        }
+
         for (const pid of prevField) {
           if (!currentField.has(pid)) positionMap.delete(pid);
         }
@@ -360,7 +367,7 @@ export function calculateFairRotations(
         // and there is no dedicated GK replacement on the bench. When the current GK is a
         // generalist (lists GK as one of many preferences), any GK-preferred bench player qualifies.
         const currentGkPlayerId = goaliePositionId
-          ? Array.from(currentField).find(id => positionMap.get(id) === goaliePositionId)
+          ? lockedGoaliePlayerId ?? Array.from(currentField).find(id => positionMap.get(id) === goaliePositionId)
           : undefined;
         const currentGkIsDedicated = currentGkPlayerId ? isGkOnlyPlayer(currentGkPlayerId) : false;
         const gkBenchChecker = currentGkIsDedicated ? isGkOnlyPlayer : isGkPreferred;
@@ -540,7 +547,9 @@ export function calculateFairRotations(
 
         // How many subs?
         const nonGkField = Array.from(currentField).filter(
-          id => !goaliePositionId || positionMap.get(id) !== goaliePositionId
+          id =>
+            (!goaliePositionId || positionMap.get(id) !== goaliePositionId) &&
+            (!goaliePositionId || !lockedGoaliePlayerId || id !== lockedGoaliePlayerId)
         );
         const baseSubsNeeded = Math.min(
           Math.ceil(maxPlayersOnField / GAME_CONFIG.ROTATION_CALCULATION.MIN_PLAYERS_PER_GROUP),
@@ -580,6 +589,9 @@ export function calculateFairRotations(
               currentField.add(assignment.playerId);
               positionMap.set(assignment.playerId, position);
               positionMap.delete(playerOutId); // remove stale entry — mirrors halftime loop
+              if (goaliePositionId && position === goaliePositionId) {
+                lockedGoaliePlayerId = assignment.playerId;
+              }
             }
           }
         }
@@ -589,6 +601,12 @@ export function calculateFairRotations(
     // Reset continuousRotations for players who went to bench
     for (const id of playerIds) {
       if (!currentField.has(id)) continuousRotations.set(id, 0);
+    }
+
+    for (let i = substitutions.length - 1; i >= 0; i -= 1) {
+      if (substitutions[i].playerOutId === substitutions[i].playerInId) {
+        substitutions.splice(i, 1);
+      }
     }
 
     rotations.push({ substitutions });
