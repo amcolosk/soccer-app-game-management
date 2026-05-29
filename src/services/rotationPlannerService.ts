@@ -648,20 +648,23 @@ export function calculatePlayTime(
     // sub within the same rotation is undergoing a position change — they remain
     // on the field.  Only perform a genuine removal when the outgoing player is
     // NOT re-entering the field in this same rotation.
-    const incomingPlayerIds = new Set(subs.map(s => s.playerInId));
+    // Filter out empty playerInId values to avoid treating vacant positions as players.
+    const incomingPlayerIds = new Set(subs.map(s => s.playerInId).filter(Boolean));
     subs.forEach(sub => {
       if (!incomingPlayerIds.has(sub.playerOutId)) {
         currentField.delete(sub.playerOutId);
       }
-      currentField.add(sub.playerInId);
-      
-      allPlayerIds.add(sub.playerInId);
-      if (!playTime.has(sub.playerInId)) {
-        playTime.set(sub.playerInId, {
-          playerId: sub.playerInId,
-          totalMinutes: 0,
-          rotations: [],
-        });
+      if (sub.playerInId) {
+        currentField.add(sub.playerInId);
+
+        allPlayerIds.add(sub.playerInId);
+        if (!playTime.has(sub.playerInId)) {
+          playTime.set(sub.playerInId, {
+            playerId: sub.playerInId,
+            totalMinutes: 0,
+            rotations: [],
+          });
+        }
       }
     });
     

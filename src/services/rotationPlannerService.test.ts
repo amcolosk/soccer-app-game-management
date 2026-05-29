@@ -1814,6 +1814,41 @@ describe('rotationPlannerService', () => {
       // p33: on 0–20 (starting, R2 subbed off) + 40–60 (R4 in) = 20 + 20 = 40 min
       expect(playTimeMap.get('p33')?.totalMinutes).toBe(40);
     });
+
+    it('should not create an unknown player entry when playerInId is empty', () => {
+      // Regression test: computeLineupDiff can produce substitutions with an empty
+      // playerInId when a position is vacated with no replacement.  calculatePlayTime
+      // must ignore such entries so that no "Unknown Player ()" row appears.
+      const rotations = [
+        {
+          id: 'rot1',
+          rotationNumber: 1,
+          gameMinute: 10,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'p2', playerInId: '',  positionId: 'pos2' }, // vacant — no replacement
+            { playerOutId: 'p3', playerInId: 'p5', positionId: 'pos3' },
+          ]),
+        },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+      ];
+
+      const playTimeMap = calculatePlayTime(rotations as any, startingLineup, 10, 50);
+
+      // An empty-string player must never be tracked
+      expect(playTimeMap.has('')).toBe(false);
+
+      // p2: on 0–10, then off (vacated, no replacement) = 10 min
+      expect(playTimeMap.get('p2')?.totalMinutes).toBe(10);
+      // p3: on 0–10, then off (p5 comes in) = 10 min
+      expect(playTimeMap.get('p3')?.totalMinutes).toBe(10);
+      // p5: on 10–50 = 40 min
+      expect(playTimeMap.get('p5')?.totalMinutes).toBe(40);
+    });
   });
 
   describe('validateRotationPlan', () => {
