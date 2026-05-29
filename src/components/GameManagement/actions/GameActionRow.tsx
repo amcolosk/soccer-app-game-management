@@ -30,19 +30,25 @@ export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActio
    *  restoration attempt; if the invoking button is gone (row unmounted after
    *  delete), falls back to the section heading. */
   const scheduleFocusAfterAction = useCallback((actionId?: GameActionDescriptor['id']) => {
+    const clearInvokingButtonRef = () => {
+      invokingButtonRef.current = null;
+    };
+
     window.setTimeout(() => {
       focusInvokingButton();
       if (actionId === 'delete' && headingIdForDeleteSuccessFocus) {
+        // Wait one more tick so React can commit any row unmount from the delete action
+        // before we decide whether to fall back focus to the section heading.
         window.setTimeout(() => {
           const invokingButton = invokingButtonRef.current;
           if (!invokingButton || !invokingButton.isConnected) {
             document.getElementById(headingIdForDeleteSuccessFocus)?.focus();
           }
-          invokingButtonRef.current = null;
+          clearInvokingButtonRef();
         }, 0);
         return;
       }
-      invokingButtonRef.current = null;
+      clearInvokingButtonRef();
     }, 0);
   }, [focusInvokingButton, headingIdForDeleteSuccessFocus]);
 
