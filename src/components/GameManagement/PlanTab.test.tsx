@@ -1386,7 +1386,90 @@ describe("PlanTab", () => {
       // Should have at least a Start column and a HT column
       const labels: string[] = callArgs.columns.map((c: { label: string }) => c.label);
       expect(labels[0]).toBe("Start");
-      expect(labels).toContain("HT");
+      expect(labels.some((label) => label.startsWith("HT "))).toBe(true);
+    });
+
+    it("omits halftime-boundary row from visible H2 columns and renumbers labels (issue #144)", () => {
+      const issueGame: Game = {
+        id: "game-144",
+        status: "scheduled",
+        halfLengthMinutes: 25,
+      } as Game;
+
+      const issueTeam: Team = {
+        ...mockTeam,
+        halfLengthMinutes: 25,
+      } as Team;
+
+      const issuePlannedRotations: PlannedRotation[] = [
+        {
+          id: "rot-1",
+          half: 1,
+          gameMinute: 8,
+          rotationNumber: 1,
+          plannedSubstitutions: "[]",
+        } as PlannedRotation,
+        {
+          id: "rot-2",
+          half: 1,
+          gameMinute: 16,
+          rotationNumber: 2,
+          plannedSubstitutions: "[]",
+        } as PlannedRotation,
+        {
+          id: "rot-3",
+          half: 2,
+          gameMinute: 25,
+          rotationNumber: 3,
+          plannedSubstitutions: "[]",
+        } as PlannedRotation,
+        {
+          id: "rot-4",
+          half: 2,
+          gameMinute: 33,
+          rotationNumber: 4,
+          plannedSubstitutions: "[]",
+        } as PlannedRotation,
+        {
+          id: "rot-5",
+          half: 2,
+          gameMinute: 41,
+          rotationNumber: 5,
+          plannedSubstitutions: "[]",
+        } as PlannedRotation,
+      ];
+
+      (useGamePlanner as any).mockReturnValue({
+        ...mockPlannerResult,
+        draft: {
+          ...mockPlannerResult.draft,
+          rotationIntervalMinutes: 8,
+        },
+      });
+
+      render(
+        <PlanTab
+          {...defaultProps}
+          game={issueGame}
+          gameState={issueGame}
+          team={issueTeam}
+          plannedRotations={issuePlannedRotations}
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /export plan as csv/i }));
+      const callArgs = mockExportRotationPlanLocally.mock.calls[0][0];
+      const labels: string[] = callArgs.columns.map((c: { label: string }) => c.label);
+
+      expect(labels).toEqual([
+        "Start",
+        "R1 8′",
+        "R2 16′",
+        "HT 25′",
+        "R3 33′",
+        "R4 41′",
+      ]);
+      expect(labels).not.toContain("R5 41′");
     });
 
     it("is still visible in read-only mode when gamePlan exists", () => {

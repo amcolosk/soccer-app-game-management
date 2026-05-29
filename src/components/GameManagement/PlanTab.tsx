@@ -836,12 +836,18 @@ export function PlanTab({
   const handleExportPlan = useCallback(() => {
     if (!gamePlan) return;
 
+    const exportHalfLength = Math.max(1, halfLengthInput || derivedHalfLength || 30);
+
     const h1Rotations = effectivePlannedRotations
       .filter((r) => r.half === 1)
       .sort((a, b) => (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0));
     const h2Rotations = effectivePlannedRotations
       .filter((r) => r.half === 2)
       .sort((a, b) => (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0));
+    const h2VisibleRotations = h2Rotations.filter((r) => {
+      if (typeof r.gameMinute !== "number") return true;
+      return r.gameMinute > exportHalfLength;
+    });
 
     const h1Rows = h1Rotations.map((r) => ({
       rotationNumber: r.rotationNumber ?? 0,
@@ -855,18 +861,19 @@ export function PlanTab({
     const columns: RotationPlanColumn[] = [];
     columns.push({ label: "Start", lineup: new Map(planner.draft.startingLineup) });
 
-    for (const rot of h1Rotations) {
+    for (const [index, rot] of h1Rotations.entries()) {
       const rotNum = rot.rotationNumber ?? 0;
       const lineup = computeLineupAtRotation(planner.draft.startingLineup, h1Rows, rotNum);
-      columns.push({ label: `R${rotNum} ${rot.gameMinute ?? "?"}′`, lineup });
+      columns.push({ label: `R${index + 1} ${rot.gameMinute ?? "?"}′`, lineup });
     }
 
-    columns.push({ label: "HT", lineup: new Map(effectiveHalftimeLineup) });
+    columns.push({ label: `HT ${exportHalfLength}′`, lineup: new Map(effectiveHalftimeLineup) });
 
-    for (const rot of h2Rotations) {
+    const h2LabelOffset = h1Rotations.length;
+    for (const [index, rot] of h2VisibleRotations.entries()) {
       const rotNum = rot.rotationNumber ?? 0;
       const lineup = computeLineupAtRotation(effectiveHalftimeLineup, h2Rows, rotNum);
-      columns.push({ label: `R${rotNum} ${rot.gameMinute ?? "?"}′`, lineup });
+      columns.push({ label: `R${h2LabelOffset + index + 1} ${rot.gameMinute ?? "?"}′`, lineup });
     }
 
     const playersById = new Map<string, string>();
@@ -899,6 +906,8 @@ export function PlanTab({
     positions,
     projectedPlayTimeRows,
     game.id,
+    halfLengthInput,
+    derivedHalfLength,
   ]);
 
   const requestTimelineSelection = useCallback((nextKey: string): boolean => {
