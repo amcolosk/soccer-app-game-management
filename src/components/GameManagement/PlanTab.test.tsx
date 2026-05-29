@@ -1486,6 +1486,28 @@ describe("PlanTab", () => {
 });
 
 describe("RotationSubstitutionsList — empty playerOutId", () => {
+  it("prefers beforeLineup over stale non-empty playerOutId for chained substitutions", () => {
+    const sub = JSON.stringify([
+      { playerOutId: "player-asher", playerInId: "player-fischer", positionId: "pos-1" },
+    ]);
+
+    render(
+      <RotationSubstitutionsList
+        substitutions={sub}
+        players={[
+          { id: "player-asher", firstName: "Asher", lastName: "" } as any,
+          { id: "player-garrett", firstName: "Garrett", lastName: "" } as any,
+          { id: "player-fischer", firstName: "Fischer", lastName: "" } as any,
+        ]}
+        positions={[{ id: "pos-1", abbreviation: "OM", positionName: "Outside Mid" } as any]}
+        beforeLineup={new Map([["pos-1", "player-garrett"]])}
+      />
+    );
+
+    expect(screen.getByText("Garrett")).toBeInTheDocument();
+    expect(screen.queryByText("Asher")).not.toBeInTheDocument();
+  });
+
   it('shows "(unfilled)" when playerOutId is empty string', () => {
     const sub = JSON.stringify([{ playerOutId: "", playerInId: "player-1", positionId: "pos-1" }]);
     render(

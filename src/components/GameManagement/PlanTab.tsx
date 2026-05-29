@@ -1497,9 +1497,9 @@ export function RotationSubstitutionsList({
   return (
     <div className="rotation-subs-list">
       {parsed.map((sub: PlannedSubstitution, idx: number) => {
-        // If playerOutId is blank (stale data), fall back to whoever is at that position
-        // in the computed before-lineup (which is seeded from the authoritative halftime lineup).
-        const resolvedPlayerOutId = sub.playerOutId || beforeLineup?.get(sub.positionId) || '';
+        // Prefer the computed before-lineup when present so chained substitutions show
+        // the immediate outgoing player for this rotation; fall back to stored playerOutId.
+        const resolvedPlayerOutId = beforeLineup?.get(sub.positionId) || sub.playerOutId || '';
         const playerOut = playerMap.get(resolvedPlayerOutId);
         const playerIn = playerMap.get(sub.playerInId);
         const position = positionMap.get(sub.positionId);
