@@ -414,6 +414,46 @@ describe('rotationPlannerService', () => {
       });
     });
 
+    it('keeps goalkeeper unchanged through rotation 3 when halftime is rotation 4', () => {
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'gk1', playerNumber: 1, preferredPositions: 'pos1' },
+        { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: 'pos2' },
+        { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: 'pos3' },
+        { id: 'r4', playerId: 'p4', playerNumber: 4, preferredPositions: 'pos4' },
+        { id: 'r5', playerId: 'p5', playerNumber: 5, preferredPositions: 'pos5' },
+        { id: 'r6', playerId: 'p6', playerNumber: 6, preferredPositions: 'pos6' },
+        { id: 'r7', playerId: 'p7', playerNumber: 7, preferredPositions: 'pos2' },
+        { id: 'r8', playerId: 'gk2', playerNumber: 8, preferredPositions: 'pos1' },
+      ];
+
+      const startingLineup = [
+        { playerId: 'gk1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+        { playerId: 'p3', positionId: 'pos3' },
+        { playerId: 'p4', positionId: 'pos4' },
+        { playerId: 'p5', positionId: 'pos5' },
+        { playerId: 'p6', positionId: 'pos6' },
+      ];
+
+      const { rotations } = calculateFairRotations(
+        players,
+        startingLineup,
+        6,
+        3,
+        6,
+        'pos1',
+        undefined,
+        { rotationIntervalMinutes: 10, halfLengthMinutes: 30 }
+      );
+
+      const preHalftimeGoalieSubs = rotations
+        .slice(0, 3)
+        .flatMap((rotation) => rotation.substitutions)
+        .filter((sub) => sub.positionId === 'pos1');
+
+      expect(preHalftimeGoalieSubs).toHaveLength(0);
+    });
+
     it('should allow goalkeeper swap at halftime when auto-computing', () => {
       // 12 players; GK is pos1/p1 — at halftime auto-compute the GK can be swapped
       const players: SimpleRoster[] = Array.from({ length: 12 }, (_, i) => ({
@@ -657,6 +697,52 @@ describe('rotationPlannerService', () => {
           expect(sub.positionId).toBeDefined();
         });
       });
+    });
+
+    it('does not emit no-op striker substitutions', () => {
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'gk1', playerNumber: 1, preferredPositions: 'pos-gk' },
+        { id: 'r2', playerId: 'd1', playerNumber: 2, preferredPositions: 'pos-lb' },
+        { id: 'r3', playerId: 'd2', playerNumber: 3, preferredPositions: 'pos-rb' },
+        { id: 'r4', playerId: 'm1', playerNumber: 4, preferredPositions: 'pos-cm' },
+        { id: 'r5', playerId: 's1', playerNumber: 5, preferredPositions: 'pos-st' },
+        { id: 'r6', playerId: 'b1', playerNumber: 6, preferredPositions: 'pos-cm' },
+      ];
+
+      const startingLineup = [
+        { playerId: 'gk1', positionId: 'pos-gk' },
+        { playerId: 'd1', positionId: 'pos-lb' },
+        { playerId: 'd2', positionId: 'pos-rb' },
+        { playerId: 'm1', positionId: 'pos-cm' },
+        { playerId: 's1', positionId: 'pos-st' },
+      ];
+
+      const { rotations } = calculateFairRotations(
+        players,
+        startingLineup,
+        6,
+        3,
+        5,
+        'pos-gk',
+        undefined,
+        {
+          rotationIntervalMinutes: 10,
+          halfLengthMinutes: 30,
+          positions: [
+            { id: 'pos-gk', positionName: 'GK', abbreviation: 'GK' },
+            { id: 'pos-lb', positionName: 'LB', abbreviation: 'LB' },
+            { id: 'pos-rb', positionName: 'RB', abbreviation: 'RB' },
+            { id: 'pos-cm', positionName: 'CM', abbreviation: 'CM' },
+            { id: 'pos-st', positionName: 'ST', abbreviation: 'ST' },
+          ],
+        }
+      );
+
+      const strikerNoOps = rotations
+        .flatMap((rotation) => rotation.substitutions)
+        .filter((sub) => sub.positionId === 'pos-st' && sub.playerOutId === sub.playerInId);
+
+      expect(strikerNoOps).toHaveLength(0);
     });
 
     it('should prefer bench players for halftime based on position preferences', () => {
