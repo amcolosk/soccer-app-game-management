@@ -31,9 +31,16 @@ export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActio
    *  delete), falls back to the section heading. */
   const scheduleFocusAfterAction = useCallback((actionId?: GameActionDescriptor['id']) => {
     window.setTimeout(() => {
-      const restored = focusInvokingButton();
-      if (!restored && actionId === 'delete' && headingIdForDeleteSuccessFocus) {
-        document.getElementById(headingIdForDeleteSuccessFocus)?.focus();
+      focusInvokingButton();
+      if (actionId === 'delete' && headingIdForDeleteSuccessFocus) {
+        window.setTimeout(() => {
+          const invokingButton = invokingButtonRef.current;
+          if (!invokingButton || !invokingButton.isConnected) {
+            document.getElementById(headingIdForDeleteSuccessFocus)?.focus();
+          }
+          invokingButtonRef.current = null;
+        }, 0);
+        return;
       }
       invokingButtonRef.current = null;
     }, 0);
