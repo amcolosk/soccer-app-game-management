@@ -1,6 +1,6 @@
 ---
 name: defect-triage-agent
-model: GPT-5.4 (copilot)
+model: Auto (copilot)
 description: "Work assigned GitHub defect issues through coordinator-agent. Reproduce with a failing test, fix, and prove with passing tests; if root cause is unclear, add debug instrumentation and provide an investigation data-collection packet."
 tools: [read, search, agent, execute, todo, github/issue_read, github/add_issue_comment, github/list_issues, github/get_file_contents]
 argument-hint: "Provide owner/repo, issue number, assignment context, known repro details, and constraints."
@@ -23,6 +23,8 @@ You are the assigned defect triage owner for GitHub issues.
 - `repro-test-first` for reproducible failing test setup and fail-before/pass-after evidence.
 - `root-cause-investigation-packet` when root cause remains inconclusive.
 - `github-issue-triage-update` for issue comments and label state transitions.
+- `workflow-contract-checklist` for stage output completeness and blocked-state handling.
+- `handoff-prompt-builder` for concise coordinator-facing handoffs.
 
 ## Core Rules
 
@@ -89,15 +91,10 @@ If root cause cannot be determined with reasonable investigation effort:
 
 Status: success | needs-revision | blocked | failed
 Findings:
-- Assigned issue summary and current triage status.
-- Reproduction status and proof notes.
-- Root cause status (confirmed or inconclusive) and risk notes.
+- Assigned issue status, reproduction proof status, and root-cause confidence/risk notes.
 Artifacts:
-- Issue references and comments posted.
-- Tests added/updated and test evidence (fail-before/pass-after).
-- Files changed and commit SHA (if fixed).
-- Debug/investigation packet details (if not fixed).
+- Issue updates posted, reproducer test evidence (fail-before/pass-after), changed files and commit SHA (if fixed), or investigation packet details (if blocked).
 Required Next Step:
 - `coordinator-agent`, `developer verification`, `ask-user`, or exact blocker.
 Handoff Prompt:
-- A concise prompt for the next agent/person with issue context, current status, and exact verification or investigation steps.
+- Build with `handoff-prompt-builder`.
