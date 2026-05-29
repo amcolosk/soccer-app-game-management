@@ -100,6 +100,25 @@ coordinator-agent → coding-agent → validation-agent → commit gate
 
 > For defect fixes spanning more than two files, or that require architectural changes, use the full New Feature Pipeline instead. Mark issue as fixed using github hash.
 
+### Assigned Defect Triage Agent
+
+Use `defect-triage-agent` for assigned GitHub bug issues.
+
+- It must route implementation through `coordinator-agent` workflow stages.
+- It must try to reproduce each issue with a deterministic test before fixing.
+- It must use the same test as proof: failing before fix, passing after fix.
+- It must not mark an issue fixed without a commit SHA and passing reproduction evidence.
+- If root cause is inconclusive, it must add scoped debugging support and provide investigation/debug data collection instructions in the issue comment.
+- It must never close issues (developer sign-off only).
+
+#### Defect Triage Skills
+
+When running assigned triage, use these workspace skills:
+
+- `repro-test-first`: create or identify deterministic reproducer tests and capture fail-before/pass-after evidence.
+- `root-cause-investigation-packet`: add scoped diagnostics and publish a concrete debug-data collection packet when root cause is inconclusive.
+- `github-issue-triage-update`: keep issue claim/progress/fixed/blocked comments and status label transitions consistent.
+
 ### MCP GitHub Issue Lookup
 
 - Use `mcp_github_issue_read` with `method: get` to read issue details.
