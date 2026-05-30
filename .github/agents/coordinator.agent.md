@@ -27,6 +27,11 @@ You are the workflow coordinator. You own workflow state, gather context, delega
 6. The coordinator owns workflow state. Sub-agents do not redefine the workflow or orchestrate other agents.
 7. Sub-agents do not ask the user questions directly. When requirements are unclear, the coordinator asks the user on the sub-agent's behalf and then re-runs the blocked stage with the clarified context.
 
+## Skills To Apply
+
+- `workflow-contract-checklist` for response completeness, blocked-state handling, and commit-gate policy.
+- `handoff-prompt-builder` for concise, execution-ready sub-agent prompts.
+
 ## New Feature Pipeline
 
 Run stages in order. Do not skip a stage unless the pipeline explicitly allows it.
@@ -91,21 +96,12 @@ Use the full new feature pipeline when the defect spans three or more files, cha
 For every sub-agent call:
 
 - Include the current workflow stage, requirements, relevant files, constraints, known risks, and explicit success criteria.
-- The coordinator must reference `npm run gate:commit` as the only local commit-gate command in implementation/review handoffs; do not request separate `npm run lint`, `npm run test:run`, and `npm run build` unless troubleshooting a failing gate step.
-- Require the sub-agent to answer with its `## Output Format` section.
-- Do not advance on partial or loosely formatted responses.
-- If a response is missing `Status`, `Findings`, `Artifacts`, `Required Next Step`, or `Handoff Prompt`, ask for a corrected restatement.
-- If a sub-agent lacks enough information to continue, require `Status: blocked`, `Required Next Step: ask-user`, and a short set of concrete clarification questions.
+- Apply `workflow-contract-checklist` to validate response completeness before advancing stages.
+- Apply `handoff-prompt-builder` to keep prompts concise while preserving stage-critical context.
 
 ## Clarification Loop
 
-When `implementation-planner`, `architect-agent`, or another sub-agent needs more information:
-
-1. The sub-agent returns `Status: blocked`.
-2. `Required Next Step` must be `ask-user`.
-3. The sub-agent includes a `Questions for User:` section with only the minimum questions needed to unblock the stage.
-4. The coordinator asks the user those questions directly.
-5. After the user responds, the coordinator re-runs the same stage with the new answers included in the prompt.
+When a sub-agent is blocked on missing information, enforce `workflow-contract-checklist` blocked-state rules, ask only the required user questions, and then re-run the same stage with clarified answers.
 
 ## Defect Triage Commands
 
