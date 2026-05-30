@@ -1935,6 +1935,60 @@ describe('rotationPlannerService', () => {
       // p5: on 10–50 = 40 min
       expect(playTimeMap.get('p5')?.totalMinutes).toBe(40);
     });
+
+    it('should calculate correct minutes when rotation numbers restart in second half', () => {
+      // Repro for #149: rotation numbers can restart after halftime.
+      // Chronological minutes are [8, 16, 25, 33, 41] in a 50-minute game.
+      // pA plays from 16-25 and 33-50 => 9 + 17 = 26 minutes.
+      const rotations = [
+        {
+          id: 'rot1-h1',
+          rotationNumber: 1,
+          gameMinute: 8,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'pB', playerInId: 'pC', positionId: 'pos1' },
+          ]),
+        },
+        {
+          id: 'rot2-h1',
+          rotationNumber: 2,
+          gameMinute: 16,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'pC', playerInId: 'pA', positionId: 'pos1' },
+          ]),
+        },
+        {
+          id: 'rot3-h1',
+          rotationNumber: 3,
+          gameMinute: 25,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'pA', playerInId: 'pB', positionId: 'pos1' },
+          ]),
+        },
+        {
+          id: 'rot1-h2',
+          rotationNumber: 1,
+          gameMinute: 33,
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: 'pB', playerInId: 'pA', positionId: 'pos1' },
+          ]),
+        },
+        {
+          id: 'rot2-h2',
+          rotationNumber: 2,
+          gameMinute: 41,
+          plannedSubstitutions: JSON.stringify([]),
+        },
+      ];
+
+      const startingLineup = [
+        { playerId: 'pB', positionId: 'pos1' },
+      ];
+
+      const playTimeMap = calculatePlayTime(rotations as any, startingLineup, 8, 50);
+
+      expect(playTimeMap.get('pA')?.totalMinutes).toBe(26);
+    });
   });
 
   describe('validateRotationPlan', () => {

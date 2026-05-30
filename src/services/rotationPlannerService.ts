@@ -53,7 +53,7 @@ const MAX_CONTINUOUS_ROTATIONS: Record<PositionGroup, number> = {
 interface PlayerPlayTime {
   playerId: string;
   totalMinutes: number;
-  rotations: Array<{ rotationNumber: number; onField: boolean; positionId?: string }>;
+  rotations: Array<{ rotationNumber: number; gameMinute: number; onField: boolean; positionId?: string }>;
 }
 
 /**
@@ -646,11 +646,21 @@ export function calculatePlayTime(
   // Add first rotation state
   currentField.forEach(id => {
     const pt = playTime.get(id)!;
-    pt.rotations.push({ rotationNumber: 0, onField: true, positionId: startingLineup.find(s => s.playerId === id)?.positionId });
+    pt.rotations.push({
+      rotationNumber: 0,
+      gameMinute: 0,
+      onField: true,
+      positionId: startingLineup.find(s => s.playerId === id)?.positionId
+    });
   });
   
   // Process each rotation
-  const sortedRotations = [...rotations].sort((a, b) => a.rotationNumber - b.rotationNumber);
+  const sortedRotations = [...rotations].sort((a, b) => {
+    if (a.gameMinute !== b.gameMinute) {
+      return a.gameMinute - b.gameMinute;
+    }
+    return a.rotationNumber - b.rotationNumber;
+  });
   
   sortedRotations.forEach((rotation) => {
     let subs: PlannedSubstitution[] = [];
@@ -691,6 +701,7 @@ export function calculatePlayTime(
       const pt = playTime.get(id)!;
       pt.rotations.push({
         rotationNumber: rotation.rotationNumber,
+        gameMinute: rotation.gameMinute,
         onField: currentField.has(id),
         positionId: subs.find(s => s.playerInId === id)?.positionId,
       });
@@ -705,17 +716,11 @@ export function calculatePlayTime(
     pt.rotations.forEach((rotation, index) => {
       if (rotation.onField) {
         const nextRotation = pt.rotations[index + 1];
-        
-        // Get the current rotation's game minute
-        const currentRotationObj = rotation.rotationNumber === 0 
-          ? null 
-          : sortedRotations.find(r => r.rotationNumber === rotation.rotationNumber);
-        const currentMinute = currentRotationObj?.gameMinute || 0;
+        const currentMinute = rotation.gameMinute;
         
         if (nextRotation) {
           // Calculate time until next rotation
-          const nextRotationObj = sortedRotations.find(r => r.rotationNumber === nextRotation.rotationNumber);
-          const nextMinute = nextRotationObj?.gameMinute || 0;
+          const nextMinute = nextRotation.gameMinute;
           
           if (nextMinute > currentMinute) {
             minutes += nextMinute - currentMinute;
