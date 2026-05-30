@@ -588,6 +588,45 @@ describe('rotationPlannerService', () => {
       expect(rotations[0].substitutions).toHaveLength(0);
     });
 
+    it('seeds second-half-only recalculation from the halftime lineup', () => {
+      const players: SimpleRoster[] = [
+        { id: 'r1', playerId: 'p1', playerNumber: 1, preferredPositions: 'pos1' },
+        { id: 'r2', playerId: 'p2', playerNumber: 2, preferredPositions: 'pos2' },
+        { id: 'r3', playerId: 'p3', playerNumber: 3, preferredPositions: 'pos1' },
+        { id: 'r4', playerId: 'p4', playerNumber: 4, preferredPositions: 'pos2' },
+      ];
+
+      const startingLineup = [
+        { playerId: 'p1', positionId: 'pos1' },
+        { playerId: 'p2', positionId: 'pos2' },
+      ];
+
+      const halftimeLineup = [
+        { playerId: 'p3', positionId: 'pos1' },
+        { playerId: 'p4', positionId: 'pos2' },
+      ];
+
+      const { rotations } = calculateFairRotations(
+        players,
+        startingLineup,
+        1,
+        -1,
+        2,
+        undefined,
+        halftimeLineup,
+        {
+          rotationIntervalMinutes: 10,
+          halfLengthMinutes: 30,
+        },
+      );
+
+      expect(rotations).toHaveLength(1);
+      expect(rotations[0].substitutions).toEqual([
+        { playerOutId: 'p3', playerInId: 'p1', positionId: 'pos1' },
+        { playerOutId: 'p4', playerInId: 'p2', positionId: 'pos2' },
+      ]);
+    });
+
     it('reproduces: bench player assigned as H2 GK via halftimeLineup – halftime sub includes GK swap and H2 rotations do not re-swap the GK', () => {
       // Scenario from user report: coach sets initial formation (GK = gk1) then sets a DIFFERENT
       // bench player (gk2) as the halftime goalie and presses Generate Rotations.

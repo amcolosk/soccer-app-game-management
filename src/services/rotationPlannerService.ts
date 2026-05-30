@@ -269,11 +269,15 @@ export function calculateFairRotations(
     return bestAssignments;
   };
 
+  const lineupSeed = rotationsPerHalf < 0 && halftimeLineup && halftimeLineup.length > 0
+    ? halftimeLineup
+    : startingLineup;
+
   // Track current field state
-  const currentField = new Set(startingLineup.map(s => s.playerId));
-  const positionMap = new Map(startingLineup.map(s => [s.playerId, s.positionId]));
+  const currentField = new Set(lineupSeed.map(s => s.playerId));
+  const positionMap = new Map(lineupSeed.map(s => [s.playerId, s.positionId]));
   let lockedGoaliePlayerId = goaliePositionId
-    ? startingLineup.find((entry) => entry.positionId === goaliePositionId)?.playerId
+    ? lineupSeed.find((entry) => entry.positionId === goaliePositionId)?.playerId
     : undefined;
 
   // Play time tracking (minutes)
