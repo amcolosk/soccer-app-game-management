@@ -13,6 +13,7 @@ Use this skill to keep issue updates consistent, concise, and actionable during 
 - Maintain clear issue state and ownership.
 - Provide reproducible technical updates, not vague status notes.
 - Enforce fixed-proof requirements before `status:fixed`.
+- Require every investigation update to state: what was fixed/attempted, root cause, and recurrence defense.
 
 ## Label and State Rules
 
@@ -36,6 +37,7 @@ Investigation update:
 
 - Reproducer test: <file>::<test name> (<status>)
 - Current hypothesis: <one line>
+- Current recurrence defense status: <guard in place / planned / not yet available>
 - Next action: <one line>
 
 ### 3. Fixed (only with proof)
@@ -44,6 +46,7 @@ Fixed in <sha>.
 
 - Root cause: <one line>
 - Change summary: <one to three bullets>
+- Recurrence defense: <tests/guards/monitoring/process control that now prevents repeat>
 - Reproducer: <file>::<test name>
 - Pre-fix: FAIL (<command>)
 - Post-fix: PASS (<command>)
@@ -55,6 +58,7 @@ Investigation could not confirm root cause yet. Keeping this issue in progress.
 
 - What was attempted: <bullets>
 - Instrumentation added: <files/flags>
+- Interim defense/containment: <feature flag, validation guard, alert, rollback strategy, or none>
 - Data to collect: <commands/artifacts>
 - Where to attach evidence: <issue attachments/log links>
 - Next owner/action: <who does what>
@@ -65,3 +69,4 @@ Investigation could not confirm root cause yet. Keeping this issue in progress.
 - Avoid ambiguous phrases like "seems fixed".
 - Include commands and exact test identifiers in technical updates.
 - Redact secrets and sensitive data.
+- Always include explicit statements for fix/attempt, root cause status, and recurrence defense.

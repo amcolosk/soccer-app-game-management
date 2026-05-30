@@ -69,6 +69,8 @@ Use this structure in handoffs or issue comments:
 - Post-fix result: PASS
 - Post-fix command: <command>
 - Additional targeted tests: <command + result>
+- Recurrence defense: <what now prevents repeat>
+- Defense evidence: <test/guard/validation/monitoring proof>
 
 ## Quality Rules
 

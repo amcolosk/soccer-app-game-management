@@ -13,6 +13,7 @@ Use this skill when a defect cannot be confidently explained after reasonable an
 - Make the unknowns observable with safe, targeted diagnostics.
 - Provide a repeatable investigation packet so developers/reporters can gather decisive data.
 - Keep issue state accurate without claiming a fix prematurely.
+- Document interim recurrence defense while root cause remains inconclusive.
 
 ## Trigger Conditions
 
@@ -73,6 +74,8 @@ Include:
 
 - Current status: blocked on investigation data
 - What was attempted
+- Current root cause confidence level
+- Interim recurrence defense or containment in place
 - What to collect
 - Where to attach it
 - Clear next owner/action
@@ -83,8 +86,11 @@ Include:
 - Attempted hypotheses:
 - H1: <summary> -> <result>
 - H2: <summary> -> <result>
+- Root cause confidence: <low/medium/high and why>
 - Instrumentation added:
 - <file/flag/log points>
+- Interim defense/containment:
+- <validation guard / feature flag / alert / operational runbook / none>
 - Setup:
 - <prereqs>
 - Repro:
@@ -101,3 +107,4 @@ Include:
 - Do not mark issue fixed when root cause is unknown.
 - Keep `status:in-progress` unless project policy says otherwise.
 - Ensure diagnostics can be removed or disabled after investigation.
+- If no interim defense is possible, state that explicitly and include risk impact.
