@@ -211,7 +211,11 @@ export function PlanTab({
   // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Effective planned rotations (local overrides merged with server) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   const effectivePlannedRotations = useMemo(() => {
     if (localRotationOverrides.size === 0) {
-      return plannedRotations;
+      return [...plannedRotations].sort((a, b) => {
+        const byRotationNumber = (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0);
+        if (byRotationNumber !== 0) return byRotationNumber;
+        return (a.gameMinute ?? 0) - (b.gameMinute ?? 0);
+      });
     }
 
     const mergedByKey = new Map<string, PlannedRotation>();
