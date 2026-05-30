@@ -1815,6 +1815,30 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     }
   };
 
+  // Confirmation-gated wrappers for manual button clicks — the raw handlers are
+  // still used by the auto-timer so it never blocks on a dialog.
+  const handleHalftimeWithConfirm = async () => {
+    const confirmed = await confirm({
+      title: 'End First Half?',
+      message: 'This will stop the first half and move to halftime.',
+      confirmText: 'End First Half',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
+    await handleHalftime();
+  };
+
+  const handleEndGameWithConfirm = async () => {
+    const confirmed = await confirm({
+      title: 'End Game?',
+      message: 'This will permanently end the game and record final play times.',
+      confirmText: 'End Game',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
+    await handleEndGame();
+  };
+
   // Timer hook - handles 500ms wall-clock tick, DB sync every 5s, auto-halftime/auto-end (fixes #31)
   const { resetAnchor } = useGameTimer({
     game,
@@ -2453,12 +2477,12 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                 )}
                 <div className="field-tab__action-bar">
                   {gameState.currentHalf === 1 && (
-                    <button onClick={handleHalftime} className="btn-secondary">
+                    <button onClick={handleHalftimeWithConfirm} className="btn-secondary">
                       End First Half
                     </button>
                   )}
                   {gameState.currentHalf === 2 && (
-                    <button onClick={handleEndGame} className="btn-secondary">
+                    <button onClick={handleEndGameWithConfirm} className="btn-secondary">
                       End Game
                     </button>
                   )}
@@ -2543,9 +2567,9 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
               onStartGame={handleStartGame}
               onPauseTimer={handlePauseTimer}
               onResumeTimer={handleResumeTimer}
-              onHalftime={handleHalftime}
+              onHalftime={handleHalftimeWithConfirm}
               onStartSecondHalf={handleStartSecondHalf}
-              onEndGame={handleEndGame}
+              onEndGame={handleEndGameWithConfirm}
               onAddTestTime={handleAddTestTime}
               onRecalculateRotations={handleRecalculateRotations}
               onApplyHalftimeSub={handleApplyHalftimeSub}
