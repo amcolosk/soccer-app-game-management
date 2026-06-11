@@ -117,15 +117,26 @@ export function LineupPanel({
 
   const handleRemoveFromLineup = async (lineupId: string) => {
     if (!isInteractive) return;
+    if (!lineupId) return;
     try {
       await mutations.deleteLineupAssignment(lineupId);
     } catch (error) {
+      if (isConflictError(error) || isMissingRecordError(error)) {
+        // Treat stale delete targets as already-cleared to avoid noisy halftime errors.
+        return;
+      }
       handleApiError(error, 'Failed to remove player from lineup');
     }
   };
 
   const handleClearAllPositions = async () => {
     if (!isInteractive) return;
+    const starterAssignments = lineup.filter(
+      (assignment): assignment is typeof assignment & { id: string } =>
+        assignment.isStarter && typeof assignment.id === 'string' && assignment.id.length > 0,
+    );
+    if (starterAssignments.length === 0) return;
+
     const confirmed = await confirm({
       title: 'Clear Lineup',
       message: `Remove all ${startersCount} players from the lineup?`,
@@ -135,10 +146,18 @@ export function LineupPanel({
     if (!confirmed) return;
 
     try {
-      const deletePromises = lineup.map(assignment =>
-        mutations.deleteLineupAssignment(assignment.id)
+      const results = await Promise.allSettled(
+        starterAssignments.map((assignment) => mutations.deleteLineupAssignment(assignment.id)),
       );
-      await Promise.all(deletePromises);
+      const firstUnexpectedFailure = results.find(
+        (result) =>
+          result.status === 'rejected'
+          && !isConflictError(result.reason)
+          && !isMissingRecordError(result.reason),
+      );
+      if (firstUnexpectedFailure?.status === 'rejected') {
+        throw firstUnexpectedFailure.reason;
+      }
     } catch (error) {
       handleApiError(error, 'Failed to clear lineup');
     }
@@ -359,8 +378,12 @@ export function LineupPanel({
                 )}
               </div>
             )}
-            {gameState.status === 'halftime' && startersCount > 0 && (
-              <button onClick={handleClearAllPositions} className="btn-clear-lineup" disabled={!isInteractive}>
+            {gameState.status === 'halftime' && (
+              <button
+                onClick={handleClearAllPositions}
+                className="btn-clear-lineup"
+                disabled={!isInteractive || startersCount === 0}
+              >
                 Clear All Positions
               </button>
             )}
