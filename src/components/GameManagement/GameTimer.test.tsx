@@ -308,6 +308,51 @@ describe("GameTimer", () => {
       expect(screen.queryByRole("heading", { name: /2nd Half Lineup Changes/i })).not.toBeInTheDocument();
     });
 
+    it("derives halftime applyable changes from persisted halftime lineup when planned halftime subs are empty (issue #160)", async () => {
+      const user = userEvent.setup();
+      const onApplyHalftimeSub = vi.fn().mockResolvedValue(undefined);
+
+      const emptyHalftimeRotation = [{
+        id: "rot-empty-ht",
+        half: 2,
+        gameMinute: 30,
+        rotationNumber: 1,
+        plannedSubstitutions: "[]",
+      }] as any[];
+
+      const halftimeLineupPlan = {
+        id: "gp-1",
+        halftimeLineup: JSON.stringify([
+          { positionId: "pos1", playerId: "p2" },
+          { positionId: "pos2", playerId: "p3" },
+        ]),
+      } as any;
+
+      const currentLineup = [
+        { id: "la-1", gameId: "game-1", playerId: "p1", positionId: "pos1", isStarter: true },
+        { id: "la-2", gameId: "game-1", playerId: "p3", positionId: "pos2", isStarter: true },
+      ] as any[];
+
+      render(
+        <GameTimer
+          {...makeHalftimeProps({
+            plannedRotations: emptyHalftimeRotation,
+            gamePlan: halftimeLineupPlan,
+            lineup: currentLineup,
+            onApplyHalftimeSub,
+          })}
+        />,
+      );
+
+      expect(screen.getByRole("heading", { name: /2nd Half Lineup Changes/i })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /^apply$/i }));
+      expect(onApplyHalftimeSub).toHaveBeenCalledWith({
+        playerOutId: "p1",
+        playerInId: "p2",
+        positionId: "pos1",
+      });
+    });
+
     it("renders an Apply button for each planned substitution", () => {
       render(<GameTimer {...makeHalftimeProps({ plannedRotations: twoSubRotation })} />);
       expect(screen.getAllByRole("button", { name: /^apply$/i })).toHaveLength(2);
