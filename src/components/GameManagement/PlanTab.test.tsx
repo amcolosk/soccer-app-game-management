@@ -464,6 +464,69 @@ describe("PlanTab", () => {
     expect(screen.getByTestId("position-select-pos-2")).toHaveValue("player-3");
   });
 
+  it("shows correct player names for first H2 rotation when server returns rotations out of order", () => {
+    // Regression: when plannedRotations arrive from the server in non-rotationNumber order,
+    // effectivePlannedRotations must still be sorted so that buildRotationTimelineItems assigns
+    // correct labels and h1RotationRows drives the correct end-of-H1 lineup.
+    //
+    // Setup: interval=10, halfLength=30 → rotationsPerHalf=2, halftimeRotationNumber=3
+    //   R1(H1): player-1→player-3 at pos-1
+    //   R2(H1): (no pos-1 change)
+    //   R3(HT): stale playerOutId="player-1" at pos-1 (should be overridden by beforeLineup)
+    //   R4("R3" pill): sub at pos-1
+    //
+    // With unsorted input [R3,R4,R1,R2] the old code would mislabel rotations.
+    // After the sort fix, R3 is HT, R4 is "R3", and beforeLineup is computed correctly.
+
+    const r1Subs = JSON.stringify([
+      { playerOutId: "player-1", playerInId: "player-3", positionId: "pos-1" },
+    ]);
+    const r3Subs = JSON.stringify([
+      // Stale playerOutId — stored before R1 ran.
+      { playerOutId: "player-1", playerInId: "player-2", positionId: "pos-1" },
+    ]);
+    const r4Subs = JSON.stringify([
+      { playerOutId: "player-3", playerInId: "player-1", positionId: "pos-1" },
+    ]);
+
+    // Server returns rotations out-of-order (H2 first, then H1).
+    const unsortedRotations: PlannedRotation[] = [
+      { id: "rot-3", half: 2, gameMinute: 25, rotationNumber: 3, plannedSubstitutions: r3Subs } as PlannedRotation,
+      { id: "rot-4", half: 2, gameMinute: 33, rotationNumber: 4, plannedSubstitutions: r4Subs } as PlannedRotation,
+      { id: "rot-1", half: 1, gameMinute: 10, rotationNumber: 1, plannedSubstitutions: r1Subs } as PlannedRotation,
+      { id: "rot-2", half: 1, gameMinute: 20, rotationNumber: 2, plannedSubstitutions: "[]" } as PlannedRotation,
+    ];
+
+    (useGamePlanner as any).mockReturnValue({
+      ...mockPlannerResult,
+      draft: {
+        ...mockPlannerResult.draft,
+        halftimeLineup: new Map(),
+        // "R3" pill corresponds to rotationNumber=4 after sort
+        selectedTimelineKey: "rotation-4-rot-4",
+      },
+    });
+
+    render(
+      <PlanTab
+        {...defaultProps}
+        gamePlan={{ ...mockGamePlan, rotationIntervalMinutes: 10 }}
+        plannedRotations={unsortedRotations}
+      />
+    );
+
+    // The "R3" pill shows R4's subs. beforeLineup for R4 = endOfH1 + R3 applied.
+    // After R1: pos-1 = player-3. After R2: pos-1 = player-3. After R3(HT): pos-1 = player-2.
+    // So beforeLineup.get("pos-1") = "player-2" → Player Two goes off, Player One comes on.
+    // Without the sort fix, h1RotationRows could be computed from an unsorted list causing
+    // label mismatches, so we verify the substitution summary reflects the correct before-lineup.
+    const subsSummary = screen.getByLabelText("Rotation substitutions summary");
+    // Player Two should appear as the outgoing player (resolved from correct beforeLineup).
+    expect(within(subsSummary).getByText("Player Two")).toBeInTheDocument();
+    // Player One should appear as the incoming player (R4's playerInId).
+    expect(within(subsSummary).getByText("Player One")).toBeInTheDocument();
+  });
+
   it("allows editing a rotation and submits through parent-owned update callback", async () => {
     const onUpdatePlannedRotations = vi.fn().mockResolvedValue({
       status: "ok",
