@@ -1476,6 +1476,11 @@
   flex-shrink: 0;
 }
 
+.position-role-select--error {
+  border-color: #f44336;
+  outline: 1px solid #f44336;
+}
+
 /* Players and Positions */
 .player-list {
   display: flex;

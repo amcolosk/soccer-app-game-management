@@ -6,10 +6,13 @@
  * FormationPosition IDs, which are referenced by TeamRoster.preferredPositions.
  */
 
+import type { FormationPositionRole } from "../types/schema";
+
 export interface ExistingFormationPosition {
   id: string;
   positionName: string;
   abbreviation: string;
+  role?: FormationPositionRole | null;
   sortOrder?: number | null;
   xPct?: number | null;
   yPct?: number | null;
@@ -18,12 +21,14 @@ export interface ExistingFormationPosition {
 export interface NewPositionFormData {
   positionName: string;
   abbreviation: string;
+  role?: FormationPositionRole | null;
 }
 
 export interface FormationPositionUpdate {
   id: string;
   positionName: string;
   abbreviation: string;
+  role?: FormationPositionRole | null;
   sortOrder: number;
   xPct?: number | null;
   yPct?: number | null;
@@ -32,6 +37,7 @@ export interface FormationPositionUpdate {
 export interface FormationPositionCreate {
   positionName: string;
   abbreviation: string;
+  role?: FormationPositionRole | null;
   sortOrder: number;
   xPct?: number | null;
   yPct?: number | null;
@@ -80,6 +86,7 @@ export function computeFormationPositionDiff(
       id: sorted[i].id,
       positionName: newPositions[i].positionName,
       abbreviation: newPositions[i].abbreviation,
+      role: newPositions[i].role ?? null,
       sortOrder: i + 1,
       xPct: sorted[i].xPct ?? null,
       yPct: sorted[i].yPct ?? null,
@@ -91,6 +98,7 @@ export function computeFormationPositionDiff(
     toCreate.push({
       positionName: newPositions[i].positionName,
       abbreviation: newPositions[i].abbreviation,
+      role: newPositions[i].role ?? null,
       sortOrder: i + 1,
       xPct: null,
       yPct: null,
@@ -116,4 +124,14 @@ export function scrubDeletedPositionPreferences(
     .map(s => s.trim())
     .filter(id => id.length > 0 && !deletedIds.has(id));
   return remaining.length > 0 ? remaining.join(', ') : null;
+}
+
+/**
+ * Returns positions that are missing an explicit role, used to gate planner
+ * entry and formation-editor save until every position has a role assigned.
+ */
+export function getMissingRolePositions<T extends { role?: FormationPositionRole | null }>(
+  positions: T[],
+): T[] {
+  return positions.filter(p => !p.role);
 }

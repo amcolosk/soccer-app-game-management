@@ -12,6 +12,7 @@ import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, copyGamePlan, type PlannedSubstitution } from "../../services/rotationPlannerService";
 import { calculatePlayerPlayTime } from "../../utils/playTimeCalculations";
+import { getMissingRolePositions } from "../../utils/formationUtils";
 import {
   computeRevisionFingerprint,
   computeRotationDiff,
@@ -331,6 +332,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   const confirm = useConfirm();
   // Load team roster and formation positions with real-time updates
   const { players, positions } = useTeamData(team.id, team.formationId);
+  const missingRolePositions = useMemo(() => getMissingRolePositions(positions), [positions]);
   const { profileMap, refetch: refetchCoachProfiles } = useTeamCoachProfiles({
     teamId: team.id,
     onFocusRefetch: true,
@@ -967,10 +969,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       });
 
       // Phase B: compute fair substitutions and write them to future rotations
-      const goaliePos = positions.find(p => {
-        const abbr = p.abbreviation?.toUpperCase();
-        return abbr === 'GK' || abbr === 'G';
-      });
+      const goaliePos = positions.find(p => p.role === 'GOALKEEPER');
       const goaliePositionId = goaliePos?.id;
 
       // Compute accumulated play time per player (seconds → minutes) for fairness seeding
@@ -2305,26 +2304,40 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                   </div>
                 )}
 
-                <PlanTab
-                  readOnly={false}
-                  gamePlan={gamePlan}
-                  plannedRotations={plannedRotations}
-                  planConflicts={getPlanConflicts()}
-                  isRecalculating={isRecalculating}
-                  onRecalculateRotations={handleRecalculateRotations}
-                  onHalfLengthChange={handleHalfLengthChange}
-                  onIntervalChange={handleIntervalChange}
-                  onGenerateRotations={handleRecalculateRotations}
-                  onEnsureRotationSchedule={handleEnsureRotationSchedule}
-                  onUpdatePlannedRotations={handleUpdatePlannedRotations}
-                  isCopyModalOpen={isCopyModalOpen}
-                  previousGamesWithPlans={previousGamesWithPlans ?? undefined}
-                  onOpenCopyModal={handleOpenCopyModal}
-                  onCloseCopyModal={() => setIsCopyModalOpen(false)}
-                  onCopyFromGame={handleCopyFromGame}
-                  isCopyingPlan={isCopyingPlan}
-                  {...sharedLineupPanelProps}
-                />
+                {missingRolePositions.length > 0 ? (
+                  <div className="plan-conflict-banner" role="alert">
+                    <h4>Formation Needs Role Assignment</h4>
+                    <p>
+                      This formation has {missingRolePositions.length} position{missingRolePositions.length === 1 ? '' : 's'} without
+                      an assigned role. Assign a role (Goalkeeper, Defender, Midfielder, or Forward) to every position
+                      before planning rotations.
+                    </p>
+                    <Link to="/manage?section=formations" className="btn-primary">
+                      Go to Formation Editor
+                    </Link>
+                  </div>
+                ) : (
+                  <PlanTab
+                    readOnly={false}
+                    gamePlan={gamePlan}
+                    plannedRotations={plannedRotations}
+                    planConflicts={getPlanConflicts()}
+                    isRecalculating={isRecalculating}
+                    onRecalculateRotations={handleRecalculateRotations}
+                    onHalfLengthChange={handleHalfLengthChange}
+                    onIntervalChange={handleIntervalChange}
+                    onGenerateRotations={handleRecalculateRotations}
+                    onEnsureRotationSchedule={handleEnsureRotationSchedule}
+                    onUpdatePlannedRotations={handleUpdatePlannedRotations}
+                    isCopyModalOpen={isCopyModalOpen}
+                    previousGamesWithPlans={previousGamesWithPlans ?? undefined}
+                    onOpenCopyModal={handleOpenCopyModal}
+                    onCloseCopyModal={() => setIsCopyModalOpen(false)}
+                    onCopyFromGame={handleCopyFromGame}
+                    isCopyingPlan={isCopyingPlan}
+                    {...sharedLineupPanelProps}
+                  />
+                )}
 
                 {!isEditingGame && (
                   <div className="pregame-start-cta">
@@ -2432,15 +2445,29 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                 aria-labelledby="game-tab-panel-tab-plan"
                 tabIndex={0}
               >
-                <PlanTab
-                  readOnly={true}
-                  gamePlan={gamePlan}
-                  plannedRotations={plannedRotations}
-                  planConflicts={getPlanConflicts()}
-                  isRecalculating={isRecalculating}
-                  onRecalculateRotations={handleRecalculateRotations}
-                  {...sharedLineupPanelProps}
-                />
+                {missingRolePositions.length > 0 ? (
+                  <div className="plan-conflict-banner" role="alert">
+                    <h4>Formation Needs Role Assignment</h4>
+                    <p>
+                      This formation has {missingRolePositions.length} position{missingRolePositions.length === 1 ? '' : 's'} without
+                      an assigned role. Assign a role (Goalkeeper, Defender, Midfielder, or Forward) to every position
+                      before planning rotations.
+                    </p>
+                    <Link to="/manage?section=formations" className="btn-primary">
+                      Go to Formation Editor
+                    </Link>
+                  </div>
+                ) : (
+                  <PlanTab
+                    readOnly={true}
+                    gamePlan={gamePlan}
+                    plannedRotations={plannedRotations}
+                    planConflicts={getPlanConflicts()}
+                    isRecalculating={isRecalculating}
+                    onRecalculateRotations={handleRecalculateRotations}
+                    {...sharedLineupPanelProps}
+                  />
+                )}
               </div>
             )}
 

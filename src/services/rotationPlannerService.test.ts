@@ -676,11 +676,11 @@ describe('rotationPlannerService', () => {
           rotationIntervalMinutes: 6,
           halfLengthMinutes: 20,
           positions: [
-            { id: 'pos-gk', positionName: 'GK', abbreviation: 'GK' },
-            { id: 'pos-lb', positionName: 'LB', abbreviation: 'LB' },
-            { id: 'pos-rb', positionName: 'RB', abbreviation: 'RB' },
-            { id: 'pos-mid', positionName: 'MID', abbreviation: 'MID' },
-            { id: 'pos-fwd', positionName: 'FWD', abbreviation: 'FWD' },
+            { id: 'pos-gk', positionName: 'GK', abbreviation: 'GK', role: 'GOALKEEPER' },
+            { id: 'pos-lb', positionName: 'LB', abbreviation: 'LB', role: 'DEFENDER' },
+            { id: 'pos-rb', positionName: 'RB', abbreviation: 'RB', role: 'DEFENDER' },
+            { id: 'pos-mid', positionName: 'MID', abbreviation: 'MID', role: 'MIDFIELDER' },
+            { id: 'pos-fwd', positionName: 'FWD', abbreviation: 'FWD', role: 'FORWARD' },
           ],
         },
       );
@@ -768,11 +768,11 @@ describe('rotationPlannerService', () => {
           rotationIntervalMinutes: 10,
           halfLengthMinutes: 30,
           positions: [
-            { id: 'pos-gk', positionName: 'GK', abbreviation: 'GK' },
-            { id: 'pos-lb', positionName: 'LB', abbreviation: 'LB' },
-            { id: 'pos-rb', positionName: 'RB', abbreviation: 'RB' },
-            { id: 'pos-cm', positionName: 'CM', abbreviation: 'CM' },
-            { id: 'pos-st', positionName: 'ST', abbreviation: 'ST' },
+            { id: 'pos-gk', positionName: 'GK', abbreviation: 'GK', role: 'GOALKEEPER' },
+            { id: 'pos-lb', positionName: 'LB', abbreviation: 'LB', role: 'DEFENDER' },
+            { id: 'pos-rb', positionName: 'RB', abbreviation: 'RB', role: 'DEFENDER' },
+            { id: 'pos-cm', positionName: 'CM', abbreviation: 'CM', role: 'MIDFIELDER' },
+            { id: 'pos-st', positionName: 'ST', abbreviation: 'ST', role: 'FORWARD' },
           ],
         }
       );
@@ -842,15 +842,15 @@ describe('rotationPlannerService', () => {
       // LW is a STRIKER position (max 1 consecutive interval). p_lw starts at LW on bench.
       // The fix: fatigue forced-off is suppressed if the player hasn't yet reached 50% game time.
       const positions = [
-        { id: 'gol', abbreviation: 'Gol' },  // Goalkeeper (no forced-off)
-        { id: 'ld', abbreviation: 'LD' },
-        { id: 'cb', abbreviation: 'CB' },
-        { id: 'rd', abbreviation: 'RD' },
-        { id: 'dm', abbreviation: 'DM' },
-        { id: 'lm', abbreviation: 'LM' },    // Midfielder — max 2 consecutive
-        { id: 'rm', abbreviation: 'RM' },    // Midfielder — max 2 consecutive
-        { id: 'lw', abbreviation: 'LW' },    // Striker — max 1 consecutive
-        { id: 'st', abbreviation: 'ST' },    // Striker — max 1 consecutive
+        { id: 'gol', abbreviation: 'Gol', role: 'GOALKEEPER' },  // Goalkeeper (no forced-off)
+        { id: 'ld', abbreviation: 'LD', role: 'DEFENDER' },
+        { id: 'cb', abbreviation: 'CB', role: 'DEFENDER' },
+        { id: 'rd', abbreviation: 'RD', role: 'DEFENDER' },
+        { id: 'dm', abbreviation: 'DM', role: 'MIDFIELDER' },
+        { id: 'lm', abbreviation: 'LM', role: 'MIDFIELDER' },    // Midfielder — max 2 consecutive
+        { id: 'rm', abbreviation: 'RM', role: 'MIDFIELDER' },    // Midfielder — max 2 consecutive
+        { id: 'lw', abbreviation: 'LW', role: 'FORWARD' },    // Striker — max 1 consecutive
+        { id: 'st', abbreviation: 'ST', role: 'FORWARD' },    // Striker — max 1 consecutive
       ];
 
       // 11 players for 9 spots (2 always on bench)
@@ -1118,15 +1118,15 @@ describe('rotationPlannerService', () => {
       // 60-min game, 10-min interval, 30-min halves → rotationsPerHalf=2, totalRotations=5
       // Rule: every player gets ≥ 30 min (50 % of 60)
       const positions9 = [
-        { id: 'gol', abbreviation: 'Gol' }, // GK
-        { id: 'ld',  abbreviation: 'LD'  },
-        { id: 'cb',  abbreviation: 'CB'  },
-        { id: 'rd',  abbreviation: 'RD'  },
-        { id: 'dm',  abbreviation: 'DM'  },
-        { id: 'lm',  abbreviation: 'LM'  },
-        { id: 'rm',  abbreviation: 'RM'  },
-        { id: 'lw',  abbreviation: 'LW'  },
-        { id: 'st',  abbreviation: 'ST'  },
+        { id: 'gol', abbreviation: 'Gol', role: 'GOALKEEPER' }, // GK
+        { id: 'ld',  abbreviation: 'LD', role: 'DEFENDER'  },
+        { id: 'cb',  abbreviation: 'CB', role: 'DEFENDER'  },
+        { id: 'rd',  abbreviation: 'RD', role: 'DEFENDER'  },
+        { id: 'dm',  abbreviation: 'DM', role: 'MIDFIELDER'  },
+        { id: 'lm',  abbreviation: 'LM', role: 'MIDFIELDER'  },
+        { id: 'rm',  abbreviation: 'RM', role: 'MIDFIELDER'  },
+        { id: 'lw',  abbreviation: 'LW', role: 'FORWARD'  },
+        { id: 'st',  abbreviation: 'ST', role: 'FORWARD'  },
       ];
 
       const players16: SimpleRoster[] = Array.from({ length: 16 }, (_, i) => ({
@@ -1190,6 +1190,7 @@ describe('rotationPlannerService', () => {
       const positions11 = Array.from({ length: 11 }, (_, i) => ({
         id: `pos${i + 1}`,
         abbreviation: i === 0 ? 'GK' : `P${i + 1}`,
+        role: i === 0 ? 'GOALKEEPER' : undefined,
       }));
 
       const players16: SimpleRoster[] = Array.from({ length: 16 }, (_, i) => ({
@@ -1251,6 +1252,7 @@ describe('rotationPlannerService', () => {
       const positions11 = Array.from({ length: 11 }, (_, i) => ({
         id: `pos${i + 1}`,
         abbreviation: i === 0 ? 'GK' : `P${i + 1}`,
+        role: i === 0 ? 'GOALKEEPER' : undefined,
       }));
 
       const players13: SimpleRoster[] = Array.from({ length: 13 }, (_, i) => ({
@@ -2166,11 +2168,11 @@ describe('rotationPlannerService', () => {
     const GAME_END = 40;
 
     const positions = [
-      { id: 'pos-gk',   abbreviation: 'GK' },
-      { id: 'pos-def1', abbreviation: 'DF' },
-      { id: 'pos-def2', abbreviation: 'DF' },
-      { id: 'pos-fwd1', abbreviation: 'FW' },
-      { id: 'pos-fwd2', abbreviation: 'FW' },
+      { id: 'pos-gk',   abbreviation: 'GK', role: 'GOALKEEPER' },
+      { id: 'pos-def1', abbreviation: 'DF', role: 'DEFENDER' },
+      { id: 'pos-def2', abbreviation: 'DF', role: 'DEFENDER' },
+      { id: 'pos-fwd1', abbreviation: 'FW', role: 'FORWARD' },
+      { id: 'pos-fwd2', abbreviation: 'FW', role: 'FORWARD' },
     ];
 
     const opts = { rotationIntervalMinutes: 5, halfLengthMinutes: 20, positions };
@@ -2318,6 +2320,40 @@ describe('rotationPlannerService', () => {
       });
     });
 
+    it('TC-05b (regression): fatigue grouping follows role, not positionName/abbreviation labels', () => {
+      // Same layout as TC-05, but the forward positions carry unrelated custom labels
+      // ("Poacher"/"PCH") and the defender carries an unrelated label ("Sweeper"/"SWP").
+      // Only the explicit `role` field should drive fatigue grouping — if the algorithm
+      // fell back to label inference, these custom labels would be classified UNKNOWN
+      // (max 2 continuous rotations) instead of FORWARD (max 1), changing the outcome.
+      const customLabelOpts = {
+        ...opts,
+        positions: [
+          { id: 'pos-gk',   abbreviation: 'GK',  role: 'GOALKEEPER' },
+          { id: 'pos-def1', abbreviation: 'SWP', role: 'DEFENDER' }, // custom label, DEFENDER role
+          { id: 'pos-def2', abbreviation: 'DF',  role: 'DEFENDER' },
+          { id: 'pos-fwd1', abbreviation: 'PCH', role: 'FORWARD' }, // custom label, FORWARD role
+          { id: 'pos-fwd2', abbreviation: 'PCH', role: 'FORWARD' },
+        ],
+      };
+
+      const { rotations } = calculateFairRotations(
+        basePlayers, baseStartingLineup, 6, 3, 5, 'pos-gk', undefined, customLabelOpts,
+      );
+
+      const rotation0Subs = rotations[0].substitutions;
+
+      // Custom-labeled FORWARD positions still get forced off after 1 rotation
+      expect(rotation0Subs.find(s => s.playerOutId === 'p4')).toBeDefined();
+      expect(rotation0Subs.find(s => s.playerOutId === 'p5')).toBeDefined();
+
+      // Custom-labeled DEFENDER position still tolerates 2 continuous rotations
+      rotation0Subs.forEach(s => {
+        expect(s.playerOutId).not.toBe('p2');
+        expect(s.playerOutId).not.toBe('p3');
+      });
+    });
+
     it('TC-06: sole GK-preferred player plays full 40 min; never subbed out', () => {
       const players = basePlayers.map(p =>
         p.playerId === 'p1'
@@ -2435,11 +2471,11 @@ describe('rotationPlannerService', () => {
     const opts = {
       rotationIntervalMinutes: 5, halfLengthMinutes: 20,
       positions: [
-        { id: 'pos-gk',   abbreviation: 'GK' },
-        { id: 'pos-def1', abbreviation: 'DF' },
-        { id: 'pos-def2', abbreviation: 'DF' },
-        { id: 'pos-fwd1', abbreviation: 'FW' },
-        { id: 'pos-fwd2', abbreviation: 'FW' },
+        { id: 'pos-gk',   abbreviation: 'GK', role: 'GOALKEEPER' },
+        { id: 'pos-def1', abbreviation: 'DF', role: 'DEFENDER' },
+        { id: 'pos-def2', abbreviation: 'DF', role: 'DEFENDER' },
+        { id: 'pos-fwd1', abbreviation: 'FW', role: 'FORWARD' },
+        { id: 'pos-fwd2', abbreviation: 'FW', role: 'FORWARD' },
       ],
       initialPlayTimeMinutes: new Map<string, number>([
         ['p1', 15], ['p2', 15], ['p3', 15], ['p4', 15], ['p5', 10], ['p6', 10], ['p7', 10]
@@ -2568,30 +2604,30 @@ describe('rotationPlannerService', () => {
 
     // Shared position definitions for 9v9 (1 GK + 4 DEF + 2 MID + 1 LW + 1 ST)
     const positions9v9 = [
-      { id: 'gk',  abbreviation: 'GK'  },
-      { id: 'cb1', abbreviation: 'CB'  },
-      { id: 'cb2', abbreviation: 'CB'  },
-      { id: 'ld',  abbreviation: 'LB'  },
-      { id: 'rd',  abbreviation: 'RB'  },
-      { id: 'cm1', abbreviation: 'CM'  },
-      { id: 'cm2', abbreviation: 'CM'  },
-      { id: 'lw',  abbreviation: 'LW'  }, // STRIKER — max 1 continuous rotation
-      { id: 'st',  abbreviation: 'ST'  }, // STRIKER — max 1 continuous rotation
+      { id: 'gk',  abbreviation: 'GK',  role: 'GOALKEEPER' },
+      { id: 'cb1', abbreviation: 'CB',  role: 'DEFENDER' },
+      { id: 'cb2', abbreviation: 'CB',  role: 'DEFENDER' },
+      { id: 'ld',  abbreviation: 'LB',  role: 'DEFENDER' },
+      { id: 'rd',  abbreviation: 'RB',  role: 'DEFENDER' },
+      { id: 'cm1', abbreviation: 'CM',  role: 'MIDFIELDER' },
+      { id: 'cm2', abbreviation: 'CM',  role: 'MIDFIELDER' },
+      { id: 'lw',  abbreviation: 'LW',  role: 'FORWARD' }, // STRIKER — max 1 continuous rotation
+      { id: 'st',  abbreviation: 'ST',  role: 'FORWARD' }, // STRIKER — max 1 continuous rotation
     ];
 
     // Shared position definitions for 11v11 (1 GK + 4 DEF + 3 MID + 2 FWD + 1 CAM)
     const positions11v11 = [
-      { id: 'gk',  abbreviation: 'GK'  },
-      { id: 'lb',  abbreviation: 'LB'  },
-      { id: 'cb1', abbreviation: 'CB'  },
-      { id: 'cb2', abbreviation: 'CB'  },
-      { id: 'rb',  abbreviation: 'RB'  },
-      { id: 'lm',  abbreviation: 'LM'  },
-      { id: 'cm',  abbreviation: 'CM'  },
-      { id: 'rm',  abbreviation: 'RM'  },
-      { id: 'cam', abbreviation: 'CAM' },
-      { id: 'lw',  abbreviation: 'LW'  }, // STRIKER
-      { id: 'st',  abbreviation: 'ST'  }, // STRIKER
+      { id: 'gk',  abbreviation: 'GK',  role: 'GOALKEEPER' },
+      { id: 'lb',  abbreviation: 'LB',  role: 'DEFENDER' },
+      { id: 'cb1', abbreviation: 'CB',  role: 'DEFENDER' },
+      { id: 'cb2', abbreviation: 'CB',  role: 'DEFENDER' },
+      { id: 'rb',  abbreviation: 'RB',  role: 'DEFENDER' },
+      { id: 'lm',  abbreviation: 'LM',  role: 'MIDFIELDER' },
+      { id: 'cm',  abbreviation: 'CM',  role: 'MIDFIELDER' },
+      { id: 'rm',  abbreviation: 'RM',  role: 'MIDFIELDER' },
+      { id: 'cam', abbreviation: 'CAM', role: 'MIDFIELDER' },
+      { id: 'lw',  abbreviation: 'LW',  role: 'FORWARD' }, // STRIKER
+      { id: 'st',  abbreviation: 'ST',  role: 'FORWARD' }, // STRIKER
     ];
 
     // Common: 60-min game, 30-min halves, 10-min intervals

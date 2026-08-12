@@ -103,13 +103,13 @@ describe('formationFormReducer', () => {
   it('ADD_POSITION appends an empty position', () => {
     const result = formationFormReducer(initialFormationForm, { type: 'ADD_POSITION' });
     expect(result.positions).toHaveLength(1);
-    expect(result.positions[0]).toEqual({ positionName: '', abbreviation: '' });
+    expect(result.positions[0]).toEqual({ positionName: '', abbreviation: '', role: null });
   });
 
   it('UPDATE_POSITION updates a specific position field', () => {
     const state = {
       ...initialFormationForm,
-      positions: [{ positionName: '', abbreviation: '' }],
+      positions: [{ positionName: '', abbreviation: '', role: null }],
     };
     const result = formationFormReducer(state, {
       type: 'UPDATE_POSITION',
@@ -119,6 +119,20 @@ describe('formationFormReducer', () => {
     });
     expect(result.positions[0].positionName).toBe('Goalkeeper');
     expect(result.positions[0].abbreviation).toBe('');
+  });
+
+  it('UPDATE_POSITION updates the role field', () => {
+    const state = {
+      ...initialFormationForm,
+      positions: [{ positionName: 'Goalkeeper', abbreviation: 'GK', role: null }],
+    };
+    const result = formationFormReducer(state, {
+      type: 'UPDATE_POSITION',
+      index: 0,
+      field: 'role',
+      value: 'GOALKEEPER',
+    });
+    expect(result.positions[0].role).toBe('GOALKEEPER');
   });
 
   it('REMOVE_POSITION removes position at index', () => {
@@ -152,7 +166,7 @@ describe('formationFormReducer', () => {
     });
     expect(result.playerCount).toBe('3');
     expect(result.positions).toHaveLength(3);
-    result.positions.forEach(p => expect(p).toEqual({ positionName: '', abbreviation: '' }));
+    result.positions.forEach(p => expect(p).toEqual({ positionName: '', abbreviation: '', role: null }));
   });
 
   it('SET_FIELD playerCount appends new empty slots when count increases', () => {
@@ -174,9 +188,9 @@ describe('formationFormReducer', () => {
     expect(result.positions[0]).toEqual({ positionName: 'GK', abbreviation: 'GK' });
     expect(result.positions[1]).toEqual({ positionName: 'CB', abbreviation: 'CB' });
     // New slots are empty
-    expect(result.positions[2]).toEqual({ positionName: '', abbreviation: '' });
-    expect(result.positions[3]).toEqual({ positionName: '', abbreviation: '' });
-    expect(result.positions[4]).toEqual({ positionName: '', abbreviation: '' });
+    expect(result.positions[2]).toEqual({ positionName: '', abbreviation: '', role: null });
+    expect(result.positions[3]).toEqual({ positionName: '', abbreviation: '', role: null });
+    expect(result.positions[4]).toEqual({ positionName: '', abbreviation: '', role: null });
   });
 
   it('SET_FIELD playerCount truncates positions when count decreases', () => {

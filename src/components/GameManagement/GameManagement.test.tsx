@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, act, waitFor, screen } from "@testing-library/react";
+import { render, act, waitFor, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
@@ -487,7 +487,7 @@ describe("GameManagement – scheduled notes and start transition safety", () =>
           preferredPositions: "",
         },
       ],
-      positions: [{ id: "pos1", name: "GK", abbreviation: "GK" }],
+      positions: [{ id: "pos1", name: "GK", abbreviation: "GK", role: "GOALKEEPER" }],
     });
     mockPlayTimeList.mockResolvedValue({ data: [] });
     mockGameGet.mockResolvedValue({ data: { id: "game-1", status: "scheduled" } });
@@ -1764,7 +1764,7 @@ describe("GameManagement – handleRecalculateRotations uses live lineup", () =>
         { id: 'p1', playerNumber: 1, firstName: 'Alice', lastName: 'A', isActive: true, preferredPositions: 'pos1' },
         { id: 'p2', playerNumber: 2, firstName: 'Bob', lastName: 'B', isActive: true, preferredPositions: 'pos2' },
       ],
-      positions: [{ id: 'pos1', abbreviation: 'FW' }, { id: 'pos2', abbreviation: 'MF' }],
+      positions: [{ id: 'pos1', abbreviation: 'FW', role: 'FORWARD' }, { id: 'pos2', abbreviation: 'MF', role: 'MIDFIELDER' }],
     });
   });
 
@@ -1922,9 +1922,9 @@ describe("GameManagement – handleRecalculateRotations uses live lineup", () =>
         { id: 'p3', playerNumber: 3, firstName: 'Three', lastName: 'B', isActive: true, preferredPositions: 'pos-f2' },
       ],
       positions: [
-        { id: 'pos-gk', abbreviation: 'GK' },
-        { id: 'pos-f1', abbreviation: 'CB' },
-        { id: 'pos-f2', abbreviation: 'CM' },
+        { id: 'pos-gk', abbreviation: 'GK', role: 'GOALKEEPER' },
+        { id: 'pos-f1', abbreviation: 'CB', role: 'DEFENDER' },
+        { id: 'pos-f2', abbreviation: 'CM', role: 'MIDFIELDER' },
       ],
     });
 
@@ -2002,9 +2002,9 @@ describe("GameManagement – handleRecalculateRotations uses live lineup", () =>
         { id: 'p3', playerNumber: 3, firstName: 'Three', lastName: 'B', isActive: true, preferredPositions: 'pos-f2' },
       ],
       positions: [
-        { id: 'pos-gk', abbreviation: 'GK' },
-        { id: 'pos-f1', abbreviation: 'CB' },
-        { id: 'pos-f2', abbreviation: 'CM' },
+        { id: 'pos-gk', abbreviation: 'GK', role: 'GOALKEEPER' },
+        { id: 'pos-f1', abbreviation: 'CB', role: 'DEFENDER' },
+        { id: 'pos-f2', abbreviation: 'CM', role: 'MIDFIELDER' },
       ],
     });
 
@@ -2539,7 +2539,7 @@ describe("GameManagement – handleRecalculateRotations uses plannerSnapshot lin
         { id: 'p2', playerNumber: 2, firstName: 'Bob', lastName: 'B', isActive: true, preferredPositions: 'pos2' },
         { id: 'p3', playerNumber: 3, firstName: 'Carol', lastName: 'C', isActive: true, preferredPositions: 'pos1' },
       ],
-      positions: [{ id: 'pos1', abbreviation: 'FW' }, { id: 'pos2', abbreviation: 'MF' }],
+      positions: [{ id: 'pos1', abbreviation: 'FW', role: 'FORWARD' }, { id: 'pos2', abbreviation: 'MF', role: 'MIDFIELDER' }],
     });
   });
 
@@ -2639,8 +2639,8 @@ describe("GameManagement – handleRecalculateRotations uses plannerSnapshot lin
         { id: 'p1',  playerNumber: 3, firstName: 'Field',     lastName: 'F', isActive: true, preferredPositions: 'pos-f1' },
       ],
       positions: [
-        { id: 'pos-gk', abbreviation: 'GK' },
-        { id: 'pos-f1', abbreviation: 'FW' },
+        { id: 'pos-gk', abbreviation: 'GK', role: 'GOALKEEPER' },
+        { id: 'pos-f1', abbreviation: 'FW', role: 'FORWARD' },
       ],
     });
 
@@ -2862,5 +2862,53 @@ describe("GameManagement – CompletedGameTimeline integration", () => {
       <GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />
     );
     expect((mockCgtCaptures.goalsProp as unknown[]).length).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Planner role-completeness gate (Explicit Formation Position Roles)
+// ---------------------------------------------------------------------------
+describe("GameManagement – planner blocked until all positions have a role", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled' },
+    });
+  });
+
+  it("shows the role-assignment banner and hides PlanTab when a position is missing a role", async () => {
+    mockUseTeamData.mockReturnValue({
+      players: [],
+      positions: [
+        { id: 'pos-gk', abbreviation: 'GK', role: 'GOALKEEPER' },
+        { id: 'pos-fw', abbreviation: 'FW' }, // missing role
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+
+    const banner = await screen.findByRole('alert');
+    expect(within(banner).getByText(/formation needs role assignment/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /go to formation editor/i })).toHaveAttribute(
+      'href',
+      '/manage?section=formations'
+    );
+    expect(screen.queryByTestId('plan-tab')).not.toBeInTheDocument();
+  });
+
+  it("renders PlanTab normally once every position has a role", async () => {
+    mockUseTeamData.mockReturnValue({
+      players: [],
+      positions: [
+        { id: 'pos-gk', abbreviation: 'GK', role: 'GOALKEEPER' },
+        { id: 'pos-fw', abbreviation: 'FW', role: 'FORWARD' },
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+
+    expect(await screen.findByTestId('plan-tab')).toBeInTheDocument();
+    expect(screen.queryByText(/formation needs role assignment/i)).not.toBeInTheDocument();
   });
 });

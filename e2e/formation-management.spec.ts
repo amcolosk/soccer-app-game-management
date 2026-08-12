@@ -41,6 +41,14 @@ test.describe('Formation Management Smoke', () => {
     await rows.nth(2).locator('input[placeholder*="Position Name"]').fill('Forward');
     await rows.nth(2).locator('input[placeholder*="Abbr"]').fill('FWD');
 
+    // Role is required for every position — save is blocked until all rows have one assigned.
+    await clickButton(page, 'Create');
+    await expect(page.locator('.validation-errors', { hasText: 'Missing Position Roles' })).toBeVisible();
+
+    await rows.nth(0).locator('select').selectOption('GOALKEEPER');
+    await rows.nth(1).locator('select').selectOption('DEFENDER');
+    await rows.nth(2).locator('select').selectOption('FORWARD');
+
     await clickButton(page, 'Create');
     await expect(page.locator('.item-card').filter({ hasText: formationName })).toBeVisible();
     // Wait for the create form to fully close (RESET dispatch fires after async DynamoDB writes)

@@ -25,13 +25,13 @@ function runSuffix(workerIndex: number) {
 }
 
 const BASE_POSITIONS = [
-  { name: 'Goalkeeper', abbreviation: 'GK' },
-  { name: 'Left Defender', abbreviation: 'LD' },
-  { name: 'Center Defender', abbreviation: 'CD' },
-  { name: 'Right Defender', abbreviation: 'RD' },
-  { name: 'Left Midfielder', abbreviation: 'LM' },
-  { name: 'Center Midfielder', abbreviation: 'CM' },
-  { name: 'Forward', abbreviation: 'FW' },
+  { name: 'Goalkeeper', abbreviation: 'GK', role: 'GOALKEEPER' as const },
+  { name: 'Left Defender', abbreviation: 'LD', role: 'DEFENDER' as const },
+  { name: 'Center Defender', abbreviation: 'CD', role: 'DEFENDER' as const },
+  { name: 'Right Defender', abbreviation: 'RD', role: 'DEFENDER' as const },
+  { name: 'Left Midfielder', abbreviation: 'LM', role: 'MIDFIELDER' as const },
+  { name: 'Center Midfielder', abbreviation: 'CM', role: 'MIDFIELDER' as const },
+  { name: 'Forward', abbreviation: 'FW', role: 'FORWARD' as const },
 ];
 
 test.describe('Safe Delete Guards', () => {

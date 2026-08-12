@@ -204,12 +204,12 @@ Agents interact with GitHub Issues directly using the `gh` CLI or the GitHub RES
 | Variable | How to obtain |
 |----------|--------------|
 | `GITHUB_TOKEN` | Fine-grained PAT with `repo:issues:write` on this repo; store in `.env.local` |
-| `GITHUB_REPO` | `owner/repo` string, e.g. `amcol/soccer-app-game-management` |
+| `GITHUB_REPO` | `owner/repo` string, e.g. `amcolosk/soccer-app-game-management` |
 
 ```bash
 # .env.local — never commit
 export GITHUB_TOKEN=github_pat_xxxxxxxxxxxx
-export GITHUB_REPO=amcol/soccer-app-game-management
+export GITHUB_REPO=amcolosk/soccer-app-game-management
 ```
 
 ```bash

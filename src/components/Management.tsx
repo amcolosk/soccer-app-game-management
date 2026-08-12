@@ -4,7 +4,7 @@ import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
 import { InvitationManagement } from './InvitationManagement';
 import type { Schema } from '../../amplify/data/resource';
-import type { Team, Player, TeamRoster, Formation } from '../types/schema';
+import type { Team, Player, TeamRoster, Formation, FormationPositionRole } from '../types/schema';
 import { FORMATION_TEMPLATES } from '../../amplify/data/formation-templates';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { showError, showWarning } from '../utils/toast';
@@ -83,6 +83,7 @@ async function resolveFormationId(selectedFormation: string, currentUserId: stri
             formationId: newFormation.data.id,
             positionName: pos.name,
             abbreviation: pos.abbr,
+            role: pos.role as FormationPositionRole,
             sortOrder: i + 1,
             coaches,
           });
@@ -94,7 +95,7 @@ async function resolveFormationId(selectedFormation: string, currentUserId: stri
   return selectedFormation || undefined;
 }
 
-function validateFormationForm(form: { name: string; playerCount: string; positions: { positionName: string; abbreviation: string }[] }) {
+function validateFormationForm(form: { name: string; playerCount: string; positions: { positionName: string; abbreviation: string; role?: string | null }[] }) {
   const result = validateFormationFormData(form);
   if ('error' in result) { showWarning(result.error); return null; }
   return result;
@@ -102,7 +103,7 @@ function validateFormationForm(form: { name: string; playerCount: string; positi
 
 async function createFormationPositions(
   formationId: string,
-  positions: { positionName: string; abbreviation: string }[],
+  positions: { positionName: string; abbreviation: string; role?: string | null }[],
   coaches: string[],
 ) {
   for (let i = 0; i < positions.length; i++) {
@@ -111,6 +112,7 @@ async function createFormationPositions(
       formationId,
       positionName: pos.positionName,
       abbreviation: pos.abbreviation,
+      role: pos.role as FormationPositionRole,
       sortOrder: i + 1,
       coaches,
     });
@@ -610,7 +612,7 @@ export function Management() {
     const existingPositions = formationPositions
       .filter(p => p.formationId === formation.id)
       .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
-        .map(p => ({ positionName: p.positionName, abbreviation: p.abbreviation, xPct: p.xPct ?? null, yPct: p.yPct ?? null }));
+        .map(p => ({ positionName: p.positionName, abbreviation: p.abbreviation, role: p.role ?? null, xPct: p.xPct ?? null, yPct: p.yPct ?? null }));
 
     formationDispatch({ type: 'EDIT_FORMATION', formation, positions: existingPositions });
   };
@@ -645,6 +647,7 @@ export function Management() {
           id: pos.id,
           positionName: pos.positionName,
           abbreviation: pos.abbreviation,
+          role: pos.role as FormationPositionRole,
           sortOrder: pos.sortOrder,
           xPct: pos.xPct ?? null,
           yPct: pos.yPct ?? null,
@@ -657,6 +660,7 @@ export function Management() {
           formationId: formationForm.editing!.id,
           positionName: pos.positionName,
           abbreviation: pos.abbreviation,
+          role: pos.role as FormationPositionRole,
           sortOrder: pos.sortOrder,
           xPct: pos.xPct ?? null,
           yPct: pos.yPct ?? null,
@@ -761,7 +765,7 @@ export function Management() {
     }
   };
 
-  const updateFormationPosition = (index: number, field: 'positionName' | 'abbreviation', value: string) => {
+  const updateFormationPosition = (index: number, field: 'positionName' | 'abbreviation' | 'role', value: string) => {
     formationDispatch({ type: 'UPDATE_POSITION', index, field, value });
   };
 
@@ -1433,6 +1437,12 @@ export function Management() {
                 {formationForm.positions.length === 0 && (
                   <p className="empty-message">Enter the number of players above to define positions.</p>
                 )}
+                {formationForm.positions.some(p => !p.role) && formationForm.positions.length > 0 && (
+                  <div className="validation-errors" role="alert">
+                    <h4>Missing Position Roles</h4>
+                    <p>Every position needs a role (Goalkeeper, Defender, Midfielder, or Forward) before you can save.</p>
+                  </div>
+                )}
                 {formationForm.positions.map((pos, index) => (
                   <div key={index} className="position-row">
                     <span className="position-number">{index + 1}.</span>
@@ -1450,6 +1460,20 @@ export function Management() {
                       onChange={(e) => updateFormationPosition(index, 'abbreviation', e.target.value)}
                       style={{ flex: 1 }}
                     />
+                    <select
+                      value={pos.role ?? ''}
+                      onChange={(e) => updateFormationPosition(index, 'role', e.target.value)}
+                      aria-label={`Role for position ${index + 1}`}
+                      aria-invalid={!pos.role}
+                      className={!pos.role ? 'position-role-select position-role-select--error' : 'position-role-select'}
+                      style={{ flex: 1 }}
+                    >
+                      <option value="">Role *</option>
+                      <option value="GOALKEEPER">Goalkeeper</option>
+                      <option value="DEFENDER">Defender</option>
+                      <option value="MIDFIELDER">Midfielder</option>
+                      <option value="FORWARD">Forward</option>
+                    </select>
                   </div>
                 ))}
               </div>
@@ -1497,6 +1521,12 @@ export function Management() {
                 {formationForm.positions.length === 0 && (
                   <p className="empty-message">Enter the number of players above to define positions.</p>
                 )}
+                {formationForm.positions.some(p => !p.role) && formationForm.positions.length > 0 && (
+                  <div className="validation-errors" role="alert">
+                    <h4>Missing Position Roles</h4>
+                    <p>Every position needs a role (Goalkeeper, Defender, Midfielder, or Forward) before you can save.</p>
+                  </div>
+                )}
                 {formationForm.positions.map((pos, index) => (
                   <div key={index} className="position-row">
                     <span className="position-number">{index + 1}.</span>
@@ -1514,6 +1544,20 @@ export function Management() {
                       onChange={(e) => updateFormationPosition(index, 'abbreviation', e.target.value)}
                       style={{ flex: 1 }}
                     />
+                    <select
+                      value={pos.role ?? ''}
+                      onChange={(e) => updateFormationPosition(index, 'role', e.target.value)}
+                      aria-label={`Role for position ${index + 1}`}
+                      aria-invalid={!pos.role}
+                      className={!pos.role ? 'position-role-select position-role-select--error' : 'position-role-select'}
+                      style={{ flex: 1 }}
+                    >
+                      <option value="">Role *</option>
+                      <option value="GOALKEEPER">Goalkeeper</option>
+                      <option value="DEFENDER">Defender</option>
+                      <option value="MIDFIELDER">Midfielder</option>
+                      <option value="FORWARD">Forward</option>
+                    </select>
                   </div>
                 ))}
               </div>

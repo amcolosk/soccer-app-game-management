@@ -5,10 +5,10 @@ export const FORMATION_TEMPLATES = [
     playerCount: 4,
     sport: 'Soccer',
     positions: [
-      { name: 'Defender', abbr: 'D' },
-      { name: 'Left Mid', abbr: 'LM' },
-      { name: 'Right Mid', abbr: 'RM' },
-      { name: 'Forward', abbr: 'F' }
+      { name: 'Defender', abbr: 'D', role: 'DEFENDER' },
+      { name: 'Left Mid', abbr: 'LM', role: 'MIDFIELDER' },
+      { name: 'Right Mid', abbr: 'RM', role: 'MIDFIELDER' },
+      { name: 'Forward', abbr: 'F', role: 'FORWARD' }
     ]
   },
   { 
@@ -16,10 +16,10 @@ export const FORMATION_TEMPLATES = [
     playerCount: 4,
     sport: 'Soccer',
     positions: [
-      { name: 'Left Defender', abbr: 'LD' },
-      { name: 'Right Defender', abbr: 'RD' },
-      { name: 'Left Forward', abbr: 'LF' },
-      { name: 'Right Forward', abbr: 'RF' }
+      { name: 'Left Defender', abbr: 'LD', role: 'DEFENDER' },
+      { name: 'Right Defender', abbr: 'RD', role: 'DEFENDER' },
+      { name: 'Left Forward', abbr: 'LF', role: 'FORWARD' },
+      { name: 'Right Forward', abbr: 'RF', role: 'FORWARD' }
     ]
   },
 
@@ -29,11 +29,11 @@ export const FORMATION_TEMPLATES = [
     playerCount: 5,
     sport: 'Soccer',
     positions: [
-      { name: 'Goalkeeper', abbr: 'GK' },
-      { name: 'Defender', abbr: 'D' },
-      { name: 'Left Mid', abbr: 'LM' },
-      { name: 'Right Mid', abbr: 'RM' },
-      { name: 'Forward', abbr: 'F' }
+      { name: 'Goalkeeper', abbr: 'GK', role: 'GOALKEEPER' },
+      { name: 'Defender', abbr: 'D', role: 'DEFENDER' },
+      { name: 'Left Mid', abbr: 'LM', role: 'MIDFIELDER' },
+      { name: 'Right Mid', abbr: 'RM', role: 'MIDFIELDER' },
+      { name: 'Forward', abbr: 'F', role: 'FORWARD' }
     ]
   },
   { 
@@ -41,11 +41,11 @@ export const FORMATION_TEMPLATES = [
     playerCount: 5,
     sport: 'Soccer',
     positions: [
-      { name: 'Goalkeeper', abbr: 'GK' },
-      { name: 'Left Defender', abbr: 'LD' },
-      { name: 'Right Defender', abbr: 'RD' },
-      { name: 'Left Forward', abbr: 'LF' },
-      { name: 'Right Forward', abbr: 'RF' }
+      { name: 'Goalkeeper', abbr: 'GK', role: 'GOALKEEPER' },
+      { name: 'Left Defender', abbr: 'LD', role: 'DEFENDER' },
+      { name: 'Right Defender', abbr: 'RD', role: 'DEFENDER' },
+      { name: 'Left Forward', abbr: 'LF', role: 'FORWARD' },
+      { name: 'Right Forward', abbr: 'RF', role: 'FORWARD' }
     ]
   },
   
@@ -55,13 +55,13 @@ export const FORMATION_TEMPLATES = [
     playerCount: 7,
     sport: 'Soccer',
     positions: [
-      { name: 'Goalkeeper', abbr: 'GK' },
-      { name: 'Left Defender', abbr: 'LD' },
-      { name: 'Right Defender', abbr: 'RD' },
-      { name: 'Left Mid', abbr: 'LM' },
-      { name: 'Center Mid', abbr: 'CM' },
-      { name: 'Right Mid', abbr: 'RM' },
-      { name: 'Forward', abbr: 'F' }
+      { name: 'Goalkeeper', abbr: 'GK', role: 'GOALKEEPER' },
+      { name: 'Left Defender', abbr: 'LD', role: 'DEFENDER' },
+      { name: 'Right Defender', abbr: 'RD', role: 'DEFENDER' },
+      { name: 'Left Mid', abbr: 'LM', role: 'MIDFIELDER' },
+      { name: 'Center Mid', abbr: 'CM', role: 'MIDFIELDER' },
+      { name: 'Right Mid', abbr: 'RM', role: 'MIDFIELDER' },
+      { name: 'Forward', abbr: 'F', role: 'FORWARD' }
     ]
   },
   { 
@@ -69,13 +69,13 @@ export const FORMATION_TEMPLATES = [
     playerCount: 7,
     sport: 'Soccer',
     positions: [
-      { name: 'Goalkeeper', abbr: 'GK' },
-      { name: 'Left Defender', abbr: 'LD' },
-      { name: 'Center Defender', abbr: 'CD' },
-      { name: 'Right Defender', abbr: 'RD' },
-      { name: 'Left Mid', abbr: 'LM' },
-      { name: 'Right Mid', abbr: 'RM' },
-      { name: 'Forward', abbr: 'F' }
+      { name: 'Goalkeeper', abbr: 'GK', role: 'GOALKEEPER' },
+      { name: 'Left Defender', abbr: 'LD', role: 'DEFENDER' },
+      { name: 'Center Defender', abbr: 'CD', role: 'DEFENDER' },
+      { name: 'Right Defender', abbr: 'RD', role: 'DEFENDER' },
+      { name: 'Left Mid', abbr: 'LM', role: 'MIDFIELDER' },
+      { name: 'Right Mid', abbr: 'RM', role: 'MIDFIELDER' },
+      { name: 'Forward', abbr: 'F', role: 'FORWARD' }
     ]
   },
 
@@ -85,15 +85,15 @@ export const FORMATION_TEMPLATES = [
     playerCount: 9,
     sport: 'Soccer',
     positions: [
-      { name: 'Goalkeeper', abbr: 'GK' },
-      { name: 'Left Defender', abbr: 'LD' },
-      { name: 'Center Defender', abbr: 'CD' },
-      { name: 'Right Defender', abbr: 'RD' },
-      { name: 'Left Mid', abbr: 'LM' },
-      { name: 'Center Mid', abbr: 'CM' },
-      { name: 'Right Mid', abbr: 'RM' },
-      { name: 'Left Forward', abbr: 'LF' },
-      { name: 'Right Forward', abbr: 'RF' }
+      { name: 'Goalkeeper', abbr: 'GK', role: 'GOALKEEPER' },
+      { name: 'Left Defender', abbr: 'LD', role: 'DEFENDER' },
+      { name: 'Center Defender', abbr: 'CD', role: 'DEFENDER' },
+      { name: 'Right Defender', abbr: 'RD', role: 'DEFENDER' },
+      { name: 'Left Mid', abbr: 'LM', role: 'MIDFIELDER' },
+      { name: 'Center Mid', abbr: 'CM', role: 'MIDFIELDER' },
+      { name: 'Right Mid', abbr: 'RM', role: 'MIDFIELDER' },
+      { name: 'Left Forward', abbr: 'LF', role: 'FORWARD' },
+      { name: 'Right Forward', abbr: 'RF', role: 'FORWARD' }
     ]
   },
   { 
@@ -101,15 +101,15 @@ export const FORMATION_TEMPLATES = [
     playerCount: 9,
     sport: 'Soccer',
     positions: [
-      { name: 'Goalkeeper', abbr: 'GK' },
-      { name: 'Left Defender', abbr: 'LD' },
-      { name: 'Center Defender', abbr: 'CD' },
-      { name: 'Right Defender', abbr: 'RD' },
-      { name: 'Left Def Mid', abbr: 'LDM' },
-      { name: 'Right Def Mid', abbr: 'RDM' },
-      { name: 'Left Forward', abbr: 'LF' },
-      { name: 'Center Forward', abbr: 'CF' },
-      { name: 'Right Forward', abbr: 'RF' }
+      { name: 'Goalkeeper', abbr: 'GK', role: 'GOALKEEPER' },
+      { name: 'Left Defender', abbr: 'LD', role: 'DEFENDER' },
+      { name: 'Center Defender', abbr: 'CD', role: 'DEFENDER' },
+      { name: 'Right Defender', abbr: 'RD', role: 'DEFENDER' },
+      { name: 'Left Def Mid', abbr: 'LDM', role: 'MIDFIELDER' },
+      { name: 'Right Def Mid', abbr: 'RDM', role: 'MIDFIELDER' },
+      { name: 'Left Forward', abbr: 'LF', role: 'FORWARD' },
+      { name: 'Center Forward', abbr: 'CF', role: 'FORWARD' },
+      { name: 'Right Forward', abbr: 'RF', role: 'FORWARD' }
     ]
   },
   { 
@@ -117,15 +117,15 @@ export const FORMATION_TEMPLATES = [
     playerCount: 9,
     sport: 'Soccer',
     positions: [
-      { name: 'Goalkeeper', abbr: 'GK' },
-      { name: 'Left Back', abbr: 'LB' },
-      { name: 'Left Center Back', abbr: 'LCB' },
-      { name: 'Right Center Back', abbr: 'RCB' },
-      { name: 'Right Back', abbr: 'RB' },
-      { name: 'Left Mid', abbr: 'LM' },
-      { name: 'Center Mid', abbr: 'CM' },
-      { name: 'Right Mid', abbr: 'RM' },
-      { name: 'Forward', abbr: 'F' }
+      { name: 'Goalkeeper', abbr: 'GK', role: 'GOALKEEPER' },
+      { name: 'Left Back', abbr: 'LB', role: 'DEFENDER' },
+      { name: 'Left Center Back', abbr: 'LCB', role: 'DEFENDER' },
+      { name: 'Right Center Back', abbr: 'RCB', role: 'DEFENDER' },
+      { name: 'Right Back', abbr: 'RB', role: 'DEFENDER' },
+      { name: 'Left Mid', abbr: 'LM', role: 'MIDFIELDER' },
+      { name: 'Center Mid', abbr: 'CM', role: 'MIDFIELDER' },
+      { name: 'Right Mid', abbr: 'RM', role: 'MIDFIELDER' },
+      { name: 'Forward', abbr: 'F', role: 'FORWARD' }
     ]
   },
 
@@ -135,17 +135,17 @@ export const FORMATION_TEMPLATES = [
     playerCount: 11,
     sport: 'Soccer',
     positions: [
-      { name: 'Goalkeeper', abbr: 'GK' },
-      { name: 'Left Back', abbr: 'LB' },
-      { name: 'Left Center Back', abbr: 'LCB' },
-      { name: 'Right Center Back', abbr: 'RCB' },
-      { name: 'Right Back', abbr: 'RB' },
-      { name: 'Left Def Mid', abbr: 'LDM' },
-      { name: 'Right Def Mid', abbr: 'RDM' },
-      { name: 'Left Att Mid', abbr: 'LAM' },
-      { name: 'Center Att Mid', abbr: 'CAM' },
-      { name: 'Right Att Mid', abbr: 'RAM' },
-      { name: 'Forward', abbr: 'F' }
+      { name: 'Goalkeeper', abbr: 'GK', role: 'GOALKEEPER' },
+      { name: 'Left Back', abbr: 'LB', role: 'DEFENDER' },
+      { name: 'Left Center Back', abbr: 'LCB', role: 'DEFENDER' },
+      { name: 'Right Center Back', abbr: 'RCB', role: 'DEFENDER' },
+      { name: 'Right Back', abbr: 'RB', role: 'DEFENDER' },
+      { name: 'Left Def Mid', abbr: 'LDM', role: 'MIDFIELDER' },
+      { name: 'Right Def Mid', abbr: 'RDM', role: 'MIDFIELDER' },
+      { name: 'Left Att Mid', abbr: 'LAM', role: 'MIDFIELDER' },
+      { name: 'Center Att Mid', abbr: 'CAM', role: 'MIDFIELDER' },
+      { name: 'Right Att Mid', abbr: 'RAM', role: 'MIDFIELDER' },
+      { name: 'Forward', abbr: 'F', role: 'FORWARD' }
     ]
   },
   { 
@@ -153,17 +153,17 @@ export const FORMATION_TEMPLATES = [
     playerCount: 11,
     sport: 'Soccer',
     positions: [
-      { name: 'Goalkeeper', abbr: 'GK' },
-      { name: 'Left Back', abbr: 'LB' },
-      { name: 'Left Center Back', abbr: 'LCB' },
-      { name: 'Right Center Back', abbr: 'RCB' },
-      { name: 'Right Back', abbr: 'RB' },
-      { name: 'Left Center Mid', abbr: 'LCM' },
-      { name: 'Center Mid', abbr: 'CM' },
-      { name: 'Right Center Mid', abbr: 'RCM' },
-      { name: 'Left Wing', abbr: 'LW' },
-      { name: 'Center Forward', abbr: 'CF' },
-      { name: 'Right Wing', abbr: 'RW' }
+      { name: 'Goalkeeper', abbr: 'GK', role: 'GOALKEEPER' },
+      { name: 'Left Back', abbr: 'LB', role: 'DEFENDER' },
+      { name: 'Left Center Back', abbr: 'LCB', role: 'DEFENDER' },
+      { name: 'Right Center Back', abbr: 'RCB', role: 'DEFENDER' },
+      { name: 'Right Back', abbr: 'RB', role: 'DEFENDER' },
+      { name: 'Left Center Mid', abbr: 'LCM', role: 'MIDFIELDER' },
+      { name: 'Center Mid', abbr: 'CM', role: 'MIDFIELDER' },
+      { name: 'Right Center Mid', abbr: 'RCM', role: 'MIDFIELDER' },
+      { name: 'Left Wing', abbr: 'LW', role: 'FORWARD' },
+      { name: 'Center Forward', abbr: 'CF', role: 'FORWARD' },
+      { name: 'Right Wing', abbr: 'RW', role: 'FORWARD' }
     ]
   },
   { 
@@ -171,17 +171,17 @@ export const FORMATION_TEMPLATES = [
     playerCount: 11,
     sport: 'Soccer',
     positions: [
-      { name: 'Goalkeeper', abbr: 'GK' },
-      { name: 'Left Center Back', abbr: 'LCB' },
-      { name: 'Center Back', abbr: 'CB' },
-      { name: 'Right Center Back', abbr: 'RCB' },
-      { name: 'Left Wing Back', abbr: 'LWB' },
-      { name: 'Left Center Mid', abbr: 'LCM' },
-      { name: 'Center Mid', abbr: 'CM' },
-      { name: 'Right Center Mid', abbr: 'RCM' },
-      { name: 'Right Wing Back', abbr: 'RWB' },
-      { name: 'Left Forward', abbr: 'LF' },
-      { name: 'Right Forward', abbr: 'RF' }
+      { name: 'Goalkeeper', abbr: 'GK', role: 'GOALKEEPER' },
+      { name: 'Left Center Back', abbr: 'LCB', role: 'DEFENDER' },
+      { name: 'Center Back', abbr: 'CB', role: 'DEFENDER' },
+      { name: 'Right Center Back', abbr: 'RCB', role: 'DEFENDER' },
+      { name: 'Left Wing Back', abbr: 'LWB', role: 'DEFENDER' },
+      { name: 'Left Center Mid', abbr: 'LCM', role: 'MIDFIELDER' },
+      { name: 'Center Mid', abbr: 'CM', role: 'MIDFIELDER' },
+      { name: 'Right Center Mid', abbr: 'RCM', role: 'MIDFIELDER' },
+      { name: 'Right Wing Back', abbr: 'RWB', role: 'DEFENDER' },
+      { name: 'Left Forward', abbr: 'LF', role: 'FORWARD' },
+      { name: 'Right Forward', abbr: 'RF', role: 'FORWARD' }
     ]
   },
 ];

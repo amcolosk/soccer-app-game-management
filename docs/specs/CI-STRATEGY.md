@@ -141,9 +141,9 @@ The role's trust policy restricts assumption to specific OIDC subject claim patt
     },
     "StringLike": {
       "token.actions.githubusercontent.com:sub": [
-        "repo:amcol/soccer-app-game-management:ref:refs/heads/main",
-        "repo:amcol/soccer-app-game-management:ref:refs/heads/release/*",
-        "repo:amcol/soccer-app-game-management:environment:ci-e2e"
+        "repo:amcolosk/soccer-app-game-management:ref:refs/heads/main",
+        "repo:amcolosk/soccer-app-game-management:ref:refs/heads/release/*",
+        "repo:amcolosk/soccer-app-game-management:environment:ci-e2e"
       ]
     }
   }

@@ -7,6 +7,7 @@ export type Player = Schema["Player"]["type"];
 export type TeamRoster = Schema["TeamRoster"]["type"];
 export type Formation = Schema["Formation"]["type"];
 export type FormationPosition = Schema["FormationPosition"]["type"];
+export type FormationPositionRole = NonNullable<FormationPosition["role"]>;
 export type FieldPosition = Schema["FieldPosition"]["type"];
 export type LineupAssignment = Schema["LineupAssignment"]["type"];
 export type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];

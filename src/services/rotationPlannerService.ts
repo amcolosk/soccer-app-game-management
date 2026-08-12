@@ -20,7 +20,7 @@ export interface SimpleRoster {
 interface RotationOptions {
   rotationIntervalMinutes: number;
   halfLengthMinutes: number;
-  positions?: Array<{ id: string; abbreviation?: string | null }>;
+  positions?: Array<{ id: string; abbreviation?: string | null; role?: string | null }>;
   playerAvailabilities?: Array<{ playerId: string; status: string | null }>;
   initialPlayTimeMinutes?: Map<string, number>; // accumulated play time in minutes per playerId
 }
@@ -32,14 +32,14 @@ export interface RotationResult {
 
 type PositionGroup = 'GOALKEEPER' | 'STRIKER' | 'MIDFIELDER' | 'DEFENDER' | 'UNKNOWN';
 
-function inferPositionGroup(abbreviation?: string | null): PositionGroup {
-  if (!abbreviation) return 'UNKNOWN';
-  const upper = abbreviation.toUpperCase().trim();
-  if (['GK', 'G', 'GOL', 'GOAL'].includes(upper)) return 'GOALKEEPER';
-  if (['FW', 'FWD', 'ST', 'S', 'CF', 'LW', 'RW', 'W', 'WF'].includes(upper)) return 'STRIKER';
-  if (['MF', 'MID', 'CM', 'RM', 'LM', 'AM', 'DM', 'CAM', 'CDM'].includes(upper)) return 'MIDFIELDER';
-  if (['DF', 'DEF', 'CB', 'LB', 'RB', 'LWB', 'RWB'].includes(upper)) return 'DEFENDER';
-  return 'UNKNOWN';
+function positionGroupFromRole(role?: string | null): PositionGroup {
+  switch (role) {
+    case 'GOALKEEPER': return 'GOALKEEPER';
+    case 'FORWARD': return 'STRIKER';
+    case 'MIDFIELDER': return 'MIDFIELDER';
+    case 'DEFENDER': return 'DEFENDER';
+    default: return 'UNKNOWN';
+  }
 }
 
 const MAX_CONTINUOUS_ROTATIONS: Record<PositionGroup, number> = {
@@ -119,7 +119,7 @@ export function calculateFairRotations(
   const positionGroupMap = new Map<string, PositionGroup>();
   if (options?.positions) {
     for (const pos of options.positions) {
-      positionGroupMap.set(pos.id, inferPositionGroup(pos.abbreviation));
+      positionGroupMap.set(pos.id, positionGroupFromRole(pos.role));
     }
   }
 
