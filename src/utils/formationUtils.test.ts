@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   computeFormationPositionDiff,
   scrubDeletedPositionPreferences,
+  getMissingRolePositions,
   type ExistingFormationPosition,
   type NewPositionFormData,
 } from './formationUtils';
@@ -24,8 +25,8 @@ function existingWithCoords(
   return { id, positionName, abbreviation, sortOrder, xPct, yPct };
 }
 
-function newPos(positionName: string, abbreviation: string): NewPositionFormData {
-  return { positionName, abbreviation };
+function newPos(positionName: string, abbreviation: string, role?: NewPositionFormData['role']): NewPositionFormData {
+  return { positionName, abbreviation, role };
 }
 
 // ---------------------------------------------------------------------------
@@ -69,8 +70,8 @@ describe('computeFormationPositionDiff', () => {
     const { toUpdate } = computeFormationPositionDiff(existing2, newPositions);
 
     expect(toUpdate).toEqual([
-      { id: 'id-1', positionName: 'Goalkeeper', abbreviation: 'GK', sortOrder: 1, xPct: 12, yPct: 90 },
-      { id: 'id-2', positionName: 'Defender', abbreviation: 'CB', sortOrder: 2, xPct: null, yPct: 55 },
+      { id: 'id-1', positionName: 'Goalkeeper', abbreviation: 'GK', role: null, sortOrder: 1, xPct: 12, yPct: 90 },
+      { id: 'id-2', positionName: 'Defender', abbreviation: 'CB', role: null, sortOrder: 2, xPct: null, yPct: 55 },
     ]);
   });
 
@@ -94,8 +95,8 @@ describe('computeFormationPositionDiff', () => {
     expect(toUpdate[1].id).toBe('id-2');
 
     expect(toCreate).toHaveLength(2);
-    expect(toCreate[0]).toEqual({ positionName: 'Midfielder', abbreviation: 'MID', sortOrder: 3, xPct: null, yPct: null });
-    expect(toCreate[1]).toEqual({ positionName: 'Forward', abbreviation: 'FWD', sortOrder: 4, xPct: null, yPct: null });
+    expect(toCreate[0]).toEqual({ positionName: 'Midfielder', abbreviation: 'MID', role: null, sortOrder: 3, xPct: null, yPct: null });
+    expect(toCreate[1]).toEqual({ positionName: 'Forward', abbreviation: 'FWD', role: null, sortOrder: 4, xPct: null, yPct: null });
   });
 
   it('defaults toCreate xPct/yPct to null', () => {
@@ -105,7 +106,7 @@ describe('computeFormationPositionDiff', () => {
     );
 
     expect(toCreate).toEqual([
-      { positionName: 'Midfielder', abbreviation: 'MID', sortOrder: 2, xPct: null, yPct: null },
+      { positionName: 'Midfielder', abbreviation: 'MID', role: null, sortOrder: 2, xPct: null, yPct: null },
     ]);
   });
 
@@ -231,6 +232,63 @@ describe('computeFormationPositionDiff', () => {
     const result1 = computeFormationPositionDiff(input, [newPos('A','A'), newPos('B','B'), newPos('C','C')]);
     const result2 = computeFormationPositionDiff(input, [newPos('A','A'), newPos('B','B'), newPos('C','C')]);
     expect(result1.toUpdate.map(p => p.id)).toEqual(result2.toUpdate.map(p => p.id));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// role threading
+// ---------------------------------------------------------------------------
+describe('computeFormationPositionDiff — role threading', () => {
+  it('carries the role from new position form data into toUpdate rows', () => {
+    const { toUpdate } = computeFormationPositionDiff(
+      [existing('id-1', 'Goalkeeper', 'GK', 1)],
+      [newPos('Goalkeeper', 'GK', 'GOALKEEPER')],
+    );
+    expect(toUpdate[0].role).toBe('GOALKEEPER');
+  });
+
+  it('carries the role from new position form data into toCreate rows', () => {
+    const { toCreate } = computeFormationPositionDiff(
+      [existing('id-1', 'Goalkeeper', 'GK', 1)],
+      [newPos('Goalkeeper', 'GK', 'GOALKEEPER'), newPos('Defender', 'CB', 'DEFENDER')],
+    );
+    expect(toCreate[0].role).toBe('DEFENDER');
+  });
+
+  it('defaults role to null when not provided', () => {
+    const { toUpdate } = computeFormationPositionDiff(
+      [existing('id-1', 'Goalkeeper', 'GK', 1)],
+      [newPos('Goalkeeper', 'GK')],
+    );
+    expect(toUpdate[0].role).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getMissingRolePositions
+// ---------------------------------------------------------------------------
+describe('getMissingRolePositions', () => {
+  it('returns positions with no role', () => {
+    const positions = [
+      { id: 'p1', role: 'GOALKEEPER' },
+      { id: 'p2', role: null },
+      { id: 'p3', role: undefined },
+      { id: 'p4', role: 'DEFENDER' },
+    ];
+    expect(getMissingRolePositions(positions).map(p => p.id)).toEqual(['p2', 'p3']);
+  });
+
+  it('returns an empty array when every position has a role', () => {
+    const positions = [
+      { id: 'p1', role: 'GOALKEEPER' },
+      { id: 'p2', role: 'FORWARD' },
+    ];
+    expect(getMissingRolePositions(positions)).toEqual([]);
+  });
+
+  it('returns all positions when none have a role', () => {
+    const positions = [{ id: 'p1', role: null }, { id: 'p2' }];
+    expect(getMissingRolePositions(positions)).toHaveLength(2);
   });
 });
 

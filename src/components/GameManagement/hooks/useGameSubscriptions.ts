@@ -155,6 +155,13 @@ export function useGameSubscriptions({
           // or completed write's subscription event.
           const isSecondHalfStartEvent =
             updatedGame.status === 'in-progress' && updatedGame.currentHalf === 2;
+          const localHalf = gameStateRef.current.currentHalf ?? 1;
+          const incomingHalf = updatedGame.currentHalf ?? 1;
+          const isStaleSecondHalfRegression =
+            localStatus === 'in-progress'
+            && localHalf === 2
+            && updatedGame.status === 'in-progress'
+            && incomingHalf === 1;
           const isStaleScheduledRegression =
             updatedGame.status === 'scheduled'
             && (localStatus === 'in-progress' || localStatus === 'halftime' || localStatus === 'completed');
@@ -176,12 +183,20 @@ export function useGameSubscriptions({
             ) {
               return prev;
             }
+            if (
+              prev.status === 'in-progress'
+              && (prev.currentHalf ?? 1) === 2
+              && updatedGame.status === 'in-progress'
+              && (updatedGame.currentHalf ?? 1) === 1
+            ) {
+              return prev;
+            }
             return updatedGame;
           });
 
           // If local state is already completed, skip all timer logic — this
           // event is stale and must not trigger auto-resume or time updates.
-          if (localStatus === 'completed' || isStaleScheduledRegression) {
+          if (localStatus === 'completed' || isStaleScheduledRegression || isStaleSecondHalfRegression) {
             return;
           }
             // Skip timer logic if local state is halftime unless this is a

@@ -1,5 +1,5 @@
 import { DEFAULT_FORM_VALUES } from '../constants/gameConfig';
-import type { Team, Player, TeamRoster, Formation } from '../types/schema';
+import type { Team, Player, TeamRoster, Formation, FormationPositionRole } from '../types/schema';
 
 // ============================================================
 // Player Form Reducer
@@ -55,6 +55,7 @@ export function playerFormReducer(state: PlayerFormState, action: PlayerFormActi
 interface FormationPosition {
   positionName: string;
   abbreviation: string;
+  role?: FormationPositionRole | null;
     xPct?: number | null;
     yPct?: number | null;
 }
@@ -73,7 +74,7 @@ export type FormationFormAction =
   | { type: 'SET_FIELD'; field: 'name' | 'playerCount' | 'sport'; value: string }
   | { type: 'EDIT_FORMATION'; formation: Formation; positions: FormationPosition[] }
   | { type: 'ADD_POSITION' }
-  | { type: 'UPDATE_POSITION'; index: number; field: 'positionName' | 'abbreviation'; value: string }
+  | { type: 'UPDATE_POSITION'; index: number; field: 'positionName' | 'abbreviation' | 'role'; value: string }
   | { type: 'REMOVE_POSITION'; index: number }
   | { type: 'RESET' };
 
@@ -98,7 +99,7 @@ export function formationFormReducer(state: FormationFormState, action: Formatio
         if (!isNaN(count) && count > 0 && count <= 30) {
           const current = state.positions;
           if (count > current.length) {
-            const extras = Array.from({ length: count - current.length }, () => ({ positionName: '', abbreviation: '' }));
+            const extras = Array.from({ length: count - current.length }, () => ({ positionName: '', abbreviation: '', role: null }));
             newState.positions = [...current, ...extras];
           } else if (count < current.length) {
             newState.positions = current.slice(0, count);
@@ -119,7 +120,7 @@ export function formationFormReducer(state: FormationFormState, action: Formatio
         positions: action.positions,
       };
     case 'ADD_POSITION':
-      return { ...state, positions: [...state.positions, { positionName: '', abbreviation: '' }] };
+      return { ...state, positions: [...state.positions, { positionName: '', abbreviation: '', role: null }] };
     case 'UPDATE_POSITION': {
       const updated = [...state.positions];
       updated[action.index] = { ...updated[action.index], [action.field]: action.value };

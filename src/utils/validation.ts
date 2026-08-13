@@ -53,7 +53,7 @@ export function validateTeamFormData(
 export function validateFormationFormData(form: {
   name: string;
   playerCount: string;
-  positions: { positionName: string; abbreviation: string }[];
+  positions: { positionName: string; abbreviation: string; role?: string | null }[];
 }): { error: string } | { count: number } {
   if (!form.name.trim() || !form.playerCount.trim()) {
     return { error: 'Please enter formation name and specify player count' };
@@ -65,6 +65,8 @@ export function validateFormationFormData(form: {
   }
   const incomplete = form.positions.some(p => !p.positionName.trim() || !p.abbreviation.trim());
   if (incomplete) return { error: 'Please fill in the name and abbreviation for every position' };
+  const missingRole = form.positions.some(p => !p.role);
+  if (missingRole) return { error: 'Please select a role for every position' };
   return { count };
 }
 

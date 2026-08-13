@@ -24,18 +24,17 @@ const LANE_Y: Record<ShapeLane, number> = {
   gk: 86,
 };
 
-function inferLane(position: Pick<FormationPosition, "positionName" | "abbreviation">): ShapeLane {
-  const raw = `${position.positionName ?? ""} ${position.abbreviation ?? ""}`.trim().toUpperCase();
-  if (/(^|\W)(GK|GOL|GOAL|GOALKEEPER)(\W|$)/.test(raw)) {
-    return "gk";
+function inferLane(position: Pick<FormationPosition, "role">): ShapeLane {
+  switch (position.role) {
+    case "GOALKEEPER": return "gk";
+    case "FORWARD": return "fwd";
+    case "MIDFIELDER": return "mid";
+    case "DEFENDER": return "def";
+    default:
+      // Legacy positions saved before roles were required; default to the
+      // defensive lane rather than blocking the presentational layout editor.
+      return "def";
   }
-  if (/(^|\W)(F|FW|ST|STR|STRIKER|ATT|ATTACK|WING|WINGER|FORWARD|LF|CF|RF|LW|RW)(\W|$)/.test(raw)) {
-    return "fwd";
-  }
-  if (/(^|\W)(M|MF|MID|CM|DM|AM|OM)(\W|$)/.test(raw)) {
-    return "mid";
-  }
-  return "def";
 }
 
 function sortPositionsDeterministically(positions: FormationPosition[]): FormationPosition[] {

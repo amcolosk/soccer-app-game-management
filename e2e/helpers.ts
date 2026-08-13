@@ -486,7 +486,7 @@ export async function createFormation(
   formationData: {
     name: string;
     playerCount: string;
-    positions: Array<{ name: string; abbreviation: string }>;
+    positions: Array<{ name: string; abbreviation: string; role: 'GOALKEEPER' | 'DEFENDER' | 'MIDFIELDER' | 'FORWARD' }>;
   }
 ) {
   console.log(`Creating formation: ${formationData.name}...`);
@@ -504,6 +504,7 @@ export async function createFormation(
     const row = positionRows.nth(i);
     await row.locator('input[placeholder*="Position Name"]').fill(formationData.positions[i].name);
     await row.locator('input[placeholder*="Abbr"]').fill(formationData.positions[i].abbreviation);
+    await row.locator('select').selectOption(formationData.positions[i].role);
   }
   
   await clickButton(page, 'Create');

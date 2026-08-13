@@ -182,9 +182,9 @@ describe('validateTeamFormData', () => {
 
 describe('validateFormationFormData', () => {
   const positions = [
-    { positionName: 'Goalkeeper', abbreviation: 'GK' },
-    { positionName: 'Defender', abbreviation: 'CB' },
-    { positionName: 'Midfielder', abbreviation: 'MF' },
+    { positionName: 'Goalkeeper', abbreviation: 'GK', role: 'GOALKEEPER' },
+    { positionName: 'Defender', abbreviation: 'CB', role: 'DEFENDER' },
+    { positionName: 'Midfielder', abbreviation: 'MF', role: 'MIDFIELDER' },
   ];
   const valid = { name: '4-3-3', playerCount: '3', positions };
 
@@ -221,9 +221,9 @@ describe('validateFormationFormData', () => {
 
   it('should return an error when a position is missing its name', () => {
     const incomplete = [
-      { positionName: '', abbreviation: 'GK' },
-      { positionName: 'Defender', abbreviation: 'CB' },
-      { positionName: 'Midfielder', abbreviation: 'MF' },
+      { positionName: '', abbreviation: 'GK', role: 'GOALKEEPER' },
+      { positionName: 'Defender', abbreviation: 'CB', role: 'DEFENDER' },
+      { positionName: 'Midfielder', abbreviation: 'MF', role: 'MIDFIELDER' },
     ];
     const result = validateFormationFormData({ ...valid, positions: incomplete });
     expect(result).toHaveProperty('error');
@@ -231,9 +231,9 @@ describe('validateFormationFormData', () => {
 
   it('should return an error when a position is missing its abbreviation', () => {
     const incomplete = [
-      { positionName: 'Goalkeeper', abbreviation: '' },
-      { positionName: 'Defender', abbreviation: 'CB' },
-      { positionName: 'Midfielder', abbreviation: 'MF' },
+      { positionName: 'Goalkeeper', abbreviation: '', role: 'GOALKEEPER' },
+      { positionName: 'Defender', abbreviation: 'CB', role: 'DEFENDER' },
+      { positionName: 'Midfielder', abbreviation: 'MF', role: 'MIDFIELDER' },
     ];
     const result = validateFormationFormData({ ...valid, positions: incomplete });
     expect(result).toHaveProperty('error');
@@ -241,9 +241,30 @@ describe('validateFormationFormData', () => {
 
   it('should return an error when a position has only whitespace', () => {
     const incomplete = [
-      { positionName: '   ', abbreviation: 'GK' },
-      { positionName: 'Defender', abbreviation: 'CB' },
-      { positionName: 'Midfielder', abbreviation: 'MF' },
+      { positionName: '   ', abbreviation: 'GK', role: 'GOALKEEPER' },
+      { positionName: 'Defender', abbreviation: 'CB', role: 'DEFENDER' },
+      { positionName: 'Midfielder', abbreviation: 'MF', role: 'MIDFIELDER' },
+    ];
+    const result = validateFormationFormData({ ...valid, positions: incomplete });
+    expect(result).toHaveProperty('error');
+  });
+
+  it('should return an error when a position is missing its role', () => {
+    const incomplete = [
+      { positionName: 'Goalkeeper', abbreviation: 'GK', role: '' },
+      { positionName: 'Defender', abbreviation: 'CB', role: 'DEFENDER' },
+      { positionName: 'Midfielder', abbreviation: 'MF', role: 'MIDFIELDER' },
+    ];
+    const result = validateFormationFormData({ ...valid, positions: incomplete });
+    expect(result).toHaveProperty('error');
+    expect((result as { error: string }).error).toContain('role');
+  });
+
+  it('should return an error when role is missing entirely (undefined)', () => {
+    const incomplete = [
+      { positionName: 'Goalkeeper', abbreviation: 'GK' },
+      { positionName: 'Defender', abbreviation: 'CB', role: 'DEFENDER' },
+      { positionName: 'Midfielder', abbreviation: 'MF', role: 'MIDFIELDER' },
     ];
     const result = validateFormationFormData({ ...valid, positions: incomplete });
     expect(result).toHaveProperty('error');

@@ -7,26 +7,27 @@ import {
 } from "./lineupShapeDeterminism";
 import type { FormationPosition } from "../types";
 
-function pos(id: string, positionName: string, abbreviation: string, sortOrder: number): FormationPosition {
+function pos(id: string, positionName: string, abbreviation: string, sortOrder: number, role?: string): FormationPosition {
   return {
     id,
     positionName,
     abbreviation,
     sortOrder,
+    role,
   } as unknown as FormationPosition;
 }
 
 describe("lineupShapeDeterminism", () => {
   const positions: FormationPosition[] = [
-    pos("pos-st", "Striker", "ST", 3),
-    pos("pos-gk", "Goalkeeper", "GK", 0),
-    pos("pos-cb", "Center Back", "CB", 1),
-    pos("pos-lb", "Left Back", "LB", 2),
-    pos("pos-rb", "Right Back", "RB", 4),
-    pos("pos-cm", "Center Mid", "CM", 5),
-    pos("pos-am", "Attacking Mid", "AM", 6),
-    pos("pos-lw", "Left Wing", "LW", 7),
-    pos("pos-rw", "Right Wing", "RW", 8),
+    pos("pos-st", "Striker", "ST", 3, "FORWARD"),
+    pos("pos-gk", "Goalkeeper", "GK", 0, "GOALKEEPER"),
+    pos("pos-cb", "Center Back", "CB", 1, "DEFENDER"),
+    pos("pos-lb", "Left Back", "LB", 2, "DEFENDER"),
+    pos("pos-rb", "Right Back", "RB", 4, "DEFENDER"),
+    pos("pos-cm", "Center Mid", "CM", 5, "MIDFIELDER"),
+    pos("pos-am", "Attacking Mid", "AM", 6, "MIDFIELDER"),
+    pos("pos-lw", "Left Wing", "LW", 7, "FORWARD"),
+    pos("pos-rw", "Right Wing", "RW", 8, "FORWARD"),
   ];
 
   it("uses a versioned soccer layout contract", () => {
@@ -47,15 +48,15 @@ describe("lineupShapeDeterminism", () => {
 
   it("maps 3-2-3 positions into expected lanes", () => {
     const shape323: FormationPosition[] = [
-      pos("p-gk", "Goalkeeper", "GK", 0),
-      pos("p-ld", "Left Defender", "LD", 1),
-      pos("p-cd", "Center Defender", "CD", 2),
-      pos("p-rd", "Right Defender", "RD", 3),
-      pos("p-ldm", "Left Defensive Mid", "LDM", 4),
-      pos("p-rdm", "Right Defensive Mid", "RDM", 5),
-      pos("p-lf", "Left Forward", "LF", 6),
-      pos("p-cf", "Center Forward", "CF", 7),
-      pos("p-rf", "Right Forward", "RF", 8),
+      pos("p-gk", "Goalkeeper", "GK", 0, "GOALKEEPER"),
+      pos("p-ld", "Left Defender", "LD", 1, "DEFENDER"),
+      pos("p-cd", "Center Defender", "CD", 2, "DEFENDER"),
+      pos("p-rd", "Right Defender", "RD", 3, "DEFENDER"),
+      pos("p-ldm", "Left Defensive Mid", "LDM", 4, "MIDFIELDER"),
+      pos("p-rdm", "Right Defensive Mid", "RDM", 5, "MIDFIELDER"),
+      pos("p-lf", "Left Forward", "LF", 6, "FORWARD"),
+      pos("p-cf", "Center Forward", "CF", 7, "FORWARD"),
+      pos("p-rf", "Right Forward", "RF", 8, "FORWARD"),
     ];
 
     const snapshot = buildLineupShapeGoldenSnapshot(shape323);
@@ -72,20 +73,22 @@ describe("lineupShapeDeterminism", () => {
     expect(laneByPositionId["p-gk"]).toBe("gk");
   });
 
-  it("maps team-specific abbreviations to expected lanes", () => {
-    const teamAbbreviations: FormationPosition[] = [
-      pos("a-gol", "Position", "GOL", 0),
-      pos("a-cb", "Position", "CB", 1),
-      pos("a-ld", "Position", "LD", 2),
-      pos("a-rd", "Position", "RD", 3),
-      pos("a-dm", "Position", "DM", 4),
-      pos("a-om", "Position", "OM", 5),
-      pos("a-lw", "Position", "LW", 6),
-      pos("a-rw", "Position", "RW", 7),
-      pos("a-str", "Position", "STR", 8),
+  it("maps positions with unrelated custom labels to expected lanes based on role, not abbreviation/name (regression)", () => {
+    // These positionName/abbreviation values are intentionally unrelated to the lane
+    // they should land in — only `role` should drive lane assignment.
+    const customLabels: FormationPosition[] = [
+      pos("a-gol", "The Wall", "W1", 0, "GOALKEEPER"),
+      pos("a-cb", "Rock", "R1", 1, "DEFENDER"),
+      pos("a-ld", "Anchor", "A1", 2, "DEFENDER"),
+      pos("a-rd", "Anchor", "A2", 3, "DEFENDER"),
+      pos("a-dm", "Engine", "E1", 4, "MIDFIELDER"),
+      pos("a-om", "Playmaker", "P1", 5, "MIDFIELDER"),
+      pos("a-lw", "Poacher", "PCH", 6, "FORWARD"),
+      pos("a-rw", "Poacher", "PCH", 7, "FORWARD"),
+      pos("a-str", "Sweeper", "SWP", 8, "FORWARD"), // unusual label, still FORWARD role
     ];
 
-    const snapshot = buildLineupShapeGoldenSnapshot(teamAbbreviations);
+    const snapshot = buildLineupShapeGoldenSnapshot(customLabels);
     const laneByPositionId = Object.fromEntries(snapshot.nodes.map((node) => [node.positionId, node.lane]));
 
     expect(laneByPositionId["a-gol"]).toBe("gk");
@@ -99,10 +102,23 @@ describe("lineupShapeDeterminism", () => {
     expect(laneByPositionId["a-str"]).toBe("fwd");
   });
 
+  it("defaults legacy positions with no role to the def lane (defensive fallback)", () => {
+    const legacyPositions: FormationPosition[] = [
+      pos("p-legacy1", "Goalkeeper", "GK", 0), // no role
+      pos("p-legacy2", "Forward", "F", 1), // no role
+    ];
+
+    const snapshot = buildLineupShapeGoldenSnapshot(legacyPositions);
+    const laneByPositionId = Object.fromEntries(snapshot.nodes.map((node) => [node.positionId, node.lane]));
+
+    expect(laneByPositionId["p-legacy1"]).toBe("def");
+    expect(laneByPositionId["p-legacy2"]).toBe("def");
+  });
+
   it("honors persisted xPct/yPct coordinates when present", () => {
     const customLayout: FormationPosition[] = [
-      { ...pos("p-gk", "Goalkeeper", "GK", 0), xPct: 42, yPct: 91 } as unknown as FormationPosition,
-      { ...pos("p-cm", "Center Mid", "CM", 1), xPct: 60, yPct: 33 } as unknown as FormationPosition,
+      { ...pos("p-gk", "Goalkeeper", "GK", 0, "GOALKEEPER"), xPct: 42, yPct: 91 } as unknown as FormationPosition,
+      { ...pos("p-cm", "Center Mid", "CM", 1, "MIDFIELDER"), xPct: 60, yPct: 33 } as unknown as FormationPosition,
     ];
 
     const snapshot = buildLineupShapeGoldenSnapshot(customLayout);

@@ -33,11 +33,11 @@ const SEED_DATA = {
     name: 'E2E-Mobile-5v5',
     playerCount: '5',
     positions: [
-      { name: 'Goalkeeper', abbreviation: 'GK' },
-      { name: 'Left Back', abbreviation: 'LB' },
-      { name: 'Right Back', abbreviation: 'RB' },
-      { name: 'Midfielder', abbreviation: 'MID' },
-      { name: 'Forward', abbreviation: 'FWD' },
+      { name: 'Goalkeeper', abbreviation: 'GK', role: 'GOALKEEPER' as const },
+      { name: 'Left Back', abbreviation: 'LB', role: 'DEFENDER' as const },
+      { name: 'Right Back', abbreviation: 'RB', role: 'DEFENDER' as const },
+      { name: 'Midfielder', abbreviation: 'MID', role: 'MIDFIELDER' as const },
+      { name: 'Forward', abbreviation: 'FWD', role: 'FORWARD' as const },
     ],
   },
   team: {

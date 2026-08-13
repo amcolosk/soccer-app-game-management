@@ -29,11 +29,11 @@ const TEST_DATA = {
     name: 'E2E Game Planner 3-2',
     playerCount: '5',
     positions: [
-      { name: 'Goalkeeper', abbreviation: 'GK' },
-      { name: 'Left Defender', abbreviation: 'LD' },
-      { name: 'Right Defender', abbreviation: 'RD' },
-      { name: 'Left Forward', abbreviation: 'LF' },
-      { name: 'Right Forward', abbreviation: 'RF' },
+      { name: 'Goalkeeper', abbreviation: 'GK', role: 'GOALKEEPER' as const },
+      { name: 'Left Defender', abbreviation: 'LD', role: 'DEFENDER' as const },
+      { name: 'Right Defender', abbreviation: 'RD', role: 'DEFENDER' as const },
+      { name: 'Left Forward', abbreviation: 'LF', role: 'FORWARD' as const },
+      { name: 'Right Forward', abbreviation: 'RF', role: 'FORWARD' as const },
     ],
   },
   team: {

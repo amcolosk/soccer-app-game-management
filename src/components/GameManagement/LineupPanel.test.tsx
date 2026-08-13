@@ -294,7 +294,7 @@ describe('LineupPanel', () => {
     expect(screen.getByRole('button', { name: /clear all positions/i })).toBeInTheDocument();
   });
 
-  it('does NOT show "Clear All" button in halftime when no positions assigned', () => {
+  it('shows disabled "Clear All" button in halftime when no positions are assigned', () => {
     render(
       <LineupPanel
         {...defaultProps}
@@ -303,7 +303,7 @@ describe('LineupPanel', () => {
         lineup={[]}
       />,
     );
-    expect(screen.queryByRole('button', { name: /clear all/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /clear all positions/i })).toBeDisabled();
   });
 
   // ── Slot buttons by status -----------------------------------------------
@@ -606,5 +606,48 @@ describe('LineupPanel', () => {
     await user.click(screen.getByRole('button', { name: /clear all positions/i }));
     await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
     expect(mockDeleteLineupAssignment).not.toHaveBeenCalled();
+  });
+
+  it('halftime remove ignores stale missing-record delete errors', async () => {
+    mockDeleteLineupAssignment.mockRejectedValueOnce(new Error('not found'));
+    const user = userEvent.setup();
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[lineupAssignment]}
+      />,
+    );
+
+    const removeButton = document.querySelector('.btn-remove-small') as HTMLButtonElement;
+    await user.click(removeButton);
+
+    await waitFor(() => expect(mockDeleteLineupAssignment).toHaveBeenCalledWith({ id: 'la-1' }));
+    expect(mockHandleApiError).not.toHaveBeenCalledWith(expect.anything(), 'Failed to remove player from lineup');
+  });
+
+  it('Clear All: ignores stale missing-record deletes and continues', async () => {
+    mockDeleteLineupAssignment
+      .mockRejectedValueOnce(new Error('not found'))
+      .mockResolvedValueOnce({});
+    const user = userEvent.setup();
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[
+          lineupAssignment,
+          { ...lineupAssignment, id: 'la-2', positionId: 'pos-2', playerId: 'player-b' },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /clear all positions/i }));
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+    await waitFor(() => expect(mockDeleteLineupAssignment).toHaveBeenCalledWith({ id: 'la-1' }));
+    await waitFor(() => expect(mockDeleteLineupAssignment).toHaveBeenCalledWith({ id: 'la-2' }));
+    expect(mockHandleApiError).not.toHaveBeenCalledWith(expect.anything(), 'Failed to clear lineup');
   });
 });

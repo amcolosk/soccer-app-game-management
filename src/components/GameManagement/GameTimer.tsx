@@ -75,13 +75,74 @@ export function GameTimer({
   const { getPlayerAvailability } = useAvailability();
   const [isApplyingAll, setIsApplyingAll] = useState(false);
 
+  const parsePlannedSubstitutions = (value: unknown): PlannedSubstitution[] => {
+    if (Array.isArray(value)) {
+      return value as PlannedSubstitution[];
+    }
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? (parsed as PlannedSubstitution[]) : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const deriveHalftimeSubsFromPlanLineup = (): PlannedSubstitution[] => {
+    if (!gamePlan?.halftimeLineup) return [];
+
+    let plannedHalftimeLineup: Array<{ playerId?: string | null; positionId?: string | null }> = [];
+    try {
+      const parsed = JSON.parse(gamePlan.halftimeLineup as string);
+      if (Array.isArray(parsed)) {
+        plannedHalftimeLineup = parsed;
+      }
+    } catch {
+      return [];
+    }
+
+    const currentStarterByPosition = new Map<string, string>();
+    for (const assignment of lineup) {
+      if (assignment.isStarter && assignment.positionId && assignment.playerId) {
+        currentStarterByPosition.set(assignment.positionId, assignment.playerId);
+      }
+    }
+
+    const derived: PlannedSubstitution[] = [];
+    for (const entry of plannedHalftimeLineup) {
+      const positionId = entry.positionId ?? '';
+      const playerInId = entry.playerId ?? '';
+      if (!positionId || !playerInId) continue;
+
+      const currentPlayerId = currentStarterByPosition.get(positionId);
+      if (currentPlayerId && currentPlayerId !== playerInId) {
+        derived.push({
+          playerOutId: currentPlayerId,
+          playerInId,
+          positionId,
+        });
+      }
+    }
+
+    return derived;
+  };
+
   // Planned subs for the start of the second half
   const halftimeSubs = (() => {
     const rotation = plannedRotations.find(r => r.half === 2);
-    if (!rotation) return [];
-    try {
-      return JSON.parse(rotation.plannedSubstitutions as string) as PlannedSubstitution[];
-    } catch { return []; }
+    const fromRotation = rotation
+      ? parsePlannedSubstitutions(rotation.plannedSubstitutions)
+      : [];
+
+    // Fallback: if halftime rotation exists but has no substitutions, derive from
+    // persisted halftime lineup overrides so coaches can still apply swaps at halftime.
+    if (fromRotation.length > 0) {
+      return fromRotation;
+    }
+
+    return deriveHalftimeSubsFromPlanLineup();
   })();
 
   const getHalftimeSubState = (sub: PlannedSubstitution) => {

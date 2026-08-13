@@ -40,6 +40,7 @@ const schema = a.schema({
       formation: a.belongsTo('Formation', 'formationId'),
       positionName: a.string().required(), // e.g., "Left Forward", "Center Midfielder"
       abbreviation: a.string().required(), // e.g., "LF", "CM"
+      role: a.enum(['GOALKEEPER', 'DEFENDER', 'MIDFIELDER', 'FORWARD']), // Explicit tactical role; drives goalkeeper/behavioral logic
       sortOrder: a.integer(), // Display order for the position
       coaches: a.string().array(), // Array of user IDs who can access this formation position
         xPct: a.integer(), // X coordinate percentage (1–99) for visual layout; null = use inferred
