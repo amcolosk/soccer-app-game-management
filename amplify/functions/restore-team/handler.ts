@@ -59,21 +59,39 @@ export const handler: Handler = async (event) => {
     throw new Error('Access denied: only the team owner can restore this team');
   }
 
+  // Major 2: same TOCTOU guard as archive-team — see that handler's comment.
+  const coaches = team.coaches as string[] | undefined;
+  if (!coaches?.includes(callerSub)) {
+    throw new Error('Access denied: only the team owner can restore this team');
+  }
+
   if (team.status === 'archived') {
     const nowIso = new Date().toISOString();
     try {
-      await docClient.send(new UpdateCommand({
+      const result = await docClient.send(new UpdateCommand({
         TableName: teamTable,
         Key: { id: teamId },
+        // Decision (TEAM-ARCHIVE-PLAN Correction 5c): archivedAt/archivedBy are
+        // REMOVEd on restore. They are only meaningful while a team is archived,
+        // and a stale value on an active team misleads. If archive history is
+        // wanted, add append-only audit records instead. Document in
+        // docs/SHARING-PERMISSIONS.md when Phase 7 lands.
         UpdateExpression: 'SET #status = :activeStatus, updatedAt = :updatedAt REMOVE archivedAt, archivedBy',
-        ConditionExpression: 'ownerId = :callerSub',
+        // contains(coaches, :callerSub) closes the TOCTOU window between the
+        // GetCommand above and this write (Major 2).
+        ConditionExpression: 'ownerId = :callerSub AND contains(coaches, :callerSub)',
         ExpressionAttributeNames: { '#status': 'status' },
         ExpressionAttributeValues: {
           ':activeStatus': 'active',
           ':updatedAt': nowIso,
           ':callerSub': callerSub,
         },
+        ReturnValues: 'ALL_NEW', // Minor 6: replaces the trailing GetCommand.
+        ReturnValuesOnConditionCheckFailure: 'ALL_OLD', // Minor 3: shape consistency; unused here.
       }));
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return result.Attributes as any;
     } catch (error) {
       if (isConditionalCheckFailed(error)) {
         throw new Error('Access denied: only the team owner can restore this team');
@@ -82,11 +100,8 @@ export const handler: Handler = async (event) => {
     }
   }
 
-  const updatedTeamResponse = await docClient.send(new GetCommand({
-    TableName: teamTable,
-    Key: { id: teamId },
-  }));
-
+  // Already active — idempotent no-op. Nothing was written, so return the
+  // team as already fetched rather than re-reading it (Minor 6).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return updatedTeamResponse.Item as any;
+  return team as any;
 };

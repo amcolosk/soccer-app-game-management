@@ -18,6 +18,9 @@ import { deleteFormationSafe } from './functions/delete-formation-safe/resource'
 import { deleteGameSafe } from './functions/delete-game-safe/resource';
 import { deleteTeamSafe } from './functions/delete-team-safe/resource';
 import { deletePlayerSafe } from './functions/delete-player-safe/resource';
+import { archiveTeam } from './functions/archive-team/resource';
+import { restoreTeam } from './functions/restore-team/resource';
+import { assignTeamOwner } from './functions/assign-team-owner/resource';
 
 const backend = defineBackend({
   auth,
@@ -36,6 +39,9 @@ const backend = defineBackend({
   deleteGameSafe,
   deleteTeamSafe,
   deletePlayerSafe,
+  archiveTeam,
+  restoreTeam,
+  assignTeamOwner,
 });
 
 // Add deployment ID to outputs
@@ -288,3 +294,38 @@ backend.deletePlayerSafe.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecord
 backend.deletePlayerSafe.addEnvironment('GOAL_TABLE', goalTable.tableName);
 backend.deletePlayerSafe.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
 backend.deletePlayerSafe.addEnvironment('PLAYER_AVAILABILITY_TABLE', playerAvailabilityTable.tableName);
+
+// Grant table access for restoreTeam Lambda (least-privilege: Team get/update only, no delete)
+backend.restoreTeam.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem', 'dynamodb:UpdateItem'],
+    resources: [teamTable.tableArn],
+  })
+);
+backend.restoreTeam.addEnvironment('TEAM_TABLE', teamTable.tableName);
+
+// Grant table access for assignTeamOwner Lambda (least-privilege: Team get/update only, no delete)
+backend.assignTeamOwner.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem', 'dynamodb:UpdateItem'],
+    resources: [teamTable.tableArn],
+  })
+);
+backend.assignTeamOwner.addEnvironment('TEAM_TABLE', teamTable.tableName);
+
+// Grant table access for archiveTeam Lambda (least-privilege: Team get/update;
+// TeamInvitation scan + per-item update for the pending-invitation sweep)
+backend.archiveTeam.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem', 'dynamodb:UpdateItem'],
+    resources: [teamTable.tableArn],
+  })
+);
+backend.archiveTeam.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Scan', 'dynamodb:UpdateItem'],
+    resources: [teamInvitationTable.tableArn],
+  })
+);
+backend.archiveTeam.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.archiveTeam.addEnvironment('TEAM_INVITATION_TABLE', teamInvitationTable.tableName);

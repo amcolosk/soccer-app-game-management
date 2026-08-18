@@ -11,6 +11,9 @@ import { deleteFormationSafe } from "../functions/delete-formation-safe/resource
 import { deleteGameSafe } from "../functions/delete-game-safe/resource";
 import { deleteTeamSafe } from "../functions/delete-team-safe/resource";
 import { deletePlayerSafe } from "../functions/delete-player-safe/resource";
+import { archiveTeam } from "../functions/archive-team/resource";
+import { restoreTeam } from "../functions/restore-team/resource";
+import { assignTeamOwner } from "../functions/assign-team-owner/resource";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -65,8 +68,9 @@ const schema = a.schema({
       games: a.hasMany('Game', 'teamId'),
       invitations: a.hasMany('TeamInvitation', 'teamId'),
       // Persisted owner (Cognito sub). Undefined = legacy team pending owner assignment.
-      // Coaches get read-only access here; writes only via assignTeamOwner.
-      ownerId: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
+      // Coaches may stamp this once at create time (Management.tsx / demoDataService);
+      // there is no update grant, so ownership can only change via assignTeamOwner.
+      ownerId: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['create', 'read'])]),
       // Lifecycle state: 'active' | 'archived'. a.enum() is not used because this
       // Amplify version does not support .required()/.default() on enums (see
       // GameNote.noteType). Coaches get read-only access; writes only via
@@ -465,7 +469,41 @@ const schema = a.schema({
     .returns(a.json())
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(deletePlayerSafe)),
-  
+
+  // Owner-authorized team lifecycle mutations. The declared authorization is
+  // only "must be signed in" — the real check is strict owner equality
+  // (team.ownerId === callerSub) inside each handler, which Amplify's
+  // declarative auth cannot express. Same shape as acceptInvitation.
+  archiveTeam: a
+    .mutation()
+    .arguments({
+      teamId: a.string().required(),
+    })
+    .returns(a.ref('Team'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(archiveTeam)),
+
+  restoreTeam: a
+    .mutation()
+    .arguments({
+      teamId: a.string().required(),
+    })
+    .returns(a.ref('Team'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(restoreTeam)),
+
+  // First-come-first-served owner claim for legacy ownerless teams; any coach
+  // already on the team may call it, and a conditional write in the handler
+  // resolves concurrent claims.
+  assignTeamOwner: a
+    .mutation()
+    .arguments({
+      teamId: a.string().required(),
+    })
+    .returns(a.ref('Team'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(assignTeamOwner)),
+
   QueuedSubstitution: a
     .model({
       gameId: a.id().required(),
