@@ -85,15 +85,27 @@ export const handler: Handler = async (event) => {
     throw new Error('Access denied: only the team owner can archive this team');
   }
 
+  // Major 2: revokeCoachAccess can remove the owner from `coaches` without
+  // ever clearing ownerId (ownerId has no update grant, so it structurally
+  // can't). Reject fast here; the write-time contains() clause below closes
+  // the race between this read and the write.
+  const coaches = team.coaches as string[] | undefined;
+  if (!coaches?.includes(callerSub)) {
+    throw new Error('Access denied: only the team owner can archive this team');
+  }
+
   const nowIso = new Date().toISOString();
+  let archivedTeam: DbItem = team;
 
   if (team.status !== 'archived') {
     try {
-      await docClient.send(new UpdateCommand({
+      const result = await docClient.send(new UpdateCommand({
         TableName: teamTable,
         Key: { id: teamId },
         UpdateExpression: 'SET #status = :archivedStatus, archivedAt = :archivedAt, archivedBy = :archivedBy, updatedAt = :updatedAt',
-        ConditionExpression: 'ownerId = :callerSub',
+        // contains(coaches, :callerSub) closes the TOCTOU window between the
+        // GetCommand above and this write (Major 2).
+        ConditionExpression: 'ownerId = :callerSub AND contains(coaches, :callerSub)',
         ExpressionAttributeNames: { '#status': 'status' },
         ExpressionAttributeValues: {
           ':archivedStatus': 'archived',
@@ -102,52 +114,56 @@ export const handler: Handler = async (event) => {
           ':updatedAt': nowIso,
           ':callerSub': callerSub,
         },
+        ReturnValues: 'ALL_NEW', // Minor 6: replaces the trailing GetCommand.
+        ReturnValuesOnConditionCheckFailure: 'ALL_OLD', // Minor 3: shape consistency with assignTeamOwner; unused here.
       }));
+      archivedTeam = result.Attributes as DbItem;
     } catch (error) {
       if (isConditionalCheckFailed(error)) {
         throw new Error('Access denied: only the team owner can archive this team');
       }
       throw error;
     }
-
-    // Expire pending invitations. Best-effort per-item conditional updates;
-    // a race with accept-invitation is resolved by that Lambda's own
-    // transactional condition against Team.status.
-    const pendingInvitations = await scanAll(
-      teamInvitationTable,
-      'teamId = :teamId AND #status = :pendingStatus',
-      { ':teamId': teamId, ':pendingStatus': 'PENDING' },
-      { '#status': 'status' },
-    );
-
-    await Promise.all(pendingInvitations.map(async (invitation) => {
-      try {
-        await docClient.send(new UpdateCommand({
-          TableName: teamInvitationTable,
-          Key: { id: invitation.id },
-          UpdateExpression: 'SET #status = :expiredStatus, updatedAt = :updatedAt',
-          ConditionExpression: '#status = :pendingStatus',
-          ExpressionAttributeNames: { '#status': 'status' },
-          ExpressionAttributeValues: {
-            ':expiredStatus': 'EXPIRED',
-            ':pendingStatus': 'PENDING',
-            ':updatedAt': nowIso,
-          },
-        }));
-      } catch (error) {
-        if (!isConditionalCheckFailed(error)) {
-          throw error;
-        }
-        // Already transitioned out of PENDING (e.g. concurrent acceptance) — ignore.
-      }
-    }));
   }
 
-  const updatedTeamResponse = await docClient.send(new GetCommand({
-    TableName: teamTable,
-    Key: { id: teamId },
+  // Runs on EVERY call, not just the archiving transition: a retry after a
+  // partial failure — or an invitation that was still PENDING during a race —
+  // must be swept. Phase 3 step 3, "deterministic when called repeatedly".
+  // Minor 5 bound: this is a full-table scan on every call, including
+  // idempotent no-ops. Convert to a Query (parent Correction 4, deferred)
+  // once the trigger condition in Required Follow-Ups is hit.
+  const pendingInvitations = await scanAll(
+    teamInvitationTable,
+    'teamId = :teamId AND #status = :pendingStatus',
+    { ':teamId': teamId, ':pendingStatus': 'PENDING' },
+    { '#status': 'status' },
+  );
+
+  // Expire pending invitations. Best-effort per-item conditional updates;
+  // a race with accept-invitation is resolved by that Lambda's own
+  // transactional condition against Team.status.
+  await Promise.all(pendingInvitations.map(async (invitation) => {
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: teamInvitationTable,
+        Key: { id: invitation.id },
+        UpdateExpression: 'SET #status = :expiredStatus, updatedAt = :updatedAt',
+        ConditionExpression: '#status = :pendingStatus',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: {
+          ':expiredStatus': 'EXPIRED',
+          ':pendingStatus': 'PENDING',
+          ':updatedAt': nowIso,
+        },
+      }));
+    } catch (error) {
+      if (!isConditionalCheckFailed(error)) {
+        throw error;
+      }
+      // Already transitioned out of PENDING (e.g. concurrent acceptance) — ignore.
+    }
   }));
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return updatedTeamResponse.Item as any;
+  return archivedTeam as any;
 };
