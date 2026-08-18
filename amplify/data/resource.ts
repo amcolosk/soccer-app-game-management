@@ -64,9 +64,22 @@ const schema = a.schema({
       positions: a.hasMany('FieldPosition', 'teamId'),
       games: a.hasMany('Game', 'teamId'),
       invitations: a.hasMany('TeamInvitation', 'teamId'),
+      // Persisted owner (Cognito sub). Undefined = legacy team pending owner assignment.
+      // Coaches get read-only access here; writes only via assignTeamOwner.
+      ownerId: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
+      // Lifecycle state: 'active' | 'archived'. a.enum() is not used because this
+      // Amplify version does not support .required()/.default() on enums (see
+      // GameNote.noteType). Coaches get read-only access; writes only via
+      // archiveTeam/restoreTeam.
+      status: a.string().default('active').authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
+      // Archive audit metadata. Coaches get read-only access; writes only via archiveTeam/restoreTeam.
+      archivedAt: a.datetime().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
+      archivedBy: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
     })
     .authorization((allow) => [
       // Delete is intentionally disallowed on the model. Use deleteTeamSafe.
+      // ownerId/status/archivedAt/archivedBy are locked down above via field-level
+      // authorization; this model-level grant still applies to every other field.
       allow.ownersDefinedIn('coaches').to(['create', 'read', 'update']),
     ]),
 
