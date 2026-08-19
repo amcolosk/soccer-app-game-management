@@ -6,7 +6,6 @@ import {
   loginUser,
   navigateToApp,
   navigateToManagement,
-  swipeToDelete,
   UI_TIMING,
   waitForPageLoad,
 } from './helpers';
@@ -58,11 +57,15 @@ test.describe.serial('Data isolation smoke wiring', () => {
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     await navigateToManagement(page);
     await clickManagementTab(page, 'Teams');
-    await swipeToDelete(page, `.item-card:has-text("${teamName}")`);
-    const confirmOverlay = page.locator('.confirm-overlay');
-    if (await confirmOverlay.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await clickConfirmModalConfirm(page);
-    }
+
+    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Archive' }).click();
+    await clickConfirmModalConfirm(page);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+    await page.getByRole('button', { name: /Archived Teams/ }).click();
+    await page.locator('.team-card-wrapper').filter({ hasText: teamName })
+      .getByRole('button', { name: 'Delete team permanently' }).click();
+    await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await expect(page.locator('.item-card').filter({ hasText: teamName })).toHaveCount(0);
   });

@@ -144,7 +144,12 @@ vi.mock('./Onboarding/WelcomeModal', () => ({
 }));
 
 vi.mock('./Onboarding/QuickStartChecklist', () => ({
-  QuickStartChecklist: () => <div data-testid="quick-start-checklist" />,
+  QuickStartChecklist: (props: unknown) => (
+    <div
+      data-testid="quick-start-checklist"
+      data-teams={JSON.stringify((props as { teams: unknown[] }).teams)}
+    />
+  ),
 }));
 
 vi.mock('./ConfirmModal', () => ({
@@ -520,6 +525,80 @@ describe('Home — game status grouping (regression guard)', () => {
 
     expect(screen.getByText('Active Games')).toBeInTheDocument();
     expect(screen.queryByText('Past Games')).not.toBeInTheDocument();
+  });
+});
+
+describe('Home — archived team filtering (Team Archive Step 5)', () => {
+  beforeEach(resetState);
+
+  it('keeps a completed game for an archived team visible in "Past Games" (getTeam intentionally searches the full team list)', () => {
+    teamQueryResult.data = [
+      { id: 't1', name: 'Active Eagles', coaches: ['test-user-id'], status: 'active' },
+      { id: 't2', name: 'Archived Hawks', coaches: ['test-user-id'], status: 'archived' },
+    ];
+    teamQueryResult.isSynced = true;
+    gameQueryResult.data = [
+      { id: 'g1', status: 'completed', teamId: 't2', opponent: 'Rivals FC', isHome: true },
+    ];
+    gameQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    expect(screen.getByText('Past Games')).toBeInTheDocument();
+    expect(screen.getByText('Archived Hawks vs Rivals FC')).toBeInTheDocument();
+  });
+
+  it('lists only the active team in the Schedule Game team dropdown, excluding the archived one', () => {
+    teamQueryResult.data = [
+      { id: 't1', name: 'Active Eagles', coaches: ['test-user-id'], status: 'active' },
+      { id: 't2', name: 'Archived Hawks', coaches: ['test-user-id'], status: 'archived' },
+    ];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    fireEvent.click(screen.getByRole('button', { name: /schedule new game/i }));
+
+    const options = screen.getAllByRole('option').map((option) => option.textContent);
+    expect(options).toContain('Active Eagles');
+    expect(options).not.toContain('Archived Hawks');
+  });
+
+  it('passes only active teams to QuickStartChecklist', () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = false;
+    teamQueryResult.data = [
+      { id: 't1', name: 'Active Eagles', coaches: ['test-user-id'], status: 'active' },
+      { id: 't2', name: 'Archived Hawks', coaches: ['test-user-id'], status: 'archived' },
+    ];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    const checklist = screen.getByTestId('quick-start-checklist');
+    const passedTeams = JSON.parse(checklist.getAttribute('data-teams') ?? '[]');
+    expect(passedTeams).toHaveLength(1);
+    expect(passedTeams[0].id).toBe('t1');
+  });
+
+  it('reopens a dismissed checklist when archiving a coach\'s only active team regresses previously-complete steps', async () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = true;
+    teamQueryResult.isSynced = true;
+    // Only an archived team remains — activeTeams is empty, so checklistStepCompletion's
+    // steps 1/3/4 regress from complete to incomplete. See docs/plans/
+    // TEAM-ARCHIVE-STEP5-FRONTEND-UX.md, Decision (round 2, Minor 9).
+    teamQueryResult.data = [
+      { id: 't1', name: 'Archived Only FC', coaches: ['test-user-id'], status: 'archived', formationId: 'f-1' },
+    ];
+    localStorage.setItem('onboarding:lastCompletedSteps', JSON.stringify([true, true, true, true, true, true, true]));
+
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(mockClearDismissed).toHaveBeenCalledTimes(1);
+    });
+    expect(localStorage.getItem('onboarding:lastCompletedSteps')).toBeNull();
   });
 });
 

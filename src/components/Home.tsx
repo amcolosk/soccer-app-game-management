@@ -13,6 +13,7 @@ import { showError, showWarning } from '../utils/toast';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { handleApiError } from '../utils/errorHandler';
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
+import { isTeamActive } from '../utils/teamUtils';
 import { useHelpFab } from '../contexts/HelpFabContext';
 import { buildFlatDebugSnapshot } from '../utils/debugUtils';
 import type { HomeDebugContext } from '../types/debug';
@@ -63,6 +64,7 @@ export function Home() {
 
   // Subscribe to teams, roster, and gamePlans for onboarding progress
   const { data: teams, isSynced: isTeamsSynced } = useAmplifyQuery('Team');
+  const activeTeams = useMemo(() => teams.filter(isTeamActive), [teams]);
   const { data: games, isSynced: isGamesSynced } = useAmplifyQuery('Game', {
     sort: (a, b) => {
       const statusA = a.status || 'scheduled';
@@ -117,12 +119,12 @@ export function Home() {
 
   const checklistStepCompletion = useMemo(
     () => [
-      teams.length >= 1,
+      activeTeams.length >= 1,
       profileComplete,
       (teamRosters as { teamId: string }[]).some((r) =>
-        (teams as { id: string }[]).some((t) => t.id === r.teamId)
+        (activeTeams as { id: string }[]).some((t) => t.id === r.teamId)
       ),
-      (teams as { id: string; formationId?: string | null }[]).some(
+      (activeTeams as { id: string; formationId?: string | null }[]).some(
         (t) => t.formationId != null && t.formationId !== ''
       ),
       games.length >= 1,
@@ -131,7 +133,7 @@ export function Home() {
         (g) => g.status === 'in-progress' || g.status === 'completed'
       ),
     ],
-    [teams, profileComplete, teamRosters, games, gamePlans]
+    [activeTeams, profileComplete, teamRosters, games, gamePlans]
   );
 
   const readDismissedStepSnapshot = useCallback((): boolean[] | null => {
@@ -311,6 +313,9 @@ export function Home() {
     };
   }, [authStatus, currentUserId]);
 
+  // Intentionally searches the full `teams` list, not activeTeams — historical
+  // games for an archived team must still resolve their team name/info here.
+  // See docs/plans/TEAM-ARCHIVE-STEP5-FRONTEND-UX.md.
   const getTeam = (teamId: string) => {
     return teams.find(t => t.id === teamId);
   };
@@ -330,6 +335,11 @@ export function Home() {
       const team = teams.find(t => t.id === selectedTeamForGame);
       if (!team) {
         showError('Team not found');
+        return;
+      }
+
+      if (!isTeamActive(team)) {
+        showError('Cannot schedule a game for an archived team.');
         return;
       }
 
@@ -499,7 +509,7 @@ export function Home() {
       {/* Show QuickStartChecklist if not dismissed */}
       {!dismissed && welcomed && (
         <QuickStartChecklist
-          teams={teams}
+          teams={activeTeams}
           games={games}
           teamRosters={teamRosters}
           gamePlans={gamePlans}
@@ -531,7 +541,7 @@ export function Home() {
             onChange={(e) => setSelectedTeamForGame(e.target.value)}
           >
             <option value="">Select Team *</option>
-            {teams.map((team) => (
+            {activeTeams.map((team) => (
               <option key={team.id} value={team.id}>
                 {team.name}
               </option>

@@ -33,6 +33,7 @@ export async function createDemoTeam(currentUserId: string): Promise<void> {
     const teamResponse = await client.models.Team.create({
       name: 'Eagles Demo',
       coaches: [currentUserId],
+      ownerId: currentUserId,
       maxPlayersOnField: 7,
       halfLengthMinutes: 30,
       sport: 'Soccer',

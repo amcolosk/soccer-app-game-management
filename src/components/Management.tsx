@@ -20,6 +20,9 @@ import {
 import { useConfirm } from './ConfirmModal';
 import { deleteTeamCascade, deletePlayerCascade, deleteFormationCascade, getPlayerImpact } from '../services/cascadeDeleteService';
 import { removeDemoData } from '../services/demoDataService';
+import { archiveTeam, restoreTeam, assignTeamOwner } from '../services/teamLifecycleService';
+import { isTeamArchived, isTeamActive, isTeamOwner, isTeamOwnershipAssigned, formatArchivedOn } from '../utils/teamUtils';
+import { DEFAULT_FORM_VALUES } from '../constants/gameConfig';
 import { computeFormationPositionDiff, scrubDeletedPositionPreferences } from '../utils/formationUtils';
 import { useSwipeDelete } from '../hooks/useSwipeDelete';
 import {
@@ -28,6 +31,7 @@ import {
   teamFormReducer, initialTeamForm,
   rosterFormReducer, initialRosterForm,
 } from './managementReducers';
+import type { TeamFormState } from './managementReducers';
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
 import { getAvailableBirthYears } from '../utils/rosterFilterUtils';
 import { useHelpFab } from '../contexts/HelpFabContext';
@@ -58,6 +62,24 @@ async function confirmAndDelete(
 }
 
 const BIRTH_YEAR_MAX = BIRTH_YEAR_MAX_FN();
+
+// Mirrors UserProfile.tsx's isDirty memo: START_CREATE resets every field to
+// initialTeamForm before setting isCreating, so "dirty while creating" is any
+// field differing from its initial/default value; "dirty while editing" is
+// simply editing != null (EDIT_TEAM always populates real, non-default values
+// from the team being edited, so there is no meaningful "clean edit" state).
+function isTeamFormDirty(form: TeamFormState): boolean {
+  if (form.editing) return true;
+  if (!form.isCreating) return false;
+  return (
+    form.name.trim() !== '' ||
+    form.maxPlayers !== DEFAULT_FORM_VALUES.maxPlayers ||
+    form.halfLength !== DEFAULT_FORM_VALUES.halfLength ||
+    form.sport !== DEFAULT_FORM_VALUES.sport ||
+    form.gameFormat !== DEFAULT_FORM_VALUES.gameFormat ||
+    form.selectedFormation !== ''
+  );
+}
 
 function validateTeamForm(form: { name: string; maxPlayers: string; halfLength: string }) {
   const result = validateTeamFormData(form);
@@ -165,6 +187,13 @@ export function Management() {
   const [rosterView, setRosterView] = useState<'roster' | 'positions'>('roster');
   const [birthYearFilters, setBirthYearFilters] = useState<string[]>([]);
 
+  const [teamsView, setTeamsView] = useState<'active' | 'archived'>('active');
+  const [pendingTeamActionId, setPendingTeamActionId] = useState<string | null>(null);
+
+  type TeamLifecycleFields = Pick<Team, 'status' | 'ownerId' | 'archivedAt' | 'archivedBy'>;
+  const [teamLifecycleOverrides, setTeamLifecycleOverrides] =
+    useState<Record<string, TeamLifecycleFields>>({});
+
   // Sharing state
   const [sharingResourceType, setSharingResourceType] = useState<'team' | null>(null);
   const [sharingResourceId, setSharingResourceId] = useState<string>('');
@@ -176,6 +205,64 @@ export function Management() {
 
   // Swipe-to-delete
   const { getSwipeProps, getSwipeStyle, close: closeSwipe, swipedItemId } = useSwipeDelete();
+
+  // Team lifecycle (archive/restore/assign-owner) override mechanism.
+  // archiveTeam/restoreTeam/assignTeamOwner write via the DynamoDB SDK directly
+  // and do NOT trigger AppSync subscriptions, so `teams` (from useAmplifyQuery)
+  // can lag behind a just-completed mutation. `teamLifecycleOverrides` layers
+  // each mutation's own returned Team on top of `teams` until the raw list
+  // converges. See docs/plans/TEAM-ARCHIVE-STEP5-FRONTEND-UX.md, Decision
+  // (round 2, Major 1).
+  function applyLifecycleOverride(updated: { id: string } & Partial<TeamLifecycleFields>) {
+    setTeamLifecycleOverrides(prev => ({
+      ...prev,
+      [updated.id]: {
+        status: updated.status ?? null,
+        ownerId: updated.ownerId ?? null,
+        archivedAt: updated.archivedAt ?? null,
+        archivedBy: updated.archivedBy ?? null,
+      },
+    }));
+  }
+
+  // Reconciler: once the raw `teams` list (from useAmplifyQuery, refreshed by the
+  // existing teamRefreshKey bump) agrees with an override, drop the override —
+  // raw `teams` resumes being authoritative for that id. Runs whenever `teams`
+  // changes, so it self-heals with no further user action once the eventually-
+  // consistent list catches up.
+  useEffect(() => {
+    setTeamLifecycleOverrides(prev => {
+      if (Object.keys(prev).length === 0) return prev;
+      let changed = false;
+      const next: typeof prev = {};
+      for (const [id, override] of Object.entries(prev)) {
+        const raw = teams.find(t => t.id === id);
+        const converged =
+          !!raw &&
+          raw.status === override.status &&
+          raw.ownerId === override.ownerId &&
+          raw.archivedAt === override.archivedAt &&
+          raw.archivedBy === override.archivedBy;
+        if (converged) {
+          changed = true;
+        } else {
+          next[id] = override;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [teams]);
+
+  // Merged list used for all lifecycle-dependent rendering.
+  const teamsForDisplay = useMemo(
+    () => teams.map(t => {
+      const override = teamLifecycleOverrides[t.id];
+      return override ? { ...t, ...override } : t;
+    }),
+    [teams, teamLifecycleOverrides]
+  );
+  const activeTeams = teamsForDisplay.filter(isTeamActive);
+  const archivedTeams = teamsForDisplay.filter(isTeamArchived);
 
   const [formationForm, formationDispatch] = useReducer(formationFormReducer, initialFormationForm);
   const [playerForm, playerDispatch] = useReducer(playerFormReducer, initialPlayerForm);
@@ -230,6 +317,7 @@ export function Management() {
       await client.models.Team.create({
         name: teamForm.name,
         coaches: [currentUserId],
+        ownerId: currentUserId,
         formationId,
         maxPlayersOnField: validated.maxPlayersNum,
         halfLengthMinutes: validated.halfLengthNum,
@@ -276,14 +364,100 @@ export function Management() {
     teamDispatch({ type: 'RESET' });
   };
 
+  // UI review fix pass, Major 2: switching Active/Archived sub-tabs must not
+  // silently discard an in-progress create/edit form. Mirrors
+  // UserProfile.tsx's handleDiscardChanges dirty-check-and-confirm pattern.
+  const handleTeamsViewChange = async (nextView: 'active' | 'archived') => {
+    if (nextView === teamsView) return;
+    if (isTeamFormDirty(teamForm)) {
+      const confirmed = await confirm({
+        title: 'Discard changes?',
+        message: 'You have unsaved team changes. Discard them?',
+        confirmText: 'Discard',
+        variant: 'warning',
+      });
+      if (!confirmed) return;
+    }
+    teamDispatch({ type: 'RESET' });
+    setTeamsView(nextView);
+  };
+
+  const handleArchiveTeam = async (team: Team) => {
+    const confirmed = await confirm({
+      title: 'Archive Team',
+      message: 'Archiving is reversible — you can restore this team anytime from the Archived Teams view. All players, games, and other data are preserved. Any pending team invitations will be expired.',
+      confirmText: 'Archive Team',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
+    setPendingTeamActionId(team.id);
+    try {
+      const updated = await archiveTeam(team.id);
+      applyLifecycleOverride(updated);
+      trackEvent(AnalyticsEvents.TEAM_ARCHIVED.category, AnalyticsEvents.TEAM_ARCHIVED.action);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to archive team';
+      showError(message);
+    } finally {
+      setPendingTeamActionId(null);
+      setTeamRefreshKey(k => k + 1);
+    }
+  };
+
+  const handleRestoreTeam = async (team: Team) => {
+    const confirmed = await confirm({
+      title: 'Restore Team',
+      message: 'This team will become active again. Invitations that expired while archived are not automatically revived — re-send them if needed.',
+      confirmText: 'Restore Team',
+      variant: 'default',
+    });
+    if (!confirmed) return;
+    setPendingTeamActionId(team.id);
+    try {
+      const updated = await restoreTeam(team.id);
+      applyLifecycleOverride(updated);
+      trackEvent(AnalyticsEvents.TEAM_RESTORED.category, AnalyticsEvents.TEAM_RESTORED.action);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to restore team';
+      showError(message);
+    } finally {
+      setPendingTeamActionId(null);
+      setTeamRefreshKey(k => k + 1);
+    }
+  };
+
+  const handleAssignTeamOwner = async (team: Team) => {
+    const confirmed = await confirm({
+      title: 'Assign Team Owner',
+      message: "You will become the owner of this team. Ownership cannot be transferred directly — it can only change later if the owner is removed from the team's coaches.",
+      confirmText: 'Assign Owner',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
+    setPendingTeamActionId(team.id);
+    try {
+      const updated = await assignTeamOwner(team.id);
+      applyLifecycleOverride(updated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to assign team owner';
+      showError(message);
+    } finally {
+      setPendingTeamActionId(null);
+      setTeamRefreshKey(k => k + 1);
+    }
+  };
+
   const handleDeleteTeam = (id: string) => confirmAndDelete(confirm, {
     title: 'Delete Team',
     message: 'Are you sure you want to delete this team? This will also delete all players, positions, and games.',
+    confirmText: 'Delete Permanently',
     deleteFn: async () => {
+      setPendingTeamActionId(id);
       try {
         await deleteTeamCascade(id);
         trackEvent(AnalyticsEvents.TEAM_DELETED.category, AnalyticsEvents.TEAM_DELETED.action);
       } finally {
+        setPendingTeamActionId(null);
         setTeamRefreshKey(k => k + 1);
       }
     },
@@ -840,11 +1014,26 @@ export function Management() {
 
       {activeSection === 'teams' && (
         <div className="management-section">
-          {!teamForm.isCreating && !teamForm.editing && (
+          {!teamForm.isCreating && !teamForm.editing && teamsView === 'active' && (
             <button onClick={() => teamDispatch({ type: 'START_CREATE' })} className="btn-primary">
               + Create New Team
             </button>
           )}
+
+          <div className="view-toggle" style={{ margin: '0.75rem 0' }}>
+            <button
+              className={teamsView === 'active' ? 'active' : ''}
+              onClick={() => handleTeamsViewChange('active')}
+            >
+              Active Teams ({activeTeams.length})
+            </button>
+            <button
+              className={teamsView === 'archived' ? 'active' : ''}
+              onClick={() => handleTeamsViewChange('archived')}
+            >
+              Archived Teams ({archivedTeams.length})
+            </button>
+          </div>
 
           {teamForm.editing && (
             <div className="create-form">
@@ -1023,22 +1212,19 @@ export function Management() {
           )}
 
           <div className="items-list">
-            {teams.length === 0 ? (
+            {teamsView === 'active' && activeTeams.length === 0 && (
               <p className="empty-message">No teams yet. Create your first team!</p>
-            ) : (
-              teams.map((team) => {
+            )}
+            {teamsView === 'archived' && archivedTeams.length === 0 && (
+              <p className="empty-message">No archived teams. Teams you archive will appear here for historical reference and can be restored anytime.</p>
+            )}
+            {teamsView === 'active' && activeTeams.map((team) => {
                 const teamRosterList = teamRosters.filter(r => r.teamId === team.id);
                 const isExpanded = teamForm.expandedTeamId === team.id;
-                const isSwiped = swipedItemId === team.id;
 
                 return (
                   <div key={team.id} className={`team-card-wrapper ${isExpanded ? 'expanded' : ''}`}>
-                    <div className="swipeable-item-container">
-                      <div
-                        className="item-card"
-                        style={getSwipeStyle(team.id)}
-                        {...getSwipeProps(team.id)}
-                      >
+                      <div className="item-card">
                         <div className="item-info">
                           <h3>{team.name}</h3>
                           <p className="item-meta">
@@ -1067,22 +1253,7 @@ export function Management() {
                           </button>
                         </div>
                       </div>
-                      {isSwiped && (
-                        <div className="delete-action">
-                          <button
-                            onClick={() => {
-                              void handleDeleteTeam(team.id);
-                              closeSwipe();
-                            }}
-                            className="btn-delete-swipe"
-                            aria-label="Delete team"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    
+
                     {isExpanded && (
                       <div className="team-roster-section">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
@@ -1391,10 +1562,77 @@ export function Management() {
                         )}
                       </div>
                     )}
+
+                    <div className="team-lifecycle-actions">
+                      {isTeamOwner(team, currentUserId) && (
+                        <button
+                          className="btn-secondary"
+                          disabled={pendingTeamActionId === team.id}
+                          onClick={() => handleArchiveTeam(team)}
+                        >
+                          Archive
+                        </button>
+                      )}
+                      {!isTeamOwnershipAssigned(team) && (
+                        <>
+                          <span className="archive-badge">Owner Unassigned</span>
+                          <button
+                            className="btn-secondary"
+                            disabled={pendingTeamActionId === team.id}
+                            onClick={() => handleAssignTeamOwner(team)}
+                          >
+                            Assign Owner
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 );
-              })
-            )}
+              })}
+            {teamsView === 'archived' && archivedTeams.map((team) => (
+              <div key={team.id} className="team-card-wrapper">
+                <div className="item-card archived">
+                  <div className="item-info">
+                    <h3>{team.name} <span className="archive-badge">Archived</span></h3>
+                    <p className="item-meta">
+                      {formatArchivedOn(team.archivedAt) ? `Archived ${formatArchivedOn(team.archivedAt)}` : 'Archived'}
+                      {team.archivedBy && (team.archivedBy === currentUserId ? ' by you' : ' by another coach')}
+                    </p>
+                  </div>
+                </div>
+                <div className="team-lifecycle-actions">
+                  {isTeamOwner(team, currentUserId) && (
+                    <button
+                      className="btn-secondary"
+                      disabled={pendingTeamActionId === team.id}
+                      onClick={() => handleRestoreTeam(team)}
+                    >
+                      Restore Team
+                    </button>
+                  )}
+                  {!isTeamOwnershipAssigned(team) && (
+                    <>
+                      <span className="archive-badge">Owner Unassigned</span>
+                      <button
+                        className="btn-secondary"
+                        disabled={pendingTeamActionId === team.id}
+                        onClick={() => handleAssignTeamOwner(team)}
+                      >
+                        Assign Owner
+                      </button>
+                    </>
+                  )}
+                  <button
+                    className="btn-danger"
+                    disabled={pendingTeamActionId === team.id}
+                    onClick={() => handleDeleteTeam(team.id)}
+                    aria-label="Delete team permanently"
+                  >
+                    Delete Permanently
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -1798,10 +2036,10 @@ export function Management() {
               <h3>Select a team to share:</h3>
               
               <div className="resource-list">
-                {teams.length === 0 ? (
+                {activeTeams.length === 0 ? (
                   <p className="empty-message">No teams yet</p>
                 ) : (
-                  teams.map((team) => {
+                  activeTeams.map((team) => {
                     return (
                       <div key={team.id} className="resource-item">
                         <div className="resource-info">
