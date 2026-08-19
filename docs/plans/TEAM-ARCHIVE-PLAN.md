@@ -47,7 +47,19 @@ Permanent team deletion remains a separate destructive workflow.
 - Reviving expired invitations during restore.
 - A broader redesign of team sharing or role management.
 
-## Implementation Status (as of 2026-08-18)
+## Implementation Status (as of 2026-08-19)
+
+**Landed and committed:**
+
+- **Step 1** (commit `8a4d867`) — `archiveTeam`/`restoreTeam`/`assignTeamOwner` declared as `a.mutation()` operations, wired into `amplify/backend.ts` with least-privilege IAM grants, deployed to a sandbox and confirmed working (transformer accepts field-level `.authorization()` on `Team`; Correction 3's go/no-go passed). `ownerId` field grant widened to `.to(['create', 'read'])` (Correction 1). All Correction 5 handler defects fixed, plus coach-membership TOCTOU guards and an orphaned-owner reclaim path added to archive/restore/assign-owner during review (see `docs/plans/TEAM-ARCHIVE-STEP1-BACKEND-WIRING.md`). `typecheck:amplify` added to `scripts/commit-gate.mjs`. `resource.safe-delete-policy.test.ts` extended — and its CRLF-broken block-bounding logic (found during review) fixed.
+- **Step 5** (commit `d133e73`) — frontend service layer (`src/services/teamLifecycleService.ts`), `isTeamArchived`/`isTeamActive`/`isTeamOwner`/`isTeamOwnershipAssigned` helpers (`src/utils/teamUtils.ts`, Correction 2), `ownerId`-at-create wiring, and Management UX: Active/Archived sub-toggle, Archive/Restore/Assign-Owner/Delete-Permanently actions with correct ownership gating, confirmation modals, the blocking swipe-to-delete removal from active team cards, and `Home.tsx`/Sharing-tab active-team filtering. Full details, decisions, and known gaps in `docs/plans/TEAM-ARCHIVE-STEP5-FRONTEND-UX.md`.
+
+A coach can now create a team, become its owner, archive it, see it move to an Archived Teams view, restore it, and have archived teams correctly excluded from game scheduling and coach-sharing invitations — end to end, through the running app.
+
+**Not yet done:** Phase 4's remaining server-side checks (archived-team guard on the `*Safe` delete Lambdas — inverted, since Delete Permanently is now Archived-view-only; transactional `accept-invitation`), Phase 6 (Season Reports archived-team selector, read-only banners on in-game/report surfaces), Phase 7 (E2E coverage beyond what Step 5 had to fix, `docs/SHARING-PERMISSIONS.md` documentation), Phase 8 (`Game.create` Lambda conversion, still deferred, still gates nothing).
+
+<details>
+<summary>Original Step 1 status writeup (2026-08-18, kept for history)</summary>
 
 Landed in commit `5fcaff3` ("start of archive plan"):
 
@@ -56,17 +68,11 @@ Landed in commit `5fcaff3` ("start of archive plan"):
 
 Blocking gaps in what landed:
 
-- **None of the three operations are declared or wired.** `amplify/data/resource.ts` has no `archiveTeam` / `restoreTeam` / `assignTeamOwner` `a.mutation()` block, the three function objects are not imported there, and `amplify/backend.ts` does not register them (`defineBackend` list, `teamTable.grantReadWriteData(...)`, `teamInvitationTable.grantReadWriteData(...)`, `addEnvironment('TEAM_TABLE' | 'TEAM_INVITATION_TABLE', ...)`). The handlers reference `Schema['archiveTeam']` and friends, so all three fail to typecheck today:
-
-  ```bash
-  npx tsc -p amplify/tsconfig.json --noEmit
-  ```
-
-  produces 6 errors (`Property 'archiveTeam' does not exist on type ...` plus a knock-on implicit-`any` on `event`, once per function). These are the *only* errors that command reports.
-
-- **`npm run gate:commit` does not catch this.** `npm run build` runs `tsc` against the root `tsconfig.json`, whose `include` is `["src"]`; `amplify/**` is never typechecked, and ESLint's type-aware rules do not flag missing schema members (`npx eslint amplify/functions/archive-team ...` exits 0). The gate is currently green on a backend that cannot deploy.
-
+- **None of the three operations are declared or wired.** `amplify/data/resource.ts` has no `archiveTeam` / `restoreTeam` / `assignTeamOwner` `a.mutation()` block, the three function objects are not imported there, and `amplify/backend.ts` does not register them (`defineBackend` list, `teamTable.grantReadWriteData(...)`, `teamInvitationTable.grantReadWriteData(...)`, `addEnvironment('TEAM_TABLE' | 'TEAM_INVITATION_TABLE', ...)`). The handlers reference `Schema['archiveTeam']` and friends, so all three fail to typecheck today.
+- **`npm run gate:commit` does not catch this.** `npm run build` runs `tsc` against the root `tsconfig.json`, whose `include` is `["src"]`; `amplify/**` is never typechecked, and ESLint's type-aware rules do not flag missing schema members. The gate is currently green on a backend that cannot deploy.
 - No frontend, service, test, or documentation work has started (Phase 2 UX, Phases 4-7). `amplify/data/resource.safe-delete-policy.test.ts` still passes unchanged — the new fields introduced no blank lines inside the `Team` block, as Phase 7 step 2 anticipated.
+
+</details>
 
 ## Corrections Required Before Continuing
 
@@ -90,15 +96,29 @@ These supersede the corresponding text in the phases below.
 
 ## Next Steps (ordered)
 
-1. **Unblock the backend (Phase 1/3 completion).** Declare `archiveTeam`, `restoreTeam`, and `assignTeamOwner` as `a.mutation()` operations in `amplify/data/resource.ts` — `teamId: a.string().required()`, `.returns(a.ref('Team'))` (matching `acceptInvitation`, whose handler likewise returns the raw DynamoDB item), `.authorization((allow) => [allow.authenticated()])` with the real owner check in the handler — wire all three into `amplify/backend.ts` (imports, `defineBackend`, table grants, `TEAM_TABLE` / `TEAM_INVITATION_TABLE` env vars), and apply Correction 1 plus the Correction 5 handler fixes. Done when `npx tsc -p amplify/tsconfig.json --noEmit` is clean.
-2. **Add `tsc -p amplify/tsconfig.json --noEmit` to `scripts/commit-gate.mjs`,** so the gate cannot be green again on a backend that does not compile. Verified feasible: the 6 errors above are the only ones outstanding.
-3. **Extend `amplify/data/resource.safe-delete-policy.test.ts`** with the Phase 7 step 2 assertions — field-level authorization text on the four locked fields, `ownerId`'s `create` grant, and existence of the three new operations.
-4. **Sandbox-validate the field-level authorization contract** per Correction 3, plus a live archive / restore / assign-owner smoke test. This is the go/no-go point for everything after it.
-5. **Frontend service layer** — archive/restore/assign-owner wrappers (Phase 3 step 5) and the `isTeamArchived`/`isTeamActive` helper (Correction 2), with unit tests. Small and independently reviewable.
-6. **Phase 5 Management UX**, starting with the blocking swipe-to-delete removal on active team cards, then the Active/Archived sub-toggle, card actions, and confirmation modals.
-7. **Phase 5 steps 2 and 4 navigation filtering.** The actual surface is smaller than this plan implied: the only `Team` consumers are `src/components/Home.tsx`, `src/components/Management.tsx`, `src/components/routes/SeasonReportRoute.tsx`, and `src/main.tsx`.
-8. **Remaining Phase 4 server-side checks** (archived-team guard on the `*Safe` delete Lambdas; transactional `accept-invitation` with its archived-team condition and `TransactionCanceledException` handling), then Phase 6 reports / read-only access, then Phase 7 tests and documentation.
-9. **Phase 8 (`Game.create` conversion)** last, as its own pipeline run.
+~~1-6~~ Steps 1-6 below are done — kept for history, see "Implementation Status" above for what actually landed vs. what was originally planned (ownership gating on Restore, the orphaned-owner Assign-Owner affordance, and the discard-confirm on tab switch were all added during review, beyond the original text).
+
+<details>
+<summary>Original Next Steps 1-6 (completed)</summary>
+
+1. Unblock the backend (Phase 1/3 completion) — done, commit `8a4d867`.
+2. Add `tsc -p amplify/tsconfig.json --noEmit` to `scripts/commit-gate.mjs` — done, commit `8a4d867`.
+3. Extend `amplify/data/resource.safe-delete-policy.test.ts` — done, commit `8a4d867`.
+4. Sandbox-validate the field-level authorization contract — done, confirmed working via a live sandbox deploy.
+5. Frontend service layer — done, commit `d133e73`.
+6. Phase 5 Management UX — done, commit `d133e73`.
+
+</details>
+
+**Remaining:**
+
+7. **Phase 5 steps 2 and 4 navigation filtering — mostly done.** `Home.tsx` and `Management.tsx`'s Sharing-tab team picker are filtered (commit `d133e73`). `src/components/routes/SeasonReportRoute.tsx` is not yet touched — see step 9 (folded into Phase 6, since both are report/history surfaces).
+8. **Remaining Phase 4 server-side checks:**
+   - Archived-team guard on the `*Safe` delete Lambdas — **must be inverted from the original phrasing.** Since Step 5, `Delete Permanently` is reachable *only* from the Archived Teams view, so a naive "reject delete on an archived team" guard would make permanent team deletion unreachable entirely. The guard (if any) needs to allow deletes *of* archived teams, not block them.
+   - Transactional `accept-invitation` with its archived-team condition and `TransactionCanceledException` handling — not started. Remember Correction 2's null-safe condition shape (`attribute_not_exists(#status) OR #status <> :archived`) applies here.
+9. **Phase 6 reports / read-only access** — `SeasonReportRoute.tsx` archived-team selector and read-only historical access; read-only status banners on `GameManagement.tsx`/`PlanTab.tsx`/report views (currently UI-only-enforcement gaps with no banner at all, not just no `aria-disabled`).
+10. **Phase 7 remaining tests and documentation** — E2E coverage for the archive/restore/assign-owner flow itself (Step 5 only had to *fix* existing specs broken by swipe-delete removal, it didn't add new archive-flow E2E coverage); `docs/SHARING-PERMISSIONS.md` update documenting ownership/archive/restore rules and the server-side-vs-UI-only split, including the Step 1 decision to `REMOVE archivedAt/archivedBy` on restore.
+11. **Phase 8 (`Game.create` conversion)** last, as its own pipeline run — still deferred, still gates nothing.
 
 ## Implementation Plan
 
