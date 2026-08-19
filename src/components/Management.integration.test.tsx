@@ -133,12 +133,13 @@ describe('Management integration', () => {
 
   it('respects delete cancel and confirm decisions for team records', async () => {
     const user = userEvent.setup();
-    const team = teamFixture({ id: 'team-delete', name: 'Delete Me FC' });
+    const team = teamFixture({ id: 'team-delete', name: 'Delete Me FC', status: 'archived', coaches: ['test-user-id'] });
 
     renderWithProviders(<Management />, {
       queryData: managementFixtures({ Team: [team] }),
-      swipedItemId: 'team-delete',
     });
+
+    await user.click(screen.getByRole('button', { name: /archived teams/i }));
 
     setConfirmResult(false);
     await user.click(screen.getByRole('button', { name: /delete team/i }));

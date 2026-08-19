@@ -8,7 +8,6 @@ import {
   fillInput,
   navigateToApp,
   navigateToManagement,
-  swipeToDelete,
   UI_TIMING,
 } from './helpers';
 import { TEST_CONFIG } from '../test-config';
@@ -20,7 +19,7 @@ test.describe('Team Management Smoke', () => {
     test.setTimeout(TEST_CONFIG.timeout.long);
   });
 
-  test('creates a team and verifies delete cancel/confirm', async ({ page }) => {
+  test('creates a team and verifies archive + delete permanently cancel/confirm', async ({ page }) => {
     const teamName = `Smoke Team ${Date.now()}`;
 
     await navigateToApp(page);
@@ -37,12 +36,28 @@ test.describe('Team Management Smoke', () => {
     await clickButton(page, 'Create');
     await expect(page.locator('.item-card').filter({ hasText: teamName })).toBeVisible();
 
-    await swipeToDelete(page, `.item-card:has-text("${teamName}")`);
+    // Archive: cancel, then confirm.
+    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Archive' }).click();
     await clickConfirmModalCancel(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
-    await expect(page.locator('.item-card').filter({ hasText: teamName })).toBeVisible();
+    await expect(page.locator('.item-card:not(.archived)').filter({ hasText: teamName })).toBeVisible();
 
-    await swipeToDelete(page, `.item-card:has-text("${teamName}")`);
+    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Archive' }).click();
+    await clickConfirmModalConfirm(page);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    await expect(page.locator('.item-card:not(.archived)').filter({ hasText: teamName })).not.toBeVisible();
+
+    // Switch to Archived Teams; verify the card moved there; then permanent-delete: cancel, then confirm.
+    await page.getByRole('button', { name: /Archived Teams/ }).click();
+    await expect(page.locator('.item-card.archived').filter({ hasText: teamName })).toBeVisible();
+
+    const archivedCard = page.locator('.team-card-wrapper').filter({ hasText: teamName });
+    await archivedCard.getByRole('button', { name: 'Delete team permanently' }).click();
+    await clickConfirmModalCancel(page);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    await expect(page.locator('.item-card.archived').filter({ hasText: teamName })).toBeVisible();
+
+    await archivedCard.getByRole('button', { name: 'Delete team permanently' }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.COMPLEX_OPERATION);
     await expect(page.locator('.item-card').filter({ hasText: teamName })).not.toBeVisible();

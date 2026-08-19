@@ -60,6 +60,29 @@ const state = vi.hoisted(() => {
       deleteFormationCascade: vi.fn().mockResolvedValue(undefined),
       getPlayerImpact: vi.fn().mockResolvedValue({ playTimeCount: 0, goalCount: 0, noteCount: 0 }),
     },
+    teamLifecycle: {
+      archiveTeam: vi.fn().mockResolvedValue({
+        id: 'team-1',
+        status: 'archived',
+        ownerId: 'test-user-id',
+        archivedAt: '2026-08-19T00:00:00.000Z',
+        archivedBy: 'test-user-id',
+      }),
+      restoreTeam: vi.fn().mockResolvedValue({
+        id: 'team-1',
+        status: 'active',
+        ownerId: 'test-user-id',
+        archivedAt: null,
+        archivedBy: null,
+      }),
+      assignTeamOwner: vi.fn().mockResolvedValue({
+        id: 'team-1',
+        status: 'active',
+        ownerId: 'test-user-id',
+        archivedAt: null,
+        archivedBy: null,
+      }),
+    },
     toast: {
       showError: vi.fn(),
       showWarning: vi.fn(),
@@ -129,6 +152,12 @@ vi.mock('../services/cascadeDeleteService', () => ({
   getPlayerImpact: state.cascade.getPlayerImpact,
 }));
 
+vi.mock('../services/teamLifecycleService', () => ({
+  archiveTeam: state.teamLifecycle.archiveTeam,
+  restoreTeam: state.teamLifecycle.restoreTeam,
+  assignTeamOwner: state.teamLifecycle.assignTeamOwner,
+}));
+
 vi.mock('../services/demoDataService', () => ({
   removeDemoData: vi.fn(),
 }));
@@ -142,6 +171,8 @@ vi.mock('../utils/analytics', () => ({
   AnalyticsEvents: {
     TEAM_CREATED: { category: 'test', action: 'test' },
     TEAM_DELETED: { category: 'test', action: 'test' },
+    TEAM_ARCHIVED: { category: 'test', action: 'test' },
+    TEAM_RESTORED: { category: 'test', action: 'test' },
     PLAYER_ADDED: { category: 'test', action: 'test' },
     PLAYER_ADDED_TO_ROSTER: { category: 'test', action: 'test' },
     PLAYER_DELETED: { category: 'test', action: 'test' },
@@ -167,6 +198,7 @@ export const managementUiMocks = {
   confirm: state.confirm,
   swipe: state.swipe,
   cascade: state.cascade,
+  teamLifecycle: state.teamLifecycle,
   toast: state.toast,
   error: state.error,
 };
@@ -201,4 +233,25 @@ export function resetManagementHarness() {
   state.modelMocks.Team.create.mockResolvedValue({ data: { id: 'team-created' } });
   state.modelMocks.Formation.create.mockResolvedValue({ data: { id: 'formation-created' } });
   state.modelMocks.FormationPosition.create.mockResolvedValue({ data: { id: 'position-created' } });
+  state.teamLifecycle.archiveTeam.mockResolvedValue({
+    id: 'team-1',
+    status: 'archived',
+    ownerId: 'test-user-id',
+    archivedAt: '2026-08-19T00:00:00.000Z',
+    archivedBy: 'test-user-id',
+  });
+  state.teamLifecycle.restoreTeam.mockResolvedValue({
+    id: 'team-1',
+    status: 'active',
+    ownerId: 'test-user-id',
+    archivedAt: null,
+    archivedBy: null,
+  });
+  state.teamLifecycle.assignTeamOwner.mockResolvedValue({
+    id: 'team-1',
+    status: 'active',
+    ownerId: 'test-user-id',
+    archivedAt: null,
+    archivedBy: null,
+  });
 }

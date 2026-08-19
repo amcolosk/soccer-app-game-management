@@ -76,7 +76,13 @@ test.describe('Safe Delete Guards', () => {
 
     // Deterministic cleanup: remove team first, then formation.
     await clickManagementTab(page, 'Teams');
-    await swipeToDelete(page, `.item-card:has-text("${teamName}")`);
+    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Archive' }).click();
+    await clickConfirmModalConfirm(page);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+    await page.getByRole('button', { name: /Archived Teams/ }).click();
+    await page.locator('.team-card-wrapper').filter({ hasText: teamName })
+      .getByRole('button', { name: 'Delete team permanently' }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await expect(page.locator('.item-card').filter({ hasText: teamName })).toHaveCount(0);
@@ -132,7 +138,13 @@ test.describe('Safe Delete Guards', () => {
 
     // Deterministic cleanup.
     await clickManagementTab(page, 'Teams');
-    await swipeToDelete(page, `.item-card:has-text("${teamName}")`);
+    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Archive' }).click();
+    await clickConfirmModalConfirm(page);
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+    await page.getByRole('button', { name: /Archived Teams/ }).click();
+    await page.locator('.team-card-wrapper').filter({ hasText: teamName })
+      .getByRole('button', { name: 'Delete team permanently' }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await expect(page.locator('.item-card').filter({ hasText: teamName })).toHaveCount(0);
