@@ -131,6 +131,27 @@ describe('TeamReport', () => {
     });
 
     expect(mockTrackEvent).toHaveBeenCalledWith('season-report', 'viewed');
+    expect(screen.queryByText(/Archived Team/)).not.toBeInTheDocument();
+  });
+
+  it('shows the archived-team read-only banner when the team is archived', async () => {
+    render(
+      <TeamReport
+        team={{
+          id: 'team-1',
+          name: 'Tigers',
+          coaches: [],
+          status: 'archived',
+          archivedAt: '2026-08-01T12:00:00.000Z',
+        } as never}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Archived Team — Read-Only \(Archived Aug 1, 2026\)/)
+      ).toBeInTheDocument();
+    });
   });
 
   it('renders goals by position from field-position attribution', async () => {

@@ -4,6 +4,7 @@ import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../amplify/data/resource";
 import type { Team } from "../../types/schema";
 import { logError } from "../../utils/errorHandler";
+import { isTeamArchived } from "../../utils/teamUtils";
 import { TeamReport } from "../SeasonReport";
 
 const client = generateClient<Schema>();
@@ -118,7 +119,7 @@ export function SeasonReportRoute() {
           <option value="">Select a team…</option>
           {teams.map((t) => (
             <option key={t.id} value={t.id}>
-              {t.name}
+              {isTeamArchived(t) ? `${t.name} (Archived)` : t.name}
             </option>
           ))}
         </select>
