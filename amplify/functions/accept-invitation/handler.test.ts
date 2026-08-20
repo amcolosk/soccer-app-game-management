@@ -16,6 +16,14 @@ vi.mock('@aws-sdk/lib-dynamodb', () => ({
   GetCommand: vi.fn(function (input) { return { __type: 'GetCommand', input }; }),
   ScanCommand: vi.fn(function (input) { return { __type: 'ScanCommand', input }; }),
   UpdateCommand: vi.fn(function (input) { return { __type: 'UpdateCommand', input }; }),
+  TransactWriteCommand: vi.fn(function (input) { return { __type: 'TransactWriteCommand', input }; }),
+}));
+
+// Identity pass-through: lets tests hand already-plain-JS objects as
+// CancellationReasons[i].Item directly rather than hand-constructing
+// DynamoDB's low-level { S: 'foo' } wire format.
+vi.mock('@aws-sdk/util-dynamodb', () => ({
+  unmarshall: vi.fn((item) => item),
 }));
 
 vi.mock('@aws-sdk/client-cognito-identity-provider', () => ({
@@ -139,6 +147,17 @@ describe('accept invitation handler', () => {
         }
       }
 
+      if (command.__type === 'TransactWriteCommand') {
+        const transactItems = command.input.TransactItems as Array<{ Update: Record<string, unknown> }>;
+        for (const item of transactItems) {
+          if (item.Update.TableName === 'TeamTable') {
+            teamUpdated = true;
+          }
+          updateInputs.push(item.Update);
+        }
+        return {};
+      }
+
       if (command.__type === 'UpdateCommand') {
         if (command.input.TableName === 'TeamTable') {
           teamUpdated = true;
@@ -173,7 +192,9 @@ describe('accept invitation handler', () => {
 
     const teamMergeUpdate = updateInputs.find((update) => update.TableName === 'TeamTable');
     expect(teamMergeUpdate?.UpdateExpression).toContain('list_append(if_not_exists(coaches, :emptyCoaches), :coachToAdd)');
-    expect(teamMergeUpdate?.ConditionExpression).toBe('attribute_not_exists(coaches) OR NOT contains(coaches, :coachId)');
+    expect(teamMergeUpdate?.ConditionExpression).toBe(
+      '(attribute_not_exists(#status) OR #status <> :archived) AND (attribute_not_exists(coaches) OR NOT contains(coaches, :coachId))'
+    );
 
     const coachUpdates = updateInputs.filter((update) => {
       const values = update.ExpressionAttributeValues as Record<string, unknown> | undefined;
@@ -254,6 +275,18 @@ describe('accept invitation handler', () => {
             Items: [{ id: 'game-1', coaches: ['owner-a'] }],
           };
         }
+      }
+
+      if (command.__type === 'TransactWriteCommand') {
+        const transactItems = command.input.TransactItems as Array<{ Update: Record<string, unknown> }>;
+        for (const item of transactItems) {
+          const table = item.Update.TableName as string;
+          if (table === 'TeamTable') {
+            teamUpdated = true;
+          }
+          updatedTables.add(table);
+        }
+        return {};
       }
 
       if (command.__type === 'UpdateCommand') {
@@ -431,6 +464,16 @@ describe('accept invitation handler', () => {
         }
       }
 
+      if (command.__type === 'TransactWriteCommand') {
+        const transactItems = command.input.TransactItems as Array<{ Update: Record<string, unknown> }>;
+        for (const item of transactItems) {
+          if (item.Update.TableName === 'TeamTable') {
+            teamUpdated = true;
+          }
+        }
+        return {};
+      }
+
       if (command.__type === 'UpdateCommand') {
         if (command.input.TableName === 'TeamTable') {
           teamUpdated = true;
@@ -465,7 +508,7 @@ describe('accept invitation handler', () => {
     expect(coachUpdates).toHaveLength(4);
   });
 
-  it('treats a conditional invitation-claim race as idempotent when same user already claimed it', async () => {
+  it('treats a conditional invitation-claim race as idempotent when same user already claimed it (exercises TransactionCanceledException/CancellationReasons)', async () => {
     let invitationGetCount = 0;
 
     mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
@@ -513,15 +556,13 @@ describe('accept invitation handler', () => {
         return { Items: [] };
       }
 
-      if (command.__type === 'UpdateCommand' && command.input.TableName === 'TeamInvitationTable') {
-        const error = new Error('conditional write failed');
-        (error as Error & { name: string }).name = 'ConditionalCheckFailedException';
-        throw error;
-      }
-
-      if (command.__type === 'UpdateCommand' && command.input.TableName === 'TeamTable') {
-        const error = new Error('conditional write failed');
-        (error as Error & { name: string }).name = 'ConditionalCheckFailedException';
+      if (command.__type === 'TransactWriteCommand') {
+        const error = new Error('Transaction cancelled');
+        (error as Error & { name: string }).name = 'TransactionCanceledException';
+        (error as Error & { CancellationReasons: unknown[] }).CancellationReasons = [
+          { Code: 'ConditionalCheckFailed', Item: { id: 'invite-1', status: 'ACCEPTED', acceptedBy: 'coach-b' } }, // index 0: TeamInvitation
+          { Code: 'None' }, // index 1: TeamTable — did not itself fail
+        ];
         throw error;
       }
 
@@ -566,9 +607,13 @@ describe('accept invitation handler', () => {
         };
       }
 
-      if (command.__type === 'UpdateCommand' && command.input.TableName === 'TeamInvitationTable') {
-        const error = new Error('conditional write failed');
-        (error as Error & { name: string }).name = 'ConditionalCheckFailedException';
+      if (command.__type === 'TransactWriteCommand') {
+        const error = new Error('Transaction cancelled');
+        (error as Error & { name: string }).name = 'TransactionCanceledException';
+        (error as Error & { CancellationReasons: unknown[] }).CancellationReasons = [
+          { Code: 'ConditionalCheckFailed', Item: { id: 'invite-1', status: 'ACCEPTED', acceptedBy: 'coach-a' } }, // index 0: TeamInvitation
+          { Code: 'None' }, // index 1: TeamTable — did not itself fail
+        ];
         throw error;
       }
 
@@ -673,6 +718,9 @@ describe('accept invitation handler', () => {
       if (command.__type === 'ScanCommand') {
         return { Items: [] };
       }
+      if (command.__type === 'TransactWriteCommand') {
+        return {};
+      }
       if (command.__type === 'UpdateCommand') {
         return {};
       }
@@ -755,5 +803,168 @@ describe('accept invitation handler', () => {
     };
 
     await expect(invokeHandler(event as HandlerEvent)).rejects.toThrow('Invitation has expired');
+  });
+
+  it('rejects invitation acceptance when the team was archived mid-acceptance, and applies no partial state', async () => {
+    const updateCalls: Array<{ table: string }> = [];
+
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      if (command.__type === 'GetCommand' && command.input.TableName === 'TeamInvitationTable') {
+        return {
+          Item: {
+            id: 'invite-1',
+            teamId: 'team-1',
+            email: 'coach@example.com',
+            status: 'PENDING',
+            expiresAt: '2099-01-01T00:00:00.000Z',
+          },
+        };
+      }
+
+      if (command.__type === 'TransactWriteCommand') {
+        const error = new Error('Transaction cancelled');
+        (error as Error & { name: string }).name = 'TransactionCanceledException';
+        (error as Error & { CancellationReasons: unknown[] }).CancellationReasons = [
+          { Code: 'None' }, // index 0: TeamInvitation — did not itself fail
+          { Code: 'ConditionalCheckFailed', Item: { status: 'archived', coaches: ['owner-a'] } }, // index 1: TeamTable
+        ];
+        throw error;
+      }
+
+      if (command.__type === 'UpdateCommand') {
+        updateCalls.push({ table: command.input.TableName as string });
+        return {};
+      }
+
+      return {};
+    });
+
+    const event = {
+      arguments: { invitationId: 'invite-1' },
+      identity: { sub: 'coach-b', claims: { email: 'coach@example.com' } },
+    };
+
+    await expect(invokeHandler(event as HandlerEvent)).rejects.toThrow(/archived/i);
+
+    // Proves atomicity: no follow-up write is attempted for the failed
+    // team-side condition when the failure is "team archived" — unlike the
+    // teamFailed-but-not-archived duplicate-invite branch, which does retry
+    // the invitation-only UpdateCommand.
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it('accepts successfully for a legacy team with no status attribute at all', async () => {
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      if (command.__type === 'GetCommand') {
+        const table = command.input.TableName;
+
+        if (table === 'TeamInvitationTable') {
+          return {
+            Item: {
+              id: 'invite-1',
+              teamId: 'team-1',
+              email: 'coach@example.com',
+              status: 'PENDING',
+              expiresAt: '2099-01-01T00:00:00.000Z',
+            },
+          };
+        }
+
+        if (table === 'TeamTable') {
+          // Legacy team fixture: no `status` key at all.
+          return {
+            Item: {
+              id: 'team-1',
+              formationId: null,
+              coaches: ['owner-a', 'coach-b'],
+            },
+          };
+        }
+      }
+
+      if (command.__type === 'ScanCommand') {
+        return { Items: [] };
+      }
+
+      if (command.__type === 'TransactWriteCommand') {
+        return {};
+      }
+
+      return {};
+    });
+
+    const event = {
+      arguments: { invitationId: 'invite-1' },
+      identity: { sub: 'coach-b', claims: { email: 'coach@example.com' } },
+    };
+
+    await expect(invokeHandler(event as HandlerEvent)).resolves.toBeTruthy();
+  });
+
+  it('accepting a second invitation link after the first was already accepted still marks the second invitation ACCEPTED without re-appending coaches', async () => {
+    const invitationUpdateCalls: Array<Record<string, unknown>> = [];
+
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      if (command.__type === 'GetCommand') {
+        const table = command.input.TableName;
+
+        if (table === 'TeamInvitationTable') {
+          return {
+            Item: {
+              id: 'invite-2',
+              teamId: 'team-1',
+              email: 'coach@example.com',
+              status: 'PENDING',
+              expiresAt: '2099-01-01T00:00:00.000Z',
+            },
+          };
+        }
+
+        if (table === 'TeamTable') {
+          return {
+            Item: {
+              id: 'team-1',
+              formationId: null,
+              coaches: ['owner-a', 'coach-b'],
+            },
+          };
+        }
+      }
+
+      if (command.__type === 'ScanCommand') {
+        return { Items: [] };
+      }
+
+      if (command.__type === 'TransactWriteCommand') {
+        const error = new Error('Transaction cancelled');
+        (error as Error & { name: string }).name = 'TransactionCanceledException';
+        (error as Error & { CancellationReasons: unknown[] }).CancellationReasons = [
+          { Code: 'None' }, // index 0: TeamInvitation — condition passed
+          // index 1: TeamTable — NOT contains(coaches, :coachId) failed
+          // because coach-b already appended (accepted invite #1 already).
+          { Code: 'ConditionalCheckFailed', Item: { status: 'active', coaches: ['owner-a', 'coach-b'] } },
+        ];
+        throw error;
+      }
+
+      if (command.__type === 'UpdateCommand' && command.input.TableName === 'TeamInvitationTable') {
+        invitationUpdateCalls.push(command.input);
+        return {};
+      }
+
+      return {};
+    });
+
+    const event = {
+      arguments: { invitationId: 'invite-2' },
+      identity: { sub: 'coach-b', claims: { email: 'coach@example.com' } },
+    };
+
+    await expect(invokeHandler(event as HandlerEvent)).resolves.toBeTruthy();
+
+    // Falls through to the standalone invitation-only UpdateCommand (via
+    // buildInvitationAcceptUpdate) since no team-side write is needed.
+    expect(invitationUpdateCalls).toHaveLength(1);
+    expect(invitationUpdateCalls[0].ConditionExpression).toBe('#status = :pendingStatus');
   });
 });

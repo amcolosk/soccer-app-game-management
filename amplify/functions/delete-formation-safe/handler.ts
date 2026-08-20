@@ -132,6 +132,12 @@ export const handler: Handler = async (event) => {
     throw new Error('Access denied: caller is not a coach on this formation');
   }
 
+  // No archived-team guard here, intentionally (TEAM-ARCHIVE-STEP8, Part A,
+  // Decision 2): a Formation is not scoped to a single team, and the check
+  // below already blocks the delete if ANY team references it, active or
+  // archived. Adding an "archived" condition would be both redundant (the
+  // delete is already blocked whenever a reference exists) and structurally
+  // awkward (there is no single "the team" to check status on).
   const referencingTeams = await scanTeamsUsingFormation(teamTable, formationId);
   if (referencingTeams.length > 0) {
     const teamNames = referencingTeams.slice(0, 3).map((team) => team.name).join(', ');

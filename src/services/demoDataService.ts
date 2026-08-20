@@ -111,9 +111,26 @@ export async function createDemoTeam(currentUserId: string): Promise<void> {
 }
 
 /**
- * Removes all demo data: deletes all players, then the team (cascade delete handles related records).
+ * Removes all demo data: deletes the team first, then each demo player.
  * Removes the demo team ID from localStorage.
- * 
+ *
+ * Deletion order matters: `deletePlayerSafe` (TEAM-ARCHIVE-STEP8, Decision 3)
+ * blocks deleting a player who has TeamRoster history on any *archived* team,
+ * to protect real archived teams from silent history loss. The demo team is
+ * an ordinary Team record — nothing prevents a coach from archiving it via
+ * the normal Management UI before removing demo data. If we deleted players
+ * first (the old order), an archived demo team would make every player
+ * delete fail with "player has history on archived team(s)", leaving the
+ * archived demo team stuck with no way to clean it up.
+ *
+ * `deleteTeamSafe` is intentionally unguarded for archived status (see the
+ * comment in amplify/functions/delete-team-safe/handler.ts) specifically so
+ * this flow keeps working, and it deletes the team's own TeamRoster rows as
+ * part of its cascade. So deleting the team first removes this team's
+ * TeamRoster link for every demo player; deletePlayerSafe's guard re-scans
+ * TeamRoster fresh, so by the time we delete each player afterward it no
+ * longer sees this team at all (archived or not) and the guard never fires.
+ *
  * @param teamId - The demo team ID to delete
  * @throws Error if deletion fails
  */
@@ -127,7 +144,8 @@ export async function removeDemoData(teamId: string): Promise<void> {
   }
 
   try {
-    // Fetch all TeamRoster entries for this team
+    // Fetch all TeamRoster entries for this team (need player IDs before the
+    // team — and these roster rows — are deleted).
     const rosterResponse = await client.models.TeamRoster.list({
       filter: { teamId: { eq: teamId } },
       limit: 1000,
@@ -136,13 +154,17 @@ export async function removeDemoData(teamId: string): Promise<void> {
     const rosters = rosterResponse.data || [];
     const playerIds = rosters.map(r => r.playerId);
 
-    // Delete each player using cascade delete (removes from all teams, not just this one)
+    // Delete the team FIRST (cascade handles games, roster entries,
+    // invitations). This removes each demo player's TeamRoster link to this
+    // team, so the archived-team guard in deletePlayerSafe below can no
+    // longer see this team — even if it was archived.
+    await deleteTeamCascade(teamId);
+
+    // Delete each player using cascade delete (removes from all remaining
+    // teams, not just this one).
     for (const playerId of playerIds) {
       await deletePlayerCascade(playerId);
     }
-
-    // Delete the team (cascade delete handles games, roster entries, invitations)
-    await deleteTeamCascade(teamId);
 
     // Remove from localStorage
     localStorage.removeItem('onboarding:demoTeamId');
