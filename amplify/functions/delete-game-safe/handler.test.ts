@@ -40,6 +40,7 @@ describe('delete-game-safe handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.GAME_TABLE = 'GameTable';
+    process.env.TEAM_TABLE = 'TeamTable';
     process.env.PLAY_TIME_RECORD_TABLE = 'PlayTimeRecordTable';
     process.env.GOAL_TABLE = 'GoalTable';
     process.env.GAME_NOTE_TABLE = 'GameNoteTable';
@@ -52,7 +53,11 @@ describe('delete-game-safe handler', () => {
 
     mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
       if (command.__type === 'GetCommand') {
-        return { Item: { id: 'game-1', coaches: ['coach-1'] } };
+        const table = command.input.TableName as string;
+        if (table === 'TeamTable') {
+          return { Item: { id: 'team-1', status: 'active' } };
+        }
+        return { Item: { id: 'game-1', coaches: ['coach-1'], teamId: 'team-1' } };
       }
 
       if (command.__type === 'ScanCommand') {
@@ -76,7 +81,11 @@ describe('delete-game-safe handler', () => {
   it('rejects when caller is not a coach on the game', async () => {
     mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
       if (command.__type === 'GetCommand') {
-        return { Item: { id: 'game-1', coaches: ['coach-2'] } };
+        const table = command.input.TableName as string;
+        if (table === 'TeamTable') {
+          return { Item: { id: 'team-1', status: 'active' } };
+        }
+        return { Item: { id: 'game-1', coaches: ['coach-2'], teamId: 'team-1' } };
       }
       return { Items: [] };
     });
@@ -100,7 +109,11 @@ describe('delete-game-safe handler', () => {
     let deleteCount = 0;
     mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
       if (command.__type === 'GetCommand') {
-        return { Item: { id: 'game-1', coaches: ['coach-1'] } };
+        const table = command.input.TableName as string;
+        if (table === 'TeamTable') {
+          return { Item: { id: 'team-1', status: 'active' } };
+        }
+        return { Item: { id: 'game-1', coaches: ['coach-1'], teamId: 'team-1' } };
       }
 
       if (command.__type === 'ScanCommand') {
@@ -125,5 +138,85 @@ describe('delete-game-safe handler', () => {
 
     const putCalls = mockSend.mock.calls.filter(([cmd]) => cmd.__type === 'PutCommand');
     expect(putCalls.length).toBeGreaterThan(0);
+  });
+
+  it('rejects deleting a game whose team is archived', async () => {
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      if (command.__type === 'GetCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamTable') {
+          return { Item: { id: 'team-1', status: 'archived' } };
+        }
+        return { Item: { id: 'game-1', coaches: ['coach-1'], teamId: 'team-1' } };
+      }
+      return { Items: [] };
+    });
+
+    await expect(invoke(createEvent())).rejects.toThrow(/archived team/i);
+
+    const deleteCalls = mockSend.mock.calls.filter(([cmd]) => cmd.__type === 'DeleteCommand');
+    expect(deleteCalls.length).toBe(0);
+  });
+
+  it('allows deleting a game whose team has no status attribute (legacy team)', async () => {
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      if (command.__type === 'GetCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamTable') {
+          return { Item: { id: 'team-1' } };
+        }
+        return { Item: { id: 'game-1', coaches: ['coach-1'], teamId: 'team-1' } };
+      }
+
+      if (command.__type === 'ScanCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'GamePlanTable') {
+          return { Items: [{ id: 'plan-1', gameId: 'game-1' }] };
+        }
+        if (table === 'PlannedRotationTable') {
+          return { Items: [{ id: 'rotation-1', gamePlanId: 'plan-1' }] };
+        }
+        if (table === 'PlayTimeRecordTable') {
+          return { Items: [{ id: 'ptr-1', gameId: 'game-1' }] };
+        }
+        return { Items: [] };
+      }
+
+      return {};
+    });
+
+    const result = await invoke(createEvent());
+    expect(result).toEqual(expect.objectContaining({ success: true }));
+  });
+
+  it('allows deleting a game whose team record cannot be found', async () => {
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      if (command.__type === 'GetCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamTable') {
+          return { Item: undefined };
+        }
+        return { Item: { id: 'game-1', coaches: ['coach-1'], teamId: 'team-1' } };
+      }
+
+      if (command.__type === 'ScanCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'GamePlanTable') {
+          return { Items: [{ id: 'plan-1', gameId: 'game-1' }] };
+        }
+        if (table === 'PlannedRotationTable') {
+          return { Items: [{ id: 'rotation-1', gamePlanId: 'plan-1' }] };
+        }
+        if (table === 'PlayTimeRecordTable') {
+          return { Items: [{ id: 'ptr-1', gameId: 'game-1' }] };
+        }
+        return { Items: [] };
+      }
+
+      return {};
+    });
+
+    const result = await invoke(createEvent());
+    expect(result).toEqual(expect.objectContaining({ success: true }));
   });
 });

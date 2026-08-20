@@ -79,6 +79,7 @@ export const handler: Handler = async (event) => {
 
   const gameId = event.arguments.gameId;
   const gameTable = process.env.GAME_TABLE;
+  const teamTable = process.env.TEAM_TABLE;
   const playTimeRecordTable = process.env.PLAY_TIME_RECORD_TABLE;
   const goalTable = process.env.GOAL_TABLE;
   const gameNoteTable = process.env.GAME_NOTE_TABLE;
@@ -89,7 +90,7 @@ export const handler: Handler = async (event) => {
   const plannedRotationTable = process.env.PLANNED_ROTATION_TABLE;
   const queuedSubstitutionTable = process.env.QUEUED_SUBSTITUTION_TABLE;
 
-  if (!gameTable || !playTimeRecordTable || !goalTable || !gameNoteTable || !substitutionTable || !lineupAssignmentTable || !playerAvailabilityTable || !gamePlanTable || !plannedRotationTable || !queuedSubstitutionTable) {
+  if (!gameTable || !teamTable || !playTimeRecordTable || !goalTable || !gameNoteTable || !substitutionTable || !lineupAssignmentTable || !playerAvailabilityTable || !gamePlanTable || !plannedRotationTable || !queuedSubstitutionTable) {
     throw new Error('Required environment variables are not set');
   }
 
@@ -106,6 +107,31 @@ export const handler: Handler = async (event) => {
   const coaches = game.coaches as string[] | undefined;
   if (!coaches?.includes(callerSub)) {
     throw new Error('Access denied: caller is not a coach on this game');
+  }
+
+  // TEAM-ARCHIVE-STEP8, Part A, Decision 4: archived teams are meant to stay
+  // read-only historical data (Acceptance Criterion 5) — deleting a game
+  // permanently removes it from that history, unlike editing content within
+  // a still-viewable game (goals/notes/substitutions), which Phase 4 already
+  // treats as UI-only. `game.teamId` is a single required field, unlike
+  // Formation/Player, so this check is unambiguous. Plain JS comparison
+  // (not a DynamoDB ConditionExpression) already treats a missing/undefined
+  // `status` as active — Correction 2's null-safe rewrite only applies to
+  // ConditionExpression strings. Fails open (allows the delete) if the
+  // team record itself can't be found, rather than blocking cleanup of an
+  // orphaned game.
+  const teamId = game.teamId as string | undefined;
+  if (teamId) {
+    const teamResponse = await docClient.send(new GetCommand({
+      TableName: teamTable,
+      Key: { id: teamId },
+      ProjectionExpression: '#status',
+      ExpressionAttributeNames: { '#status': 'status' },
+    }));
+    const team = teamResponse.Item as { status?: string } | undefined;
+    if (team?.status === 'archived') {
+      throw new Error('Cannot delete a game belonging to an archived team. Restore the team first.');
+    }
   }
 
   const rollbackStack: SnapshotRecord[] = [];

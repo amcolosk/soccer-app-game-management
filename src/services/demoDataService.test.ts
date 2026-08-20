@@ -297,5 +297,45 @@ describe('demoDataService', () => {
       expect(mockDeletePlayerCascade).toHaveBeenCalledWith('player-2');
       expect(mockDeletePlayerCascade).toHaveBeenCalledWith('player-3');
     });
+
+    it('deletes the team before deleting any player (team-first ordering)', async () => {
+      // Regression test: deletePlayerSafe (TEAM-ARCHIVE-STEP8, Decision 3) blocks
+      // deleting a player who still has a TeamRoster link to an archived team.
+      // deleteTeamSafe removes the team's own TeamRoster rows as part of its
+      // cascade, so the team must be deleted BEFORE any player delete call —
+      // otherwise an archived demo team would make every player delete fail.
+      await removeDemoData('team-demo');
+
+      const teamCallOrder = mockDeleteTeamCascade.mock.invocationCallOrder[0];
+      const playerCallOrders = mockDeletePlayerCascade.mock.invocationCallOrder;
+
+      expect(teamCallOrder).toBeDefined();
+      expect(playerCallOrders.length).toBeGreaterThan(0);
+      for (const playerCallOrder of playerCallOrders) {
+        expect(playerCallOrder).toBeGreaterThan(teamCallOrder);
+      }
+    });
+
+    it('succeeds even when the demo team is archived (simulated at the cascade-service boundary)', async () => {
+      // Simulates deletePlayerSafe's real archived-team guard: it would reject
+      // if called while this team's TeamRoster link still exists (i.e. before
+      // the team — and its TeamRoster rows — have been deleted). Because
+      // removeDemoData now deletes the team first, deletePlayerCascade should
+      // never be invoked while the guard condition would still be true.
+      let teamDeleted = false;
+      mockDeleteTeamCascade.mockImplementation(async () => {
+        teamDeleted = true;
+      });
+      mockDeletePlayerCascade.mockImplementation(async (playerId: string) => {
+        if (!teamDeleted) {
+          throw new Error(
+            `Cannot delete player: player has history on archived team(s): Eagles Demo. Restore the team(s) first. (playerId=${playerId})`,
+          );
+        }
+      });
+
+      await expect(removeDemoData('team-demo')).resolves.toBeUndefined();
+      expect(mockDeletePlayerCascade).toHaveBeenCalledTimes(3);
+    });
   });
 });

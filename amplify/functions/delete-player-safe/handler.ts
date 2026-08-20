@@ -80,13 +80,14 @@ export const handler: Handler = async (event) => {
 
   const playerId = event.arguments.playerId;
   const playerTable = process.env.PLAYER_TABLE;
+  const teamTable = process.env.TEAM_TABLE;
   const teamRosterTable = process.env.TEAM_ROSTER_TABLE;
   const playTimeRecordTable = process.env.PLAY_TIME_RECORD_TABLE;
   const goalTable = process.env.GOAL_TABLE;
   const gameNoteTable = process.env.GAME_NOTE_TABLE;
   const playerAvailabilityTable = process.env.PLAYER_AVAILABILITY_TABLE;
 
-  if (!playerTable || !teamRosterTable || !playTimeRecordTable || !goalTable || !gameNoteTable || !playerAvailabilityTable) {
+  if (!playerTable || !teamTable || !teamRosterTable || !playTimeRecordTable || !goalTable || !gameNoteTable || !playerAvailabilityTable) {
     throw new Error('Required environment variables are not set');
   }
 
@@ -105,11 +106,39 @@ export const handler: Handler = async (event) => {
     throw new Error('Access denied: caller is not a coach on this player');
   }
 
+  // TEAM-ARCHIVE-STEP8, Part A, Decision 3: deleting a Player permanently
+  // destroys their PlayTimeRecord/Goal/GameNote/PlayerAvailability/TeamRoster
+  // history across every team they're on, with no team scoping — the same
+  // class of harm to Acceptance Criterion 5 that Decision 4 identifies for
+  // deleteGameSafe. Block if any referenced team is archived, matching
+  // deleteFormationSafe's existing "blocked while referenced by any team"
+  // precedent. Fetched before any deletes start, and before the parallel
+  // scan below, so the guard is checked with zero partial destructive state.
+  const teamRostersForGuard = await scanAll(teamRosterTable, 'playerId = :playerId', { ':playerId': playerId });
+  const referencedTeamIds = [...new Set(teamRostersForGuard.map((roster) => roster.teamId as string | undefined))]
+    .filter((id): id is string => !!id);
+  const archivedTeams = (await Promise.all(referencedTeamIds.map(async (teamId) => {
+    const teamResponse = await docClient.send(new GetCommand({
+      TableName: teamTable,
+      Key: { id: teamId },
+      ProjectionExpression: 'id, #name, #status',
+      ExpressionAttributeNames: { '#name': 'name', '#status': 'status' },
+    }));
+    return teamResponse.Item as { id: string; name?: string; status?: string } | undefined;
+  }))).filter((team): team is { id: string; name?: string; status?: string } => team?.status === 'archived');
+
+  if (archivedTeams.length > 0) {
+    const teamNames = archivedTeams.slice(0, 3).map((team) => team.name ?? team.id).join(', ');
+    throw new Error(
+      `Cannot delete player: player has history on archived team(s): ${teamNames}. Restore the team(s) first.`,
+    );
+  }
+
   const rollbackStack: SnapshotRecord[] = [];
 
   try {
     const [teamRosters, playTimeRecords, goalsAsScorer, goalsAsAssist, gameNotes, playerAvailabilities] = await Promise.all([
-      scanAll(teamRosterTable, 'playerId = :playerId', { ':playerId': playerId }),
+      Promise.resolve(teamRostersForGuard),
       scanAll(playTimeRecordTable, 'playerId = :playerId', { ':playerId': playerId }),
       scanAll(goalTable, 'scorerId = :playerId', { ':playerId': playerId }),
       scanAll(goalTable, 'assistId = :playerId', { ':playerId': playerId }),

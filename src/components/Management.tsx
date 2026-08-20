@@ -57,7 +57,8 @@ async function confirmAndDelete(
   try {
     await opts.deleteFn();
   } catch (error) {
-    handleApiError(error, `Failed to delete ${opts.entityName}`);
+    console.error(`Failed to delete ${opts.entityName}`, error);
+    showError(error instanceof Error ? error.message : `Failed to delete ${opts.entityName}`);
   }
 }
 
@@ -935,7 +936,8 @@ export function Management() {
     try {
       await removeDemoData(demoTeamId);
     } catch (error) {
-      handleApiError(error, 'Failed to remove demo data');
+      console.error('Failed to remove demo data', error);
+      showError(error instanceof Error ? error.message : 'Failed to remove demo data');
     }
   };
 

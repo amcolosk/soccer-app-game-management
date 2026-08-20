@@ -2119,7 +2119,8 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
             trackEvent(AnalyticsEvents.GAME_DELETED.category, AnalyticsEvents.GAME_DELETED.action);
             onBack();
           } catch (error) {
-            handleApiError(error, 'Failed to delete game');
+            console.error('Failed to delete game', error);
+            showError(error instanceof Error ? error.message : 'Failed to delete game');
           }
         }}
         className="btn-delete-game"

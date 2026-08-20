@@ -221,7 +221,8 @@ export function Home() {
     try {
       await removeDemoData(demoTeamId);
     } catch (error) {
-      handleApiError(error, 'Failed to remove demo data');
+      console.error('Failed to remove demo data', error);
+      showError(error instanceof Error ? error.message : 'Failed to remove demo data');
       throw error; // re-throw so checklist stays open if removal fails
     }
   };
@@ -481,7 +482,8 @@ export function Home() {
       await deleteGameCascade(game.id);
       trackEvent(AnalyticsEvents.GAME_DELETED.category, AnalyticsEvents.GAME_DELETED.action);
     } catch (error) {
-      handleApiError(error, 'Failed to delete game');
+      console.error('Failed to delete game', error);
+      showError(error instanceof Error ? error.message : 'Failed to delete game');
     }
   }, [closeSwipe, confirm]);
 
