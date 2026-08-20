@@ -53,10 +53,11 @@ Permanent team deletion remains a separate destructive workflow.
 
 - **Step 1** (commit `8a4d867`) — `archiveTeam`/`restoreTeam`/`assignTeamOwner` declared as `a.mutation()` operations, wired into `amplify/backend.ts` with least-privilege IAM grants, deployed to a sandbox and confirmed working (transformer accepts field-level `.authorization()` on `Team`; Correction 3's go/no-go passed). `ownerId` field grant widened to `.to(['create', 'read'])` (Correction 1). All Correction 5 handler defects fixed, plus coach-membership TOCTOU guards and an orphaned-owner reclaim path added to archive/restore/assign-owner during review (see `docs/plans/TEAM-ARCHIVE-STEP1-BACKEND-WIRING.md`). `typecheck:amplify` added to `scripts/commit-gate.mjs`. `resource.safe-delete-policy.test.ts` extended — and its CRLF-broken block-bounding logic (found during review) fixed.
 - **Step 5** (commit `d133e73`) — frontend service layer (`src/services/teamLifecycleService.ts`), `isTeamArchived`/`isTeamActive`/`isTeamOwner`/`isTeamOwnershipAssigned` helpers (`src/utils/teamUtils.ts`, Correction 2), `ownerId`-at-create wiring, and Management UX: Active/Archived sub-toggle, Archive/Restore/Assign-Owner/Delete-Permanently actions with correct ownership gating, confirmation modals, the blocking swipe-to-delete removal from active team cards, and `Home.tsx`/Sharing-tab active-team filtering. Full details, decisions, and known gaps in `docs/plans/TEAM-ARCHIVE-STEP5-FRONTEND-UX.md`.
+- **Step 8** (commit `c20414d`) — remaining Phase 4 server-side checks, re-scoped per-Lambda rather than uniformly (`deleteTeamSafe`/`deleteFormationSafe` need no guard; `deleteGameSafe`/`deletePlayerSafe` get one, closing a real, previously-undocumented data-loss gap — a coach could delete an archived team's game or player history with zero warning). `accept-invitation`'s invitation-accept + coaches-append is now atomic via `TransactWriteCommand`, closing the mid-acceptance-vs-archive race. Fixed a real UX bug found along the way (three call sites were swallowing real server error messages behind a generic toast) and a real regression the new guards introduced (deleting an archived demo team's players via "Remove Demo Data" would fail; fixed by resequencing the delete order). Full details in `docs/plans/TEAM-ARCHIVE-STEP8-SERVER-ENFORCEMENT.md`.
 
-A coach can now create a team, become its owner, archive it, see it move to an Archived Teams view, restore it, and have archived teams correctly excluded from game scheduling and coach-sharing invitations — end to end, through the running app.
+A coach can now create a team, become its owner, archive it, see it move to an Archived Teams view, restore it, have archived teams correctly excluded from game scheduling and coach-sharing invitations, and have archived teams' game/player history genuinely protected from deletion server-side — end to end, through the running app.
 
-**Not yet done:** Phase 4's remaining server-side checks (archived-team guard on the `*Safe` delete Lambdas — inverted, since Delete Permanently is now Archived-view-only; transactional `accept-invitation`), Phase 6 (Season Reports archived-team selector, read-only banners on in-game/report surfaces), Phase 7 (E2E coverage beyond what Step 5 had to fix, `docs/SHARING-PERMISSIONS.md` documentation), Phase 8 (`Game.create` Lambda conversion, still deferred, still gates nothing).
+**Not yet done:** Phase 6 (Season Reports archived-team selector, read-only banners on in-game/report surfaces), Phase 7 (E2E coverage for the archive/restore/assign-owner flow itself, `docs/SHARING-PERMISSIONS.md` documentation), Phase 8 (`Game.create` Lambda conversion, still deferred, still gates nothing). One recorded residual risk from Step 8: a player rostered on two teams where only one is shared with the deleting coach can have the other team's name disclosed in a rejection message (pre-existing `Player.coaches` union behavior, not introduced by Step 8) — follow-up ticket recommended, not blocking.
 
 <details>
 <summary>Original Step 1 status writeup (2026-08-18, kept for history)</summary>
@@ -112,13 +113,20 @@ These supersede the corresponding text in the phases below.
 
 **Remaining:**
 
-7. **Phase 5 steps 2 and 4 navigation filtering — mostly done.** `Home.tsx` and `Management.tsx`'s Sharing-tab team picker are filtered (commit `d133e73`). `src/components/routes/SeasonReportRoute.tsx` is not yet touched — see step 9 (folded into Phase 6, since both are report/history surfaces).
-8. **Remaining Phase 4 server-side checks:**
-   - Archived-team guard on the `*Safe` delete Lambdas — **must be inverted from the original phrasing.** Since Step 5, `Delete Permanently` is reachable *only* from the Archived Teams view, so a naive "reject delete on an archived team" guard would make permanent team deletion unreachable entirely. The guard (if any) needs to allow deletes *of* archived teams, not block them.
-   - Transactional `accept-invitation` with its archived-team condition and `TransactionCanceledException` handling — not started. Remember Correction 2's null-safe condition shape (`attribute_not_exists(#status) OR #status <> :archived`) applies here.
+~~7-8~~ Steps 7-8 below are done — kept for history.
+
+<details>
+<summary>Original Next Steps 7-8 (completed)</summary>
+
+7. Phase 5 steps 2 and 4 navigation filtering (`Home.tsx`, Sharing-tab picker) — done, commit `d133e73`. `SeasonReportRoute.tsx` remained open, folded into step 9 below.
+8. Remaining Phase 4 server-side checks — done, commit `c20414d`, with the archived-team-delete-guard phrasing corrected per-Lambda rather than applied uniformly (see Implementation Status above).
+
+</details>
+
 9. **Phase 6 reports / read-only access** — `SeasonReportRoute.tsx` archived-team selector and read-only historical access; read-only status banners on `GameManagement.tsx`/`PlanTab.tsx`/report views (currently UI-only-enforcement gaps with no banner at all, not just no `aria-disabled`).
-10. **Phase 7 remaining tests and documentation** — E2E coverage for the archive/restore/assign-owner flow itself (Step 5 only had to *fix* existing specs broken by swipe-delete removal, it didn't add new archive-flow E2E coverage); `docs/SHARING-PERMISSIONS.md` update documenting ownership/archive/restore rules and the server-side-vs-UI-only split, including the Step 1 decision to `REMOVE archivedAt/archivedBy` on restore.
+10. **Phase 7 remaining tests and documentation** — E2E coverage for the archive/restore/assign-owner flow itself (Step 5 only had to *fix* existing specs broken by swipe-delete removal; Step 8 added handler-level tests but no new E2E); `docs/SHARING-PERMISSIONS.md` update documenting ownership/archive/restore rules and the server-side-vs-UI-only split, including the Step 1 decision to `REMOVE archivedAt/archivedBy` on restore and the Step 8 decision on transaction scope/duplicate-invitation handling.
 11. **Phase 8 (`Game.create` conversion)** last, as its own pipeline run — still deferred, still gates nothing.
+12. **Follow-up ticket (not gating, low priority):** `deletePlayerSafe`'s archived-team guard can disclose the name of a team the deleting coach doesn't otherwise have visibility into, when a player is rostered on two teams and only one is shared with that coach. Root cause is a pre-existing `Player.coaches` union behavior in `accept-invitation`'s backfill, not something Step 8 introduced — but Step 8's new guard is the first place it surfaces as team-name disclosure in an error message. See `docs/plans/TEAM-ARCHIVE-STEP8-SERVER-ENFORCEMENT.md`'s security review findings.
 
 ## Implementation Plan
 
