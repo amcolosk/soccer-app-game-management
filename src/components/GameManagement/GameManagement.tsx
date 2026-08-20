@@ -40,6 +40,7 @@ import type { PlannedRotationsUpdateInput, PlannerMutationResult } from "./PlanT
 import { CompletedPlayTimeSummary } from "./CompletedPlayTimeSummary";
 import { CompletedGameTimeline } from "./CompletedGameTimeline";
 import { OfflineBanner } from "../OfflineBanner";
+import { ArchivedTeamBanner } from "../shared/ArchivedTeamBanner";
 import type { Game, Team, FormationPosition, PlannedRotation, SubQueue } from "./types";
 import { AvailabilityProvider } from "../../contexts/AvailabilityContext";
 import { useHelpFab } from "../../contexts/HelpFabContext";
@@ -2179,6 +2180,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   return (
     <AvailabilityProvider availabilities={playerAvailabilities}>
       <div className="game-management">
+        <ArchivedTeamBanner team={team} />
 
         {/* Always-visible sticky command band */}
         <CommandBand
