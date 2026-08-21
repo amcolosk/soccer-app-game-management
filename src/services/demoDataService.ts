@@ -2,6 +2,7 @@ import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import { deletePlayerCascade, deleteTeamCascade } from './cascadeDeleteService';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
+import { createGame } from './gameService';
 
 const client = generateClient<Schema>();
 
@@ -83,13 +84,11 @@ export async function createDemoTeam(currentUserId: string): Promise<void> {
     const gameDate = new Date();
     gameDate.setDate(gameDate.getDate() + 3);
 
-    await client.models.Game.create({
+    await createGame({
       teamId,
       opponent: 'Lions',
       isHome: true,
       gameDate: gameDate.toISOString(),
-      status: 'scheduled',
-      coaches: [currentUserId],
     });
 
     // Track analytics

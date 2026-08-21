@@ -14,6 +14,7 @@ import { deletePlayerSafe } from "../functions/delete-player-safe/resource";
 import { archiveTeam } from "../functions/archive-team/resource";
 import { restoreTeam } from "../functions/restore-team/resource";
 import { assignTeamOwner } from "../functions/assign-team-owner/resource";
+import { createGame } from "../functions/create-game/resource";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -165,8 +166,11 @@ const schema = a.schema({
       gamePlan: a.hasOne('GamePlan', 'gameId'),
     })
     .authorization((allow) => [
-      // Delete is intentionally disallowed on the model. Use deleteGameSafe.
-      allow.ownersDefinedIn('coaches').to(['create', 'read', 'update']),
+      // Create is intentionally routed through the Lambda-backed createGame
+      // mutation (TEAM-ARCHIVE-STEP11), so coaches-population and (from Part
+      // 2) the archived-team check happen server-side. Delete is separately
+      // disallowed on the model — use deleteGameSafe.
+      allow.ownersDefinedIn('coaches').to(['read', 'update']),
     ]),
 
   PlayerAvailability: a
@@ -503,6 +507,22 @@ const schema = a.schema({
     .returns(a.ref('Team'))
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(assignTeamOwner)),
+
+  // Lambda-backed game creation (TEAM-ARCHIVE-STEP11 Part 1). Derives
+  // `coaches` from the team's own coaches array server-side rather than
+  // trusting a client-supplied array (CLAUDE.md's standing coaches-population
+  // rule). No archived-team check yet — see Part 2.
+  createGame: a
+    .mutation()
+    .arguments({
+      teamId: a.string().required(),
+      opponent: a.string().required(),
+      isHome: a.boolean().required(),
+      gameDate: a.datetime(),
+    })
+    .returns(a.ref('Game'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(createGame)),
 
   QueuedSubstitution: a
     .model({

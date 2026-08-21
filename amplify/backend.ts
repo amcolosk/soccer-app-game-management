@@ -21,6 +21,7 @@ import { deletePlayerSafe } from './functions/delete-player-safe/resource';
 import { archiveTeam } from './functions/archive-team/resource';
 import { restoreTeam } from './functions/restore-team/resource';
 import { assignTeamOwner } from './functions/assign-team-owner/resource';
+import { createGame } from './functions/create-game/resource';
 
 const backend = defineBackend({
   auth,
@@ -42,6 +43,7 @@ const backend = defineBackend({
   archiveTeam,
   restoreTeam,
   assignTeamOwner,
+  createGame,
 });
 
 // Add deployment ID to outputs
@@ -347,3 +349,19 @@ backend.archiveTeam.resources.lambda.addToRolePolicy(
 );
 backend.archiveTeam.addEnvironment('TEAM_TABLE', teamTable.tableName);
 backend.archiveTeam.addEnvironment('TEAM_INVITATION_TABLE', teamInvitationTable.tableName);
+
+// Grant table access for createGame Lambda (TEAM-ARCHIVE-STEP11 Part 1)
+backend.createGame.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:PutItem'],
+    resources: [gameTable.tableArn],
+  })
+);
+backend.createGame.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem'],
+    resources: [teamTable.tableArn],
+  })
+);
+backend.createGame.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.createGame.addEnvironment('TEAM_TABLE', teamTable.tableName);
