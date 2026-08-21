@@ -246,6 +246,26 @@ export async function loginUser(page: Page, email: string, password: string) {
 }
 
 /**
+ * Sign out via the Profile tab, if currently signed in. Tolerant of already
+ * being signed out. Most call sites don't need this before `loginUser` — that
+ * helper already signs out any existing session as part of logging in — this
+ * is only needed when the next step is *not* an immediate `loginUser` call
+ * (e.g., navigating to an unauthenticated `/invite/:id` link).
+ */
+export async function logout(page: Page) {
+  const profileTab = page.getByRole('link', { name: /profile/i });
+  if (await profileTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await profileTab.click();
+    await page.waitForTimeout(500);
+  }
+  const signOutButton = page.getByRole('button', { name: /sign out/i });
+  if (await signOutButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await signOutButton.click();
+    await waitForPageLoad(page);
+  }
+}
+
+/**
  * Navigate to the app and wait for it to be ready.
  * Use instead of loginUser when the smoke project provides stored auth state.
  */
