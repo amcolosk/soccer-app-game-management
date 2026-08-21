@@ -11,7 +11,7 @@ const {
   mockPlayerCreate,
   mockTeamRosterCreate,
   mockTeamRosterList,
-  mockGameCreate,
+  mockCreateGame,
   mockDeleteTeamCascade,
   mockDeletePlayerCascade,
   mockTrackEvent,
@@ -21,7 +21,7 @@ const {
   mockPlayerCreate: vi.fn(),
   mockTeamRosterCreate: vi.fn(),
   mockTeamRosterList: vi.fn(),
-  mockGameCreate: vi.fn(),
+  mockCreateGame: vi.fn(),
   mockDeleteTeamCascade: vi.fn(),
   mockDeletePlayerCascade: vi.fn(),
   mockTrackEvent: vi.fn(),
@@ -41,11 +41,12 @@ vi.mock('aws-amplify/data', () => ({
         create: mockTeamRosterCreate,
         list: mockTeamRosterList,
       },
-      Game: {
-        create: mockGameCreate,
-      },
     },
   })),
+}));
+
+vi.mock('./gameService', () => ({
+  createGame: mockCreateGame,
 }));
 
 vi.mock('./cascadeDeleteService', () => ({
@@ -92,7 +93,7 @@ describe('demoDataService', () => {
     mockTeamCreate.mockResolvedValue({ data: { id: 'team-demo' } });
     mockPlayerCreate.mockResolvedValue({ data: { id: 'player-1' } });
     mockTeamRosterCreate.mockResolvedValue({ data: { id: 'roster-1' } });
-    mockGameCreate.mockResolvedValue({ data: { id: 'game-1' } });
+    mockCreateGame.mockResolvedValue({ id: 'game-1' });
     mockTeamGet.mockResolvedValue({
       data: { id: 'team-demo', name: 'Eagles Demo' },
     });
@@ -181,16 +182,16 @@ describe('demoDataService', () => {
 
       await createDemoTeam('user-1');
 
-      expect(mockGameCreate).toHaveBeenCalledTimes(1);
+      expect(mockCreateGame).toHaveBeenCalledTimes(1);
 
-      const call = mockGameCreate.mock.calls[0][0];
+      const call = mockCreateGame.mock.calls[0][0];
       expect(call).toMatchObject({
         teamId: 'team-demo',
         opponent: 'Lions',
         isHome: true,
-        status: 'scheduled',
-        coaches: ['user-1'],
       });
+      expect(call).not.toHaveProperty('status');
+      expect(call).not.toHaveProperty('coaches');
 
       const gameDate = new Date(call.gameDate).getTime();
       const threeDays = 3 * 24 * 60 * 60 * 1000;

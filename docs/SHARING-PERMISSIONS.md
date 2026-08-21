@@ -157,7 +157,7 @@ The `accept-invitation` Lambda genuinely is the only path to *add* a coach to a 
 
 **UI-only enforced (no server-side backstop — explicit, accepted residual risk):**
 - COACH vs PARENT role distinction — the UI hides edit controls for PARENT users, but all users in `coaches` have equal backend write access. This is acceptable given the app's low-sensitivity data (soccer game stats, not financial or health data).
-- Game creation, until Phase 8's `Game.create` Lambda conversion lands (still not done). Archived teams are filtered from the Schedule Game dropdown (`src/components/Home.tsx`) with a defensive client-side re-check in `handleCreateGame`, but a raw GraphQL call is not blocked.
+- Game creation — the `Game.create` Lambda conversion (Phase 8 Part 1) has landed: a raw `client.models.Game.create()` call is now rejected outright. Archived teams are still filtered from the Schedule Game dropdown (`src/components/Home.tsx`) with a client-side `isTeamActive` check, but the `createGame` Lambda does not yet enforce the archived-team check server-side — that is Phase 8 Part 2, still pending.
 - Deep in-game mutations: lineup, rotation, substitutions, goals, notes, availability, roster/player edits — no team-status check anywhere in these resolvers.
 - Every surface showing archived-team data displays a persistent read-only banner (`src/components/shared/ArchivedTeamBanner.tsx`, mounted in Season Reports and `GameManagement.tsx`) — visibility only, not enforcement; no `aria-disabled` treatment exists yet on any control.
 - Removing a coach: `revokeCoachAccess` (see Known residual risks below).

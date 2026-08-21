@@ -41,7 +41,7 @@ function extractBlock(label: string): string {
 }
 
 describe('safe-delete authorization policy', () => {
-  it('does not grant model delete to Formation, Team, Player, Game, or GameNote', () => {
+  it('does not grant model delete to Formation, Team, Player, Game, or GameNote; Game also has no model-level create (TEAM-ARCHIVE-STEP11)', () => {
     const blockedDeleteModels = ['Formation', 'Team', 'Player', 'Game', 'GameNote'];
 
     for (const modelName of blockedDeleteModels) {
@@ -49,6 +49,8 @@ describe('safe-delete authorization policy', () => {
 
       if (modelName === 'GameNote') {
         expect(block).toMatch(/allow\.ownersDefinedIn\('coaches'\)\.to\(\['read'\]\)/);
+      } else if (modelName === 'Game') {
+        expect(block).toMatch(/allow\.ownersDefinedIn\('coaches'\)\.to\(\['read', 'update'\]\)/);
       } else {
         expect(block).toMatch(/allow\.ownersDefinedIn\('coaches'\)\.to\(\['create', 'read', 'update'\]\)/);
       }
@@ -61,6 +63,19 @@ describe('safe-delete authorization policy', () => {
     expect(source).toContain('deletePlayerSafe: a');
     expect(source).toContain('deleteGameSafe: a');
     expect(source).toContain('deleteSecureGameNote: a');
+  });
+
+  it('declares a Lambda-backed createGame mutation returning Game with no client-supplied coaches argument', () => {
+    const block = extractBlock('createGame');
+
+    expect(block).toContain('.mutation()');
+    expect(block).toContain('teamId: a.string().required()');
+    expect(block).toContain('opponent: a.string().required()');
+    expect(block).toContain('isHome: a.boolean().required()');
+    expect(block).not.toContain('coaches:');
+    expect(block).toContain(".returns(a.ref('Game'))");
+    expect(block).toContain('allow.authenticated()');
+    expect(block).toContain('a.handler.function(createGame)');
   });
 });
 
