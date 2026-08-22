@@ -16,7 +16,7 @@ export interface CreateGameInput {
  * population happens server-side from the team's own coaches array, not from
  * a client-supplied value. No archived-team check until Part 2.
  */
-export async function createGame(input: CreateGameInput): Promise<NonNullable<Schema['createGame']['returnType']>> {
-  const result = await client.mutations.createGame(input);
+export async function createGame(input: CreateGameInput): Promise<NonNullable<Schema['createGameSafe']['returnType']>> {
+  const result = await client.mutations.createGameSafe(input);
   return assertMutationResult(result, 'Failed to create game');
 }

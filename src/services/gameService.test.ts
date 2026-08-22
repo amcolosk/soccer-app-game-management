@@ -8,7 +8,7 @@ const { mockCreateGame } = vi.hoisted(() => ({
 vi.mock('aws-amplify/data', () => ({
   generateClient: vi.fn(() => ({
     mutations: {
-      createGame: mockCreateGame,
+      createGameSafe: mockCreateGame,
     },
   })),
 }));

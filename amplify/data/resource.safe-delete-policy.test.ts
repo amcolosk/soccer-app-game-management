@@ -65,8 +65,8 @@ describe('safe-delete authorization policy', () => {
     expect(source).toContain('deleteSecureGameNote: a');
   });
 
-  it('declares a Lambda-backed createGame mutation returning Game with no client-supplied coaches argument', () => {
-    const block = extractBlock('createGame');
+  it('declares a Lambda-backed createGameSafe mutation returning Game with no client-supplied coaches argument', () => {
+    const block = extractBlock('createGameSafe');
 
     expect(block).toContain('.mutation()');
     expect(block).toContain('teamId: a.string().required()');
@@ -75,7 +75,7 @@ describe('safe-delete authorization policy', () => {
     expect(block).not.toContain('coaches:');
     expect(block).toContain(".returns(a.ref('Game'))");
     expect(block).toContain('allow.authenticated()');
-    expect(block).toContain('a.handler.function(createGame)');
+    expect(block).toContain('a.handler.function(createGameSafe)');
   });
 });
 
