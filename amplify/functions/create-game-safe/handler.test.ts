@@ -36,7 +36,7 @@ function createEvent(overrides: Partial<HandlerEvent['arguments']> = {}, identit
   } as HandlerEvent;
 }
 
-describe('create-game handler', () => {
+describe('create-game-safe handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.GAME_TABLE = 'GameTable';

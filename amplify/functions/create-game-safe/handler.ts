@@ -7,7 +7,7 @@ import { randomUUID } from 'crypto';
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 
-type Handler = Schema['createGame']['functionHandler'];
+type Handler = Schema['createGameSafe']['functionHandler'];
 
 export const handler: Handler = async (event) => {
   const identity = event.identity as AppSyncIdentityCognito;
