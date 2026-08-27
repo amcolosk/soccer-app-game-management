@@ -29,7 +29,7 @@
     "test:e2e:report": "playwright show-report",
     "test:e2e:setup": "node scripts/setup-e2e.mjs",
     "gate:commit": "node scripts/commit-gate.mjs",
-    "seed": "npx ampx seed",
+    "seed": "npx ampx sandbox seed",
     "repair:sharing-permissions": "tsx scripts/repair-shared-team-permissions.ts"
   },
   "dependencies": {
@@ -79,5 +79,10 @@
     "vite": "^7.3.1",
     "vite-plugin-pwa": "^1.1.0",
     "vitest": "^4.0.13"
+  },
+  "overrides": {
+    "@aws-amplify/seed": {
+      "aws-amplify": "$aws-amplify"
+    }
   }
 }
