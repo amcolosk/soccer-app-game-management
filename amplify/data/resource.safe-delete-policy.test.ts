@@ -96,10 +96,20 @@ describe('team lifecycle field authorization policy', () => {
     );
   });
 
-  it('keeps status, archivedAt, and archivedBy read-only for coaches', () => {
+  it('grants status create access so its schema default can actually be written at creation time', () => {
+    // A field-level grant that excludes 'create' blocks AppSync from applying
+    // .default('active') at all -- applying a default is itself a write, and
+    // AppSync rejects it as "Unauthorized on [status]" even when nothing in
+    // the request explicitly sets the field. Confirmed against a real
+    // sandbox deploy; regressing this grant back to read-only silently
+    // breaks every team creation. See ownerId's identical create+read shape
+    // above for the same reasoning.
     expect(teamBlock).toMatch(
-      /status: a\.string\(\)\.default\('active'\)\.authorization\(\(allow\) => \[allow\.ownersDefinedIn\('coaches'\)\.to\(\['read'\]\)\]\)/
+      /status: a\.string\(\)\.default\('active'\)\.authorization\(\(allow\) => \[allow\.ownersDefinedIn\('coaches'\)\.to\(\['create', 'read'\]\)\]\)/
     );
+  });
+
+  it('keeps archivedAt and archivedBy read-only for coaches', () => {
     expect(teamBlock).toMatch(
       /archivedAt: a\.datetime\(\)\.authorization\(\(allow\) => \[allow\.ownersDefinedIn\('coaches'\)\.to\(\['read'\]\)\]\)/
     );

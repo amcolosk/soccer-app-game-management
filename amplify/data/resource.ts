@@ -74,9 +74,15 @@ const schema = a.schema({
       ownerId: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['create', 'read'])]),
       // Lifecycle state: 'active' | 'archived'. a.enum() is not used because this
       // Amplify version does not support .required()/.default() on enums (see
-      // GameNote.noteType). Coaches get read-only access; writes only via
-      // archiveTeam/restoreTeam.
-      status: a.string().default('active').authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
+      // GameNote.noteType). Coaches get 'create' so the schema's own
+      // .default('active') can actually be written at creation time -- applying
+      // a default value is itself a write, and AppSync rejects it as
+      // Unauthorized on [status] if the field-level grant excludes 'create',
+      // even when nothing in the request explicitly sets this field. No
+      // 'update' grant, so a coach can never flip status directly; writes past
+      // creation only via archiveTeam/restoreTeam. Same reasoning as ownerId
+      // above.
+      status: a.string().default('active').authorization((allow) => [allow.ownersDefinedIn('coaches').to(['create', 'read'])]),
       // Archive audit metadata. Coaches get read-only access; writes only via archiveTeam/restoreTeam.
       archivedAt: a.datetime().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
       archivedBy: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
