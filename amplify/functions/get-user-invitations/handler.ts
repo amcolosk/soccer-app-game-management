@@ -102,6 +102,14 @@ export const handler: Handler = async (event) => {
           ':status': 'PENDING',
         },
         ExclusiveStartKey: exclusiveStartKey,
+        // Strongly consistent (matches createGameSafe's identical fix,
+        // TEAM-ARCHIVE-STEP11): Scan defaults to eventually-consistent reads.
+        // A coach invited moments earlier can otherwise hit a stale replica
+        // and see "Invitation not found" on their very first accept attempt --
+        // confirmed reproducing locally against a real sandbox. One extra
+        // RCU per page scanned, no meaningful latency impact on a read path
+        // this infrequent.
+        ConsistentRead: true,
       });
 
       const result = await docClient.send(command);
