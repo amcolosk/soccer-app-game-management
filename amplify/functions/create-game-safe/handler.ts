@@ -31,7 +31,8 @@ export const handler: Handler = async (event) => {
   const teamResponse = await docClient.send(new GetCommand({
     TableName: teamTable,
     Key: { id: teamId },
-    ProjectionExpression: 'id, coaches',
+    ProjectionExpression: 'id, coaches, #status',
+    ExpressionAttributeNames: { '#status': 'status' },
     // Strongly consistent (TEAM-ARCHIVE-STEP11 revision, architecture review
     // finding): GetCommand defaults to eventually-consistent reads. Decision
     // 2 removes the client-side defensive "include currentUserId even if
@@ -44,7 +45,7 @@ export const handler: Handler = async (event) => {
     ConsistentRead: true,
   }));
 
-  const team = teamResponse.Item as { id: string; coaches?: string[] } | undefined;
+  const team = teamResponse.Item as { id: string; coaches?: string[]; status?: string } | undefined;
   if (!team) {
     throw new Error('Team not found');
   }
@@ -58,8 +59,17 @@ export const handler: Handler = async (event) => {
     throw new Error('Access denied: caller is not a coach on this team');
   }
 
-  // No archived-team check in this part — see
-  // TEAM-ARCHIVE-STEP11-GAME-CREATE-CONVERSION-PART2.md.
+  // TEAM-ARCHIVE-STEP11 Part 2: archived teams are read-only historical data
+  // (Acceptance Criterion 5) -- scheduling a new game against one would create
+  // fresh, ongoing state for a team the archive feature exists to freeze.
+  // Plain JS comparison (not a DynamoDB ConditionExpression) already treats a
+  // missing/undefined status as active -- matches the precedent already
+  // audited and confirmed correct for deleteGameSafe/deletePlayerSafe
+  // (TEAM-ARCHIVE-STEP8, Part A). Client-side sibling: src/utils/teamUtils.ts
+  // isTeamActive -- if one definition of "archived" changes, check the other.
+  if (team.status === 'archived') {
+    throw new Error('Cannot schedule a game for an archived team. Restore the team first.');
+  }
 
   const now = new Date().toISOString();
   const id = randomUUID();

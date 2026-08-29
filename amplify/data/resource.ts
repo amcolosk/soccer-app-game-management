@@ -514,10 +514,10 @@ const schema = a.schema({
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(assignTeamOwner)),
 
-  // Lambda-backed game creation (TEAM-ARCHIVE-STEP11 Part 1). Derives
-  // `coaches` from the team's own coaches array server-side rather than
-  // trusting a client-supplied array (CLAUDE.md's standing coaches-population
-  // rule). No archived-team check yet — see Part 2.
+  // Lambda-backed game creation (TEAM-ARCHIVE-STEP11). Derives `coaches`
+  // from the team's own coaches array server-side rather than trusting a
+  // client-supplied array (CLAUDE.md's standing coaches-population rule).
+  // Also rejects creating a game against an archived team (Part 2).
   createGameSafe: a
     .mutation()
     .arguments({

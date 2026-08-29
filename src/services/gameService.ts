@@ -14,7 +14,8 @@ export interface CreateGameInput {
 /**
  * Any coach on the team. Lambda-backed (TEAM-ARCHIVE-STEP11) so `coaches`
  * population happens server-side from the team's own coaches array, not from
- * a client-supplied value. No archived-team check until Part 2.
+ * a client-supplied value. Also rejects creating a game against an archived
+ * team (Part 2).
  */
 export async function createGame(input: CreateGameInput): Promise<NonNullable<Schema['createGameSafe']['returnType']>> {
   const result = await client.mutations.createGameSafe(input);

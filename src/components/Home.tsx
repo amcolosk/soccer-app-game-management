@@ -457,7 +457,8 @@ export function Home() {
       setIsCreatingGame(false);
       trackEvent(AnalyticsEvents.GAME_CREATED.category, AnalyticsEvents.GAME_CREATED.action);
     } catch (error) {
-      handleApiError(error, 'Failed to create game');
+      console.error('Failed to create game', error);
+      showError(error instanceof Error ? error.message : 'Failed to create game');
     } finally {
       setIsSubmittingGame(false);
       setGameRefreshKey((k) => k + 1);

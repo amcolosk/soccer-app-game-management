@@ -48,6 +48,7 @@ describe('create-game-safe handler', () => {
           Item: {
             id: 'team-1',
             coaches: ['coach-1', 'coach-2'],
+            status: 'active',
           },
         };
       }
@@ -141,5 +142,45 @@ describe('create-game-safe handler', () => {
     const putCall = mockSend.mock.calls.find(([command]) => command.__type === 'PutCommand');
     const item = putCall?.[0].input.Item as Record<string, unknown>;
     expect(item.gameDate).toBeNull();
+  });
+
+  it('rejects creating a game for an archived team', async () => {
+    mockSend.mockImplementation(async (command: { __type: string }) => {
+      if (command.__type === 'GetCommand') {
+        return {
+          Item: {
+            id: 'team-1',
+            coaches: ['coach-1', 'coach-2'],
+            status: 'archived',
+          },
+        };
+      }
+      return {};
+    });
+
+    await expect(invoke(createEvent())).rejects.toThrow(/archived team/i);
+
+    const putCall = mockSend.mock.calls.find(([command]) => command.__type === 'PutCommand');
+    expect(putCall).toBeUndefined();
+  });
+
+  it('allows creating a game for a team with no status attribute (legacy team)', async () => {
+    mockSend.mockImplementation(async (command: { __type: string }) => {
+      if (command.__type === 'GetCommand') {
+        return {
+          Item: {
+            id: 'team-1',
+            coaches: ['coach-1', 'coach-2'],
+          },
+        };
+      }
+      if (command.__type === 'PutCommand') {
+        return {};
+      }
+      return {};
+    });
+
+    const result = await invoke(createEvent());
+    expect(result).toMatchObject({ teamId: 'team-1', opponent: 'Lions' });
   });
 });
