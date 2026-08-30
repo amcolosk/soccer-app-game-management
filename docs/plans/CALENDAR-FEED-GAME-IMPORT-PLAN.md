@@ -1,6 +1,6 @@
 # Calendar Feed Game Import — Implementation Plan
 
-**Status:** Draft — pending architecture review
+**Status:** Revised after architecture review round 1
 **Date:** 2026-08-29
 
 ## Goal
@@ -12,8 +12,12 @@ hand-entering every opponent, date, and home/away toggle in the
 [Home.tsx](../../src/components/Home.tsx) create-game form.
 
 Reference feed used to design the parser (real data, saved locally as
-`games-calendar.ics`):
-`https://calendar.playmetrics.com/calendars/c1294/t552627/p0/t511BFD1B/f/games-calendar.ics`
+`games-calendar.ics`, **not committed to the repo**):
+`https://calendar.playmetrics.com/calendars/c<REDACTED>/t<REDACTED>/p0/t<REDACTED>/f/games-calendar.ics`.
+This URL is a bearer credential (see Schema changes, "feed URL storage") —
+redacted here per architecture review Major 9. The raw fixture used for parser
+tests must likewise be scrubbed of any property that echoes the live URL
+(`URL:`, and any `X-*` field that isn't needed) before it is committed.
 
 ## Decisions locked with the product owner
 
@@ -24,13 +28,38 @@ Reference feed used to design the parser (real data, saved locally as
 | 3 | Re-sync semantics | **Auto-apply, protect live games.** No approval screen. Never mutate a game whose `status !== 'scheduled'`. Games cancelled in the feed are flagged, never deleted. |
 | 4 | Parser scope | **Generic RFC-5545 core + pluggable provider adapters.** Ship the PlayMetrics adapter now. |
 
-### Derived decision A: feed config lives on `Team`, not a new `CalendarFeed` model
+### Derived decision A: feed *metadata* lives on `Team`; the feed *URL* lives in a minimal `CalendarFeed` model — revised per architecture review Major 1
 
-Decision 2 rejected the separate-model option, but Decision 1 requires persisting
-a feed URL somewhere. Resolution: **one feed per team**, stored as fields on
-`Team`. This is a genuine constraint, not just an expedient one — a team has one
-schedule. If multi-feed (e.g. league feed + tournament feed) is ever needed, the
-fields promote cleanly to a `CalendarFeed` model with a `teamId`.
+Decision 2 rejected a full separate-model design for feed depth, and the
+original draft of this plan put everything — including the URL — on `Team`.
+Architecture review flagged that as a real security problem, not a style
+preference: every `Team` read in this app is an unfiltered `observeQuery` with
+a default selection set ([useAmplifyQuery.ts:53](../../src/hooks/useAmplifyQuery.ts:53),
+used from `Home.tsx`, `Management.tsx`, and elsewhere). A field on `Team` isn't
+"coach-scoped storage" in practice — it's broadcast to every screen that reads
+the team, lands in browser memory, in the offline IndexedDB cache, and
+plausibly in a bug-report attachment (this app ships a bug-report system that
+captures `systemInfo` and screenshots). The feed URL contains an unguessable
+path token that is itself the read credential for the coach's PlayMetrics
+schedule — it must not be on that broadcast path.
+
+Resolution: split by sensitivity, not by cardinality.
+
+- **`Team`** keeps the non-secret status fields coaches see on every load:
+  `calendarFeedProvider`, `calendarFeedTeamAlias`, `calendarFeedHost` (display
+  only — the hostname, never the full URL), `calendarFeedLastSyncedAt`,
+  `calendarFeedLastError`.
+- **A new minimal `CalendarFeed` model** (`teamId`, `url`, `coaches`,
+  `allow.ownersDefinedIn('coaches')`, no field-level exceptions) holds the URL
+  itself. It is queried only by `CalendarFeedSettings.tsx` when the coach opens
+  the link/edit flow — never joined onto the `Team` read every other screen
+  already does. This also happens to deliver the multi-feed extension point the
+  original draft only promised: a second `CalendarFeed` row is a `teamId`
+  index away, no migration needed.
+
+This is still "one feed per team" for now (enforced by the Lambda checking for
+an existing row before creating a second one, not by a uniqueness constraint —
+DynamoDB doesn't have one).
 
 ### Derived decision B: parsing happens server-side, in the Lambda, for both entry points
 
@@ -77,6 +106,24 @@ client caps uploads at 512 KB before sending.
    precedent: `amplify/functions/create-game-safe/handler.test.ts`.
 8. **Game creation UI** is the inline form at [Home.tsx:636](../../src/components/Home.tsx:636);
    team settings live in [Management.tsx](../../src/components/Management.tsx).
+9. **DynamoDB SDK writes don't fire AppSync subscriptions.** `Home.tsx` already
+   works around this for `createGameSafe` with a `pendingCreatedGames` overlay
+   ([Home.tsx:130-147](../../src/components/Home.tsx:130)) that holds
+   Lambda-returned games until `observeQuery` catches up. The sync mutation
+   must return full `Game` objects (not just counts) so the same mechanism can
+   absorb them, and the sync entry point needs to live where that overlay
+   lives.
+10. **No handler in `amplify/functions/` uses a DynamoDB `Query`/GSI.** Every
+    multi-record read (`delete-game-safe`, `delete-team-safe`,
+    `delete-player-safe`, `archive-team`) does a paginated `ScanCommand` with a
+    `FilterExpression` — see [delete-game-safe/handler.ts:22-42](../../amplify/functions/delete-game-safe/handler.ts:22).
+    The sync Lambda's "list the team's games" step follows the same pattern:
+    a scan, not a query, and the IAM grant must say `Scan` accordingly.
+11. **This would be the third handler with the same team-fetch +
+    `coaches.includes(callerSub)` + `status === 'archived'` triple**, and the
+    sixth copy of a paginated `scanAll` helper. Both are worth extracting to
+    `amplify/functions/shared/` given this plan already introduces that
+    directory for the iCal parser.
 
 ## Parsing the real feed — the traps
 
@@ -160,43 +207,91 @@ RRULE-driven offset math is not worth it when IANA data is already in the runtim
 ```ts
 // External calendar provenance (Calendar Feed Import). Written only by the
 // syncTeamCalendar Lambda; coaches read but never write these directly.
-externalUid: a.string(),          // VEVENT UID, e.g. "Game_4841731"
-externalSource: a.string(),       // 'playmetrics' | 'ics'
-externalSequence: a.integer(),    // VEVENT SEQUENCE, for change detection
+externalUid: a.string(),            // VEVENT UID, e.g. "Game_4841731"
+externalSource: a.string(),         // 'playmetrics' | 'ics'
+externalSequence: a.integer(),      // VEVENT SEQUENCE, informational only —
+                                     // NOT the change-detection signal (see below)
+externalContentHash: a.string(),    // sha256 of the import-owned fields; drives
+                                     // skip-vs-update, since SEQUENCE is
+                                     // optional in RFC 5545 and many producers
+                                     // never increment it (architecture review
+                                     // Major 7b)
 externalSyncedAt: a.datetime(),
-externalCancelled: a.boolean(),   // feed says CANCELLED; game kept + flagged
-locationName: a.string(),         // "Martin Field 1"
-locationAddress: a.string(),      // "3740 86th St., Urbandale, IA 50322"
-arriveByTime: a.datetime(),       // parsed from "Arrive by 2:45 PM"
+externalCancelled: a.boolean(),     // feed says CANCELLED; game kept + flagged
+externalHomeAwayUnverified: a.boolean(), // generic adapter guessed isHome; see below
+// locationName/locationAddress/arriveByTime are feed-owned but coach-editable
+// (see "Coach edits vs. re-sync" below): the feed overwrites them on every
+// content-hash change, so a hand correction survives only until the next sync.
+locationName: a.string(),           // "Martin Field 1"
+locationAddress: a.string(),        // "3740 86th St., Urbandale, IA 50322"
+arriveByTime: a.datetime(),         // parsed from "Arrive by 2:45 PM"
 ```
 
 None carry `.default()`, sidestepping Finding 4. Field-level grants restrict the
 `external*` fields to `['read']` for coaches (Lambda writes bypass field auth by
 going through the SDK), matching the `archivedAt` / `archivedBy` precedent.
-`locationName`, `locationAddress`, and `arriveByTime` stay coach-writable so a
-coach can correct a venue by hand.
+`locationName`, `locationAddress`, and `arriveByTime` stay coach-writable.
+
+**Coach edits vs. re-sync (architecture review Major 7c):** feed always wins.
+If a coach hand-edits venue or arrive-by and a later sync sees a changed
+content hash for that game, the edit is overwritten with no merge. This is the
+simplest rule consistent with Decision 3's no-approval-screen auto-apply, and
+must be stated as such in the `CalendarFeedSettings` and game-card copy —
+"imported fields may be overwritten on the next sync" — so it isn't a surprise.
+
+**Idempotent id (architecture review Major 4):** `Game.id` for an
+externally-sourced game is not a fresh `randomUUID()`. It is deterministically
+derived — `sha256(teamId + '|' + externalSource + '|' + externalUid)`,
+formatted as a UUID-shaped string — so that two concurrent sync invocations
+(double-tapped button, retried request, an overlapping future scheduled sync)
+converge on the same id instead of creating duplicates. Creates use
+`ConditionExpression: 'attribute_not_exists(id)'`, which makes create itself
+idempotent for free. Hand-created games keep random ids; this scheme applies
+only to sync-created rows.
 
 **Backfill:** none needed. All fields are optional; existing games have them null.
 
-**GSI:** a `gamesByExternalUid` index is *not* added in v1. The sync Lambda
-already lists the team's games (needed anyway to apply the protection rules) and
-matches in memory; a team has tens of games, not thousands.
+**GSI:** a `gamesByExternalUid` index is *not* added in v1, matching Finding 10
+— the sync Lambda lists the team's games via the same paginated `ScanCommand` +
+`FilterExpression` pattern every other multi-record handler already uses, and
+matches in memory. This is a real per-sync full-table scan, not "tens of
+games" — acceptable for manual, per-team sync today; the Phase 5 risk section
+below records it as a scheduled-sync scaling dependency.
 
 ### `amplify/data/resource.ts` — `Team`
 
 ```ts
-calendarFeedUrl: a.string(),
 calendarFeedProvider: a.string(),     // 'playmetrics' | 'ics'
 calendarFeedTeamAlias: a.string(),    // name used to identify "us" in the feed
+calendarFeedHost: a.string(),         // display-only hostname, e.g. "calendar.playmetrics.com" — never the full URL
 calendarFeedLastSyncedAt: a.datetime(),
 calendarFeedLastError: a.string(),
 ```
 
-`calendarFeedUrl` is coach-writable (they paste it); the rest are Lambda-written
-and coach-readable. **The URL is credential-bearing** — the PlayMetrics path
-segment `t511BFD1B` is an unguessable token that grants read access to the
-schedule. It must never be logged, echoed in an error message, or sent to
-analytics.
+All five are Lambda-written, coach-readable status fields — no secret among
+them. **The feed URL itself does not live here** (architecture review Major
+1): see the new `CalendarFeed` model below.
+
+### `amplify/data/resource.ts` — new `CalendarFeed` model
+
+```ts
+CalendarFeed: a
+  .model({
+    teamId: a.id().required(),
+    team: a.belongsTo('Team', 'teamId'),
+    url: a.string().required(),   // the bearer-credential feed URL
+    coaches: a.string().array(),
+  })
+  .authorization((allow) => [
+    allow.ownersDefinedIn('coaches'), // full coach access — same shape as FormationPosition
+  ]),
+```
+
+Isolated from the broadcast `Team` read (see Derived Decision A above) — only
+`CalendarFeedSettings.tsx` queries this model, when a coach opens the link/edit
+flow. The sync Lambda reads it directly by `teamId` via the SDK. It is never
+logged, echoed in an error message, or sent to analytics; `calendarFeedHost`
+on `Team` is what the UI shows everywhere else.
 
 ### New mutation
 
@@ -205,18 +300,50 @@ syncTeamCalendar: a
   .mutation()
   .arguments({
     teamId: a.string().required(),
-    feedUrl: a.string(),      // provided when linking or re-syncing a URL feed
-    icsContent: a.string(),   // provided when uploading a file
-    saveFeedUrl: a.boolean(), // persist feedUrl on the team for future syncs
+    feedUrl: a.string(),      // provided when linking a new URL feed, or
+                               // changing the saved one; omit to re-sync the
+                               // already-saved CalendarFeed
+    icsContent: a.string(),   // provided when uploading a file (Phase 2 only
+                               // accepts this argument — see Phasing)
+    saveFeedUrl: a.boolean(), // persist feedUrl as this team's CalendarFeed
+    dryRun: a.boolean(),      // parse + reconcile, return the result, write nothing
   })
   .returns(a.ref('CalendarSyncResult'))
   .authorization((allow) => [allow.authenticated()])
   .handler(a.handler.function(syncTeamCalendar)),
 ```
 
-with a custom type returning
-`{ created, updated, skipped, cancelled, protected, warnings[] }` so the UI can
-report "Imported 5 new games, updated 2" without a second fetch.
+`CalendarSyncResult` (architecture review Major 2 — counts alone are not
+enough, because SDK writes don't trigger AppSync subscriptions and the UI has
+no other way to learn what was written):
+
+```ts
+CalendarSyncResult: a.customType({
+  createdGames: a.ref('Game').array(),   // full Game objects, for the
+  updatedGames: a.ref('Game').array(),   // pendingCreatedGames-style overlay
+  skippedCount: a.integer(),
+  cancelledCount: a.integer(),
+  protectedCount: a.integer(),
+  failedCount: a.integer(),
+  warnings: a.string().array(),
+}),
+```
+
+`dryRun` lets the first-link flow show "this will create 12 games, update 2"
+without a separate preview code path — the reconciliation logic runs
+identically, the write step is just skipped.
+
+**Relationship between the mutation's `feedUrl`/`saveFeedUrl` args and direct
+`CalendarFeed` model writes:** `CalendarFeed` grants coaches full CRUD
+(`ownersDefinedIn('coaches')`, no `.to()` restriction), so
+`CalendarFeedSettings.tsx` can link, edit, or unlink a feed with a plain
+`client.models.CalendarFeed.create/update/delete` call — no Lambda involved for
+that alone. The mutation's `feedUrl`/`saveFeedUrl` arguments exist as a
+convenience for the "paste a URL and sync immediately" flow on `Home.tsx`
+(Major 2's entry point): pass `feedUrl` to sync against a URL that isn't saved
+yet, and `saveFeedUrl: true` to have the Lambda persist it as the team's
+`CalendarFeed` row in the same round trip, instead of requiring two separate
+calls. Omitting `feedUrl` re-syncs whatever `CalendarFeed` row already exists.
 
 ## Security requirements (must be in place before the URL path ships)
 
@@ -228,7 +355,12 @@ primitive. Non-negotiable controls:
    or special range — RFC1918, loopback, link-local (`169.254.0.0/16`, which
    covers the instance metadata endpoint `169.254.169.254`), CGNAT, IPv6 ULA and
    link-local, and IPv4-mapped IPv6 forms. Re-validate **after every redirect**;
-   a pre-flight check alone is defeated by a redirect.
+   a pre-flight check alone is defeated by a redirect. Note (architecture
+   review Minor): a pre-flight IP check is also defeated by DNS rebinding —
+   `fetch()` re-resolves at connect time, after the check. Item 7's host
+   allowlist is what actually closes this for v1; it is **load-bearing**, not
+   redundant with items 1–3. If the allowlist is ever generalized away, a
+   connect-time `lookup` hook (e.g. an undici `Agent`) has to replace it.
 3. **Redirect cap:** at most 3, each re-validated. Never follow a cross-scheme redirect.
 4. **Response caps:** hard limit on `Content-Length` *and* on streamed bytes
    (256 KB), plus a 10 s timeout. Reject content types other than
@@ -238,15 +370,23 @@ primitive. Non-negotiable controls:
 6. **No URL in logs or errors.** Log a hash or the bare host. The stored
    `calendarFeedLastError` must be a sanitized message, since it is persisted and
    rendered back to the coach.
-7. **A provider allowlist is worth considering for v1** (`calendar.playmetrics.com`
-   plus a small set) — it collapses most of the SSRF surface. Flagged for the
-   architecture and security reviewers as a scope call: safest option, but it
-   caps the "generic ICS" promise of Decision 4 to the file-upload path.
+7. **Decision (locked with product owner): host allowlist for the URL-fetch path.**
+   `fetchFeed` only fetches from an allowlisted set of hosts
+   (`calendar.playmetrics.com` to start; extend the list as new providers come
+   up). Any other host is rejected before a connection is attempted — this is
+   in addition to, not instead of, the scheme/private-IP/redirect controls
+   above. Decision 4's "generic ICS" promise is fulfilled by the file-upload
+   path (Phase 2), which has no network fetch and therefore no SSRF surface;
+   the URL path (Phase 3) trades that generality for a materially smaller
+   attack surface.
 
 Also note: `icsContent` from file upload skips the network controls entirely but
-still needs every parser cap in (5). Imported opponent and venue strings are
-rendered by React, which escapes by default — but any future
-`dangerouslySetInnerHTML` or CSV/ICS *export* path would need re-checking.
+still needs every parser cap in (5), **enforced server-side**: the client's
+512 KB cap (Derived Decision B) is advisory only, so the handler does its own
+byte-length check on `icsContent` before parsing, ahead of the item-5 caps.
+Imported opponent and venue strings are rendered by React, which escapes by
+default — but any future `dangerouslySetInnerHTML` or CSV/ICS *export* path
+would need re-checking.
 
 ## File-by-file changes
 
@@ -254,25 +394,28 @@ rendered by React, which escapes by default — but any future
 
 | File | Change |
 |---|---|
+| `amplify/functions/shared/teamAccess.ts` *(new — architecture review Major 6)* | `assertTeamAccess(teamId, callerSub, { requireActive })`, returning `{ team, coaches }`. Extracted from `create-game-safe/handler.ts`'s `ConsistentRead` `GetCommand` + `coaches.includes(callerSub)` + `status === 'archived'` triple, carrying the original comments verbatim so the rationale isn't lost. **Used by the new Lambda only** — the existing five handlers are not retrofitted in this change; that's separate, unrelated regression risk in already-audited authz code (noted as a follow-up in Risks). |
+| `amplify/functions/shared/dynamo.ts` *(new — architecture review Major 6)* | Paginated `scanAll(table, filterExpression, ...)`, extracted from the pattern repeated in `delete-game-safe`, `delete-team-safe`, `delete-player-safe`, `archive-team`. Same used-by-new-Lambda-only scope guard. |
 | `amplify/functions/shared/ical/parser.ts` *(new)* | RFC-5545 core: unfold, unescape, property and parameter parsing, VEVENT extraction, `zonedWallTimeToUtc`. Provider-agnostic. |
 | `amplify/functions/shared/ical/adapters/playmetrics.ts` *(new)* | Description-prose parsing: opponent, home/away, venue, arrive-by. Detected via `PRODID:-//PlayMetrics//EN`. |
-| `amplify/functions/shared/ical/adapters/generic.ts` *(new)* | Fallback: date, `SUMMARY` to opponent, `LOCATION` to venue; leaves `isHome` for the coach. |
+| `amplify/functions/shared/ical/adapters/generic.ts` *(new)* | Fallback: date, `SUMMARY` to opponent, `LOCATION` to venue. Sets `isHome: false` and `externalHomeAwayUnverified: true` with a warning when it can't determine home/away (architecture review Major 7a — `isHome` is `.required()` with no default; "leave it at the existing default" was not a real option). Sets opponent to a `SUMMARY`-derived fallback (or a literal "Opponent TBD" plus a warning) when `SUMMARY` is empty, since `opponent` is likewise `.required()`. |
 | `amplify/functions/shared/ical/adapters/index.ts` *(new)* | Adapter selection by `PRODID` / `X-WR-*`. |
+| `amplify/functions/shared/ical/contentHash.ts` *(new)* | `sha256` over the import-owned fields (opponent, isHome, gameDate, locationName, locationAddress, arriveByTime) for change detection, and the deterministic-id derivation from `teamId + externalSource + externalUid` (architecture review Major 4). |
 | `amplify/functions/sync-team-calendar/resource.ts` *(new)* | `defineFunction`, runtime 22, `timeoutSeconds: 60`, `resourceGroupName: 'data'`. |
-| `amplify/functions/sync-team-calendar/handler.ts` *(new)* | Auth, team fetch (`ConsistentRead`), archived guard, fetch/validate, parse, reconcile, batch write. |
-| `amplify/functions/sync-team-calendar/fetchFeed.ts` *(new)* | The hardened fetcher (all of the security section). Separated so it is unit-testable without the handler. |
-| `amplify/data/resource.ts` | New `Game` fields, new `Team` fields, `CalendarSyncResult` custom type, `syncTeamCalendar` mutation. |
-| `amplify/backend.ts` | Register the function; grant `dynamodb:PutItem` / `UpdateItem` / `Query` on the Game table and `GetItem` / `UpdateItem` on the Team table; set `GAME_TABLE` and `TEAM_TABLE` env vars. |
+| `amplify/functions/sync-team-calendar/handler.ts` *(new)* | Auth via `assertTeamAccess`, fetch/validate, parse, scan the team's games via `scanAll`, reconcile (conditional writes — see Reconciliation rules below), return `CalendarSyncResult` with full `Game` objects. On a per-event write failure: continue processing the rest, count it in `failedCount`, add a warning — don't abort the batch (safe because ids are deterministic and creates/updates are conditional, so a retried sync is idempotent). |
+| `amplify/functions/sync-team-calendar/fetchFeed.ts` *(new)* | The hardened fetcher (all of the security section, including the host allowlist). Separated so it is unit-testable without the handler. |
+| `amplify/data/resource.ts` | New `Game` fields, new `Team` fields, new `CalendarFeed` model, `CalendarSyncResult` custom type, `syncTeamCalendar` mutation. |
+| `amplify/backend.ts` | Register the function; grant `dynamodb:Scan`, `dynamodb:PutItem`, `dynamodb:UpdateItem` on the Game table (architecture review Major 5 — **not** `Query`: no GSI exists, so the list step is a `Scan`; a `Query` grant would be both wrong and misleading about the actual read pattern) and `dynamodb:GetItem` on the Team and CalendarFeed tables; set `GAME_TABLE`, `TEAM_TABLE`, `CALENDAR_FEED_TABLE` env vars. Keep the least-privilege `addToRolePolicy` style used for `createGameSafe`, not `grantReadWriteData`. |
 
 ### Frontend
 
 | File | Change |
 |---|---|
 | `src/services/calendarSyncService.ts` *(new)* | Thin wrapper over `client.mutations.syncTeamCalendar`, using `assertMutationResult` like [gameService.ts](../../src/services/gameService.ts). |
-| `src/components/CalendarFeedSettings.tsx` *(new)* | Team-settings panel: URL input, Sync now, last-synced and last-error display, unlink, `.ics` file picker. Hidden for archived teams. |
-| `src/components/Management.tsx` | Mount the settings panel in the team edit view. |
-| `src/components/Home.tsx` | Show venue and arrive-by on scheduled game cards; badge feed-cancelled games; add an "Import from calendar" entry point next to the create form. |
-| `src/App.css` | New section appended at the bottom (per CLAUDE.md) for the settings panel and the cancelled/imported badges. |
+| `src/components/CalendarFeedSettings.tsx` *(new)* | Team-settings panel, mounted in `Management.tsx`: link/edit the `CalendarFeed` URL, `.ics` file picker, unlink, and read-only status display (last synced, last error) sourced from the `Team` fields. **Does not itself trigger a live sync** — see `Home.tsx` below for why. Hidden for archived teams. |
+| `src/components/Management.tsx` | Mount `CalendarFeedSettings` in the team edit view. |
+| `src/components/Home.tsx` | The actual "Sync now" / "Import from calendar" action lives here, next to the create-game form (architecture review Major 2) — this is where `pendingCreatedGames` and `gameRefreshKey` already exist ([Home.tsx:130-147](../../src/components/Home.tsx:130)), so a sync's returned `createdGames`/`updatedGames` can be absorbed into the same overlay `createGame` already uses, instead of needing a new cross-component refresh path. Also: show venue and arrive-by on scheduled game cards; badge feed-cancelled games (`externalCancelled`) and unverified home/away (`externalHomeAwayUnverified`). |
+| `src/App.css` | New section appended at the bottom (per CLAUDE.md) for the settings panel and the cancelled/unverified/imported badges. |
 
 ### Docs
 
@@ -282,16 +425,27 @@ so a future adapter author is not re-deriving it from a sample file.
 
 ## Reconciliation rules (Decision 3, precisely)
 
-For each parsed event, match an existing game by `externalUid` + `teamId`:
+Matching key is `externalUid` + `externalSource` + `teamId` (architecture
+review Minor — added `externalSource` to prevent a cross-provider UID
+collision if a team ever switches feeds). Change detection compares
+`externalContentHash`, not `externalSequence` (Major 7b, see Schema changes).
 
 | Existing game | Feed says | Action |
 |---|---|---|
-| none | active | **create** (via SDK, `coaches` from team, `status: 'scheduled'`) |
-| `status === 'scheduled'`, same `SEQUENCE` | active | **skip** (no write) |
-| `status === 'scheduled'`, newer `SEQUENCE` | active | **update** date, opponent, home/away, venue |
-| `status !== 'scheduled'` | anything | **protect** — no write, counted as protected |
-| `status === 'scheduled'` | cancelled | set `externalCancelled: true`, **never delete** |
+| none | active | **create**, `ConditionExpression: attribute_not_exists(id)`, id = deterministic hash (Major 4), `coaches` from team, `status: 'scheduled'` |
+| `status === 'scheduled'`, same content hash | active | **skip** (no write) |
+| `status === 'scheduled'`, changed content hash | active | **update** — `UpdateCommand` with an explicit `SET` of only the import-owned attributes (never `PutCommand` — a full overwrite would clobber `elapsedSeconds`/`lastStartTime`/`ourScore`/`currentHalf`), `ConditionExpression: '#status = :scheduled AND attribute_exists(id)'` |
+| `status !== 'scheduled'` | anything | **protect** — no write attempted at all (checked before issuing the conditional update) |
+| `status === 'scheduled'` | cancelled | `UpdateCommand` setting `externalCancelled: true` only, same conditional guard, **never delete** |
 | exists, absent from feed | — | **leave alone** (feed windows are partial; absence is not cancellation) |
+
+**Read-then-write race (architecture review Major 3):** the Lambda lists games
+via `scanAll` before writing, so a coach could start a game between the scan
+and the write. Every update and cancel-flag write above carries
+`ConditionExpression: '#status = :scheduled'`; a `ConditionalCheckFailedException`
+on that condition is caught and counted as `protectedCount`, not surfaced as
+`failedCount` or an error — the same gap `assignTeamOwner` already closes with
+a conditional write on its own status check.
 
 Games created by hand (`externalUid == null`) are never touched. The
 "absent from feed" rule is deliberate and worth flagging to review: a genuinely
@@ -300,16 +454,40 @@ deleted game will linger. Detecting that safely needs a feed-window concept
 
 ## Phasing
 
+Reordered per architecture review Major 8: the original draft deferred the
+cancelled-game badge to Phase 4 while Phase 2 already writes
+`externalCancelled` — between those phases a coach's schedule would show a
+plain `scheduled` card for a match the feed says is cancelled, which is worse
+than not importing it. The shared-helper extraction also moves to the front of
+Phase 2 so the new handler is written against `teamAccess.ts`/`dynamo.ts`
+directly, not refactored into them afterward.
+
 1. **Parser and adapters, pure functions, no backend.** Highest test value, zero
-   deployment risk. Test fixture is the real downloaded `.ics`.
-2. **Schema fields plus `syncTeamCalendar` accepting `icsContent` only** (file
-   upload path). Ships a genuinely useful feature with **no SSRF surface at all**.
+   deployment risk. Test fixture is the real downloaded `.ics`, scrubbed of the
+   live URL (see Goal section and Risks).
+2. **Shared helpers, schema fields, and `syncTeamCalendar` accepting
+   `icsContent` only** (file upload path):
+   - `amplify/functions/shared/teamAccess.ts` and `shared/dynamo.ts` land first.
+   - Schema: `Game` fields, `Team` fields, the `CalendarFeed` model,
+     `CalendarSyncResult`, the mutation. `feedUrl` and `saveFeedUrl` arguments
+     are **hard-rejected** by the handler in this phase (not silently
+     ignored) — no client should be able to depend on pre-hardening URL-fetch
+     behavior before Phase 3 exists.
+   - Reconciliation, including the cancelled-flag write, ships complete —
+     it's the same code path as everything else in this phase.
+   - The `externalCancelled` badge on `Home.tsx` game cards ships **in this
+     phase**, not Phase 4, so cancelled-flagged data is never displayed as a
+     normal scheduled game.
+   - This ships a genuinely useful feature with **no SSRF surface at all**.
 3. **Hardened URL fetch, saved feed, Sync now.** The security section applies
-   entirely to this phase.
-4. **UI polish** — venue and arrive-by on cards, cancelled badges.
+   entirely to this phase, including the host allowlist.
+4. **UI polish** — venue and arrive-by on cards, the unverified-home/away badge,
+   `CalendarFeedSettings` link/unlink flow.
 5. **Later, not now:** EventBridge scheduled sync. Phase 3's handler is written to
    take `(teamId)` and do everything else itself, so the scheduler becomes a new
-   trigger over the same code, not a rewrite.
+   trigger over the same code, not a rewrite. Depends on the Phase-5 risk noted
+   under Schema changes: a per-team full-table scan is fine for on-demand
+   manual sync, not for N teams on a schedule — revisit the "no GSI" call then.
 
 Phases 1–2 are shippable on their own and make a reasonable first milestone.
 
@@ -324,32 +502,70 @@ Phases 1–2 are shippable on their own and make a reasonable first milestone.
   BOM, unknown `PRODID` falling back to the generic adapter.
 - **Security tests on `fetchFeed`:** `http://`, `file://`, `169.254.169.254`,
   `localhost`, a redirect chain ending at a private IP, an oversized response,
-  a timeout, a wrong content type.
+  a timeout, a wrong content type, a host outside the allowlist. Mocked
+  `dns`/`fetch` only — no real network or DNS dependency, and a
+  `// @vitest-environment node` docblock on these test files, since
+  [vitest.config.ts:8](../../vitest.config.ts:8) sets `jsdom` globally and this
+  repo already has documented full-suite flakiness under default test
+  concurrency that a network-dependent test would only add to.
 - **Handler tests** mirroring [create-game-safe/handler.test.ts](../../amplify/functions/create-game-safe/handler.test.ts):
   unauthenticated caller, non-coach caller, archived team, `coaches` population,
-  plus every row of the reconciliation table.
+  plus every row of the reconciliation table including the
+  `ConditionalCheckFailedException` → `protectedCount` race case (Major 3) and
+  a double-invocation idempotency test (Major 4).
 - **Component tests** for `CalendarFeedSettings` (link, sync, error display,
-  archived-team hiding) and the updated `Home.tsx` cards.
+  archived-team hiding) and the updated `Home.tsx` cards (cancelled badge,
+  unverified-home/away badge, `pendingCreatedGames` absorbing sync results).
 - **E2E smoke:** upload a fixture `.ics`, assert the games appear on the home
   schedule.
 - `npm run gate:commit` green before each commit.
 
 ## Risks and open questions
 
-1. **Provider allowlist vs. generic feeds** (security item 7) — needs a decision
-   before Phase 3. Recommendation: allowlist for v1, since file upload already
-   covers arbitrary providers.
+Updated after architecture review round 1 (see the "Approved as designed" /
+"Required plan changes" list that closed that review, folded into the
+sections above).
+
+1. ~~Provider allowlist vs. generic feeds~~ — **resolved**: host allowlist for
+   the URL path (security item 7), since file upload already covers arbitrary
+   providers.
 2. **Auto-apply with a heuristic parser.** Decision 3 means a misparsed opponent
-   or a flipped home/away lands in the data with no human check. Mitigation: only
-   the PlayMetrics adapter is confident enough to set `isHome`; the generic
-   adapter leaves it at the existing default for the coach to fix. Worth
-   confirming that split is acceptable.
-3. **The feed URL is a bearer credential** stored in DynamoDB. Encrypted at rest
-   by default and scoped by `ownersDefinedIn('coaches')` — but every coach on a
-   shared team can read it. Acceptable; noted.
+   or a flipped home/away lands in the data with no human check. Mitigation
+   (revised): the PlayMetrics adapter is confident enough to set `isHome`
+   directly; the generic adapter now has an explicit fallback (`isHome: false`
+   plus `externalHomeAwayUnverified: true` plus a warning) rather than "the
+   existing default" — `isHome` has no schema default to fall back to. Worth
+   confirming the fallback value and the unverified-badge UX are acceptable.
+3. **The feed URL is a bearer credential.** Revised per architecture review
+   Major 1: it no longer lives on `Team` (broadcast to every screen via
+   `observeQuery`) — it lives in the new isolated `CalendarFeed` model, queried
+   only by the settings panel. Still DynamoDB-encrypted-at-rest and scoped by
+   `ownersDefinedIn('coaches')`; every coach on a shared team can still read
+   it, same as any other shared-team data. Acceptable; noted.
 4. **`X-WR-CALNAME` may not end in " Games"** on other PlayMetrics feed types.
    The alias is stored and editable, so a wrong guess is correctable, not fatal.
-5. **Deleted-from-feed games linger** (reconciliation table, last row).
-6. **Play time and rotation data are untouched** by import — imported games are
-   plain `scheduled` games and flow into the existing planner unchanged. No
-   interaction with `PlayTimeRecord` or `GamePlan`.
+5. **Deleted-from-feed games linger** (reconciliation table, last row) — accepted
+   gap, needs a feed-window concept to close, deferred.
+6. **`externalCancelled` games are not filtered from `GamePlanner` or
+   `SeasonReport`** (architecture review Minor). A cancelled-but-`scheduled`
+   game still appears in both today. Accepted as a v1 gap rather than expanding
+   this change's file list into the planner/report — flagged for a follow-up
+   if it proves confusing in practice. Play time and rotation data are
+   otherwise untouched by import: imported games are plain `scheduled` games
+   with no other interaction with `PlayTimeRecord` or `GamePlan`.
+7. **Unlink semantics** (architecture review Minor): unlinking deletes the
+   `CalendarFeed` row and clears the `Team` status fields; `Game.external*`
+   fields on already-imported games are preserved untouched, so a future
+   re-link re-matches by `externalUid` instead of creating duplicates.
+8. **DST wall-time rule, decided** (was open in the original draft): a
+   nonexistent spring-forward wall time is shifted forward by the gap; an
+   ambiguous fall-back wall time uses the earlier (pre-transition) offset.
+   `arriveByTime` is resolved against the event's own local date and TZID, and
+   a parsed arrive-by that lands after `DTSTART` is dropped with a warning
+   rather than stored, since that pattern indicates a misparsed description
+   line rather than a real arrive-by time.
+9. **Retrofitting the five existing handlers onto the new `shared/teamAccess.ts`
+   / `shared/dynamo.ts` helpers** (architecture review Major 6) is explicitly
+   out of scope for this change — noted as a follow-up, not attempted here, to
+   avoid touching already-audited authz code as a side effect of an unrelated
+   feature.
