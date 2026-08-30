@@ -90,4 +90,31 @@ describe('get-user-invitations handler', () => {
       expect.objectContaining({ id: 'invite-2', status: 'PENDING' })
     );
   });
+
+  it('scans with ConsistentRead so a just-created invitation is never missed on a stale replica', async () => {
+    mockCognitoSend.mockResolvedValue({
+      UserAttributes: [{ Name: 'email', Value: 'coach@example.com' }],
+    });
+    mockSend
+      .mockResolvedValueOnce({ Items: [] }) // main scan: nothing found
+      .mockResolvedValueOnce({ Items: [] }); // debug scan, triggered when nothing found
+
+    const event = {
+      arguments: {},
+      identity: {
+        username: 'e10bf580-d061-70af-b880-6d3121479a85',
+        sub: 'e10bf580-d061-70af-b880-6d3121479a85',
+        claims: {},
+      },
+    } as HandlerEvent;
+
+    await invoke(event);
+
+    expect(mockSend).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        input: expect.objectContaining({ ConsistentRead: true }),
+      })
+    );
+  });
 });
