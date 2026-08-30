@@ -98,8 +98,12 @@ export function Home() {
   const [importTeamId, setImportTeamId] = useState('');
   const [isCheckingImport, setIsCheckingImport] = useState(false);
   const [importPreview, setImportPreview] = useState<CalendarSyncResult | null>(null);
-  const [importPreviewArgs, setImportPreviewArgs] = useState<{ teamId: string; icsContent: string } | null>(null);
+  const [importPreviewArgs, setImportPreviewArgs] = useState<{ teamId: string; icsContent?: string } | null>(null);
   const [isApplyingImport, setIsApplyingImport] = useState(false);
+  // Once a feed is saved for a team, that team's slot in the panel offers
+  // "Sync now" (re-sync the saved feed) instead of a file picker, with a
+  // small fallback toggle back to file upload (Phase 3+ CTA rule).
+  const [showFileFallback, setShowFileFallback] = useState(false);
 
   const scheduleGameButtonRef = useRef<HTMLButtonElement>(null);
   const { getSwipeProps, getSwipeStyle, close: closeSwipe } = useSwipeDelete({ openWidthPx: 160, maxDistancePx: 180 });
@@ -514,6 +518,7 @@ export function Home() {
     setImportTeamId('');
     setImportPreview(null);
     setImportPreviewArgs(null);
+    setShowFileFallback(false);
   }, []);
 
   const handleImportFileSelected = useCallback(async (file: File) => {
@@ -550,6 +555,32 @@ export function Home() {
     } catch (error) {
       console.error('Failed to preview calendar import', error);
       showError(error instanceof Error ? error.message : 'Failed to check calendar file');
+    } finally {
+      setIsCheckingImport(false);
+    }
+  }, [importTeamId, resetImportPanel]);
+
+  // "Sync now" (Phase 3+): re-syncs the team's already-saved feed — no
+  // feedUrl/icsContent argument, so the Lambda fetches from the saved
+  // CalendarFeed row. Same dryRun-preview/no-op-toast flow as the file path.
+  const handleSyncNowForSelectedTeam = useCallback(async () => {
+    if (!importTeamId) {
+      showWarning('Select a team first');
+      return;
+    }
+    setIsCheckingImport(true);
+    try {
+      const result = await syncTeamCalendar({ teamId: importTeamId, dryRun: true });
+      if (isImportResultNoOp(result)) {
+        showSuccess('No changes — schedule already up to date');
+        resetImportPanel();
+        return;
+      }
+      setImportPreview(result);
+      setImportPreviewArgs({ teamId: importTeamId });
+    } catch (error) {
+      console.error('Failed to preview calendar sync', error);
+      showError(error instanceof Error ? error.message : 'Failed to check calendar feed');
     } finally {
       setIsCheckingImport(false);
     }
@@ -713,6 +744,15 @@ export function Home() {
   const scheduledGames = gamesForDisplay.filter(g => (g.status || 'scheduled') === 'scheduled');
   const completedGames = gamesForDisplay.filter(g => g.status === 'completed');
 
+  // Calendar Feed Import CTA state (Phase 3+ relabeling rule): once at least
+  // one active team has a saved feed, the trigger becomes "Sync now"; the
+  // panel then offers a re-sync of the selected team's saved feed, with a
+  // fallback toggle back to file upload.
+  const hasAnyLinkedFeed = activeTeams.some((t) => Boolean(t.calendarFeedHost));
+  const selectedImportTeam = activeTeams.find((t) => t.id === importTeamId);
+  const selectedTeamHasFeed = Boolean(selectedImportTeam?.calendarFeedHost);
+  const showFileInput = !selectedTeamHasFeed || showFileFallback || !importTeamId;
+
   if (authStatus !== 'authenticated') return null;
 
   return (
@@ -762,17 +802,26 @@ export function Home() {
           onClick={() => setIsImportingCalendar(true)}
           className="btn-secondary calendar-import-trigger"
         >
-          📅 Import from calendar
+          {hasAnyLinkedFeed ? '🔄 Sync now' : '📅 Import from calendar'}
         </button>
       )}
 
       {isImportingCalendar && (
         <div className="create-form calendar-import-panel">
-          <h3>Import from Calendar</h3>
-          <p className="calendar-import-hint">Upload a team schedule .ics file to import games.</p>
+          <h3>{selectedTeamHasFeed && !showFileFallback ? 'Sync Calendar' : 'Import from Calendar'}</h3>
+          {!selectedTeamHasFeed || showFileFallback ? (
+            <p className="calendar-import-hint">Upload a team schedule .ics file to import games.</p>
+          ) : (
+            <p className="calendar-import-hint">
+              Linked to <strong>{selectedImportTeam?.calendarFeedHost}</strong>. Re-sync to pick up changes.
+            </p>
+          )}
           <select
             value={importTeamId}
-            onChange={(e) => setImportTeamId(e.target.value)}
+            onChange={(e) => {
+              setImportTeamId(e.target.value);
+              setShowFileFallback(false);
+            }}
             disabled={isCheckingImport}
             aria-label="Team to import games for"
           >
@@ -783,17 +832,39 @@ export function Home() {
               </option>
             ))}
           </select>
-          <input
-            type="file"
-            accept=".ics,text/calendar"
-            disabled={!importTeamId || isCheckingImport}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void handleImportFileSelected(file);
-              e.target.value = '';
-            }}
-            aria-label="Calendar .ics file"
-          />
+
+          {showFileInput ? (
+            <input
+              type="file"
+              accept=".ics,text/calendar"
+              disabled={!importTeamId || isCheckingImport}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleImportFileSelected(file);
+                e.target.value = '';
+              }}
+              aria-label="Calendar .ics file"
+            />
+          ) : (
+            <>
+              <button
+                onClick={() => void handleSyncNowForSelectedTeam()}
+                className="btn-primary"
+                disabled={isCheckingImport}
+              >
+                {isCheckingImport ? 'Checking…' : '🔄 Sync now'}
+              </button>
+              <button
+                type="button"
+                className="btn-link calendar-import-file-fallback"
+                onClick={() => setShowFileFallback(true)}
+                disabled={isCheckingImport}
+              >
+                or upload a file instead
+              </button>
+            </>
+          )}
+
           {isCheckingImport && <p className="calendar-import-status">Checking…</p>}
           <div className="form-actions">
             <button onClick={resetImportPanel} className="btn-secondary" disabled={isCheckingImport}>

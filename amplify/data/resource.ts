@@ -16,6 +16,7 @@ import { restoreTeam } from "../functions/restore-team/resource";
 import { assignTeamOwner } from "../functions/assign-team-owner/resource";
 import { createGameSafe } from "../functions/create-game-safe/resource";
 import { syncTeamCalendar } from "../functions/sync-team-calendar/resource";
+import { unlinkTeamCalendar } from "../functions/unlink-team-calendar/resource";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -611,6 +612,20 @@ const schema = a.schema({
     .returns(a.ref('CalendarSyncResult'))
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(syncTeamCalendar)),
+
+  // Small dedicated Lambda mirroring the archiveTeam/restoreTeam pattern
+  // (one purpose-specific function per action) rather than overloading
+  // syncTeamCalendar with an unlink mode. Deletes the team's CalendarFeed
+  // row and clears the five Team status fields; Game.external* fields on
+  // already-imported games are left untouched.
+  unlinkTeamCalendar: a
+    .mutation()
+    .arguments({
+      teamId: a.string().required(),
+    })
+    .returns(a.boolean())
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(unlinkTeamCalendar)),
 
   QueuedSubstitution: a
     .model({

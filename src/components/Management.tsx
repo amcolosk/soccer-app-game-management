@@ -39,6 +39,7 @@ import type { HelpScreenKey } from '../help';
 import { buildFlatDebugSnapshot } from '../utils/debugUtils';
 import type { ManagementDebugContext } from '../types/debug';
 import { FormationVisualEditor } from './FormationVisualEditor';
+import { CalendarFeedSettings } from './CalendarFeedSettings';
 import type { DraftPosition } from './FormationVisualEditor';
 
 const client = generateClient<Schema>();
@@ -1123,6 +1124,13 @@ export function Management() {
                 </button>
               </div>
             </div>
+          )}
+
+          {teamForm.editing && (
+            <CalendarFeedSettings
+              team={teamForm.editing}
+              onTeamDataChanged={() => setTeamRefreshKey((k) => k + 1)}
+            />
           )}
 
           {teamForm.isCreating && (

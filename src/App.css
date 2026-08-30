@@ -8374,6 +8374,12 @@
   font-style: italic;
 }
 
+.calendar-import-file-fallback {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.85em;
+}
+
 /* Preview modal — slide-up sheet on phone, matching RotationWidget's
    modal-overlay/modal-content pattern (UI-SPEC §8). */
 .calendar-import-preview-modal {

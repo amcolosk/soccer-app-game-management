@@ -1,13 +1,15 @@
 import type { AppSyncIdentityCognito } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { Schema } from '../../data/resource';
 import { assertTeamAccess } from '../shared/teamAccess';
 import { scanAll, type DbItem } from '../shared/dynamo';
 import { parseICalendar, ICalParseError } from '../shared/ical/parser';
-import { selectAdapter } from '../shared/ical/adapters';
+import { selectAdapter, playmetricsAdapter } from '../shared/ical/adapters';
+import { deriveUsName } from '../shared/ical/adapters/playmetrics';
 import type { GameImportRecord } from '../shared/ical/adapters/types';
 import { computeContentHash, deriveDeterministicGameId } from '../shared/ical/contentHash';
+import { fetchFeed, FeedFetchError } from './fetchFeed';
 
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
@@ -45,38 +47,96 @@ export const handler: Handler = async (event) => {
 
   const { teamId, feedUrl, icsContent, saveFeedUrl, dryRun } = event.arguments;
 
-  // Phase 2 scope (docs/plans/CALENDAR-FEED-GAME-IMPORT-PLAN.md, Phasing):
-  // only the file-upload (`icsContent`) path is implemented. `feedUrl` and
-  // `saveFeedUrl` are hard-rejected -- not silently ignored -- so no client
-  // can come to depend on pre-hardening URL-fetch behavior before Phase 3's
-  // SSRF controls exist.
-  if (feedUrl !== undefined && feedUrl !== null) {
-    throw new Error('Syncing from a feed URL is not available yet. Upload an .ics file instead.');
-  }
-  if (saveFeedUrl) {
-    throw new Error('Saving a feed URL is not available yet. Upload an .ics file instead.');
-  }
-  if (typeof icsContent !== 'string' || icsContent.trim().length === 0) {
-    throw new Error('icsContent is required');
-  }
+  const hasIcsContent = typeof icsContent === 'string' && icsContent.trim().length > 0;
+  const hasFeedUrl = typeof feedUrl === 'string' && feedUrl.trim().length > 0;
 
-  if (Buffer.byteLength(icsContent, 'utf8') > MAX_ICS_CONTENT_BYTES) {
+  if (hasIcsContent && Buffer.byteLength(icsContent!, 'utf8') > MAX_ICS_CONTENT_BYTES) {
     throw new Error('Calendar file is too large (max 512 KB).');
   }
 
   const gameTable = process.env.GAME_TABLE;
   const teamTable = process.env.TEAM_TABLE;
-  if (!gameTable || !teamTable) {
+  const calendarFeedTable = process.env.CALENDAR_FEED_TABLE;
+  if (!gameTable || !teamTable || (!hasIcsContent && !calendarFeedTable)) {
     throw new Error('Required environment variables are not set');
   }
 
-  const { coaches } = await assertTeamAccess(docClient, teamTable, teamId, callerSub, {
+  const { team, coaches } = await assertTeamAccess(docClient, teamTable, teamId, callerSub, {
     archivedMessage: 'Cannot sync a calendar for an archived team. Restore the team first.',
   });
 
+  const commit = dryRun !== true;
+  const nowIso = new Date().toISOString();
+
+  // Resolve the bytes to parse: the file-upload path (icsContent) takes
+  // precedence when both are somehow supplied; otherwise the URL path
+  // fetches from `feedUrl` (linking/replacing) or, if that's omitted, from
+  // whatever CalendarFeed row is already saved for this team (re-sync).
+  // Derived Decision B: both entry points funnel through this one handler.
+  let effectiveIcsContent: string;
+  let usedUrlPath = false;
+  let resolvedHost: string | undefined;
+
+  if (hasIcsContent) {
+    effectiveIcsContent = icsContent!;
+  } else {
+    if (!calendarFeedTable) {
+      throw new Error('Required environment variables are not set');
+    }
+    usedUrlPath = true;
+    let urlToFetch: string;
+    if (hasFeedUrl) {
+      urlToFetch = feedUrl!.trim();
+    } else {
+      const feedRow = await docClient.send(new GetCommand({
+        TableName: calendarFeedTable,
+        Key: { teamId },
+      }));
+      const savedUrl = (feedRow.Item as { url?: string } | undefined)?.url;
+      if (!savedUrl) {
+        throw new Error('No saved calendar feed for this team. Provide a feed URL or upload a file.');
+      }
+      urlToFetch = savedUrl;
+    }
+
+    try {
+      resolvedHost = new URL(urlToFetch).hostname;
+    } catch {
+      resolvedHost = undefined;
+    }
+
+    try {
+      effectiveIcsContent = await fetchFeed(urlToFetch);
+    } catch (error) {
+      const message = error instanceof FeedFetchError ? error.message : 'Could not fetch the calendar feed.';
+      if (commit) {
+        // Item 6 (Security requirements): calendarFeedLastError is a
+        // sanitized message (FeedFetchError never includes the raw URL) --
+        // safe to persist and render back to the coach.
+        await docClient.send(new UpdateCommand({
+          TableName: teamTable,
+          Key: { id: teamId },
+          UpdateExpression: 'SET calendarFeedHost = :host, calendarFeedLastError = :err, updatedAt = :now',
+          ExpressionAttributeValues: { ':host': resolvedHost ?? null, ':err': message, ':now': nowIso },
+        })).catch(() => { /* best-effort status write; the real failure is surfaced below regardless */ });
+      }
+      throw new Error(message);
+    }
+
+    // Only persist a URL that actually fetched successfully -- saveFeedUrl
+    // never stores an unvalidated or unreachable URL. Skipped on dryRun to
+    // preserve its write-nothing contract.
+    if (commit && saveFeedUrl && hasFeedUrl) {
+      await docClient.send(new PutCommand({
+        TableName: calendarFeedTable,
+        Item: { teamId, url: urlToFetch },
+      }));
+    }
+  }
+
   let parsed;
   try {
-    parsed = parseICalendar(icsContent);
+    parsed = parseICalendar(effectiveIcsContent);
   } catch (error) {
     if (error instanceof ICalParseError) {
       throw new Error(`Could not parse calendar file: ${error.message}`);
@@ -98,9 +158,6 @@ export const handler: Handler = async (event) => {
   }
 
   const existingGames = await scanAll(docClient, gameTable, 'teamId = :teamId', { ':teamId': teamId });
-
-  const commit = dryRun !== true;
-  const nowIso = new Date().toISOString();
 
   const createdGames: DbItem[] = [];
   const updatedGames: DbItem[] = [];
@@ -370,6 +427,41 @@ export const handler: Handler = async (event) => {
       counters.failedCount += 1;
       const message = error instanceof Error ? error.message : String(error);
       warnings.push(`Failed to sync "${record.opponent}": ${message}`);
+    }
+  }
+
+  // Team status fields (calendarFeedProvider/TeamAlias/Host/LastSyncedAt/
+  // LastError) are only touched by the URL path -- a one-off file upload
+  // doesn't change what feed (if any) is linked to this team. Skipped on
+  // dryRun (write-nothing contract) and best-effort: a failure here must not
+  // fail a sync whose games already wrote successfully.
+  if (commit && usedUrlPath) {
+    // "Persist the detected name on first successful sync, and let the
+    // coach correct it" (Schema changes, home/away trap section) -- once
+    // set, a later sync must not clobber a coach's correction.
+    const existingAlias = (team as { calendarFeedTeamAlias?: string | null }).calendarFeedTeamAlias;
+    const detectedAlias = adapter === playmetricsAdapter ? deriveUsName(parsed.calendar.calName) : null;
+    const updateExpr = existingAlias
+      ? 'SET calendarFeedProvider = :provider, calendarFeedHost = :host, calendarFeedLastSyncedAt = :now, calendarFeedLastError = :noError, updatedAt = :now'
+      : 'SET calendarFeedProvider = :provider, calendarFeedTeamAlias = :alias, calendarFeedHost = :host, calendarFeedLastSyncedAt = :now, calendarFeedLastError = :noError, updatedAt = :now';
+    const values: Record<string, unknown> = {
+      ':provider': adapter.name,
+      ':host': resolvedHost ?? null,
+      ':now': nowIso,
+      ':noError': null,
+    };
+    if (!existingAlias) {
+      values[':alias'] = detectedAlias;
+    }
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: teamTable,
+        Key: { id: teamId },
+        UpdateExpression: updateExpr,
+        ExpressionAttributeValues: values,
+      }));
+    } catch {
+      // Best-effort; the sync itself already succeeded.
     }
   }
 

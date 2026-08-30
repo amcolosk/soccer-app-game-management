@@ -26,3 +26,13 @@ export async function syncTeamCalendar(input: SyncTeamCalendarInput): Promise<No
   const result = await client.mutations.syncTeamCalendar(input);
   return assertMutationResult(result, 'Failed to sync calendar');
 }
+
+/**
+ * Owner/coach-authenticated. Deletes the team's saved `CalendarFeed` row and
+ * clears the five `Team` status fields. Does not touch already-imported
+ * `Game.external*` fields (see Risks — Unlink semantics).
+ */
+export async function unlinkTeamCalendar(teamId: string): Promise<boolean> {
+  const result = await client.mutations.unlinkTeamCalendar({ teamId });
+  return assertMutationResult(result, 'Failed to unlink calendar');
+}

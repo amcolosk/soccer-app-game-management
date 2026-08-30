@@ -973,3 +973,82 @@ describe('Home — Calendar Feed Import (Phase 2, file-upload path)', () => {
   });
 });
 
+describe('Home — Calendar Feed Import (Phase 3, "Sync now" relabeling)', () => {
+  beforeEach(resetState);
+
+  it('shows "Import from calendar" when no active team has a linked feed', () => {
+    teamQueryResult.data = [{ id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], calendarFeedHost: null }];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    expect(screen.getByRole('button', { name: /import from calendar/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^sync now$/i })).not.toBeInTheDocument();
+  });
+
+  it('shows "Sync now" when at least one active team has a linked feed', () => {
+    teamQueryResult.data = [
+      { id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], calendarFeedHost: 'calendar.playmetrics.com' },
+    ];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    expect(screen.getByRole('button', { name: /sync now/i })).toBeInTheDocument();
+  });
+
+  it('shows a "Sync now" action (not a file input) in the panel once a team with a linked feed is selected, plus an "upload a file instead" fallback', () => {
+    teamQueryResult.data = [
+      { id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], calendarFeedHost: 'calendar.playmetrics.com' },
+    ];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /sync now/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+
+    expect(screen.queryByLabelText(/calendar \.ics file/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /or upload a file instead/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /or upload a file instead/i }));
+    expect(screen.getByLabelText(/calendar \.ics file/i)).toBeInTheDocument();
+  });
+
+  it('"Sync now" calls syncTeamCalendar with no icsContent (re-syncs the saved feed)', async () => {
+    teamQueryResult.data = [
+      { id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], calendarFeedHost: 'calendar.playmetrics.com' },
+    ];
+    teamQueryResult.isSynced = true;
+    mockSyncTeamCalendar.mockResolvedValue({
+      createdGames: [], updatedGames: [], skippedCount: 2, cancelledCount: 0,
+      adoptedCount: 0, protectedCount: 0, failedCount: 0, warnings: [],
+    });
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /sync now/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+
+    // Panel's own "Sync now" action button, distinct from the outer trigger.
+    const panelButtons = screen.getAllByRole('button', { name: /sync now/i });
+    fireEvent.click(panelButtons[panelButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(mockSyncTeamCalendar).toHaveBeenCalledWith({ teamId: 'team-1', dryRun: true });
+    });
+  });
+
+  it('a team without a linked feed still shows the file input even when "Sync now" is the trigger label', () => {
+    teamQueryResult.data = [
+      { id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], calendarFeedHost: 'calendar.playmetrics.com' },
+      { id: 'team-2', name: 'Hawks', coaches: ['test-user-id'], calendarFeedHost: null },
+    ];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /sync now/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-2' } });
+
+    expect(screen.getByLabelText(/calendar \.ics file/i)).toBeInTheDocument();
+  });
+});
+

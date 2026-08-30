@@ -14,7 +14,14 @@ vi.mock('@aws-sdk/lib-dynamodb', () => ({
   ScanCommand: vi.fn(function (input) { return { __type: 'ScanCommand', input }; }),
 }));
 
+const mockFetchFeed = vi.hoisted(() => vi.fn());
+vi.mock('./fetchFeed', async () => {
+  const actual = await vi.importActual<typeof import('./fetchFeed')>('./fetchFeed');
+  return { ...actual, fetchFeed: mockFetchFeed };
+});
+
 import { handler } from './handler';
+import { FeedFetchError } from './fetchFeed';
 import type { Schema } from '../../data/resource';
 
 type HandlerEvent = Parameters<typeof handler>[0];
@@ -63,10 +70,16 @@ describe('sync-team-calendar handler', () => {
     vi.clearAllMocks();
     process.env.GAME_TABLE = 'GameTable';
     process.env.TEAM_TABLE = 'TeamTable';
+    process.env.CALENDAR_FEED_TABLE = 'CalendarFeedTable';
+    mockFetchFeed.mockReset();
 
     mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
-      if (command.__type === 'GetCommand') {
+      const tableName = command.input?.TableName;
+      if (command.__type === 'GetCommand' && tableName === 'TeamTable') {
         return { Item: activeTeam };
+      }
+      if (command.__type === 'GetCommand' && tableName === 'CalendarFeedTable') {
+        return { Item: undefined };
       }
       if (command.__type === 'ScanCommand') {
         return { Items: [] };
@@ -99,17 +112,9 @@ describe('sync-team-calendar handler', () => {
     await expect(invoke(createEvent())).rejects.toThrow(/archived/i);
   });
 
-  it('hard-rejects feedUrl in Phase 2 (not silently ignored)', async () => {
-    await expect(invoke(createEvent({ feedUrl: 'https://calendar.playmetrics.com/x' })))
-      .rejects.toThrow(/not available yet/i);
-  });
-
-  it('hard-rejects saveFeedUrl in Phase 2', async () => {
-    await expect(invoke(createEvent({ saveFeedUrl: true }))).rejects.toThrow(/not available yet/i);
-  });
-
-  it('rejects when icsContent is missing', async () => {
-    await expect(invoke(createEvent({ icsContent: undefined }))).rejects.toThrow('icsContent is required');
+  it('rejects when neither icsContent nor feedUrl is supplied and there is no saved feed', async () => {
+    await expect(invoke(createEvent({ icsContent: undefined })))
+      .rejects.toThrow(/no saved calendar feed/i);
   });
 
   it('rejects icsContent larger than 512 KB (server-side enforcement of the advisory client cap)', async () => {
@@ -375,5 +380,110 @@ describe('sync-team-calendar handler', () => {
     expect(result.failedCount).toBe(1);
     expect(result.createdGames).toHaveLength(1);
     expect(result.createdGames![0]!.externalUid).toBe('Game_good');
+  });
+});
+
+describe('sync-team-calendar handler — Phase 3 URL-fetch path', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.GAME_TABLE = 'GameTable';
+    process.env.TEAM_TABLE = 'TeamTable';
+    process.env.CALENDAR_FEED_TABLE = 'CalendarFeedTable';
+    mockFetchFeed.mockReset();
+    mockFetchFeed.mockResolvedValue(buildIcs([newEventIcs('Game_url_1', 'Rivals FC')]));
+
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      const tableName = command.input?.TableName;
+      if (command.__type === 'GetCommand' && tableName === 'TeamTable') return { Item: activeTeam };
+      if (command.__type === 'GetCommand' && tableName === 'CalendarFeedTable') return { Item: undefined };
+      if (command.__type === 'ScanCommand') return { Items: [] };
+      if (command.__type === 'PutCommand' || command.__type === 'UpdateCommand') return { Attributes: { id: 'updated-1' } };
+      return {};
+    });
+  });
+
+  it('fetches from feedUrl when icsContent is omitted, and creates games from the fetched content', async () => {
+    const result = await invoke(createEvent({ icsContent: undefined, feedUrl: 'https://calendar.playmetrics.com/team.ics' }));
+    expect(mockFetchFeed).toHaveBeenCalledWith('https://calendar.playmetrics.com/team.ics');
+    expect(result.createdGames).toHaveLength(1);
+  });
+
+  it('re-syncs from the saved CalendarFeed row when neither icsContent nor feedUrl is supplied', async () => {
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      const tableName = command.input?.TableName;
+      if (command.__type === 'GetCommand' && tableName === 'TeamTable') return { Item: activeTeam };
+      if (command.__type === 'GetCommand' && tableName === 'CalendarFeedTable') {
+        return { Item: { teamId: 'team-1', url: 'https://calendar.playmetrics.com/saved.ics' } };
+      }
+      if (command.__type === 'ScanCommand') return { Items: [] };
+      if (command.__type === 'PutCommand' || command.__type === 'UpdateCommand') return { Attributes: {} };
+      return {};
+    });
+
+    const result = await invoke(createEvent({ icsContent: undefined, feedUrl: undefined }));
+    expect(mockFetchFeed).toHaveBeenCalledWith('https://calendar.playmetrics.com/saved.ics');
+    expect(result.createdGames).toHaveLength(1);
+  });
+
+  it('persists a CalendarFeed row when saveFeedUrl is true and the fetch succeeds', async () => {
+    await invoke(createEvent({ icsContent: undefined, feedUrl: 'https://calendar.playmetrics.com/team.ics', saveFeedUrl: true }));
+    const putCall = mockSend.mock.calls.find(([c]) => c.__type === 'PutCommand' && c.input.TableName === 'CalendarFeedTable');
+    expect(putCall).toBeDefined();
+    expect(putCall![0].input.Item).toEqual({ teamId: 'team-1', url: 'https://calendar.playmetrics.com/team.ics' });
+  });
+
+  it('does not persist a CalendarFeed row when saveFeedUrl is true but dryRun is true (write-nothing contract)', async () => {
+    await invoke(createEvent({ icsContent: undefined, feedUrl: 'https://calendar.playmetrics.com/team.ics', saveFeedUrl: true, dryRun: true }));
+    const putCall = mockSend.mock.calls.find(([c]) => c.__type === 'PutCommand' && c.input.TableName === 'CalendarFeedTable');
+    expect(putCall).toBeUndefined();
+  });
+
+  it('does not persist a CalendarFeed row when the fetch fails, even if saveFeedUrl is true', async () => {
+    mockFetchFeed.mockRejectedValue(new FeedFetchError('Calendar host is not on the supported list'));
+    await expect(invoke(createEvent({ icsContent: undefined, feedUrl: 'https://evil.example.com/x', saveFeedUrl: true })))
+      .rejects.toThrow(/not on the supported list/i);
+    const putCall = mockSend.mock.calls.find(([c]) => c.__type === 'PutCommand' && c.input.TableName === 'CalendarFeedTable');
+    expect(putCall).toBeUndefined();
+  });
+
+  it('persists a sanitized calendarFeedLastError on the Team when the fetch fails', async () => {
+    mockFetchFeed.mockRejectedValue(new FeedFetchError('Calendar host resolves to a disallowed address'));
+    await expect(invoke(createEvent({ icsContent: undefined, feedUrl: 'https://calendar.playmetrics.com/team.ics' })))
+      .rejects.toThrow('Calendar host resolves to a disallowed address');
+
+    const updateCall = mockSend.mock.calls.find(([c]) => c.__type === 'UpdateCommand' && c.input.TableName === 'TeamTable');
+    expect(updateCall).toBeDefined();
+    expect(updateCall![0].input.ExpressionAttributeValues[':err']).toBe('Calendar host resolves to a disallowed address');
+  });
+
+  it('updates Team status fields (provider, host, lastSyncedAt) on a successful URL-path sync', async () => {
+    await invoke(createEvent({ icsContent: undefined, feedUrl: 'https://calendar.playmetrics.com/team.ics' }));
+    const updateCall = mockSend.mock.calls.find(([c]) => c.__type === 'UpdateCommand' && c.input.TableName === 'TeamTable');
+    expect(updateCall).toBeDefined();
+    expect(updateCall![0].input.ExpressionAttributeValues[':host']).toBe('calendar.playmetrics.com');
+    expect(updateCall![0].input.ExpressionAttributeValues[':provider']).toBeDefined();
+  });
+
+  it('does not update Team calendarFeed* status fields for a plain file-upload sync (icsContent path)', async () => {
+    await invoke(createEvent({ icsContent: buildIcs([newEventIcs('Game_file_1')]), feedUrl: undefined }));
+    const teamUpdateCall = mockSend.mock.calls.find(([c]) => c.__type === 'UpdateCommand' && c.input.TableName === 'TeamTable');
+    expect(teamUpdateCall).toBeUndefined();
+  });
+
+  it('sets calendarFeedTeamAlias on first successful sync but does not overwrite an existing (coach-corrected) alias', async () => {
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      const tableName = command.input?.TableName;
+      if (command.__type === 'GetCommand' && tableName === 'TeamTable') {
+        return { Item: { ...activeTeam, calendarFeedTeamAlias: 'Coach Corrected Name' } };
+      }
+      if (command.__type === 'GetCommand' && tableName === 'CalendarFeedTable') return { Item: undefined };
+      if (command.__type === 'ScanCommand') return { Items: [] };
+      if (command.__type === 'PutCommand' || command.__type === 'UpdateCommand') return { Attributes: {} };
+      return {};
+    });
+
+    await invoke(createEvent({ icsContent: undefined, feedUrl: 'https://calendar.playmetrics.com/team.ics' }));
+    const updateCall = mockSend.mock.calls.find(([c]) => c.__type === 'UpdateCommand' && c.input.TableName === 'TeamTable');
+    expect(updateCall![0].input.ExpressionAttributeValues[':alias']).toBeUndefined();
   });
 });
