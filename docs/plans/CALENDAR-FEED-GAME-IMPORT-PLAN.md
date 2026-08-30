@@ -1,9 +1,9 @@
 # Calendar Feed Game Import — Implementation Plan
 
-**Status:** Revised after architecture review round 2 — approved for implementation
-(round 2 found four new Majors introduced by round 1's own fixes, all folded in
-below; per the review's own assessment these were localized schema/plan edits,
-not architecture changes, so no round 3 was run — this is the 2-round loop cap)
+**Status:** Revised after architecture review round 2 (approved) and UI review
+round 1 (approved architecture; found four Major UI/UX gaps — dryRun had no UI
+wiring, the adopted badge wasn't persisted, Unlink had no confirm step, no
+loading/error states were specified — all folded in below)
 **Date:** 2026-08-29
 
 ## Goal
@@ -252,6 +252,16 @@ externalContentHash: a.string(),    // sha256 of the import-owned fields; drives
 externalSyncedAt: a.datetime(),
 externalCancelled: a.boolean(),     // feed says CANCELLED; game kept + flagged
 externalHomeAwayUnverified: a.boolean(), // generic adapter guessed isHome; see below
+externalAdoptedAt: a.datetime(),    // set once, when a hand-created game is
+                                     // matched to a feed event (see
+                                     // Reconciliation rules); never cleared.
+                                     // UI review round 1: without a persisted
+                                     // field, the "adopted" badge was scoped
+                                     // to the single sync result and vanished
+                                     // on reload — the one case where a
+                                     // coach's own typed data was silently
+                                     // overwritten would have had no durable
+                                     // indicator on the game itself
 // locationName/locationAddress/arriveByTime are feed-owned but coach-editable
 // (see "Coach edits vs. re-sync" below): the feed overwrites them on every
 // content-hash change, so a hand correction survives only until the next sync.
@@ -474,10 +484,10 @@ would need re-checking.
 | File | Change |
 |---|---|
 | `src/services/calendarSyncService.ts` *(new)* | Thin wrapper over `client.mutations.syncTeamCalendar` and `client.mutations.unlinkTeamCalendar`, using `assertMutationResult` like [gameService.ts](../../src/services/gameService.ts). No `client.models.CalendarFeed.*` calls anywhere — that model has no client grants (Major A). |
-| `src/components/Home.tsx` | Owns the sync entry point from **Phase 2 onward** (round-2 fix — see Phasing; this was contradictorily assigned to `CalendarFeedSettings.tsx` in round 1 while that component was also stated not to trigger sync). Phase 2: an "Import from calendar" file picker calling `syncTeamCalendar` with `icsContent`. Phase 3 adds "Sync now" (re-syncs the saved feed, no arguments needed) next to it. This is where `pendingCreatedGames` and `gameRefreshKey` already exist ([Home.tsx:130-147](../../src/components/Home.tsx:130)) — see "Sync result display" under Reconciliation rules for exactly how `createdGames`/`updatedGames` are shown. Also: show venue and arrive-by on scheduled game cards; badge feed-cancelled games (`externalCancelled`), unverified home/away (`externalHomeAwayUnverified`), and adopted games (`adoptedCount` > 0 this sync). |
-| `src/components/CalendarFeedSettings.tsx` *(new, ships Phase 3+)* | Team-settings panel, mounted in `Management.tsx`: link a URL feed (calls `syncTeamCalendar` with `feedUrl` + `saveFeedUrl: true`), Replace, Unlink (calls `unlinkTeamCalendar`), and read-only status display (`calendarFeedHost`, last synced, last error) sourced entirely from `Team` fields — **never reads the URL back**, because nothing can (Major A). Hidden for archived teams. Doesn't exist meaningfully before Phase 3, since Phase 2 hard-rejects `feedUrl` and there is no saved-feed concept yet. |
+| `src/components/Home.tsx` | Owns the sync entry point from **Phase 2 onward** (round-2 fix — see Phasing; this was contradictorily assigned to `CalendarFeedSettings.tsx` in round 1 while that component was also stated not to trigger sync). **CTA hierarchy (UI review round 1 Major):** the existing full-width `.btn-primary` "+ Schedule New Game" ([Home.tsx:625-633](../../src/components/Home.tsx:625)) stays the sole primary CTA — it's what the onboarding Quick Start Checklist points at by name (UI-SPEC.md:778). The calendar action is **one slot, relabeled by state**, not two competing buttons: secondary-weight (not `.btn-primary`) "Import from calendar" (opens the file picker; Phase 2) becomes "Sync now" once a feed is saved (Phase 3+), with a small "or upload a file instead" fallback alongside it once a feed exists. See "Sync interaction flow" under Reconciliation rules for the preview/confirm/loading/error states this button drives. Also: show venue and arrive-by on scheduled game cards; badge feed-cancelled (`externalCancelled`) and unverified home/away (`externalHomeAwayUnverified`) games using the existing pill-badge convention (`.location-badge`/`.status-badge`, `App.css:1606-1630`) rather than the plain-text `.game-status` style, with a **priority rule** so a card shows at most one state-badge: cancelled beats unverified-home/away (a cancelled game's home/away accuracy is moot). The durable adopted indicator (`externalAdoptedAt != null`, a small "linked from your entry" tag rather than a warning-style badge) can co-occur with either, since it's provenance information, not a warning. |
+| `src/components/CalendarFeedSettings.tsx` *(new, ships Phase 3+)* | Team-settings panel, mounted in `Management.tsx`: link a URL feed (calls `syncTeamCalendar` with `feedUrl` + `saveFeedUrl: true`), Replace, and read-only status display (`calendarFeedHost`, last synced, last error) sourced entirely from `Team` fields — **never reads the URL back**, because nothing can (Major A). **Unlink routes through `useConfirm`/`ConfirmModal`** (UI review round 1 Major — the only destructive action in this codebase's set of comparable actions that lacked one), consistent with delete-game and every other irreversible action. Hidden for archived teams via the existing `ArchivedTeamBanner` component (`src/components/shared/ArchivedTeamBanner.tsx`, UI review round 1 Minor — already used by `SeasonReport` and in-game views for exactly this). Doesn't exist meaningfully before Phase 3, since Phase 2 hard-rejects `feedUrl` and there is no saved-feed concept yet. |
 | `src/components/Management.tsx` | Mount `CalendarFeedSettings` in the team edit view (Phase 3+). |
-| `src/App.css` | New section appended at the bottom (per CLAUDE.md) for the settings panel and the cancelled/unverified/adopted/imported badges. |
+| `src/App.css` | New section appended at the bottom (per CLAUDE.md) for the settings panel, the preview modal (slide-up sheet per UI-SPEC §8), and the cancelled/unverified/adopted/imported pill badges. |
 
 ### Docs
 
@@ -505,7 +515,7 @@ Change detection compares `externalContentHash`, not `externalSequence`
 | Existing game | Feed says | Action |
 |---|---|---|
 | none (no match at any precedence step) | active | **create** — id = deterministic hash (Major 4), `ConditionExpression: attribute_not_exists(id)`, `coaches` from team, `status: 'scheduled'` |
-| adopted match (step 2), any content | active | **adopt** — `UpdateCommand` stamping `externalUid`/`externalSource`/`externalContentHash` plus the import-owned fields onto the *existing* row, **keeping its original random id** (not the deterministic one — see Schema changes). Reported in `updatedGames`, `adoptedCount` incremented, and a warning added ("linked to an existing game you entered by hand") so the coach isn't surprised their hand-entered game just changed. Same `ConditionExpression: '#status = :scheduled'` guard as any other update. |
+| adopted match (step 2), any content | active | **adopt** — `UpdateCommand` stamping `externalUid`/`externalSource`/`externalContentHash`/`externalAdoptedAt: now()` plus the import-owned fields onto the *existing* row, **keeping its original random id** (not the deterministic one — see Schema changes). Reported in `updatedGames`, `adoptedCount` incremented, and a warning added ("linked to an existing game you entered by hand") so the coach isn't surprised their hand-entered game just changed. Same `ConditionExpression: '#status = :scheduled'` guard as any other update. `externalAdoptedAt` is set once and never cleared — see the badge note under Schema changes. |
 | `status === 'scheduled'`, same content hash (step-1 match) | active | **skip** (no write) |
 | `status === 'scheduled'`, changed content hash (step-1 match) | active | **update** — `UpdateCommand` with an explicit `SET` of only the import-owned attributes (never `PutCommand` — a full overwrite would clobber `elapsedSeconds`/`lastStartTime`/`ourScore`/`currentHalf`), `ConditionExpression: '#status = :scheduled AND attribute_exists(id)'` |
 | `status !== 'scheduled'` | anything | **protect** — no write attempted at all (checked before issuing the conditional update) |
@@ -553,6 +563,60 @@ Two different mechanisms for two different results:
   `observeQuery` to re-settle. This is a forced refetch, not a merge; there is
   no attempt at an id-keyed overlay override for updates.
 
+### Sync interaction flow: preview, confirm, loading, error (UI review round 1)
+
+Four gaps the plan left unspecified: `dryRun` had no described UI trigger despite
+being framed as protecting the adoption/onboarding scenario; the interaction
+model for "Import from calendar" and "Sync now" wasn't defined at all;
+`unlinkTeamCalendar` had no confirm step, unlike every other destructive action
+in this codebase (`useConfirm`/`ConfirmModal`, e.g.
+[Home.tsx:569-575](../../src/components/Home.tsx:569)); and there was no
+loading/error state model for a mutation whose Lambda has a 60s timeout. One
+concrete flow resolves all four:
+
+1. **Trigger** — coach taps "Import from calendar" (Phase 2: file picker;
+   Phase 3+: same slot relabeled "Sync now" once a feed is saved — see CTA
+   placement below, this is one action, not two competing ones). Button enters
+   a busy state ("Checking…"), disabled to prevent a double-tap, mirroring the
+   existing `isSubmittingGame` pattern
+   ([Home.tsx:669-671](../../src/components/Home.tsx:669)).
+2. **Preview (`dryRun: true`)** — the mutation runs once with `dryRun: true`.
+   - If the result is a no-op (`createdGames`/`updatedGames`/`adoptedCount`/
+     `cancelledCount` all zero — the common case for a routine re-sync with
+     nothing changed), skip straight to a lightweight success toast ("No
+     changes — schedule already up to date") with no modal. Avoids modal
+     fatigue on repeat "Sync now" taps, which is otherwise the dominant case
+     once a feed is linked.
+   - Otherwise, show a preview modal (slide-up sheet, matching `RotationWidget`'s
+     pattern per UI-SPEC §8) summarizing the counts in plain language — "This
+     will create 9 games, update 2, and link 3 games you already entered by
+     hand" — plus the `warnings` list, with Confirm and Cancel actions. This is
+     the concrete surface for the adoption-preview scenario the plan's
+     Reconciliation section already frames as the primary onboarding
+     protection; without this modal that framing had nothing behind it.
+3. **Commit** — Confirm re-runs the same mutation without `dryRun` (same
+   `feedUrl`/`icsContent`/`saveFeedUrl` arguments). The modal's Confirm button
+   shows its own busy state ("Applying…") while this runs. On success: close
+   the modal, absorb `createdGames`/`updatedGames` per "Sync result display"
+   above, and show a success toast with the final counts. Cancel simply closes
+   the modal — no mutation, no team-state change, matching `dryRun`'s
+   write-nothing contract.
+4. **Error handling** — a thrown mutation error (network failure, Lambda
+   timeout, a client-side-rejected oversized file per the 512 KB cap) surfaces
+   via the existing `react-hot-toast` pattern already used elsewhere in this
+   app, with plain-language copy per file type (parse failure, timeout, file
+   too large) rather than a raw error message. The trigger button and modal
+   Confirm button both re-enable on failure so the coach can retry.
+5. **Unlink** (Phase 3+) — routes through `useConfirm`/`ConfirmModal`, the same
+   pattern already used for delete-game and other destructive actions in this
+   codebase, before calling `unlinkTeamCalendar`. No dry-run needed here (the
+   effect — stop syncing, clear status fields, leave existing games alone — is
+   fully described by the confirm copy itself).
+
+**Phase 2 needs the preview modal too, not just Phase 3+**: adoption logic and
+`dryRun` both ship in Phase 2 (file-upload path), so the preview/confirm flow
+is part of that phase's scope, not deferred UI polish.
+
 ## Phasing
 
 Reordered per architecture review Major 8: the original draft deferred the
@@ -579,20 +643,25 @@ directly, not refactored into them afterward.
    - Reconciliation, including the cancelled-flag write and the
      hand-created-game adoption logic, ships complete — it's the same code
      path as everything else in this phase.
-   - `Home.tsx` gets the "Import from calendar" file-picker entry point
-     (round-2 fix — moved here from `CalendarFeedSettings.tsx`/`Management.tsx`,
-     which don't exist yet in this phase; see "Sync result display" above for
-     how results are shown) and the `externalCancelled` badge on game cards,
-     shipping **in this phase**, not Phase 4, so cancelled-flagged data is
-     never displayed as a normal scheduled game.
+   - `Home.tsx` gets the "Import from calendar" entry point (round-2 fix —
+     moved here from `CalendarFeedSettings.tsx`/`Management.tsx`, which don't
+     exist yet in this phase), **including the preview-modal
+     (`dryRun`)/confirm/loading/error flow** specified under "Sync interaction
+     flow" above (UI review round 1 — this isn't deferred polish, it's the
+     concrete surface for the adoption-preview scenario this phase's
+     reconciliation logic already implements) and the `externalCancelled`
+     pill badge on game cards, shipping **in this phase**, not Phase 4, so
+     cancelled-flagged data is never displayed as a normal scheduled game.
    - This ships a genuinely useful feature with **no SSRF surface at all**.
 3. **Hardened URL fetch, saved feed, Sync now.** The security section applies
    entirely to this phase, including the host allowlist. `unlinkTeamCalendar`
-   and `CalendarFeedSettings.tsx` (mounted in `Management.tsx`) ship here,
-   since a saved feed is the first thing this phase makes possible. `Home.tsx`
-   gains the "Sync now" affordance next to the existing file-picker one.
-4. **UI polish** — venue and arrive-by on cards, the unverified-home/away and
-   adopted-game badges.
+   and `CalendarFeedSettings.tsx` (mounted in `Management.tsx`, Unlink behind a
+   confirm modal) ship here, since a saved feed is the first thing this phase
+   makes possible. `Home.tsx`'s existing entry point relabels itself "Sync
+   now" once a feed is saved, reusing the same preview/confirm/loading/error
+   flow from Phase 2 rather than introducing a second one.
+4. **UI polish** — venue and arrive-by on cards, the unverified-home/away
+   pill badge and the durable adopted-game indicator (`externalAdoptedAt`).
 5. **Later, not now:** EventBridge scheduled sync. Phase 3's handler is written to
    take `(teamId)` and do everything else itself, so the scheduler becomes a new
    trigger over the same code, not a rewrite. Depends on the Phase-5 risk noted
@@ -637,37 +706,58 @@ Phases 1–2 are shippable on their own and make a reasonable first milestone.
   caller, archived team, and the happy path — `CalendarFeed` row deleted,
   `Team` status fields cleared, `Game.external*` fields on existing games
   untouched.
-- **Component tests** for `CalendarFeedSettings` (link, replace, unlink, error
-  display, archived-team hiding — asserting it never issues a
-  `client.models.CalendarFeed` call) and the updated `Home.tsx` cards
-  (cancelled badge, unverified-home/away badge, adopted-game badge,
+- **Component tests** for `CalendarFeedSettings` (link, replace, unlink behind
+  `useConfirm`/`ConfirmModal`, error display, archived-team hiding via
+  `ArchivedTeamBanner` — asserting it never issues a `client.models.CalendarFeed`
+  call) and the updated `Home.tsx` cards (cancelled pill badge, unverified-home/away
+  pill badge, durable adopted indicator surviving a reload, badge priority —
+  cancelled suppresses unverified-home/away on the same card,
   `pendingCreatedGames` absorbing `createdGames`, `gameRefreshKey` bumping on
   `updatedGames`).
+- **Sync interaction flow tests** (UI review round 1): a no-op `dryRun` (all
+  counts zero) skips the preview modal and shows the lightweight toast; a
+  non-empty `dryRun` result shows the preview modal with correct counts and
+  warnings; Confirm re-runs without `dryRun` and absorbs results; Cancel makes
+  no mutation call at all; the trigger button and modal Confirm button both
+  disable during their respective in-flight requests (double-tap guard); a
+  thrown error re-enables both and shows a toast with the failure-appropriate
+  copy (network, timeout, oversized file, parse failure).
 - **E2E smoke:** upload a fixture `.ics`, assert the games appear on the home
   schedule.
 - `npm run gate:commit` green before each commit.
 
 ## Risks and open questions
 
-Updated after architecture review rounds 1 and 2 (see each review's
-"Approved as designed" / "Required plan changes" lists, folded into the
-sections above). Round 2 approved the architecture and found four Majors in
-the round-1 *fixes themselves* (a client-writable `CalendarFeed` model, a
-grant list that didn't match the handlers, an overlay mechanism that doesn't
-absorb updates, and no story for hand-entered games) — all resolved above.
-Per the review's own assessment these were localized schema/plan edits, so no
-round 3 was run (2-round loop cap).
+Updated after architecture review rounds 1 and 2 and UI review round 1 (see
+each review's findings, folded into the sections above). Architecture review
+round 2 approved the architecture and found four Majors in round 1's *fixes
+themselves* (a client-writable `CalendarFeed` model, a grant list that didn't
+match the handlers, an overlay mechanism that doesn't absorb updates, and no
+story for hand-entered games) — all resolved above; per that review's own
+assessment these were localized schema/plan edits, so no round 3 was run
+(2-round loop cap). UI review round 1 approved the architecture as UI-neutral
+and found four Majors purely in the UI specification (no `dryRun` UI trigger,
+a non-durable adopted badge, no confirm on Unlink, no loading/error state
+model) plus two Minors (badge visual convention, naming the existing
+`ArchivedTeamBanner`) — all resolved above via the new "Sync interaction flow"
+subsection and the schema/file-table edits.
 
 1. ~~Provider allowlist vs. generic feeds~~ — **resolved**: host allowlist for
    the URL path (security item 7), since file upload already covers arbitrary
    providers.
 2. **Auto-apply with a heuristic parser.** Decision 3 means a misparsed opponent
    or a flipped home/away lands in the data with no human check. Mitigation
-   (revised): the PlayMetrics adapter is confident enough to set `isHome`
-   directly; the generic adapter now has an explicit fallback (`isHome: false`
-   plus `externalHomeAwayUnverified: true` plus a warning) rather than "the
-   existing default" — `isHome` has no schema default to fall back to. Worth
-   confirming the fallback value and the unverified-badge UX are acceptable.
+   (revised twice): the PlayMetrics adapter is confident enough to set `isHome`
+   directly; the generic adapter has an explicit fallback (`isHome: false` plus
+   `externalHomeAwayUnverified: true` plus a warning) rather than "the existing
+   default" — `isHome` has no schema default to fall back to. UI review round 1
+   added the actual human check Decision 3's "no approval screen" otherwise
+   left missing for the *first* sync against a linked feed or file: the
+   `dryRun` preview modal (see "Sync interaction flow") surfaces counts and
+   warnings before anything is written, for any sync with a non-zero result.
+   Routine re-syncs that would show a no-op preview skip the modal, so this
+   doesn't reintroduce an approval screen for the steady state — only for
+   syncs that actually change something.
 3. **The feed URL is a bearer credential.** Revised twice: round 1 (Major 1)
    moved it off `Team` into an isolated `CalendarFeed` model with coach read
    access; round 2 (Major A) found that coach-readable model was itself
@@ -692,10 +782,12 @@ round 3 was run (2-round loop cap).
    with no other interaction with `PlayTimeRecord` or `GamePlan`.
 7. **Unlink semantics** (architecture review Minor, mechanism revised in
    round 2 to go through the dedicated `unlinkTeamCalendar` Lambda rather than
-   a client delete that no longer exists): unlinking deletes the
-   `CalendarFeed` row and clears the `Team` status fields; `Game.external*`
-   fields on already-imported games are preserved untouched, so a future
-   re-link re-matches by `externalUid` instead of creating duplicates.
+   a client delete that no longer exists; UI review round 1 added the
+   `useConfirm`/`ConfirmModal` step before the coach can trigger it):
+   unlinking deletes the `CalendarFeed` row and clears the `Team` status
+   fields; `Game.external*` fields on already-imported games are preserved
+   untouched, so a future re-link re-matches by `externalUid` instead of
+   creating duplicates.
 8. **DST wall-time rule, decided** (was open in the original draft): a
    nonexistent spring-forward wall time is shifted forward by the gap; an
    ambiguous fall-back wall time uses the earlier (pre-transition) offset.
