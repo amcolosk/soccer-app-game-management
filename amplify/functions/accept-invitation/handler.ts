@@ -1,12 +1,14 @@
 import type { Schema } from "../../data/resource";
 import type { AppSyncIdentityCognito } from 'aws-lambda';
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient, type AttributeValue } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
   GetCommand,
   ScanCommand,
   UpdateCommand,
+  TransactWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { unmarshall } from "@aws-sdk/util-dynamodb";
 import { CognitoIdentityProviderClient, AdminGetUserCommand } from '@aws-sdk/client-cognito-identity-provider';
 
 const client = new DynamoDBClient({});
@@ -85,6 +87,20 @@ function isConditionalCheckFailed(error: unknown): boolean {
   const maybeName = (error as { name?: unknown }).name;
   return maybeName === 'ConditionalCheckFailedException';
 }
+
+function isTransactionCanceledException(
+  error: unknown,
+): error is Error & { CancellationReasons?: Array<{ Code?: string; Message?: string; Item?: Record<string, AttributeValue> }> } {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  return (error as { name?: unknown }).name === 'TransactionCanceledException';
+}
+
+// TransactItems order below is fixed — CancellationReasons is returned in
+// the same order as the TransactItems request.
+const INVITATION_TRANSACT_INDEX = 0;
+const TEAM_TRANSACT_INDEX = 1;
 
 async function updateRecordCoachesIfNeeded(
   tableName: string,
@@ -183,6 +199,59 @@ async function getRecordById<T extends Record<string, unknown>>(
   }));
 
   return (response.Item as T | undefined) ?? null;
+}
+
+// Shared UpdateExpression/ConditionExpression shape for the PENDING ->
+// ACCEPTED invitation transition — used both as a TransactItems[].Update
+// entry (happy path) and as the standalone repair UpdateCommand (the
+// duplicate-invitation-link sub-case, Decision 8). Handler-local, not a new
+// shared module (Decision 5's "not this slice" call applies here too).
+function buildInvitationAcceptUpdate(nowIso: string, userId: string) {
+  return {
+    UpdateExpression: 'SET #status = :acceptedStatus, acceptedAt = :acceptedAt, acceptedBy = :acceptedBy, updatedAt = :updatedAt',
+    ConditionExpression: '#status = :pendingStatus',
+    ExpressionAttributeNames: { '#status': 'status' },
+    ExpressionAttributeValues: {
+      ':acceptedStatus': 'ACCEPTED',
+      ':pendingStatus': 'PENDING',
+      ':acceptedAt': nowIso,
+      ':acceptedBy': userId,
+      ':updatedAt': nowIso,
+    },
+  };
+}
+
+// Re-reads the invitation, verifies email match, and classifies the result
+// as an idempotent retry by the same user (returns the resolved invitation)
+// or a genuine conflict (throws via toInvitationStateError / a mismatch
+// error). Shared by the invitation-item-failed branch and the standalone
+// repair UpdateCommand's own conditional-failure catch — both do exactly
+// this re-read-and-classify sequence today.
+async function classifyInvitationConflict(
+  teamInvitationTable: string,
+  invitationId: string,
+  userId: string,
+  authenticatedEmail: string,
+): Promise<InvitationRecord> {
+  const latestInvitation = await getRecordById<InvitationRecord>(
+    teamInvitationTable,
+    invitationId,
+    ['id', 'teamId', 'email', 'status', 'acceptedBy', 'expiresAt'],
+  );
+
+  if (!latestInvitation) {
+    throw new Error('Invitation not found');
+  }
+
+  if (normalizeEmail(latestInvitation.email) !== authenticatedEmail) {
+    throw new Error('Invitation recipient mismatch');
+  }
+
+  if (!(latestInvitation.status === 'ACCEPTED' && latestInvitation.acceptedBy === userId)) {
+    throw toInvitationStateError(latestInvitation.status);
+  }
+
+  return latestInvitation;
 }
 
 export const handler: Schema['acceptInvitation']['functionHandler'] = async (event) => {
@@ -314,80 +383,159 @@ export const handler: Schema['acceptInvitation']['functionHandler'] = async (eve
       throw new Error('Invitation has expired');
     }
 
+    const nowIso = new Date().toISOString();
+    const invitationAcceptUpdate = buildInvitationAcceptUpdate(nowIso, userId);
+
     try {
-      await docClient.send(new UpdateCommand({
-        TableName: teamInvitationTable,
-        Key: { id: invitationId },
-        UpdateExpression: 'SET #status = :acceptedStatus, acceptedAt = :acceptedAt, acceptedBy = :acceptedBy, updatedAt = :updatedAt',
-        ConditionExpression: '#status = :pendingStatus',
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: {
-          ':acceptedStatus': 'ACCEPTED',
-          ':pendingStatus': 'PENDING',
-          ':acceptedAt': new Date().toISOString(),
-          ':acceptedBy': userId,
-          ':updatedAt': new Date().toISOString(),
-        }
+      await docClient.send(new TransactWriteCommand({
+        TransactItems: [
+          {
+            Update: {
+              TableName: teamInvitationTable,
+              Key: { id: invitationId },
+              ...invitationAcceptUpdate,
+              ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
+            },
+          },
+          {
+            Update: {
+              TableName: teamTable,
+              Key: { id: invitation.teamId },
+              UpdateExpression: 'SET coaches = list_append(if_not_exists(coaches, :emptyCoaches), :coachToAdd), updatedAt = :updatedAt',
+              // Correction 2: null-safe — legacy teams predate `status`
+              // entirely; a bare `#status <> :archived` is false against an
+              // absent attribute and would wrongly reject acceptance for
+              // every pre-archive-feature team.
+              ConditionExpression:
+                '(attribute_not_exists(#status) OR #status <> :archived) AND (attribute_not_exists(coaches) OR NOT contains(coaches, :coachId))',
+              ExpressionAttributeNames: { '#status': 'status' },
+              ExpressionAttributeValues: {
+                ':emptyCoaches': [],
+                ':coachToAdd': [userId],
+                ':coachId': userId,
+                ':archived': 'archived',
+                ':updatedAt': nowIso,
+              },
+              ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
+            },
+          },
+        ],
       }));
 
-      invitation = {
-        ...invitation,
-        status: 'ACCEPTED',
-        acceptedBy: userId,
-      };
+      invitation = { ...invitation, status: 'ACCEPTED', acceptedBy: userId };
+    } catch (error) {
+      if (!isTransactionCanceledException(error)) {
+        throw error;
+      }
+
+      const reasons = error.CancellationReasons ?? [];
+      const invitationFailed = reasons[INVITATION_TRANSACT_INDEX]?.Code === 'ConditionalCheckFailed';
+      const teamFailed = reasons[TEAM_TRANSACT_INDEX]?.Code === 'ConditionalCheckFailed';
+
+      if (invitationFailed) {
+        // Same classification the pre-transaction single-item catch used:
+        // re-read and determine idempotent-retry-by-same-user vs. a genuine
+        // conflict (claimed by someone else, expired, declined, ...).
+        invitation = await classifyInvitationConflict(teamInvitationTable, invitationId, userId, authenticatedEmail);
+        // Idempotent retry by the same user — the coach-append half of the
+        // original successful transaction is guaranteed to have applied too
+        // (both items commit or neither does), verified at the
+        // post-transaction Team read below. No repair needed here.
+      } else if (teamFailed) {
+        // The invitation half of the condition passed (this is a genuine,
+        // first-time PENDING -> ACCEPTED transition for this caller) but the
+        // coaches-append half was rejected. DynamoDB reports this as a
+        // *distinct* per-item failure (unlike the old single-exception
+        // shape), so "team archived" and "already a coach" are both
+        // determinable from the same atomic response — no second round trip.
+        const rawItem = reasons[TEAM_TRANSACT_INDEX]?.Item;
+        const currentTeam = rawItem
+          ? (unmarshall(rawItem) as { status?: string; coaches?: string[] })
+          : undefined;
+
+        if (currentTeam?.status === 'archived') {
+          throw new Error('Cannot accept invitation: this team has been archived');
+        }
+
+        if (!currentTeam?.coaches?.includes(userId)) {
+          // Neither branch of the null-safe OR explains the failure from
+          // what DynamoDB returned — surface an honest, generic error
+          // rather than guessing.
+          throw new Error('Failed to join team');
+        }
+
+        // NOT contains(coaches, :coachId) is what failed — this user is
+        // already a coach on the team. The ordinary way this happens: a
+        // second, still-PENDING invitation to the same email/team is
+        // accepted after the first one already succeeded (sendTeamInvitation
+        // has no duplicate-invite guard, so this is routine, not an edge
+        // case). The whole transaction above rolled back together, so this
+        // invitation's own status write never actually applied even though
+        // its condition passed — re-issue it alone now that we've confirmed
+        // no team-side write is needed, matching today's pre-transaction
+        // behavior for the same case.
+        try {
+          await docClient.send(new UpdateCommand({
+            TableName: teamInvitationTable,
+            Key: { id: invitationId },
+            ...invitationAcceptUpdate,
+          }));
+          invitation = { ...invitation, status: 'ACCEPTED', acceptedBy: userId };
+        } catch (retryError) {
+          if (!isConditionalCheckFailed(retryError)) {
+            throw retryError;
+          }
+          invitation = await classifyInvitationConflict(teamInvitationTable, invitationId, userId, authenticatedEmail);
+        }
+      } else {
+        // Cancelled for a reason unrelated to either condition (e.g. a
+        // throughput/validation error on one item) — surface as-is rather
+        // than mis-classify it as an archived-team or conflict error.
+        throw error;
+      }
+    }
+  } else {
+    if (!(invitation.status === 'ACCEPTED' && invitation.acceptedBy === userId)) {
+      throw toInvitationStateError(invitation.status);
+    }
+
+    // Idempotent path: this call never attempts an invitation-status
+    // transition (some prior call already fully committed it). Best-effort
+    // repair for pre-migration partial-failure drift where the invitation
+    // was marked ACCEPTED but the coaches append never happened.
+    // Deliberately NOT archived-gated (Decision 6): this repairs an
+    // already-granted membership, it does not grant a new one, so an
+    // archived team must not block it. This branch IS reachable by a
+    // non-Lambda path (any coach can write ACCEPTED/acceptedBy directly on
+    // TeamInvitation via allow.ownersDefinedIn('coaches')), but that's a
+    // policy bypass by a party who already holds coach-level access to the
+    // team, not a privilege escalation for an untrusted party — so leaving
+    // it archived-unaware is safe, not just convenient.
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: teamTable,
+        Key: { id: invitation.teamId },
+        UpdateExpression: 'SET coaches = list_append(if_not_exists(coaches, :emptyCoaches), :coachToAdd), updatedAt = :updatedAt',
+        ConditionExpression: 'attribute_not_exists(coaches) OR NOT contains(coaches, :coachId)',
+        ExpressionAttributeValues: {
+          ':emptyCoaches': [],
+          ':coachToAdd': [userId],
+          ':coachId': userId,
+          ':updatedAt': new Date().toISOString(),
+        },
+      }));
     } catch (error) {
       if (!isConditionalCheckFailed(error)) {
         throw error;
       }
-
-      const latestInvitation = await getRecordById<InvitationRecord>(
-        teamInvitationTable,
-        invitationId,
-        ['id', 'teamId', 'email', 'status', 'acceptedBy', 'expiresAt'],
-      );
-
-      if (!latestInvitation) {
-        throw new Error('Invitation not found');
-      }
-
-      invitation = {
-        ...latestInvitation,
-        status: latestInvitation.status,
-      };
-
-      if (normalizeEmail(invitation.email) !== authenticatedEmail) {
-        throw new Error('Invitation recipient mismatch');
-      }
-
-      if (!(invitation.status === 'ACCEPTED' && invitation.acceptedBy === userId)) {
-        throw toInvitationStateError(invitation.status);
-      }
+      // Already a coach — nothing to repair.
     }
-  } else if (!(invitation.status === 'ACCEPTED' && invitation.acceptedBy === userId)) {
-    throw toInvitationStateError(invitation.status);
   }
 
-  // 3. Concurrency-safe team coach merge. Append the accepting coach atomically if needed.
+  // Fresh timestamp for the child-record coaches backfill below — both
+  // branches above (transactional accept, idempotent repair) have already
+  // committed whatever team/invitation state they needed to by this point.
   const updatedAtIso = new Date().toISOString();
-  try {
-    await docClient.send(new UpdateCommand({
-      TableName: teamTable,
-      Key: { id: invitation.teamId },
-      UpdateExpression: 'SET coaches = list_append(if_not_exists(coaches, :emptyCoaches), :coachToAdd), updatedAt = :updatedAt',
-      ConditionExpression: 'attribute_not_exists(coaches) OR NOT contains(coaches, :coachId)',
-      ExpressionAttributeValues: {
-        ':emptyCoaches': [],
-        ':coachToAdd': [userId],
-        ':coachId': userId,
-        ':updatedAt': updatedAtIso,
-      },
-    }));
-  } catch (error) {
-    if (!isConditionalCheckFailed(error)) {
-      throw error;
-    }
-    // Another concurrent acceptance may have already appended this user. Continue idempotently.
-  }
 
   const teamResponseBeforeBackfill = await docClient.send(new GetCommand({
     TableName: teamTable,

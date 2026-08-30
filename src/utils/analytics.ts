@@ -24,6 +24,8 @@ export const AnalyticsEvents = {
   // Team
   TEAM_CREATED: { category: 'Team', action: 'Create Team' },
   TEAM_DELETED: { category: 'Team', action: 'Delete Team' },
+  TEAM_ARCHIVED: { category: 'Team', action: 'Archive Team' },
+  TEAM_RESTORED: { category: 'Team', action: 'Restore Team' },
 
   // Player
   PLAYER_ADDED: { category: 'Player', action: 'Add Player' },

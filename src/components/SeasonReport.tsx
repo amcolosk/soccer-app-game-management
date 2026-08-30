@@ -26,6 +26,7 @@ import { useAmplifyQuery } from "../hooks/useAmplifyQuery";
 import { useHelpFab } from "../contexts/HelpFabContext";
 import { buildFlatDebugSnapshot } from "../utils/debugUtils";
 import type { SeasonReportDebugContext } from "../types/debug";
+import { ArchivedTeamBanner } from "./shared/ArchivedTeamBanner";
 
 const client = generateClient<Schema>();
 
@@ -551,6 +552,7 @@ export function TeamReport({ team }: TeamReportProps) {
 
   return (
     <div className="season-report">
+      <ArchivedTeamBanner team={team} />
       <div className="report-header">
         <h1>Season Report: {team.name}</h1>
       </div>

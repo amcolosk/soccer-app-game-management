@@ -559,12 +559,16 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     
     console.log('=== User 2: Accepting Invitation and Testing Access ===');
     console.log('\n--- Step 1: Cleaning up stale teams from previous runs ---');
-    
-    // First, clean up any stale teams BEFORE attempting to accept invitation or login
-    // Use loginUser to ensure proper login and app initialization
-    await loginUser(page, TEST_USERS.user2.email, TEST_USERS.user2.password);
-    console.log('✓ User 2 logged in for cleanup');
-    
+
+    // First, clean up any stale teams BEFORE attempting to accept invitation or login.
+    // Stale "Shared Eagles FC ..." teams are always created (and owned) by User 1
+    // (see the "User 1 creates team..." test above) — User 2 only ever joins as a
+    // coach via invitation, never as owner. The Archive button in Management.tsx is
+    // owner-gated (isTeamOwner), so this cleanup must run as User 1, not User 2, or
+    // the Archive click below would target a button that never renders and time out.
+    await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
+    console.log('✓ User 1 logged in for cleanup');
+
     // Navigate to Management > Teams to clean up stale teams
     await navigateToManagement(page);
     await clickManagementTab(page, 'Teams');
@@ -586,8 +590,17 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       // Only delete if it's NOT the current test's team name
       if (teamText && !teamText.includes(SHARED_TEAM_NAME)) {
         console.log(`  Deleting stale team: ${teamText?.substring(0, 50)}...`);
-        await swipeToDelete(page, '.item-card');
+        // Teams no longer support swipe-to-delete (archive-first lifecycle) —
+        // archive, then permanently delete from the Archived Teams sub-tab.
+        await page.locator('.team-card-wrapper').filter({ hasText: /Shared Eagles FC/ }).first()
+          .getByRole('button', { name: 'Archive' }).click();
         await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
+        await page.getByRole('button', { name: /Archived Teams/ }).click();
+        await page.locator('.team-card-wrapper').filter({ hasText: /Shared Eagles FC/ }).first()
+          .getByRole('button', { name: 'Delete team permanently' }).click();
+        await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+        await page.getByRole('button', { name: /Active Teams/ }).click();
       } else {
         // This is our current team, keep it
         if (teamText) {
@@ -605,7 +618,16 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     
     cleanupDialog();
     console.log('✓ Stale team cleanup complete\n');
-    
+
+    // Cleanup ran as User 1 (the confirmed owner of these teams). Hand the session
+    // back to User 2 before continuing — everything below this point expects User 2
+    // to be logged in (or to log in via the invite link), same as before cleanup
+    // was moved to User 1.
+    await logout(page);
+    console.log('✓ User 1 logged out from cleanup session');
+    await loginUser(page, TEST_USERS.user2.email, TEST_USERS.user2.password);
+    console.log('✓ User 2 logged back in after cleanup');
+
     // Now proceed with accepting invitation or finding team
     console.log('--- Step 2: Accept invitation and verify access ---');
     
@@ -1343,10 +1365,16 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     
     // Delete the shared team
     const cleanupDialog = handleConfirmDialog(page);
-    
-    await swipeToDelete(page, '.item-card');
+
+    // Teams no longer support swipe-to-delete (archive-first lifecycle) —
+    // archive, then permanently delete from the Archived Teams sub-tab.
+    await page.locator('.team-card-wrapper').first().getByRole('button', { name: 'Archive' }).click();
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
-    
+
+    await page.getByRole('button', { name: /Archived Teams/ }).click();
+    await page.locator('.team-card-wrapper').first().getByRole('button', { name: 'Delete team permanently' }).click();
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+
     console.log('✓ Shared team deleted');
     
     // Clean up players

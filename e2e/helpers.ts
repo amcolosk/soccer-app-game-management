@@ -246,6 +246,26 @@ export async function loginUser(page: Page, email: string, password: string) {
 }
 
 /**
+ * Sign out via the Profile tab, if currently signed in. Tolerant of already
+ * being signed out. Most call sites don't need this before `loginUser` — that
+ * helper already signs out any existing session as part of logging in — this
+ * is only needed when the next step is *not* an immediate `loginUser` call
+ * (e.g., navigating to an unauthenticated `/invite/:id` link).
+ */
+export async function logout(page: Page) {
+  const profileTab = page.getByRole('link', { name: /profile/i });
+  if (await profileTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await profileTab.click();
+    await page.waitForTimeout(500);
+  }
+  const signOutButton = page.getByRole('button', { name: /sign out/i });
+  if (await signOutButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await signOutButton.click();
+    await waitForPageLoad(page);
+  }
+}
+
+/**
  * Navigate to the app and wait for it to be ready.
  * Use instead of loginUser when the smoke project provides stored auth state.
  */
@@ -278,31 +298,45 @@ export async function cleanupTestData(page: Page) {
   // Wait for DynamoDB subscription to deliver items before counting
   await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
   
-  let teamCards = page.locator('.item-card');
-  let teamCount = await teamCards.count();
-  
+  const teamCards = page.locator('.item-card');
+  const teamCount = await teamCards.count();
+
+  // Teams no longer support swipe-to-delete (archive-first lifecycle — see
+  // docs/plans/TEAM-ARCHIVE-STEP5-FRONTEND-UX.md). Archive every active card
+  // left over from a previous run, then permanently delete everything under
+  // the Archived Teams sub-tab. The archived-team sweep below runs
+  // unconditionally, independent of `teamCount` (the active-team guard), so a
+  // prior run that archived a team but crashed before deleting it still gets
+  // cleaned up even when zero active teams remain.
+  const cleanupTeamDialog = handleConfirmDialog(page, false);
+
   if (teamCount > 0) {
-    console.log(`Found ${teamCount} team(s), deleting...`);
-    
-    const cleanupTeamDialog = handleConfirmDialog(page, false);
-    
-    while (teamCount > 0) {
-      await swipeToDelete(page, '.item-card');
-      try {
-        await expect(page.locator('.item-card')).not.toHaveCount(teamCount, { timeout: 5000 });
-      } catch {
-        break; // swipe didn't register; stop to avoid hanging
-      }
-      teamCards = page.locator('.item-card'); // Re-query to get updated list
-      const newCount = await teamCards.count();
-      if (newCount === teamCount) break;
-      teamCount = newCount;
+    console.log(`Found ${teamCount} team(s), archiving...`);
+    const activeCards = page.locator('.team-card-wrapper:has(.item-card:not(.archived))');
+    let activeCount = await activeCards.count();
+    while (activeCount > 0) {
+      await activeCards.first().getByRole('button', { name: 'Archive' }).click().catch(() => {});
+      await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+      const newCount = await page.locator('.team-card-wrapper:has(.item-card:not(.archived))').count();
+      if (newCount === activeCount) break; // no Archive button (ownerless legacy team) or stuck; stop to avoid hanging
+      activeCount = newCount;
     }
-    
-    cleanupTeamDialog();
-    console.log('✓ Teams deleted');
   }
-  
+
+  // Unconditional archived-team sweep — see note above; does not depend on teamCount.
+  await page.getByRole('button', { name: /Archived Teams/ }).click().catch(() => {});
+  let archivedCount = await page.locator('.item-card.archived').count();
+  while (archivedCount > 0) {
+    await page.getByRole('button', { name: 'Delete team permanently' }).first().click();
+    await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
+    const newCount = await page.locator('.item-card.archived').count();
+    if (newCount === archivedCount) break;
+    archivedCount = newCount;
+  }
+
+  cleanupTeamDialog();
+  console.log('✓ Teams archived and deleted');
+
   // Clean up players (now global)
   await clickManagementTab(page, 'Players');
   await expect(page.getByRole('button', { name: '+ Add Player' })).toBeVisible({ timeout: 5000 });

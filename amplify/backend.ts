@@ -18,6 +18,10 @@ import { deleteFormationSafe } from './functions/delete-formation-safe/resource'
 import { deleteGameSafe } from './functions/delete-game-safe/resource';
 import { deleteTeamSafe } from './functions/delete-team-safe/resource';
 import { deletePlayerSafe } from './functions/delete-player-safe/resource';
+import { archiveTeam } from './functions/archive-team/resource';
+import { restoreTeam } from './functions/restore-team/resource';
+import { assignTeamOwner } from './functions/assign-team-owner/resource';
+import { createGameSafe } from './functions/create-game-safe/resource';
 
 const backend = defineBackend({
   auth,
@@ -36,6 +40,10 @@ const backend = defineBackend({
   deleteGameSafe,
   deleteTeamSafe,
   deletePlayerSafe,
+  archiveTeam,
+  restoreTeam,
+  assignTeamOwner,
+  createGameSafe,
 });
 
 // Add deployment ID to outputs
@@ -125,6 +133,18 @@ backend.acceptInvitation.resources.lambda.addToRolePolicy(
   new PolicyStatement({
     actions: ['cognito-idp:AdminGetUser'],
     resources: [backend.auth.resources.userPool.userPoolArn],
+  })
+);
+
+// TEAM-ARCHIVE-STEP8: TransactWriteItems is a distinct IAM action, not
+// covered by grantReadWriteData's WRITE_DATA_ACTIONS (BatchWriteItem/
+// PutItem/UpdateItem/DeleteItem only) — confirmed against aws-cdk-lib's
+// perms.js. Required for the atomic invitation-accept + coaches-append
+// TransactWriteCommand.
+backend.acceptInvitation.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:TransactWriteItems'],
+    resources: [teamInvitationTable.tableArn, teamTable.tableArn],
   })
 );
 
@@ -229,6 +249,8 @@ backend.deleteFormationSafe.addEnvironment('TEAM_TABLE', teamTable.tableName);
 
 // Grant table access for deleteGameSafe Lambda (authoritative game delete with rollback)
 gameTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+// TEAM-ARCHIVE-STEP8: read-only, for the archived-team delete guard.
+teamTable.grantReadData(backend.deleteGameSafe.resources.lambda);
 playTimeRecordTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 goalTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 gameNoteTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
@@ -239,6 +261,7 @@ gamePlanTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 plannedRotationTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 queuedSubstitutionTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 backend.deleteGameSafe.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.deleteGameSafe.addEnvironment('TEAM_TABLE', teamTable.tableName);
 backend.deleteGameSafe.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
 backend.deleteGameSafe.addEnvironment('GOAL_TABLE', goalTable.tableName);
 backend.deleteGameSafe.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
@@ -277,14 +300,68 @@ backend.deleteTeamSafe.addEnvironment('PLANNED_ROTATION_TABLE', plannedRotationT
 
 // Grant table access for deletePlayerSafe Lambda (authoritative player delete with rollback)
 playerTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
+// TEAM-ARCHIVE-STEP8: read-only, for the archived-team delete guard.
+teamTable.grantReadData(backend.deletePlayerSafe.resources.lambda);
 teamRosterTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 playTimeRecordTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 goalTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 gameNoteTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 playerAvailabilityTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 backend.deletePlayerSafe.addEnvironment('PLAYER_TABLE', playerTable.tableName);
+backend.deletePlayerSafe.addEnvironment('TEAM_TABLE', teamTable.tableName);
 backend.deletePlayerSafe.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);
 backend.deletePlayerSafe.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
 backend.deletePlayerSafe.addEnvironment('GOAL_TABLE', goalTable.tableName);
 backend.deletePlayerSafe.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
 backend.deletePlayerSafe.addEnvironment('PLAYER_AVAILABILITY_TABLE', playerAvailabilityTable.tableName);
+
+// Grant table access for restoreTeam Lambda (least-privilege: Team get/update only, no delete)
+backend.restoreTeam.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem', 'dynamodb:UpdateItem'],
+    resources: [teamTable.tableArn],
+  })
+);
+backend.restoreTeam.addEnvironment('TEAM_TABLE', teamTable.tableName);
+
+// Grant table access for assignTeamOwner Lambda (least-privilege: Team get/update only, no delete)
+backend.assignTeamOwner.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem', 'dynamodb:UpdateItem'],
+    resources: [teamTable.tableArn],
+  })
+);
+backend.assignTeamOwner.addEnvironment('TEAM_TABLE', teamTable.tableName);
+
+// Grant table access for archiveTeam Lambda (least-privilege: Team get/update;
+// TeamInvitation scan + per-item update for the pending-invitation sweep)
+backend.archiveTeam.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem', 'dynamodb:UpdateItem'],
+    resources: [teamTable.tableArn],
+  })
+);
+backend.archiveTeam.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Scan', 'dynamodb:UpdateItem'],
+    resources: [teamInvitationTable.tableArn],
+  })
+);
+backend.archiveTeam.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.archiveTeam.addEnvironment('TEAM_INVITATION_TABLE', teamInvitationTable.tableName);
+
+// Grant table access for createGameSafe Lambda (TEAM-ARCHIVE-STEP11 Part 1)
+backend.createGameSafe.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:PutItem'],
+    resources: [gameTable.tableArn],
+  })
+);
+backend.createGameSafe.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem'],
+    resources: [teamTable.tableArn],
+  })
+);
+backend.createGameSafe.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.createGameSafe.addEnvironment('TEAM_TABLE', teamTable.tableName);

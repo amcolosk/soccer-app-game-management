@@ -7255,6 +7255,17 @@
   line-height: 1;
 }
 
+/* Team lifecycle actions (Archive / Restore / Assign Owner / Delete Permanently) */
+.team-lifecycle-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-color);
+}
+
 .cgt-goal-marker__icon {
   font-size: 0.85rem;
 }
@@ -8322,4 +8333,20 @@
   .completed-playtime-summary__col--name {
     max-width: 110px;
   }
+}
+
+/* ===== Archived Team Read-Only Banner ===== */
+.archived-team-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #fff3e0;
+  border: 1px solid #ffcc80;
+  border-left: 4px solid #ffa726;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 0 0 0.75rem;
+  color: #e65100;
+  font-size: 0.9rem;
+  font-weight: 600;
 }

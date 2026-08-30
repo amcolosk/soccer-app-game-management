@@ -17,7 +17,7 @@ describe('Management', () => {
 
   it('renders tab navigation (smoke)', () => {
     renderWithProviders(<Management />);
-    expect(screen.getByRole('button', { name: /teams/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^teams/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /formations/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /players/i })).toBeInTheDocument();
   });

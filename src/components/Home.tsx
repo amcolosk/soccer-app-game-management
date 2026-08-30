@@ -13,15 +13,52 @@ import { showError, showWarning } from '../utils/toast';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { handleApiError } from '../utils/errorHandler';
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
+import { isTeamActive } from '../utils/teamUtils';
 import { useHelpFab } from '../contexts/HelpFabContext';
 import { buildFlatDebugSnapshot } from '../utils/debugUtils';
 import type { HomeDebugContext } from '../types/debug';
 import { useOnboarding } from '../contexts/OnboardingContext';
 import { removeDemoData } from '../services/demoDataService';
+import { createGame } from '../services/gameService';
 import { WelcomeModal } from './Onboarding/WelcomeModal';
 import { QuickStartChecklist } from './Onboarding/QuickStartChecklist';
 
 const client = generateClient<Schema>();
+
+// Module-scope comparator (lifted out of the inline `useAmplifyQuery` call so
+// it can be reapplied after merging in a pending, not-yet-synced addition —
+// see gamesForDisplay). Body unchanged from the original inline `sort` option.
+function compareGamesForHomeDisplay(a: Game, b: Game): number {
+  const statusA = a.status || 'scheduled';
+  const statusB = b.status || 'scheduled';
+
+  const getPriority = (status: string) => {
+    if (status === 'in-progress' || status === 'halftime') return 1;
+    if (status === 'scheduled') return 2;
+    return 3; // completed
+  };
+
+  const priorityA = getPriority(statusA);
+  const priorityB = getPriority(statusB);
+
+  if (priorityA !== priorityB) {
+    return priorityA - priorityB;
+  }
+
+  // Within same priority, sort by date
+  const dateA = a.gameDate ? new Date(a.gameDate).getTime() : 0;
+  const dateB = b.gameDate ? new Date(b.gameDate).getTime() : 0;
+
+  if (statusA === 'completed') {
+    // Completed: most recent first
+    if (!dateA) return 1;
+    if (!dateB) return -1;
+    return dateB - dateA;
+  }
+
+  // In-progress/scheduled: upcoming first
+  return dateA - dateB;
+}
 
 export function Home() {
   const navigate = useNavigate();
@@ -48,6 +85,9 @@ export function Home() {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [profileComplete, setProfileComplete] = useState(false);
   const [isProfileCompletionResolved, setIsProfileCompletionResolved] = useState(false);
+  const [pendingCreatedGames, setPendingCreatedGames] = useState<Game[]>([]);
+  const [gameRefreshKey, setGameRefreshKey] = useState(0);
+  const [isSubmittingGame, setIsSubmittingGame] = useState(false);
 
   const scheduleGameButtonRef = useRef<HTMLButtonElement>(null);
   const { getSwipeProps, getSwipeStyle, close: closeSwipe } = useSwipeDelete({ openWidthPx: 160, maxDistancePx: 180 });
@@ -63,39 +103,93 @@ export function Home() {
 
   // Subscribe to teams, roster, and gamePlans for onboarding progress
   const { data: teams, isSynced: isTeamsSynced } = useAmplifyQuery('Team');
+  const activeTeams = useMemo(() => teams.filter(isTeamActive), [teams]);
+  // `gameRefreshKey` as a dep forces useAmplifyQuery to unsubscribe and
+  // re-subscribe with a fresh observeQuery — the same mechanism
+  // Management.tsx's `teamRefreshKey` already relies on. Bumped in three
+  // places: after handleCreateGame settles (below), after a successful
+  // delete/edit of a pending game (defensive — see below), and on window
+  // focus / tab-visibility (see the effect after this block — mitigation for
+  // the cross-coach real-time lag documented in
+  // docs/plans/TEAM-ARCHIVE-STEP11-GAME-CREATE-CONVERSION-PART1.md, Decision 0).
   const { data: games, isSynced: isGamesSynced } = useAmplifyQuery('Game', {
-    sort: (a, b) => {
-      const statusA = a.status || 'scheduled';
-      const statusB = b.status || 'scheduled';
+    sort: compareGamesForHomeDisplay,
+  }, [gameRefreshKey]);
 
-      const getPriority = (status: string) => {
-        if (status === 'in-progress' || status === 'halftime') return 1;
-        if (status === 'scheduled') return 2;
-        return 3; // completed
-      };
+  // createGame writes via the DynamoDB SDK directly inside its Lambda handler —
+  // like archiveTeam/restoreTeam/assignTeamOwner (Step 1) and unlike a plain
+  // client.models.Game.create() call, it never triggers an onCreateGame AppSync
+  // subscription event (see Decision 0 of the plan above — this was evaluated
+  // and deliberately not changed). `games` (from useAmplifyQuery/observeQuery)
+  // can lag a just-created game until the next re-subscription.
+  // `pendingCreatedGames` layers the Lambda's own returned Game on top of
+  // `games` until the raw list independently picks it up, at which point the
+  // addition is dropped and `games` alone becomes authoritative for that id
+  // again. See docs/plans/TEAM-ARCHIVE-STEP11-GAME-CREATE-CONVERSION-PART1.md,
+  // Decision 3.
+  const gamesForDisplay = useMemo(() => {
+    const additions = pendingCreatedGames.filter(
+      (pending) => !games.some((g) => g.id === pending.id)
+    );
+    if (additions.length === 0) return games;
+    return [...games, ...additions].sort(compareGamesForHomeDisplay);
+  }, [games, pendingCreatedGames]);
 
-      const priorityA = getPriority(statusA);
-      const priorityB = getPriority(statusB);
+  // Reconciler: once the raw `games` list independently contains a pending
+  // addition's id, drop it from the override set — self-heals with no further
+  // action once the eventually-consistent list catches up.
+  useEffect(() => {
+    setPendingCreatedGames((prev) => {
+      if (prev.length === 0) return prev;
+      const next = prev.filter((pending) => !games.some((g) => g.id === pending.id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [games]);
 
-      if (priorityA !== priorityB) {
-        return priorityA - priorityB;
+  // Re-list on window focus / tab visibility. Concrete mitigation for the
+  // cross-coach real-time propagation lag accepted in Decision 0 — a coach
+  // who leaves Home.tsx mounted in a background tab and later refocuses it
+  // (or switches back from another app) gets a fresh observeQuery scan
+  // without needing a full remount. It does NOT make the lag disappear (a
+  // coach who stays focused on Home.tsx the whole time still won't see
+  // another coach's newly created game until they navigate away and back or
+  // refocus). `wasHiddenRef` collapses the visibilitychange-to-visible and
+  // the subsequent focus event into a single bump, since both fire together
+  // when a backgrounded tab regains focus.
+  const wasHiddenRef = useRef(false);
+  useEffect(() => {
+    const bump = () => setGameRefreshKey((k) => k + 1);
+    const markAway = () => {
+      wasHiddenRef.current = true;
+    };
+    const markReturnedIfAway = () => {
+      if (wasHiddenRef.current) {
+        wasHiddenRef.current = false;
+        bump();
       }
-
-      // Within same priority, sort by date
-      const dateA = a.gameDate ? new Date(a.gameDate).getTime() : 0;
-      const dateB = b.gameDate ? new Date(b.gameDate).getTime() : 0;
-
-      if (statusA === 'completed') {
-        // Completed: most recent first
-        if (!dateA) return 1;
-        if (!dateB) return -1;
-        return dateB - dateA;
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        markReturnedIfAway();
+      } else {
+        markAway();
       }
-
-      // In-progress/scheduled: upcoming first
-      return dateA - dateB;
-    },
-  });
+    };
+    // Tab switch away/back fires both `visibilitychange` and `focus`; window
+    // blur/refocus without a tab switch fires only `focus`/`blur`. Gating
+    // `focus` (and `visibilitychange`-to-visible) behind `wasHiddenRef` means
+    // whichever of the two "away" signals (`blur` or tab-hidden) fires first
+    // arms exactly one bump, and whichever "back" signal fires first consumes
+    // it — so a single tab-return never double-bumps `gameRefreshKey`.
+    window.addEventListener('focus', markReturnedIfAway);
+    window.addEventListener('blur', markAway);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', markReturnedIfAway);
+      window.removeEventListener('blur', markAway);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, []);
 
   // Auto-welcome users who already had teams before the onboarding feature launched.
   // Once teams have fully synced and the user has at least one team, skip the WelcomeModal.
@@ -117,21 +211,21 @@ export function Home() {
 
   const checklistStepCompletion = useMemo(
     () => [
-      teams.length >= 1,
+      activeTeams.length >= 1,
       profileComplete,
       (teamRosters as { teamId: string }[]).some((r) =>
-        (teams as { id: string }[]).some((t) => t.id === r.teamId)
+        (activeTeams as { id: string }[]).some((t) => t.id === r.teamId)
       ),
-      (teams as { id: string; formationId?: string | null }[]).some(
+      (activeTeams as { id: string; formationId?: string | null }[]).some(
         (t) => t.formationId != null && t.formationId !== ''
       ),
-      games.length >= 1,
+      gamesForDisplay.length >= 1,
       gamePlans.length >= 1,
-      (games as { status?: string }[]).some(
+      (gamesForDisplay as { status?: string }[]).some(
         (g) => g.status === 'in-progress' || g.status === 'completed'
       ),
     ],
-    [teams, profileComplete, teamRosters, games, gamePlans]
+    [activeTeams, profileComplete, teamRosters, gamesForDisplay, gamePlans]
   );
 
   const readDismissedStepSnapshot = useCallback((): boolean[] | null => {
@@ -194,12 +288,12 @@ export function Home() {
 
   const homeDebugContext = useMemo((): HomeDebugContext => ({
     teamCount: teams.length,
-    gameCount: games.length,
-    scheduledCount: games.filter(g => g.status === 'scheduled' || !g.status).length,
-    inProgressCount: games.filter(g => g.status === 'in-progress' || g.status === 'halftime').length,
-    completedCount: games.filter(g => g.status === 'completed').length,
+    gameCount: gamesForDisplay.length,
+    scheduledCount: gamesForDisplay.filter(g => g.status === 'scheduled' || !g.status).length,
+    inProgressCount: gamesForDisplay.filter(g => g.status === 'in-progress' || g.status === 'halftime').length,
+    completedCount: gamesForDisplay.filter(g => g.status === 'completed').length,
     isCreatingGame,
-  }), [teams, games, isCreatingGame]);
+  }), [teams, gamesForDisplay, isCreatingGame]);
 
   const homeDebugSnapshot = useMemo(
     () => buildFlatDebugSnapshot('Home Debug Snapshot', { ...homeDebugContext }),
@@ -219,7 +313,8 @@ export function Home() {
     try {
       await removeDemoData(demoTeamId);
     } catch (error) {
-      handleApiError(error, 'Failed to remove demo data');
+      console.error('Failed to remove demo data', error);
+      showError(error instanceof Error ? error.message : 'Failed to remove demo data');
       throw error; // re-throw so checklist stays open if removal fails
     }
   };
@@ -246,7 +341,7 @@ export function Home() {
         break;
       case 6: {
         // Navigate to first scheduled game (now shows Plan tab in GameManagement)
-        const firstScheduledGame = games.find(g => (g.status || 'scheduled') === 'scheduled');
+        const firstScheduledGame = gamesForDisplay.find(g => (g.status || 'scheduled') === 'scheduled');
         if (firstScheduledGame) {
           void navigate(`/game/${firstScheduledGame.id}`);
         }
@@ -254,8 +349,8 @@ export function Home() {
       }
       case 7: {
         // Navigate to first in-progress or scheduled game
-        const firstGame = games.find(g => g.status === 'in-progress' || g.status === 'halftime') ||
-                          games.find(g => (g.status || 'scheduled') === 'scheduled');
+        const firstGame = gamesForDisplay.find(g => g.status === 'in-progress' || g.status === 'halftime') ||
+                          gamesForDisplay.find(g => (g.status || 'scheduled') === 'scheduled');
         if (firstGame) {
           void navigate(`/game/${firstGame.id}`);
         } else {
@@ -311,6 +406,9 @@ export function Home() {
     };
   }, [authStatus, currentUserId]);
 
+  // Intentionally searches the full `teams` list, not activeTeams — historical
+  // games for an archived team must still resolve their team name/info here.
+  // See docs/plans/TEAM-ARCHIVE-STEP5-FRONTEND-UX.md.
   const getTeam = (teamId: string) => {
     return teams.find(t => t.id === teamId);
   };
@@ -326,42 +424,44 @@ export function Home() {
       return;
     }
 
+    const team = teams.find(t => t.id === selectedTeamForGame);
+    if (!team) {
+      showError('Team not found');
+      return;
+    }
+    if (!isTeamActive(team)) {
+      showError('Cannot schedule a game for an archived team.');
+      return;
+    }
+
+    setIsSubmittingGame(true);
     try {
-      const team = teams.find(t => t.id === selectedTeamForGame);
-      if (!team) {
-        showError('Team not found');
-        return;
-      }
-
-      // Ensure current user is included in coaches array
-      // This handles cases where the team data might be slightly stale
-      // and not yet reflect the user's addition to the coaches array
-      const coachesArray = currentUserId && team.coaches && !team.coaches.includes(currentUserId)
-        ? [...team.coaches, currentUserId]
-        : team.coaches || [];
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const gameData: any = {
+      const created = await createGame({
         teamId: selectedTeamForGame,
         opponent,
         isHome,
-        coaches: coachesArray,
-      };
-
-      if (gameDate) {
-        gameData.gameDate = new Date(gameDate).toISOString();
-      }
-
-      await client.models.Game.create(gameData);
+        gameDate: gameDate ? new Date(gameDate).toISOString() : undefined,
+      });
+      // `createGame`'s return type is the flat custom-mutation shape (no lazy
+      // relation loaders — team, lineupAssignments, etc.), unlike `Game` (from
+      // `useAmplifyQuery('Game')`), which carries them. Nothing that reads
+      // `pendingCreatedGames`/`gamesForDisplay` in this component invokes a
+      // lazy relation loader on a Game object, so this cast is safe today —
+      // see docs/plans/TEAM-ARCHIVE-STEP11-GAME-CREATE-CONVERSION-PART1.md,
+      // Risks and Edge Cases.
+      setPendingCreatedGames((prev) => [...prev, created as unknown as Game]);
       setOpponent('');
       setGameDate('');
       setIsHome(true);
       setSelectedTeamForGame('');
       setIsCreatingGame(false);
       trackEvent(AnalyticsEvents.GAME_CREATED.category, AnalyticsEvents.GAME_CREATED.action);
-      console.log('✓ Game created successfully:', gameData);
     } catch (error) {
-      handleApiError(error, 'Failed to create game');
+      console.error('Failed to create game', error);
+      showError(error instanceof Error ? error.message : 'Failed to create game');
+    } finally {
+      setIsSubmittingGame(false);
+      setGameRefreshKey((k) => k + 1);
     }
   };
 
@@ -443,9 +543,15 @@ export function Home() {
         gameDate: editGameDate ? new Date(editGameDate).toISOString() : null,
       });
       clearTimeout(timeoutId);
+      setPendingCreatedGames((prev) => prev.map((g) =>
+        g.id === editingGameId
+          ? { ...g, opponent: editOpponent.trim(), isHome: editIsHome, gameDate: editGameDate ? new Date(editGameDate).toISOString() : null }
+          : g
+      ));
       trackEvent(AnalyticsEvents.GAME_UPDATED.category, AnalyticsEvents.GAME_UPDATED.action);
       setEditingGameId(null);
       setIsSavingEdit(false);
+      setGameRefreshKey((k) => k + 1);
     } catch (error) {
       clearTimeout(timeoutId);
       setIsSavingEdit(false);
@@ -469,19 +575,22 @@ export function Home() {
     if (!confirmed) return;
     try {
       await deleteGameCascade(game.id);
+      setPendingCreatedGames((prev) => prev.filter((g) => g.id !== game.id));
       trackEvent(AnalyticsEvents.GAME_DELETED.category, AnalyticsEvents.GAME_DELETED.action);
+      setGameRefreshKey((k) => k + 1);
     } catch (error) {
-      handleApiError(error, 'Failed to delete game');
+      console.error('Failed to delete game', error);
+      showError(error instanceof Error ? error.message : 'Failed to delete game');
     }
   }, [closeSwipe, confirm]);
 
   // Group games by status
-  const inProgressGames = games.filter(g => {
+  const inProgressGames = gamesForDisplay.filter(g => {
     const status = g.status || 'scheduled';
     return status === 'in-progress' || status === 'halftime';
   });
-  const scheduledGames = games.filter(g => (g.status || 'scheduled') === 'scheduled');
-  const completedGames = games.filter(g => g.status === 'completed');
+  const scheduledGames = gamesForDisplay.filter(g => (g.status || 'scheduled') === 'scheduled');
+  const completedGames = gamesForDisplay.filter(g => g.status === 'completed');
 
   if (authStatus !== 'authenticated') return null;
 
@@ -499,8 +608,8 @@ export function Home() {
       {/* Show QuickStartChecklist if not dismissed */}
       {!dismissed && welcomed && (
         <QuickStartChecklist
-          teams={teams}
-          games={games}
+          teams={activeTeams}
+          games={gamesForDisplay}
           teamRosters={teamRosters}
           gamePlans={gamePlans}
           collapsed={collapsed}
@@ -531,7 +640,7 @@ export function Home() {
             onChange={(e) => setSelectedTeamForGame(e.target.value)}
           >
             <option value="">Select Team *</option>
-            {teams.map((team) => (
+            {activeTeams.map((team) => (
               <option key={team.id} value={team.id}>
                 {team.name}
               </option>
@@ -557,8 +666,8 @@ export function Home() {
             Home Game
           </label>
           <div className="form-actions">
-            <button onClick={handleCreateGame} className="btn-primary">
-              Create
+            <button onClick={handleCreateGame} className="btn-primary" disabled={isSubmittingGame}>
+              {isSubmittingGame ? 'Creating…' : 'Create'}
             </button>
             <button
               onClick={() => {
@@ -569,6 +678,7 @@ export function Home() {
                 setSelectedTeamForGame('');
               }}
               className="btn-secondary"
+              disabled={isSubmittingGame}
             >
               Cancel
             </button>
@@ -576,7 +686,7 @@ export function Home() {
         </div>
       )}
 
-      {games.length === 0 && !isCreatingGame && (
+      {gamesForDisplay.length === 0 && !isCreatingGame && (
         <div className="empty-state">
           <p>No games scheduled yet.</p>
           <p>Click the button above to schedule your first game, or go to the Manage tab to create seasons and teams.</p>

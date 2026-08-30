@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 
 const STEPS = [
   { key: 'lint', command: ['run', 'lint'] },
+  { key: 'typecheck:amplify', command: ['run', 'typecheck:amplify'] },
   { key: 'test:run', command: ['run', 'test:run'] },
   { key: 'build', command: ['run', 'build'] },
 ];
@@ -65,7 +66,7 @@ async function main() {
   console.log('-------------------');
   for (const result of results) {
     const exit = result.exitCode === null ? '-' : String(result.exitCode);
-    console.log(`${result.step.padEnd(8)} ${result.status.padEnd(7)} EXIT=${exit}`);
+    console.log(`${result.step.padEnd(18)} ${result.status.padEnd(7)} EXIT=${exit}`);
   }
 
   process.exit(overallExitCode);

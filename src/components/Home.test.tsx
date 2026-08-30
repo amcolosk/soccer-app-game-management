@@ -26,18 +26,24 @@ const {
   mockSetHelpContext,
   mockSetDebugContext,
   mockNavigate,
-  mockGameCreate,
+  mockCreateGame,
+  mockGameUpdate,
   mockGetCurrentUser,
   mockCoachProfileGet,
+  mockConfirm,
+  mockDeleteGameCascade,
 } = vi.hoisted(() => ({
   mockMarkWelcomed: vi.fn(),
   mockClearDismissed: vi.fn(),
   mockSetHelpContext: vi.fn(),
   mockSetDebugContext: vi.fn(),
   mockNavigate: vi.fn(),
-  mockGameCreate: vi.fn(),
+  mockCreateGame: vi.fn(),
+  mockGameUpdate: vi.fn(),
   mockGetCurrentUser: vi.fn(),
   mockCoachProfileGet: vi.fn(),
+  mockConfirm: vi.fn(),
+  mockDeleteGameCascade: vi.fn(),
 }));
 
 // Mutable query results — tests mutate these before rendering
@@ -101,10 +107,14 @@ vi.mock('../contexts/HelpFabContext', () => ({
 vi.mock('aws-amplify/data', () => ({
   generateClient: () => ({
     models: {
-      Game: { create: mockGameCreate },
+      Game: { update: mockGameUpdate },
       CoachProfile: { get: mockCoachProfileGet },
     },
   }),
+}));
+
+vi.mock('../services/gameService', () => ({
+  createGame: mockCreateGame,
 }));
 
 vi.mock('../services/demoDataService', () => ({
@@ -144,15 +154,20 @@ vi.mock('./Onboarding/WelcomeModal', () => ({
 }));
 
 vi.mock('./Onboarding/QuickStartChecklist', () => ({
-  QuickStartChecklist: () => <div data-testid="quick-start-checklist" />,
+  QuickStartChecklist: (props: unknown) => (
+    <div
+      data-testid="quick-start-checklist"
+      data-teams={JSON.stringify((props as { teams: unknown[] }).teams)}
+    />
+  ),
 }));
 
 vi.mock('./ConfirmModal', () => ({
-  useConfirm: () => vi.fn().mockResolvedValue(false),
+  useConfirm: () => mockConfirm,
 }));
 
 vi.mock('../services/cascadeDeleteService', () => ({
-  deleteGameCascade: vi.fn(),
+  deleteGameCascade: mockDeleteGameCascade,
 }));
 
 vi.mock('../utils/gameTimeUtils', () => ({
@@ -170,11 +185,17 @@ import { Home } from './Home';
 function resetState() {
   mockMarkWelcomed.mockClear();
   mockClearDismissed.mockClear();
-  mockGameCreate.mockReset();
+  mockCreateGame.mockReset();
+  mockGameUpdate.mockReset();
+  mockGameUpdate.mockResolvedValue({ data: {} });
   mockGetCurrentUser.mockReset();
   mockGetCurrentUser.mockResolvedValue({ userId: 'test-user-id' });
   mockCoachProfileGet.mockReset();
   mockCoachProfileGet.mockResolvedValue({ data: { firstName: '' } });
+  mockConfirm.mockReset();
+  mockConfirm.mockResolvedValue(false);
+  mockDeleteGameCascade.mockReset();
+  mockDeleteGameCascade.mockResolvedValue(undefined);
   teamQueryResult.data = [];
   teamQueryResult.isSynced = false;
   gameQueryResult.data = [];
@@ -290,7 +311,7 @@ describe('Home — auto-welcome for existing users (issue #22)', () => {
     expect(screen.getByRole('button', { name: /schedule new game/i })).toBeInTheDocument();
   });
 
-  it('does not call Game.create when currentUserId is unresolved', async () => {
+  it('does not call createGame when currentUserId is unresolved', async () => {
     let resolveUser: ((value: { userId: string }) => void) | undefined;
     mockGetCurrentUser.mockImplementation(
       () => new Promise<{ userId: string }>((resolve) => {
@@ -309,7 +330,7 @@ describe('Home — auto-welcome for existing users (issue #22)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
     await waitFor(() => {
-      expect(mockGameCreate).not.toHaveBeenCalled();
+      expect(mockCreateGame).not.toHaveBeenCalled();
     });
 
     resolveUser?.({ userId: 'late-user-id' });
@@ -520,6 +541,244 @@ describe('Home — game status grouping (regression guard)', () => {
 
     expect(screen.getByText('Active Games')).toBeInTheDocument();
     expect(screen.queryByText('Past Games')).not.toBeInTheDocument();
+  });
+});
+
+describe('Home — archived team filtering (Team Archive Step 5)', () => {
+  beforeEach(resetState);
+
+  it('keeps a completed game for an archived team visible in "Past Games" (getTeam intentionally searches the full team list)', () => {
+    teamQueryResult.data = [
+      { id: 't1', name: 'Active Eagles', coaches: ['test-user-id'], status: 'active' },
+      { id: 't2', name: 'Archived Hawks', coaches: ['test-user-id'], status: 'archived' },
+    ];
+    teamQueryResult.isSynced = true;
+    gameQueryResult.data = [
+      { id: 'g1', status: 'completed', teamId: 't2', opponent: 'Rivals FC', isHome: true },
+    ];
+    gameQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    expect(screen.getByText('Past Games')).toBeInTheDocument();
+    expect(screen.getByText('Archived Hawks vs Rivals FC')).toBeInTheDocument();
+  });
+
+  it('lists only the active team in the Schedule Game team dropdown, excluding the archived one', () => {
+    teamQueryResult.data = [
+      { id: 't1', name: 'Active Eagles', coaches: ['test-user-id'], status: 'active' },
+      { id: 't2', name: 'Archived Hawks', coaches: ['test-user-id'], status: 'archived' },
+    ];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    fireEvent.click(screen.getByRole('button', { name: /schedule new game/i }));
+
+    const options = screen.getAllByRole('option').map((option) => option.textContent);
+    expect(options).toContain('Active Eagles');
+    expect(options).not.toContain('Archived Hawks');
+  });
+
+  it('passes only active teams to QuickStartChecklist', () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = false;
+    teamQueryResult.data = [
+      { id: 't1', name: 'Active Eagles', coaches: ['test-user-id'], status: 'active' },
+      { id: 't2', name: 'Archived Hawks', coaches: ['test-user-id'], status: 'archived' },
+    ];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    const checklist = screen.getByTestId('quick-start-checklist');
+    const passedTeams = JSON.parse(checklist.getAttribute('data-teams') ?? '[]');
+    expect(passedTeams).toHaveLength(1);
+    expect(passedTeams[0].id).toBe('t1');
+  });
+
+  it('reopens a dismissed checklist when archiving a coach\'s only active team regresses previously-complete steps', async () => {
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = true;
+    teamQueryResult.isSynced = true;
+    // Only an archived team remains — activeTeams is empty, so checklistStepCompletion's
+    // steps 1/3/4 regress from complete to incomplete. See docs/plans/
+    // TEAM-ARCHIVE-STEP5-FRONTEND-UX.md, Decision (round 2, Minor 9).
+    teamQueryResult.data = [
+      { id: 't1', name: 'Archived Only FC', coaches: ['test-user-id'], status: 'archived', formationId: 'f-1' },
+    ];
+    localStorage.setItem('onboarding:lastCompletedSteps', JSON.stringify([true, true, true, true, true, true, true]));
+
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(mockClearDismissed).toHaveBeenCalledTimes(1);
+    });
+    expect(localStorage.getItem('onboarding:lastCompletedSteps')).toBeNull();
+  });
+});
+
+describe('Home — Lambda-backed game creation (TEAM-ARCHIVE-STEP11 Part 1)', () => {
+  beforeEach(resetState);
+
+  function openCreateFormAndFillOpponent(opponent = 'Rivals FC') {
+    fireEvent.click(screen.getByRole('button', { name: /schedule new game/i }));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'team-1' } });
+    fireEvent.change(screen.getByPlaceholderText('Opponent Team Name *'), { target: { value: opponent } });
+  }
+
+  it('adds the newly created game to the list immediately, without waiting for the Game query to refresh', async () => {
+    // A matching team must be seeded — Home.tsx's game-card rendering does
+    // `const team = getTeam(game.teamId); if (!team) return null;`.
+    teamQueryResult.data = [{ id: 'team-1', name: 'Eagles', coaches: ['test-user-id'] }];
+    teamQueryResult.isSynced = true;
+    gameQueryResult.data = [];
+    gameQueryResult.isSynced = true;
+
+    mockCreateGame.mockResolvedValue({
+      id: 'game-pending-1',
+      teamId: 'team-1',
+      opponent: 'Rivals FC',
+      isHome: true,
+      status: 'scheduled',
+      gameDate: null,
+    });
+
+    render(<Home />);
+    // Let getCurrentUser's mocked promise resolve so currentUserId is set
+    // before we submit the form (handleCreateGame no-ops otherwise).
+    await waitFor(() => expect(mockGetCurrentUser).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    openCreateFormAndFillOpponent();
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Eagles vs Rivals FC')).toBeInTheDocument();
+    });
+
+    // The raw Game query was never advanced — proves the card rendered from
+    // the Lambda's own returned Game, not from the query catching up.
+    expect(gameQueryResult.data).toHaveLength(0);
+  });
+
+  it('stops showing a pending game once the Game query independently includes it', async () => {
+    teamQueryResult.data = [{ id: 'team-1', name: 'Eagles', coaches: ['test-user-id'] }];
+    teamQueryResult.isSynced = true;
+    gameQueryResult.data = [];
+    gameQueryResult.isSynced = true;
+
+    const createdGame = {
+      id: 'game-pending-2',
+      teamId: 'team-1',
+      opponent: 'Rivals FC',
+      isHome: true,
+      status: 'scheduled',
+      gameDate: null,
+    };
+    mockCreateGame.mockResolvedValue(createdGame);
+
+    const { rerender } = render(<Home />);
+    await waitFor(() => expect(mockGetCurrentUser).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    openCreateFormAndFillOpponent();
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Eagles vs Rivals FC')).toBeInTheDocument();
+    });
+
+    // Reassign (not mutate in place) so useEffect's `games` dependency sees a
+    // new array identity — matches this file's established pattern and
+    // production `useAmplifyQuery`'s own behavior.
+    gameQueryResult.data = [{ ...createdGame }];
+
+    rerender(<Home />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Eagles vs Rivals FC')).toHaveLength(1);
+    });
+  });
+
+  it('removes a pending game from the list when it is deleted before the raw Game query catches up', async () => {
+    teamQueryResult.data = [{ id: 'team-1', name: 'Eagles', coaches: ['test-user-id'] }];
+    teamQueryResult.isSynced = true;
+    gameQueryResult.data = [];
+    gameQueryResult.isSynced = true;
+
+    mockCreateGame.mockResolvedValue({
+      id: 'game-pending-3',
+      teamId: 'team-1',
+      opponent: 'Rivals FC',
+      isHome: true,
+      status: 'scheduled',
+      gameDate: null,
+    });
+    // This file's ConfirmModal mock defaults to declining; this test needs
+    // the confirmation to resolve true so the delete flow actually proceeds.
+    mockConfirm.mockResolvedValueOnce(true);
+
+    render(<Home />);
+    await waitFor(() => expect(mockGetCurrentUser).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    openCreateFormAndFillOpponent();
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Eagles vs Rivals FC')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /delete/i }));
+
+    await waitFor(() => {
+      expect(mockDeleteGameCascade).toHaveBeenCalledWith('game-pending-3');
+    });
+
+    // The raw Game query never contained this id, so without the explicit
+    // pendingCreatedGames removal, the reconciliation effect could never
+    // clear the phantom card on its own.
+    await waitFor(() => {
+      expect(screen.queryByText('Eagles vs Rivals FC')).not.toBeInTheDocument();
+    });
+  });
+
+  it('disables the Create button while game creation is in flight and re-enables it after', async () => {
+    teamQueryResult.data = [{ id: 'team-1', name: 'Eagles', coaches: ['test-user-id'] }];
+    teamQueryResult.isSynced = true;
+
+    let resolveCreate: ((value: unknown) => void) | undefined;
+    mockCreateGame.mockImplementation(
+      () => new Promise((resolve) => {
+        resolveCreate = resolve;
+      })
+    );
+
+    render(<Home />);
+    await waitFor(() => expect(mockGetCurrentUser).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    openCreateFormAndFillOpponent();
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /creating/i })).toBeDisabled();
+    });
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+
+    resolveCreate?.({
+      id: 'game-in-flight',
+      teamId: 'team-1',
+      opponent: 'Rivals FC',
+      isHome: true,
+      status: 'scheduled',
+      gameDate: null,
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /creating/i })).not.toBeInTheDocument();
+    });
   });
 });
 

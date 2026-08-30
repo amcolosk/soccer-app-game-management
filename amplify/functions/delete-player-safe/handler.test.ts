@@ -41,6 +41,7 @@ describe('delete-player-safe handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.PLAYER_TABLE = 'PlayerTable';
+    process.env.TEAM_TABLE = 'TeamTable';
     process.env.TEAM_ROSTER_TABLE = 'TeamRosterTable';
     process.env.PLAY_TIME_RECORD_TABLE = 'PlayTimeRecordTable';
     process.env.GOAL_TABLE = 'GoalTable';
@@ -49,10 +50,18 @@ describe('delete-player-safe handler', () => {
 
     mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
       if (command.__type === 'GetCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamTable') {
+          return { Item: { id: 'team-1', name: 'Team A', status: 'active' } };
+        }
         return { Item: { id: 'player-1', coaches: ['coach-1'] } };
       }
 
       if (command.__type === 'ScanCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamRosterTable') {
+          return { Items: [{ id: 'roster-1', teamId: 'team-1', playerId: 'player-1' }] };
+        }
         const filterExpression = command.input.FilterExpression as string;
         if (filterExpression.includes('assistId')) {
           return { Items: [{ id: 'goal-assist-1', assistId: 'player-1' }] };
@@ -70,6 +79,10 @@ describe('delete-player-safe handler', () => {
   it('rejects when caller is not a coach on the player', async () => {
     mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
       if (command.__type === 'GetCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamTable') {
+          return { Item: { id: 'team-1', name: 'Team A', status: 'active' } };
+        }
         return { Item: { id: 'player-1', coaches: ['coach-2'] } };
       }
       return { Items: [] };
@@ -95,10 +108,18 @@ describe('delete-player-safe handler', () => {
     let deleteCount = 0;
     mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
       if (command.__type === 'GetCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamTable') {
+          return { Item: { id: 'team-1', name: 'Team A', status: 'active' } };
+        }
         return { Item: { id: 'player-1', coaches: ['coach-1'] } };
       }
 
       if (command.__type === 'ScanCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamRosterTable') {
+          return { Items: [{ id: 'roster-1', teamId: 'team-1', playerId: 'player-1' }] };
+        }
         const filterExpression = command.input.FilterExpression as string;
         if (filterExpression.includes('playerId')) {
           return { Items: [{ id: 'roster-1', playerId: 'player-1' }] };
@@ -120,5 +141,96 @@ describe('delete-player-safe handler', () => {
 
     const putCalls = mockSend.mock.calls.filter(([cmd]) => cmd.__type === 'PutCommand');
     expect(putCalls.length).toBeGreaterThan(0);
+  });
+
+  it('rejects deleting a player who has roster history on an archived team', async () => {
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      if (command.__type === 'GetCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamTable') {
+          return { Item: { id: 'team-1', name: 'Team A', status: 'archived' } };
+        }
+        return { Item: { id: 'player-1', coaches: ['coach-1'] } };
+      }
+
+      if (command.__type === 'ScanCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamRosterTable') {
+          return { Items: [{ id: 'roster-1', teamId: 'team-1', playerId: 'player-1' }] };
+        }
+        return { Items: [] };
+      }
+
+      return {};
+    });
+
+    await expect(invoke(createEvent())).rejects.toThrow(/archived team/i);
+
+    const deleteCalls = mockSend.mock.calls.filter(([cmd]) => cmd.__type === 'DeleteCommand');
+    expect(deleteCalls.length).toBe(0);
+  });
+
+  it('allows deleting a player whose only teams are active', async () => {
+    const result = await invoke(createEvent());
+    expect(result).toEqual(expect.objectContaining({ success: true }));
+  });
+
+  it('allows deleting a player on multiple teams when all are active', async () => {
+    const teamGetCalls: string[] = [];
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      if (command.__type === 'GetCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamTable') {
+          const teamId = (command.input.Key as { id: string }).id;
+          teamGetCalls.push(teamId);
+          return { Item: { id: teamId, name: `Team ${teamId}`, status: 'active' } };
+        }
+        return { Item: { id: 'player-1', coaches: ['coach-1'] } };
+      }
+
+      if (command.__type === 'ScanCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamRosterTable') {
+          return {
+            Items: [
+              { id: 'roster-1', teamId: 'team-1', playerId: 'player-1' },
+              { id: 'roster-2', teamId: 'team-2', playerId: 'player-1' },
+            ],
+          };
+        }
+        return { Items: [] };
+      }
+
+      return {};
+    });
+
+    const result = await invoke(createEvent());
+    expect(result).toEqual(expect.objectContaining({ success: true }));
+    expect(teamGetCalls.sort()).toEqual(['team-1', 'team-2']);
+  });
+
+  it('allows deleting a player whose team record cannot be found', async () => {
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      if (command.__type === 'GetCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamTable') {
+          return { Item: undefined };
+        }
+        return { Item: { id: 'player-1', coaches: ['coach-1'] } };
+      }
+
+      if (command.__type === 'ScanCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'TeamRosterTable') {
+          return { Items: [{ id: 'roster-1', teamId: 'team-1', playerId: 'player-1' }] };
+        }
+        return { Items: [] };
+      }
+
+      return {};
+    });
+
+    const result = await invoke(createEvent());
+    expect(result).toEqual(expect.objectContaining({ success: true }));
   });
 });

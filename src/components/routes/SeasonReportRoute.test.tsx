@@ -154,4 +154,38 @@ describe('SeasonReportRoute', () => {
     );
     expect(screen.getByTestId('team-report').textContent).toBe('Lions');
   });
+
+  it('labels archived teams with (Archived) suffix in the selector', async () => {
+    setupRoute();
+    mockTeamList.mockResolvedValue({ data: [teamA, { ...teamB, status: 'archived' }] });
+
+    render(<SeasonReportRoute />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('📊 Team Reports')).toBeInTheDocument(),
+    );
+    expect(screen.getByRole('option', { name: 'Hawks (Archived)' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Eagles' })).toBeInTheDocument();
+  });
+
+  it('permits selecting and generating a report for an archived team', async () => {
+    setupRoute();
+    mockTeamList.mockResolvedValue({ data: [teamA, { ...teamB, status: 'archived' }] });
+
+    render(<SeasonReportRoute />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('📊 Team Reports')).toBeInTheDocument(),
+    );
+
+    await userEvent.selectOptions(
+      screen.getByLabelText('📊 Team Reports'),
+      'team-b',
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('team-report')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('team-report').textContent).toBe('Hawks');
+  });
 });

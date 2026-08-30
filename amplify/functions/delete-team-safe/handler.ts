@@ -105,6 +105,13 @@ export const handler: Handler = async (event) => {
     throw new Error('Team not found');
   }
 
+  // No archived-team guard here, intentionally (TEAM-ARCHIVE-STEP8, Part A,
+  // Decision 1): this Lambda is also the rollback/cleanup path for
+  // src/services/demoDataService.ts (seed-failure rollback and the
+  // user-facing "Remove Demo Data" action), both of which delete an
+  // always-active team. A "must be archived" check would break both. The
+  // Management UI's own "Delete Permanently" action is Archived-view-only —
+  // that is a UI-level restriction, not a backend one, and stays that way.
   const coaches = team.coaches as string[] | undefined;
   if (!coaches?.includes(callerSub)) {
     throw new Error('Access denied: caller is not a coach on this team');

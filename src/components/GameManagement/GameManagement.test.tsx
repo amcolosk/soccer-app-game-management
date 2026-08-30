@@ -2912,3 +2912,47 @@ describe("GameManagement – planner blocked until all positions have a role", (
     expect(screen.queryByText(/formation needs role assignment/i)).not.toBeInTheDocument();
   });
 });
+
+describe("GameManagement – archived team banner", () => {
+  const archivedTeam = { ...mockTeam, status: 'archived', archivedAt: '2026-07-01T12:00:00.000Z' };
+  // Midday-UTC timestamp — a midnight-UTC value rolls back to the previous
+  // local day under toLocaleDateString on any UTC-negative machine (no TZ
+  // pinning in this repo's test config). Matches the precedent in
+  // src/utils/teamUtils.test.ts line 73.
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+    mockUseGameSubscriptions.mockReturnValue(defaultSubscription);
+  });
+
+  it.each(['scheduled', 'in-progress', 'halftime', 'completed'])(
+    'shows the archived-team banner when game.status is %s',
+    (status) => {
+      // Drive the rendered state through the mocked hook's `gameState`, not
+      // through the `game` prop — see correction note above. `game={mockGame}`
+      // is still passed because GameManagement requires a `game` prop to
+      // render at all; it plays no role in which state layout appears once
+      // useGameSubscriptions is mocked.
+      mockUseGameSubscriptions.mockReturnValue({
+        ...defaultSubscription,
+        gameState: { ...defaultSubscription.gameState, status },
+      });
+      renderWithRouter(
+        <GameManagement game={mockGame} team={archivedTeam} onBack={vi.fn()} />
+      );
+      expect(
+        screen.getByText(/Archived Team — Read-Only \(Archived Jul 1, 2026\)/)
+      ).toBeInTheDocument();
+    }
+  );
+
+  it('does not show the archived-team banner for an active team', () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled' },
+    });
+    renderComponent(); // uses the unmodified mockTeam — no `status` field
+    expect(screen.queryByText(/Archived Team/)).not.toBeInTheDocument();
+  });
+});
