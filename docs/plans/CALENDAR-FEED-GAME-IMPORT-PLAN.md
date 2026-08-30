@@ -495,6 +495,17 @@ would need re-checking.
 `docs/specs/CALENDAR-IMPORT-SPEC.md` records the PlayMetrics description grammar
 so a future adapter author is not re-deriving it from a sample file.
 
+**Post-merge correction:** this original Docs entry missed the two app-wide
+spec docs the feature actually made stale — [README.md](../../README.md)'s
+Features list and Data Model summary, and
+[docs/specs/UI-SPEC.md](../specs/UI-SPEC.md)'s Home/Manage screen sections and
+Modal Patterns. Both were updated after the fact rather than as part of the
+original plan. `plan-writer` and `architect-reviewer` now explicitly check for
+this class of gap (README.md/UI-SPEC.md coverage) on every future plan, and
+`validation-reviewer`/`ui-reviewer` check for it again post-implementation as
+a backstop — see the corresponding `.claude/agents/*.md` updates alongside
+this note.
+
 ## Reconciliation rules (Decision 3, precisely)
 
 **Matching precedence, in order:**
