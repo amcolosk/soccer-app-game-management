@@ -20,6 +20,7 @@ vi.mock('./ConfirmModal', () => ({
 vi.mock('../utils/toast', () => ({
   showError: vi.fn(),
   showSuccess: vi.fn(),
+  showWarning: vi.fn(),
 }));
 
 import { CalendarFeedSettings } from './CalendarFeedSettings';
@@ -120,6 +121,35 @@ describe('CalendarFeedSettings', () => {
     });
     await waitFor(() => expect(onTeamDataChanged).toHaveBeenCalledTimes(1));
     expect(screen.queryByText(/import preview/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a warning toast (not success) mentioning the failed count when Confirm result has failedCount > 0', async () => {
+    mockSyncTeamCalendar.mockImplementation(async (args: { dryRun?: boolean }) => {
+      if (args.dryRun) {
+        return { createdGames: [{ id: 'g1' }], updatedGames: [], skippedCount: 0, cancelledCount: 0, adoptedCount: 0, protectedCount: 0, failedCount: 0, warnings: [] };
+      }
+      return {
+        createdGames: [{ id: 'g1' }], updatedGames: [], skippedCount: 0, cancelledCount: 0, adoptedCount: 0, protectedCount: 0,
+        failedCount: 1, warnings: ['Failed to sync "Rivals FC": write conflict'],
+      };
+    });
+    const onTeamDataChanged = vi.fn();
+    const toast = await import('../utils/toast');
+    render(<CalendarFeedSettings team={makeTeam()} onTeamDataChanged={onTeamDataChanged} />);
+
+    fireEvent.change(screen.getByLabelText(/calendar feed url/i), { target: { value: 'https://calendar.playmetrics.com/x.ics' } });
+    fireEvent.click(screen.getByRole('button', { name: /^link$/i }));
+    await waitFor(() => expect(screen.getByText(/import preview/i)).toBeInTheDocument());
+
+    const successCallsBeforeConfirm = (toast.showSuccess as ReturnType<typeof vi.fn>).mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
+
+    await waitFor(() => {
+      expect(toast.showWarning).toHaveBeenCalledWith(expect.stringMatching(/1 game.*failed to sync/i));
+    });
+    // The failedCount>0 path must use the warning toast, not the plain
+    // success toast, for this specific Confirm call.
+    expect((toast.showSuccess as ReturnType<typeof vi.fn>).mock.calls.length).toBe(successCallsBeforeConfirm);
   });
 
   it('a no-op dryRun result skips the modal and saves the feed directly (empty feed still gets linked)', async () => {

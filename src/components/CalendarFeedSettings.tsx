@@ -3,7 +3,7 @@ import type { Team, CalendarSyncResult } from '../types/schema';
 import { isTeamArchived } from '../utils/teamUtils';
 import { useConfirm } from './ConfirmModal';
 import { syncTeamCalendar, unlinkTeamCalendar } from '../services/calendarSyncService';
-import { showError, showSuccess } from '../utils/toast';
+import { showError, showSuccess, showWarning } from '../utils/toast';
 
 interface CalendarFeedSettingsProps {
   team: Team;
@@ -29,7 +29,24 @@ function describeResult(result: CalendarSyncResult): string {
   if (updatedCount > 0) parts.push(`updated ${updatedCount}`);
   if (result.adoptedCount) parts.push(`linked ${result.adoptedCount} you already entered`);
   if (result.cancelledCount) parts.push(`flagged ${result.cancelledCount} cancelled`);
-  return parts.length > 0 ? `Calendar linked — ${parts.join(', ')}.` : 'Calendar linked.';
+
+  let message = parts.length > 0 ? `Calendar linked — ${parts.join(', ')}` : 'Calendar linked';
+
+  // Per-event write failures during a real sync are swallowed by the
+  // handler so the rest of the batch keeps processing (sync-team-calendar
+  // handler.ts ~line 416-430) — surface that here rather than silently
+  // dropping it, since there's no other UI surface for it.
+  const failedCount = result.failedCount ?? 0;
+  if (failedCount > 0) {
+    message += `, but ${failedCount} game${failedCount === 1 ? '' : 's'} failed to sync`;
+  }
+
+  const warningsCount = result.warnings?.length ?? 0;
+  if (warningsCount > 0) {
+    message += ` (${warningsCount} warning${warningsCount === 1 ? '' : 's'})`;
+  }
+
+  return `${message}.`;
 }
 
 function formatSyncedAt(iso: string | null | undefined): string | null {
@@ -64,7 +81,12 @@ export function CalendarFeedSettings({ team, onTeamDataChanged }: CalendarFeedSe
     setIsApplying(true);
     try {
       const result = await syncTeamCalendar({ teamId: team.id, feedUrl: url, saveFeedUrl: true, dryRun: false });
-      showSuccess(describeResult(result));
+      const message = describeResult(result);
+      if ((result.failedCount ?? 0) > 0) {
+        showWarning(message);
+      } else {
+        showSuccess(message);
+      }
       setFeedUrlInput('');
       setPreview(null);
       onTeamDataChanged();
@@ -191,6 +213,9 @@ export function CalendarFeedSettings({ team, onTeamDataChanged }: CalendarFeedSe
               )}
               {(preview.cancelledCount ?? 0) > 0 && (
                 <li>Flag {preview.cancelledCount} game(s) as cancelled by the organizer.</li>
+              )}
+              {(preview.skippedCount ?? 0) > 0 && (
+                <li>{preview.skippedCount} game(s) are already up to date.</li>
               )}
             </ul>
             {preview.warnings && preview.warnings.length > 0 && (
