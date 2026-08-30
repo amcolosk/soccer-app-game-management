@@ -1052,3 +1052,73 @@ describe('Home — Calendar Feed Import (Phase 3, "Sync now" relabeling)', () =>
   });
 });
 
+describe('Home — Calendar Feed Import (Phase 4, UI polish: badges + imported meta)', () => {
+  beforeEach(resetState);
+
+  function seedTeamAndGame(gameOverrides: Record<string, unknown>) {
+    teamQueryResult.data = [{ id: 't1', name: 'Eagles', coaches: ['test-user-id'] }];
+    teamQueryResult.isSynced = true;
+    gameQueryResult.data = [{
+      id: 'g1', status: 'scheduled', teamId: 't1', opponent: 'Rivals FC', isHome: true,
+      ...gameOverrides,
+    }];
+    gameQueryResult.isSynced = true;
+  }
+
+  it('shows the cancelled badge and suppresses the unverified-home/away badge on the same card (priority rule)', () => {
+    seedTeamAndGame({ externalCancelled: true, externalHomeAwayUnverified: true });
+    render(<Home />);
+
+    expect(screen.getByText(/cancelled by organizer/i)).toBeInTheDocument();
+    expect(screen.queryByText(/verify home\/away/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the unverified-home/away badge when the game is not cancelled', () => {
+    seedTeamAndGame({ externalHomeAwayUnverified: true });
+    render(<Home />);
+
+    expect(screen.getByText(/verify home\/away/i)).toBeInTheDocument();
+    expect(screen.queryByText(/cancelled by organizer/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the durable adopted indicator alongside the cancelled badge', () => {
+    seedTeamAndGame({ externalCancelled: true, externalAdoptedAt: '2026-01-01T00:00:00.000Z' });
+    render(<Home />);
+
+    expect(screen.getByText(/cancelled by organizer/i)).toBeInTheDocument();
+    expect(screen.getByText(/linked from your entry/i)).toBeInTheDocument();
+  });
+
+  it('shows the durable adopted indicator alongside the unverified badge', () => {
+    seedTeamAndGame({ externalHomeAwayUnverified: true, externalAdoptedAt: '2026-01-01T00:00:00.000Z' });
+    render(<Home />);
+
+    expect(screen.getByText(/verify home\/away/i)).toBeInTheDocument();
+    expect(screen.getByText(/linked from your entry/i)).toBeInTheDocument();
+  });
+
+  it('shows no feed status badge for a plain hand-created game', () => {
+    seedTeamAndGame({});
+    render(<Home />);
+
+    expect(screen.queryByText(/cancelled by organizer/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/verify home\/away/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/linked from your entry/i)).not.toBeInTheDocument();
+  });
+
+  it('shows imported venue and arrive-by time on the card', () => {
+    seedTeamAndGame({ locationName: 'Martin Field 1', arriveByTime: '2026-09-12T19:45:00.000Z' });
+    render(<Home />);
+
+    expect(screen.getByText(/martin field 1/i)).toBeInTheDocument();
+    expect(screen.getByText(/arrive by/i)).toBeInTheDocument();
+  });
+
+  it('shows nothing extra when there is no imported venue or arrive-by time', () => {
+    seedTeamAndGame({});
+    render(<Home />);
+
+    expect(screen.queryByText(/arrive by/i)).not.toBeInTheDocument();
+  });
+});
+

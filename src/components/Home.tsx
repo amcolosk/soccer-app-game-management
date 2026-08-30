@@ -650,12 +650,46 @@ export function Home() {
   };
 
   // Pill-badge convention (.status-badge, App.css) rather than the
-  // plain-text .game-status style — shipped in Phase 2 alongside the write
-  // path so a feed-cancelled game is never displayed as a normal scheduled
-  // game (architecture review Major 8 reordering).
-  const renderFeedCancelledBadge = (game: Game) => {
-    if (!game.externalCancelled) return null;
-    return <span className="status-badge status-feed-cancelled">Cancelled by organizer</span>;
+  // plain-text .game-status style. Priority rule (UI review round 1):
+  // cancelled suppresses unverified-home/away on the same card, since a
+  // cancelled game's home/away accuracy is moot. The durable adopted
+  // indicator (externalAdoptedAt) is provenance information, not a warning,
+  // and can co-occur with either.
+  const renderFeedStatusBadges = (game: Game) => {
+    const cancelled = Boolean(game.externalCancelled);
+    const unverified = !cancelled && Boolean(game.externalHomeAwayUnverified);
+    const adopted = Boolean(game.externalAdoptedAt);
+    if (!cancelled && !unverified && !adopted) return null;
+
+    return (
+      <>
+        {cancelled && <span className="status-badge status-feed-cancelled">Cancelled by organizer</span>}
+        {unverified && <span className="status-badge status-unverified-home-away">⚠ Verify home/away</span>}
+        {adopted && <span className="import-adopted-tag">Linked from your entry</span>}
+      </>
+    );
+  };
+
+  const formatArriveByTime = (iso: string | null | undefined): string | null => {
+    if (!iso) return null;
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  };
+
+  // Imported venue/arrive-by details (Phase 4 UI polish). "may be
+  // overwritten on the next sync" per the plan's "Coach edits vs. re-sync"
+  // section — surfaced once, in CalendarFeedSettings, not repeated per card.
+  const renderImportedGameMeta = (game: Game) => {
+    const arriveBy = formatArriveByTime(game.arriveByTime);
+    if (!game.locationName && !arriveBy) return null;
+    return (
+      <p className="game-meta-imported">
+        {game.locationName && `📍 ${game.locationName}`}
+        {game.locationName && arriveBy && ' • '}
+        {arriveBy && `Arrive by ${arriveBy}`}
+      </p>
+    );
   };
 
   const handleGameClick = (game: Game) => {
@@ -1069,13 +1103,14 @@ export function Home() {
                         onClick={() => handleGameClick(game)}
                       >
                         <div className="game-status">{getStatusBadge(game.status)}</div>
-                        {renderFeedCancelledBadge(game)}
+                        {renderFeedStatusBadges(game)}
                         <div className="game-info">
                           <h4>{team.name} vs {game.opponent}</h4>
                           <p className="game-meta">
                             {game.isHome ? '🏠 Home' : '✈️ Away'}
                             {game.gameDate && ` • ${formatDate(game.gameDate)}`}
                           </p>
+                          {renderImportedGameMeta(game)}
                         </div>
                       </div>
                       <div className="game-card-actions">
