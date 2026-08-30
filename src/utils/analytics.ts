@@ -45,6 +45,7 @@ export const AnalyticsEvents = {
   GAME_COMPLETED: { category: 'Game', action: 'Complete Game' },
   GAME_DELETED: { category: 'Game', action: 'Delete Game' },
   GAME_OPENED: { category: 'Game', action: 'Open Game' },
+  CALENDAR_IMPORT_APPLIED: { category: 'Game', action: 'Calendar Import Applied' },
 
   // In-game actions
   SUBSTITUTION_MADE: { category: 'GameDay', action: 'Substitution Made' },

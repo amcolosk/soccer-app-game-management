@@ -8350,3 +8350,151 @@
   font-size: 0.9rem;
   font-weight: 600;
 }
+
+/* ===== Calendar Feed Import ===== */
+.calendar-import-trigger {
+  margin-top: 0.5rem;
+}
+
+.calendar-import-panel .calendar-import-hint {
+  color: var(--text-secondary);
+  font-size: 0.9em;
+  margin: 0 0 0.5rem;
+}
+
+.calendar-import-panel input[type='file'] {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0;
+}
+
+.calendar-import-status {
+  color: var(--text-secondary);
+  font-size: 0.9em;
+  font-style: italic;
+}
+
+/* Preview modal — slide-up sheet on phone, matching RotationWidget's
+   modal-overlay/modal-content pattern (UI-SPEC §8). */
+.calendar-import-preview-modal {
+  max-width: 480px;
+}
+
+.calendar-import-summary {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.calendar-import-summary li {
+  background: var(--hover-background);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.95em;
+}
+
+.calendar-import-warnings {
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.calendar-import-warnings h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.9em;
+  color: #8d6e00;
+}
+
+.calendar-import-warnings ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.85em;
+  color: #6b5500;
+}
+
+.calendar-import-overwrite-note {
+  color: var(--text-secondary);
+  font-size: 0.82em;
+  font-style: italic;
+}
+
+@media (max-width: 600px) {
+  .calendar-import-preview-modal {
+    max-width: 100%;
+    width: 100%;
+    border-radius: 16px 16px 0 0;
+    align-self: flex-end;
+    margin-top: auto;
+  }
+
+  .modal-overlay:has(.calendar-import-preview-modal) {
+    align-items: flex-end;
+  }
+}
+
+/* Feed status pill badges (existing .status-badge/.location-badge convention,
+   App.css ~1606-1630) rather than plain text — priority rule: cancelled
+   suppresses the unverified-home/away badge on the same card. The adopted
+   indicator is provenance, not a warning, and can co-occur with either. */
+.status-feed-cancelled {
+  background: rgba(229, 57, 53, 0.1);
+  color: var(--danger-red, #e53935);
+}
+
+.status-unverified-home-away {
+  background: rgba(255, 152, 0, 0.12);
+  color: #e65100;
+}
+
+.import-adopted-tag {
+  display: inline-block;
+  padding: 0.25em 0.7em;
+  border-radius: 6px;
+  font-size: 0.78em;
+  font-weight: 500;
+  background: rgba(76, 175, 80, 0.1);
+  color: var(--accent-green);
+  margin-left: 0.4rem;
+}
+
+.game-meta-imported {
+  color: var(--text-secondary);
+  font-size: 0.85em;
+  margin-top: 0.15rem;
+}
+
+/* ===== Calendar Feed Settings (team management panel) ===== */
+.calendar-feed-settings {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-top: 1rem;
+  background: var(--card-background);
+}
+
+.calendar-feed-settings h4 {
+  margin: 0 0 0.5rem;
+}
+
+.calendar-feed-settings__status {
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.calendar-feed-settings__error {
+  color: var(--danger-red, #e53935);
+  font-size: 0.85em;
+  margin-bottom: 0.5rem;
+}
+
+.calendar-feed-settings__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}

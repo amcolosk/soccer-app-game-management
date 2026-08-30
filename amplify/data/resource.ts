@@ -15,6 +15,7 @@ import { archiveTeam } from "../functions/archive-team/resource";
 import { restoreTeam } from "../functions/restore-team/resource";
 import { assignTeamOwner } from "../functions/assign-team-owner/resource";
 import { createGameSafe } from "../functions/create-game-safe/resource";
+import { syncTeamCalendar } from "../functions/sync-team-calendar/resource";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -86,6 +87,16 @@ const schema = a.schema({
       // Archive audit metadata. Coaches get read-only access; writes only via archiveTeam/restoreTeam.
       archivedAt: a.datetime().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
       archivedBy: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
+      // Calendar Feed Import: non-secret status fields coaches see on every
+      // load. All five are Lambda-written, coach-read-only (round-2 fix,
+      // architecture review Major B). The feed URL itself does NOT live
+      // here (architecture review Major 1) -- see the Lambda-only
+      // CalendarFeed model below.
+      calendarFeedProvider: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
+      calendarFeedTeamAlias: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
+      calendarFeedHost: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]), // display-only hostname, e.g. "calendar.playmetrics.com" -- never the full URL
+      calendarFeedLastSyncedAt: a.datetime().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
+      calendarFeedLastError: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
     })
     .authorization((allow) => [
       // Delete is intentionally disallowed on the model. Use deleteTeamSafe.
@@ -170,6 +181,27 @@ const schema = a.schema({
       gameNotes: a.hasMany('GameNote', 'gameId'),
       playerAvailability: a.hasMany('PlayerAvailability', 'gameId'),
       gamePlan: a.hasOne('GamePlan', 'gameId'),
+      // External calendar provenance (Calendar Feed Import). Written only by
+      // the syncTeamCalendar Lambda via the DynamoDB SDK (bypasses field
+      // auth); coaches read but never write these directly. None carry
+      // .default() -- sidesteps the Finding-4 "'create' grant required for
+      // any field with a default" gotcha entirely.
+      externalUid: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]), // VEVENT UID, e.g. "Game_4841731"
+      externalSource: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]), // 'playmetrics' | 'ics'
+      externalSequence: a.integer().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]), // VEVENT SEQUENCE, informational only -- NOT the change-detection signal
+      externalContentHash: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]), // sha256 of the import-owned fields; drives skip-vs-update
+      externalSyncedAt: a.datetime().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
+      externalCancelled: a.boolean().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]), // feed says CANCELLED; game kept + flagged, never deleted
+      externalHomeAwayUnverified: a.boolean().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]), // generic adapter guessed isHome
+      externalAdoptedAt: a.datetime().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]), // set once, when a hand-created game is matched to a feed event; never cleared
+      // locationName/locationAddress/arriveByTime are feed-owned but
+      // coach-editable (see plan's "Coach edits vs. re-sync"): the feed
+      // overwrites them on every content-hash change, so a hand correction
+      // survives only until the next sync. No field-level override --
+      // inherits coach read+update from the model-level grant below.
+      locationName: a.string(), // "Martin Field 1"
+      locationAddress: a.string(), // "3740 86th St., Urbandale, IA 50322"
+      arriveByTime: a.datetime(), // parsed from "Arrive by 2:45 PM"
     })
     .authorization((allow) => [
       // Create is intentionally routed through the Lambda-backed
@@ -529,6 +561,56 @@ const schema = a.schema({
     .returns(a.ref('Game'))
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(createGameSafe)),
+
+  // Calendar Feed Import: minimal Lambda-only model holding the feed URL
+  // itself, keyed directly by teamId (one row per team, enforced by the key
+  // -- precedent: BugReportRateLimit's custom identifier). Round-2 revision
+  // (architecture review Major A): the first draft gave coaches direct
+  // ownersDefinedIn('coaches') read/write access, which turned out to be
+  // exploitable (a caller who knows a teamId could plant a row the real
+  // coaches couldn't see or remove) and silently locked out newly-accepted
+  // co-coaches (accept-invitation's per-table coaches backfill doesn't know
+  // about this model). No client of any kind reads or writes this model --
+  // the coach never sees the URL again once entered; only
+  // syncTeamCalendar/unlinkTeamCalendar touch it, via the DynamoDB SDK.
+  CalendarFeed: a
+    .model({
+      teamId: a.id().required(),
+      url: a.string().required(),
+    })
+    .identifier(['teamId'])
+    .authorization((allow) => [allow.authenticated().to([])]), // no client grants at all
+
+  CalendarSyncResult: a.customType({
+    createdGames: a.ref('Game').array(), // full Game objects, complete enough for direct GraphQL serialization
+    updatedGames: a.ref('Game').array(),
+    skippedCount: a.integer(),
+    cancelledCount: a.integer(),
+    adoptedCount: a.integer(), // hand-created games matched and linked to a feed event instead of duplicated
+    protectedCount: a.integer(),
+    failedCount: a.integer(),
+    warnings: a.string().array(),
+  }),
+
+  // Calendar Feed Import: both entry points (pasted URL, uploaded .ics file)
+  // call this same mutation -- parsing always happens server-side (Derived
+  // Decision B), since Game create is Lambda-only regardless. `feedUrl`/
+  // `saveFeedUrl` are the only way a CalendarFeed row is created or
+  // replaced; omitting feedUrl re-syncs whatever row the Lambda already has
+  // for the team. `dryRun` runs the identical reconciliation logic and
+  // skips the write step, for the preview/confirm UI flow.
+  syncTeamCalendar: a
+    .mutation()
+    .arguments({
+      teamId: a.string().required(),
+      feedUrl: a.string(),
+      icsContent: a.string(),
+      saveFeedUrl: a.boolean(),
+      dryRun: a.boolean(),
+    })
+    .returns(a.ref('CalendarSyncResult'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(syncTeamCalendar)),
 
   QueuedSubstitution: a
     .model({

@@ -9,7 +9,9 @@ import { getCurrentUser } from 'aws-amplify/auth';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import type { Game } from '../types/schema';
-import { showError, showWarning } from '../utils/toast';
+import { showError, showWarning, showSuccess } from '../utils/toast';
+import { syncTeamCalendar } from '../services/calendarSyncService';
+import type { CalendarSyncResult } from '../types/schema';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { handleApiError } from '../utils/errorHandler';
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
@@ -88,6 +90,16 @@ export function Home() {
   const [pendingCreatedGames, setPendingCreatedGames] = useState<Game[]>([]);
   const [gameRefreshKey, setGameRefreshKey] = useState(0);
   const [isSubmittingGame, setIsSubmittingGame] = useState(false);
+
+  // Calendar Feed Import (Phase 2: file-upload path). See "Sync interaction
+  // flow" in docs/plans/CALENDAR-FEED-GAME-IMPORT-PLAN.md — one CTA slot,
+  // dryRun preview modal, loading/error states.
+  const [isImportingCalendar, setIsImportingCalendar] = useState(false);
+  const [importTeamId, setImportTeamId] = useState('');
+  const [isCheckingImport, setIsCheckingImport] = useState(false);
+  const [importPreview, setImportPreview] = useState<CalendarSyncResult | null>(null);
+  const [importPreviewArgs, setImportPreviewArgs] = useState<{ teamId: string; icsContent: string } | null>(null);
+  const [isApplyingImport, setIsApplyingImport] = useState(false);
 
   const scheduleGameButtonRef = useRef<HTMLButtonElement>(null);
   const { getSwipeProps, getSwipeStyle, close: closeSwipe } = useSwipeDelete({ openWidthPx: 160, maxDistancePx: 180 });
@@ -465,6 +477,106 @@ export function Home() {
     }
   };
 
+  const isImportResultNoOp = (result: CalendarSyncResult): boolean =>
+    (result.createdGames?.length ?? 0) === 0 &&
+    (result.updatedGames?.length ?? 0) === 0 &&
+    (result.adoptedCount ?? 0) === 0 &&
+    (result.cancelledCount ?? 0) === 0;
+
+  const absorbImportResult = (result: CalendarSyncResult) => {
+    const created = (result.createdGames ?? []).filter((g): g is Game => g != null);
+    if (created.length > 0) {
+      // Same overlay mechanism createGameSafe already uses (Home.tsx:130) —
+      // SDK writes don't fire AppSync subscriptions, so newly created games
+      // need to be shown immediately rather than waiting for observeQuery.
+      setPendingCreatedGames((prev) => [...prev, ...created]);
+    }
+    // updatedGames (including adopted games) can't be absorbed by the
+    // addition-only overlay above — an updated game's id is already present
+    // in `games`, so an overlay entry for it would be silently dropped
+    // (round-2 Major C). Force a re-subscribe instead.
+    setGameRefreshKey((k) => k + 1);
+  };
+
+  const describeImportResult = (result: CalendarSyncResult): string => {
+    const parts: string[] = [];
+    const createdCount = result.createdGames?.length ?? 0;
+    const updatedCount = (result.updatedGames?.length ?? 0) - (result.adoptedCount ?? 0);
+    if (createdCount > 0) parts.push(`created ${createdCount}`);
+    if (updatedCount > 0) parts.push(`updated ${updatedCount}`);
+    if (result.adoptedCount) parts.push(`linked ${result.adoptedCount} you already entered`);
+    if (result.cancelledCount) parts.push(`flagged ${result.cancelledCount} cancelled`);
+    return parts.length > 0 ? `Calendar sync: ${parts.join(', ')}.` : 'Calendar sync complete.';
+  };
+
+  const resetImportPanel = useCallback(() => {
+    setIsImportingCalendar(false);
+    setImportTeamId('');
+    setImportPreview(null);
+    setImportPreviewArgs(null);
+  }, []);
+
+  const handleImportFileSelected = useCallback(async (file: File) => {
+    if (!importTeamId) {
+      showWarning('Select a team first');
+      return;
+    }
+    // Advisory client-side cap (the handler enforces this again server-side
+    // — Security requirements: the client cap is advisory only).
+    const MAX_ICS_BYTES = 512 * 1024;
+    if (file.size > MAX_ICS_BYTES) {
+      showError('That calendar file is too large (max 512 KB).');
+      return;
+    }
+
+    let icsContent: string;
+    try {
+      icsContent = await file.text();
+    } catch {
+      showError('Could not read that file.');
+      return;
+    }
+
+    setIsCheckingImport(true);
+    try {
+      const result = await syncTeamCalendar({ teamId: importTeamId, icsContent, dryRun: true });
+      if (isImportResultNoOp(result)) {
+        showSuccess('No changes — schedule already up to date');
+        resetImportPanel();
+        return;
+      }
+      setImportPreview(result);
+      setImportPreviewArgs({ teamId: importTeamId, icsContent });
+    } catch (error) {
+      console.error('Failed to preview calendar import', error);
+      showError(error instanceof Error ? error.message : 'Failed to check calendar file');
+    } finally {
+      setIsCheckingImport(false);
+    }
+  }, [importTeamId, resetImportPanel]);
+
+  const handleConfirmImport = useCallback(async () => {
+    if (!importPreviewArgs) return;
+    setIsApplyingImport(true);
+    try {
+      const result = await syncTeamCalendar({ ...importPreviewArgs, dryRun: false });
+      absorbImportResult(result);
+      showSuccess(describeImportResult(result));
+      resetImportPanel();
+      trackEvent(AnalyticsEvents.CALENDAR_IMPORT_APPLIED.category, AnalyticsEvents.CALENDAR_IMPORT_APPLIED.action);
+    } catch (error) {
+      console.error('Failed to apply calendar import', error);
+      showError(error instanceof Error ? error.message : 'Failed to import calendar');
+    } finally {
+      setIsApplyingImport(false);
+    }
+  }, [importPreviewArgs, resetImportPanel]);
+
+  const handleCancelImportPreview = useCallback(() => {
+    setImportPreview(null);
+    setImportPreviewArgs(null);
+  }, []);
+
   const formatDate = (dateString: string | null | undefined) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -504,6 +616,15 @@ export function Home() {
     if (status === 'halftime') return '⏸️ Halftime';
     if (status === 'completed') return '✅ Completed';
     return status;
+  };
+
+  // Pill-badge convention (.status-badge, App.css) rather than the
+  // plain-text .game-status style — shipped in Phase 2 alongside the write
+  // path so a feed-cancelled game is never displayed as a normal scheduled
+  // game (architecture review Major 8 reordering).
+  const renderFeedCancelledBadge = (game: Game) => {
+    if (!game.externalCancelled) return null;
+    return <span className="status-badge status-feed-cancelled">Cancelled by organizer</span>;
   };
 
   const handleGameClick = (game: Game) => {
@@ -630,6 +751,100 @@ export function Home() {
         >
           + Schedule New Game
         </button>
+      )}
+
+      {/* Calendar Feed Import: one CTA slot (not competing with "+ Schedule
+          New Game" above), relabeled by state -- "Import from calendar"
+          (Phase 2, file picker) becomes "Sync now" once a feed is saved
+          (Phase 3+). See "Sync interaction flow" in the plan. */}
+      {!isCreatingGame && !isImportingCalendar && activeTeams.length > 0 && (
+        <button
+          onClick={() => setIsImportingCalendar(true)}
+          className="btn-secondary calendar-import-trigger"
+        >
+          📅 Import from calendar
+        </button>
+      )}
+
+      {isImportingCalendar && (
+        <div className="create-form calendar-import-panel">
+          <h3>Import from Calendar</h3>
+          <p className="calendar-import-hint">Upload a team schedule .ics file to import games.</p>
+          <select
+            value={importTeamId}
+            onChange={(e) => setImportTeamId(e.target.value)}
+            disabled={isCheckingImport}
+            aria-label="Team to import games for"
+          >
+            <option value="">Select Team *</option>
+            {activeTeams.map((team) => (
+              <option key={team.id} value={team.id}>
+                {team.name}
+              </option>
+            ))}
+          </select>
+          <input
+            type="file"
+            accept=".ics,text/calendar"
+            disabled={!importTeamId || isCheckingImport}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleImportFileSelected(file);
+              e.target.value = '';
+            }}
+            aria-label="Calendar .ics file"
+          />
+          {isCheckingImport && <p className="calendar-import-status">Checking…</p>}
+          <div className="form-actions">
+            <button onClick={resetImportPanel} className="btn-secondary" disabled={isCheckingImport}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {importPreview && (
+        <div className="modal-overlay" onClick={handleCancelImportPreview}>
+          <div className="modal-content calendar-import-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Import Preview</h2>
+            <ul className="calendar-import-summary">
+              {(importPreview.createdGames?.length ?? 0) > 0 && (
+                <li>This will create {importPreview.createdGames!.length} game(s).</li>
+              )}
+              {(importPreview.adoptedCount ?? 0) > 0 && (
+                <li>Link {importPreview.adoptedCount} game(s) you already entered by hand.</li>
+              )}
+              {((importPreview.updatedGames?.length ?? 0) - (importPreview.adoptedCount ?? 0)) > 0 && (
+                <li>Update {(importPreview.updatedGames!.length) - (importPreview.adoptedCount ?? 0)} existing game(s).</li>
+              )}
+              {(importPreview.cancelledCount ?? 0) > 0 && (
+                <li>Flag {importPreview.cancelledCount} game(s) as cancelled by the organizer.</li>
+              )}
+              {(importPreview.skippedCount ?? 0) > 0 && (
+                <li>{importPreview.skippedCount} game(s) are already up to date.</li>
+              )}
+            </ul>
+            {importPreview.warnings && importPreview.warnings.length > 0 && (
+              <div className="calendar-import-warnings">
+                <h4>Warnings</h4>
+                <ul>
+                  {importPreview.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                </ul>
+              </div>
+            )}
+            <p className="calendar-import-overwrite-note">
+              Imported venue and arrive-by details may be overwritten on the next sync.
+            </p>
+            <div className="form-actions">
+              <button onClick={handleConfirmImport} className="btn-primary" disabled={isApplyingImport}>
+                {isApplyingImport ? 'Applying…' : 'Confirm'}
+              </button>
+              <button onClick={handleCancelImportPreview} className="btn-secondary" disabled={isApplyingImport}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {isCreatingGame && (
@@ -783,6 +998,7 @@ export function Home() {
                         onClick={() => handleGameClick(game)}
                       >
                         <div className="game-status">{getStatusBadge(game.status)}</div>
+                        {renderFeedCancelledBadge(game)}
                         <div className="game-info">
                           <h4>{team.name} vs {game.opponent}</h4>
                           <p className="game-meta">

@@ -22,6 +22,7 @@ import { archiveTeam } from './functions/archive-team/resource';
 import { restoreTeam } from './functions/restore-team/resource';
 import { assignTeamOwner } from './functions/assign-team-owner/resource';
 import { createGameSafe } from './functions/create-game-safe/resource';
+import { syncTeamCalendar } from './functions/sync-team-calendar/resource';
 
 const backend = defineBackend({
   auth,
@@ -44,6 +45,7 @@ const backend = defineBackend({
   restoreTeam,
   assignTeamOwner,
   createGameSafe,
+  syncTeamCalendar,
 });
 
 // Add deployment ID to outputs
@@ -365,3 +367,23 @@ backend.createGameSafe.resources.lambda.addToRolePolicy(
 );
 backend.createGameSafe.addEnvironment('GAME_TABLE', gameTable.tableName);
 backend.createGameSafe.addEnvironment('TEAM_TABLE', teamTable.tableName);
+
+// Grant table access for syncTeamCalendar Lambda (Calendar Feed Import).
+// Least-privilege, matching exactly what handler.ts does: Scan the team's
+// games (no GSI -- Finding 10) + Put new games + Update existing games on
+// the Game table; Get + Update the Team record (status fields, once Phase 3
+// lands the URL-fetch path). No dynamodb:Query -- there's no GSI.
+backend.syncTeamCalendar.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Scan', 'dynamodb:PutItem', 'dynamodb:UpdateItem'],
+    resources: [gameTable.tableArn],
+  })
+);
+backend.syncTeamCalendar.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem', 'dynamodb:UpdateItem'],
+    resources: [teamTable.tableArn],
+  })
+);
+backend.syncTeamCalendar.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.syncTeamCalendar.addEnvironment('TEAM_TABLE', teamTable.tableName);
