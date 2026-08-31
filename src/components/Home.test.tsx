@@ -32,6 +32,7 @@ const {
   mockCoachProfileGet,
   mockConfirm,
   mockDeleteGameCascade,
+  mockSyncTeamCalendar,
 } = vi.hoisted(() => ({
   mockMarkWelcomed: vi.fn(),
   mockClearDismissed: vi.fn(),
@@ -44,6 +45,7 @@ const {
   mockCoachProfileGet: vi.fn(),
   mockConfirm: vi.fn(),
   mockDeleteGameCascade: vi.fn(),
+  mockSyncTeamCalendar: vi.fn(),
 }));
 
 // Mutable query results — tests mutate these before rendering
@@ -117,6 +119,10 @@ vi.mock('../services/gameService', () => ({
   createGame: mockCreateGame,
 }));
 
+vi.mock('../services/calendarSyncService', () => ({
+  syncTeamCalendar: mockSyncTeamCalendar,
+}));
+
 vi.mock('../services/demoDataService', () => ({
   createDemoTeam: vi.fn(),
   removeDemoData: vi.fn(),
@@ -129,6 +135,7 @@ vi.mock('../utils/analytics', () => ({
     GAME_UPDATED: { category: 'Game', action: 'Update Game' },
     GAME_DELETED: { category: 'Game', action: 'Delete Game' },
     GAME_OPENED: { category: 'Game', action: 'Open Game' },
+    CALENDAR_IMPORT_APPLIED: { category: 'Game', action: 'Calendar Import Applied' },
     DEMO_TEAM_CREATED: { category: 'Onboarding', action: 'Demo Team Created' },
     DEMO_TEAM_REMOVED: { category: 'Onboarding', action: 'Demo Team Removed' },
   },
@@ -196,6 +203,7 @@ function resetState() {
   mockConfirm.mockResolvedValue(false);
   mockDeleteGameCascade.mockReset();
   mockDeleteGameCascade.mockResolvedValue(undefined);
+  mockSyncTeamCalendar.mockReset();
   teamQueryResult.data = [];
   teamQueryResult.isSynced = false;
   gameQueryResult.data = [];
@@ -779,6 +787,370 @@ describe('Home — Lambda-backed game creation (TEAM-ARCHIVE-STEP11 Part 1)', ()
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /creating/i })).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('Home — Calendar Feed Import (Phase 2, file-upload path)', () => {
+  beforeEach(resetState);
+
+  function makeIcsFile(name = 'schedule.ics', content = 'BEGIN:VCALENDAR\nEND:VCALENDAR\n') {
+    return new File([content], name, { type: 'text/calendar' });
+  }
+
+  function seedOneActiveTeam() {
+    teamQueryResult.data = [{ id: 'team-1', name: 'Eagles', coaches: ['test-user-id'] }];
+    teamQueryResult.isSynced = true;
+  }
+
+  it('does not render the "Import from calendar" trigger when there are no active teams', () => {
+    teamQueryResult.data = [];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    expect(screen.queryByRole('button', { name: /import from calendar/i })).not.toBeInTheDocument();
+  });
+
+  it('renders the "Import from calendar" trigger as a secondary action alongside "+ Schedule New Game"', () => {
+    seedOneActiveTeam();
+
+    render(<Home />);
+
+    expect(screen.getByRole('button', { name: /schedule new game/i })).toBeInTheDocument();
+    const importButton = screen.getByRole('button', { name: /import from calendar/i });
+    expect(importButton).toBeInTheDocument();
+    expect(importButton.className).not.toContain('btn-primary');
+  });
+
+  it('opens the import panel with a team select and file input', () => {
+    seedOneActiveTeam();
+    render(<Home />);
+
+    fireEvent.click(screen.getByRole('button', { name: /import from calendar/i }));
+
+    expect(screen.getByLabelText(/team to import games for/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/calendar \.ics file/i)).toBeInTheDocument();
+  });
+
+  it('runs a dryRun preview on file selection and shows a lightweight success toast with no modal for a no-op result', async () => {
+    seedOneActiveTeam();
+    mockSyncTeamCalendar.mockResolvedValue({
+      createdGames: [], updatedGames: [], skippedCount: 3, cancelledCount: 0,
+      adoptedCount: 0, protectedCount: 0, failedCount: 0, warnings: [],
+    });
+    const toast = await import('../utils/toast');
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /import from calendar/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+
+    const file = makeIcsFile();
+    fireEvent.change(screen.getByLabelText(/calendar \.ics file/i), { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(mockSyncTeamCalendar).toHaveBeenCalledWith(expect.objectContaining({ teamId: 'team-1', dryRun: true }));
+    });
+    await waitFor(() => {
+      expect(toast.showSuccess).toHaveBeenCalledWith(expect.stringMatching(/up to date/i));
+    });
+    expect(screen.queryByText(/import preview/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the preview modal with counts and warnings for a non-empty dryRun result', async () => {
+    seedOneActiveTeam();
+    mockSyncTeamCalendar.mockResolvedValue({
+      createdGames: [{ id: 'g1' }, { id: 'g2' }],
+      updatedGames: [{ id: 'g3' }],
+      skippedCount: 0, cancelledCount: 0, adoptedCount: 1, protectedCount: 0, failedCount: 0,
+      warnings: ['Linked "Rivals FC" to an existing game you entered by hand.'],
+    });
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /import from calendar/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+    fireEvent.change(screen.getByLabelText(/calendar \.ics file/i), { target: { files: [makeIcsFile()] } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/import preview/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/create 2 game/i)).toBeInTheDocument();
+    expect(screen.getByText(/link 1 game/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/entered by hand/i).length).toBeGreaterThan(0);
+  });
+
+  it('Confirm re-runs the mutation without dryRun, absorbs created games, and closes the modal', async () => {
+    seedOneActiveTeam();
+    mockSyncTeamCalendar.mockResolvedValueOnce({
+      createdGames: [], updatedGames: [], skippedCount: 0, cancelledCount: 0,
+      adoptedCount: 0, protectedCount: 0, failedCount: 0, warnings: [],
+    });
+    // Force a non-no-op preview so the modal actually appears.
+    mockSyncTeamCalendar.mockReset();
+    mockSyncTeamCalendar.mockImplementation(async (args: { dryRun?: boolean }) => {
+      if (args.dryRun) {
+        return { createdGames: [{ id: 'g1' }], updatedGames: [], skippedCount: 0, cancelledCount: 0, adoptedCount: 0, protectedCount: 0, failedCount: 0, warnings: [] };
+      }
+      return {
+        createdGames: [{ id: 'g1', teamId: 'team-1', opponent: 'Rivals FC', isHome: true, status: 'scheduled', gameDate: null }],
+        updatedGames: [], skippedCount: 0, cancelledCount: 0, adoptedCount: 0, protectedCount: 0, failedCount: 0, warnings: [],
+      };
+    });
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /import from calendar/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+    fireEvent.change(screen.getByLabelText(/calendar \.ics file/i), { target: { files: [makeIcsFile()] } });
+
+    await waitFor(() => expect(screen.getByText(/import preview/i)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
+
+    await waitFor(() => {
+      expect(mockSyncTeamCalendar).toHaveBeenLastCalledWith(expect.objectContaining({ teamId: 'team-1', dryRun: false }));
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/import preview/i)).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.getByText('Eagles vs Rivals FC')).toBeInTheDocument();
+    });
+  });
+
+  it('shows a warning toast (not success) mentioning the failed count when Confirm result has failedCount > 0', async () => {
+    seedOneActiveTeam();
+    mockSyncTeamCalendar.mockImplementation(async (args: { dryRun?: boolean }) => {
+      if (args.dryRun) {
+        return { createdGames: [{ id: 'g1' }], updatedGames: [], skippedCount: 0, cancelledCount: 0, adoptedCount: 0, protectedCount: 0, failedCount: 0, warnings: [] };
+      }
+      return {
+        createdGames: [{ id: 'g1', teamId: 'team-1', opponent: 'Rivals FC', isHome: true, status: 'scheduled', gameDate: null }],
+        updatedGames: [], skippedCount: 0, cancelledCount: 0, adoptedCount: 0, protectedCount: 0,
+        failedCount: 1, warnings: ['Failed to sync "Wolves FC": write conflict'],
+      };
+    });
+    const toast = await import('../utils/toast');
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /import from calendar/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+    fireEvent.change(screen.getByLabelText(/calendar \.ics file/i), { target: { files: [makeIcsFile()] } });
+
+    await waitFor(() => expect(screen.getByText(/import preview/i)).toBeInTheDocument());
+
+    const successCallsBeforeConfirm = (toast.showSuccess as ReturnType<typeof vi.fn>).mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
+
+    await waitFor(() => {
+      expect(toast.showWarning).toHaveBeenCalledWith(expect.stringMatching(/1 game.*failed to sync/i));
+    });
+    // The failedCount>0 path must use the warning toast, not the plain
+    // success toast, for this specific Confirm call.
+    expect((toast.showSuccess as ReturnType<typeof vi.fn>).mock.calls.length).toBe(successCallsBeforeConfirm);
+  });
+
+  it('Cancel closes the preview modal without calling the mutation again', async () => {
+    seedOneActiveTeam();
+    mockSyncTeamCalendar.mockResolvedValue({
+      createdGames: [{ id: 'g1' }], updatedGames: [], skippedCount: 0, cancelledCount: 0,
+      adoptedCount: 0, protectedCount: 0, failedCount: 0, warnings: [],
+    });
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /import from calendar/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+    fireEvent.change(screen.getByLabelText(/calendar \.ics file/i), { target: { files: [makeIcsFile()] } });
+
+    await waitFor(() => expect(screen.getByText(/import preview/i)).toBeInTheDocument());
+    const callsBeforeCancel = mockSyncTeamCalendar.mock.calls.length;
+
+    fireEvent.click(screen.getAllByRole('button', { name: /^cancel$/i })[0]);
+
+    expect(screen.queryByText(/import preview/i)).not.toBeInTheDocument();
+    expect(mockSyncTeamCalendar).toHaveBeenCalledTimes(callsBeforeCancel);
+  });
+
+  it('shows an error toast and resets the busy state when the dryRun preview call fails', async () => {
+    seedOneActiveTeam();
+    mockSyncTeamCalendar.mockRejectedValue(new Error('Lambda timeout'));
+    const toast = await import('../utils/toast');
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /import from calendar/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+    fireEvent.change(screen.getByLabelText(/calendar \.ics file/i), { target: { files: [makeIcsFile()] } });
+
+    await waitFor(() => {
+      expect(toast.showError).toHaveBeenCalledWith('Lambda timeout');
+    });
+    expect(screen.queryByText(/import preview/i)).not.toBeInTheDocument();
+    // Panel is still open and file input usable again (busy state cleared).
+    expect(screen.getByLabelText(/calendar \.ics file/i)).not.toBeDisabled();
+  });
+
+  it('rejects an oversized file client-side without calling the mutation (advisory 512 KB cap)', async () => {
+    seedOneActiveTeam();
+    const toast = await import('../utils/toast');
+    const bigContent = 'a'.repeat(600 * 1024);
+    const bigFile = makeIcsFile('big.ics', bigContent);
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /import from calendar/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+    fireEvent.change(screen.getByLabelText(/calendar \.ics file/i), { target: { files: [bigFile] } });
+
+    await waitFor(() => {
+      expect(toast.showError).toHaveBeenCalledWith(expect.stringMatching(/too large/i));
+    });
+    expect(mockSyncTeamCalendar).not.toHaveBeenCalled();
+  });
+});
+
+describe('Home — Calendar Feed Import (Phase 3, "Sync now" relabeling)', () => {
+  beforeEach(resetState);
+
+  it('shows "Import from calendar" when no active team has a linked feed', () => {
+    teamQueryResult.data = [{ id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], calendarFeedHost: null }];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    expect(screen.getByRole('button', { name: /import from calendar/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^sync now$/i })).not.toBeInTheDocument();
+  });
+
+  it('shows "Sync now" when at least one active team has a linked feed', () => {
+    teamQueryResult.data = [
+      { id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], calendarFeedHost: 'calendar.playmetrics.com' },
+    ];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    expect(screen.getByRole('button', { name: /sync now/i })).toBeInTheDocument();
+  });
+
+  it('shows a "Sync now" action (not a file input) in the panel once a team with a linked feed is selected, plus an "upload a file instead" fallback', () => {
+    teamQueryResult.data = [
+      { id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], calendarFeedHost: 'calendar.playmetrics.com' },
+    ];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /sync now/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+
+    expect(screen.queryByLabelText(/calendar \.ics file/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /or upload a file instead/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /or upload a file instead/i }));
+    expect(screen.getByLabelText(/calendar \.ics file/i)).toBeInTheDocument();
+  });
+
+  it('"Sync now" calls syncTeamCalendar with no icsContent (re-syncs the saved feed)', async () => {
+    teamQueryResult.data = [
+      { id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], calendarFeedHost: 'calendar.playmetrics.com' },
+    ];
+    teamQueryResult.isSynced = true;
+    mockSyncTeamCalendar.mockResolvedValue({
+      createdGames: [], updatedGames: [], skippedCount: 2, cancelledCount: 0,
+      adoptedCount: 0, protectedCount: 0, failedCount: 0, warnings: [],
+    });
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /sync now/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+
+    // Panel's own "Sync now" action button, distinct from the outer trigger.
+    const panelButtons = screen.getAllByRole('button', { name: /sync now/i });
+    fireEvent.click(panelButtons[panelButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(mockSyncTeamCalendar).toHaveBeenCalledWith({ teamId: 'team-1', dryRun: true });
+    });
+  });
+
+  it('a team without a linked feed still shows the file input even when "Sync now" is the trigger label', () => {
+    teamQueryResult.data = [
+      { id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], calendarFeedHost: 'calendar.playmetrics.com' },
+      { id: 'team-2', name: 'Hawks', coaches: ['test-user-id'], calendarFeedHost: null },
+    ];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /sync now/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-2' } });
+
+    expect(screen.getByLabelText(/calendar \.ics file/i)).toBeInTheDocument();
+  });
+});
+
+describe('Home — Calendar Feed Import (Phase 4, UI polish: badges + imported meta)', () => {
+  beforeEach(resetState);
+
+  function seedTeamAndGame(gameOverrides: Record<string, unknown>) {
+    teamQueryResult.data = [{ id: 't1', name: 'Eagles', coaches: ['test-user-id'] }];
+    teamQueryResult.isSynced = true;
+    gameQueryResult.data = [{
+      id: 'g1', status: 'scheduled', teamId: 't1', opponent: 'Rivals FC', isHome: true,
+      ...gameOverrides,
+    }];
+    gameQueryResult.isSynced = true;
+  }
+
+  it('shows the cancelled badge and suppresses the unverified-home/away badge on the same card (priority rule)', () => {
+    seedTeamAndGame({ externalCancelled: true, externalHomeAwayUnverified: true });
+    render(<Home />);
+
+    expect(screen.getByText(/cancelled by organizer/i)).toBeInTheDocument();
+    expect(screen.queryByText(/verify home\/away/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the unverified-home/away badge when the game is not cancelled', () => {
+    seedTeamAndGame({ externalHomeAwayUnverified: true });
+    render(<Home />);
+
+    expect(screen.getByText(/verify home\/away/i)).toBeInTheDocument();
+    expect(screen.queryByText(/cancelled by organizer/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the durable adopted indicator alongside the cancelled badge', () => {
+    seedTeamAndGame({ externalCancelled: true, externalAdoptedAt: '2026-01-01T00:00:00.000Z' });
+    render(<Home />);
+
+    expect(screen.getByText(/cancelled by organizer/i)).toBeInTheDocument();
+    expect(screen.getByText(/linked from your entry/i)).toBeInTheDocument();
+  });
+
+  it('shows the durable adopted indicator alongside the unverified badge', () => {
+    seedTeamAndGame({ externalHomeAwayUnverified: true, externalAdoptedAt: '2026-01-01T00:00:00.000Z' });
+    render(<Home />);
+
+    expect(screen.getByText(/verify home\/away/i)).toBeInTheDocument();
+    expect(screen.getByText(/linked from your entry/i)).toBeInTheDocument();
+  });
+
+  it('shows no feed status badge for a plain hand-created game', () => {
+    seedTeamAndGame({});
+    render(<Home />);
+
+    expect(screen.queryByText(/cancelled by organizer/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/verify home\/away/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/linked from your entry/i)).not.toBeInTheDocument();
+  });
+
+  it('shows imported venue and arrive-by time on the card', () => {
+    seedTeamAndGame({ locationName: 'Martin Field 1', arriveByTime: '2026-09-12T19:45:00.000Z' });
+    render(<Home />);
+
+    expect(screen.getByText(/martin field 1/i)).toBeInTheDocument();
+    expect(screen.getByText(/arrive by/i)).toBeInTheDocument();
+  });
+
+  it('shows nothing extra when there is no imported venue or arrive-by time', () => {
+    seedTeamAndGame({});
+    render(<Home />);
+
+    expect(screen.queryByText(/arrive by/i)).not.toBeInTheDocument();
   });
 });
 

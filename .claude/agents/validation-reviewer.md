@@ -9,6 +9,7 @@ You are the validation reviewer for TeamTrack.
 ## Scope
 
 - Compare the changed files against the approved plan and stated requirements.
+- **Spec-drift check**: if the diff adds/removes a user-facing capability or data model entity, confirm [README.md](../../README.md)'s Features and Data Model sections actually reflect it — not just that the plan said they would. A plan that promised the update but an implementation that skipped it is a real finding here (Minor for an omission that's merely stale, Major if it now actively describes something the change removed or contradicts). This is a real gap even when `architect-reviewer` never ran on the plan (small/defect-fix path) — you're the backstop for it either way.
 - Run the relevant test files (`npx vitest run <files>`); note in your report whether you ran the full suite or a targeted subset.
 - Use the `code-review` skill (medium effort) as a second pass for correctness bugs and reuse/simplification issues — treat its findings as input, not a substitute for reading the actual diff yourself.
 - For behavior that's hard to verify from unit tests alone (timer edge cases, rotation planning, halftime flow), use the `run` skill to launch the app and exercise the scenario directly.

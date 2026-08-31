@@ -22,6 +22,8 @@ import { archiveTeam } from './functions/archive-team/resource';
 import { restoreTeam } from './functions/restore-team/resource';
 import { assignTeamOwner } from './functions/assign-team-owner/resource';
 import { createGameSafe } from './functions/create-game-safe/resource';
+import { syncTeamCalendar } from './functions/sync-team-calendar/resource';
+import { unlinkTeamCalendar } from './functions/unlink-team-calendar/resource';
 
 const backend = defineBackend({
   auth,
@@ -44,6 +46,8 @@ const backend = defineBackend({
   restoreTeam,
   assignTeamOwner,
   createGameSafe,
+  syncTeamCalendar,
+  unlinkTeamCalendar,
 });
 
 // Add deployment ID to outputs
@@ -365,3 +369,51 @@ backend.createGameSafe.resources.lambda.addToRolePolicy(
 );
 backend.createGameSafe.addEnvironment('GAME_TABLE', gameTable.tableName);
 backend.createGameSafe.addEnvironment('TEAM_TABLE', teamTable.tableName);
+
+// Grant table access for syncTeamCalendar Lambda (Calendar Feed Import).
+// Least-privilege, matching exactly what handler.ts does: Scan the team's
+// games (no GSI -- Finding 10) + Put new games + Update existing games on
+// the Game table; Get + Update the Team record (status fields); Get + Put +
+// Update on CalendarFeed (read a saved feed to re-sync, write a newly
+// linked/replaced one -- no DeleteItem, that's unlinkTeamCalendar's job).
+// No dynamodb:Query anywhere -- there's no GSI.
+const calendarFeedTable = backend.data.resources.tables['CalendarFeed'];
+backend.syncTeamCalendar.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Scan', 'dynamodb:PutItem', 'dynamodb:UpdateItem'],
+    resources: [gameTable.tableArn],
+  })
+);
+backend.syncTeamCalendar.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem', 'dynamodb:UpdateItem'],
+    resources: [teamTable.tableArn],
+  })
+);
+backend.syncTeamCalendar.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem'],
+    resources: [calendarFeedTable.tableArn],
+  })
+);
+backend.syncTeamCalendar.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.syncTeamCalendar.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.syncTeamCalendar.addEnvironment('CALENDAR_FEED_TABLE', calendarFeedTable.tableName);
+
+// Grant table access for unlinkTeamCalendar Lambda (least-privilege: Team
+// get/update for the status-field clear, CalendarFeed delete only -- no
+// PutItem, that's syncTeamCalendar's job).
+backend.unlinkTeamCalendar.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem', 'dynamodb:UpdateItem'],
+    resources: [teamTable.tableArn],
+  })
+);
+backend.unlinkTeamCalendar.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:DeleteItem'],
+    resources: [calendarFeedTable.tableArn],
+  })
+);
+backend.unlinkTeamCalendar.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.unlinkTeamCalendar.addEnvironment('CALENDAR_FEED_TABLE', calendarFeedTable.tableName);

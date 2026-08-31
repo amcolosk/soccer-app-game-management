@@ -277,12 +277,33 @@ Inline pill badges on game cards:
 
 #### Actions
 - Top of page: `+ Schedule New Game` primary button (full-width on phone)
+- Secondary, next to it: a single relabeled calendar-import slot — `📅 Import from calendar` before any team has a saved feed, `🔄 Sync now` once one exists (`hasAnyLinkedFeed`). One button, not two competing actions; never `.btn-primary`.
 
 #### Create Game Form (inline, replaces button)
 - Appears in-place when button tapped
 - Fields: Team selector (dropdown), Opponent name (text), Date/time (datetime-local), Home Game (checkbox)
 - Actions: `Create` (primary) + `Cancel` (secondary)
 - Required fields: Team + Opponent (validation toast if missing)
+
+#### Calendar Import Flow (inline, replaces the secondary button)
+**File:** `src/components/Home.tsx`; full behavioral spec: [Calendar Feed Import plan](../plans/CALENDAR-FEED-GAME-IMPORT-PLAN.md), "Sync interaction flow" section.
+
+- Tap trigger → button enters a busy state (`Checking…`), disabled (double-tap guard) → a dry-run reconciliation runs.
+- **No-op result** (nothing would change): skips straight to a lightweight toast — no modal, so a routine "Sync now" isn't annoying.
+- **Non-empty result**: an `Import Preview` slide-up sheet (bottom-anchored under 600px width) lists what will happen in plain language (created / updated / linked-from-hand-entry / cancelled / already-up-to-date counts) plus any warnings, with `Confirm` (primary, its own busy state) and `Cancel` (secondary, makes no mutation at all).
+- On a real sync with `failedCount > 0`, the result toast is a **warning** toast (not success) and appends a "N game(s) failed to sync" clause; a non-empty `warnings` list appends a "(N warning(s))" clause.
+- Errors (network, timeout, oversized file, parse failure, disallowed host) show plain-language toast copy; both the trigger and Confirm re-enable on failure.
+
+#### Feed-Status Badges (Upcoming Games cards only)
+Rendered by `renderFeedStatusBadges` alongside the status badge (§5.7), using the same pill convention rather than plain text:
+
+| Condition | Badge | Priority |
+|-----------|-------|----------|
+| `game.externalCancelled` | `Cancelled by organizer` (`.status-feed-cancelled`) | Suppresses the row below on the same card |
+| `game.externalHomeAwayUnverified` (and not cancelled) | `⚠ Verify home/away` (`.status-unverified-home-away`) | — |
+| `game.externalAdoptedAt` set | `Linked from your entry` (`.import-adopted-tag`) | Durable — persisted field, survives reload; can co-occur with either badge above |
+
+Imported games also show venue and "Arrive by" time in the card meta line when present (`locationName`, `arriveByTime`).
 
 #### Game Sections (when games exist)
 
@@ -601,6 +622,14 @@ Three numeric steppers inside the setup card, arranged in two rows:
 #### Tablet Adaptation
 - Master list (left column) + detail/form (right column) pattern
 
+#### Calendar Feed Settings (Manage > Teams > edit a team)
+**File:** `src/components/CalendarFeedSettings.tsx`
+
+- Shown inside the active-team edit form only — never reachable for an archived team, since the archived-teams list offers only Restore / Assign Owner / Delete, no Edit.
+- Link / Replace a feed URL: same dry-run preview → Confirm/Cancel pattern as the Home screen trigger (a separate implementation of the same UX contract, since this panel has no games list of its own to update).
+- Status display: hostname only (`calendarFeedHost`), last synced, last error — the feed URL itself is never shown back once entered, by design (it's a Lambda-only secret).
+- Unlink routes through the standard Confirmation Modal (§5.6) before calling `unlinkTeamCalendar` — it stops future syncing and clears status fields, but leaves already-imported games untouched.
+
 #### Formation Visual Editor (Manage > Formations)
 - Entry: launched from the formation row action Customize Layout; opens as a standalone modal/sheet.
 - Container: centered modal at max `90vh`; editor canvas uses fixed `2:3` pitch aspect ratio with `touch-action: none` to prevent accidental browser gestures while dragging.
@@ -915,6 +944,12 @@ All modals share:
 ### Confirm Modal
 - Centered overlay card
 - Title + message + `Confirm` (primary, sometimes danger red) + `Cancel` (secondary)
+
+### Import Preview Modal (Calendar Feed Import)
+- Slide-up sheet on phone (same `.modal-overlay`/`.modal-content` pair as Rotation Widget), centered card on larger screens
+- Shown by both `Home.tsx` and `CalendarFeedSettings.tsx` — see §7.2 "Calendar Import Flow" for the interaction contract
+- Content: plain-language counts of what a dry-run reconciliation found, plus warnings
+- Known gap: like Rotation Widget, this pair has no `role="dialog"`/`aria-modal`, focus trap, or Escape-key dismissal — weaker than Confirm Modal. Matches existing precedent rather than being a regression introduced by this feature, but worth raising the bar on both together rather than perpetuating the gap in future modals built on this pattern.
 
 ---
 

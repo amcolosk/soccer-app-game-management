@@ -20,6 +20,13 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 - **Roster Editing**: Edit player details, numbers, and position preferences directly from team rosters
 - **Multi-Coach Sharing**: Invite other coaches to co-manage a team via email invitations
 
+### Calendar Feed Import
+- **Link a Team Calendar**: Import a schedule from a PlayMetrics (or generic RFC-5545) `.ics` feed by URL, or upload an `.ics` file directly
+- **Preview Before Applying**: A dry-run shows exactly what will change — games created, updated, linked from hand-entered games, or flagged cancelled — before anything is written
+- **Auto-Sync, Protect Live Games**: Re-syncing never touches a game that's in progress or completed; a game the feed marks cancelled is flagged, never deleted
+- **Adopts Hand-Entered Games**: A game already typed in that matches a feed event gets linked to the feed instead of duplicated
+- **Secure by Design**: The feed URL is stored as a Lambda-only secret no client can read back — only the hostname is ever shown
+
 ### Pre-Game Planning
 - **Player Availability**: Mark players as available, absent, or late before each game
 - **Game Planner**: Build a pre-game rotation plan with configurable rotation intervals
@@ -106,7 +113,7 @@ npm run lint         # Lint TypeScript/TSX files
 4. **Add Players** to the global player pool
 5. **Build Your Roster**: Assign players to the team with jersey numbers and preferred positions (filter by birth year to find the right players quickly)
 6. **Invite Co-Coaches** if needed — they'll receive an email invitation and gain full access to the team
-7. **Schedule Games** from the Games tab with opponent, location, and date/time
+7. **Schedule Games** from the Games tab with opponent, location, and date/time — or **Import from Calendar** to link a PlayMetrics/`.ics` feed and populate the schedule automatically
 8. **Pre-Game**:
    - Mark player availability (available / absent / late)
    - Use the Game Planner to build a rotation schedule
@@ -127,7 +134,8 @@ npm run lint         # Lint TypeScript/TSX files
 - **Player**: Global player pool (name, birth year, active status)
 - **TeamRoster**: Links players to teams with jersey numbers and preferred positions
 - **PlayerAvailability**: Per-game availability status for each player
-- **Game**: Scheduled matches with opponent, location, timer state, and score
+- **Game**: Scheduled matches with opponent, location, timer state, and score — optionally carrying calendar-feed provenance (external UID, venue, arrive-by time, cancelled/adopted flags)
+- **CalendarFeed**: A team's linked calendar feed URL (Lambda-only; never exposed to any client)
 - **GamePlan / PlannedRotation**: Pre-game rotation strategy
 - **LineupAssignment**: Player-to-position assignments for a game
 - **Substitution**: Records when a player enters/exits a position
