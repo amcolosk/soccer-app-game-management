@@ -582,9 +582,51 @@ const schema = a.schema({
     .identifier(['teamId'])
     .authorization((allow) => [allow.authenticated().to([])]), // no client grants at all
 
+  // Non-model return shape for CalendarSyncResult.createdGames/updatedGames
+  // below. Amplify Gen2's schema builder rejects `a.ref()` to a *model*
+  // from inside a customType ("Cannot use .ref() to refer a model from a
+  // custom type") -- a constraint that only surfaces at deploy time, via
+  // `ampx pipeline-deploy`'s CDK assembly step, not via `tsc`, `vite build`,
+  // or any local test. `a.ref('Game').array()` here originally shipped and
+  // passed every local check before failing an actual deploy for exactly
+  // this reason. This type duplicates Game's own scalar fields (no
+  // relationships -- those are lazy loaders on a real Game query anyway,
+  // never present on a raw Lambda-returned object) so syncTeamCalendar can
+  // still return enough of each created/updated game for Home.tsx's
+  // pendingCreatedGames overlay to render it immediately. Keep this field
+  // list in sync with Game's own scalar fields above if those change.
+  GameSyncSummary: a.customType({
+    id: a.id().required(),
+    teamId: a.id(),
+    opponent: a.string(),
+    isHome: a.boolean(),
+    gameDate: a.datetime(),
+    status: a.string(),
+    currentHalf: a.integer(),
+    elapsedSeconds: a.integer(),
+    lastStartTime: a.string(),
+    halfLengthMinutes: a.integer(),
+    ourScore: a.integer(),
+    opponentScore: a.integer(),
+    coaches: a.string().array(),
+    externalUid: a.string(),
+    externalSource: a.string(),
+    externalSequence: a.integer(),
+    externalContentHash: a.string(),
+    externalSyncedAt: a.datetime(),
+    externalCancelled: a.boolean(),
+    externalHomeAwayUnverified: a.boolean(),
+    externalAdoptedAt: a.datetime(),
+    locationName: a.string(),
+    locationAddress: a.string(),
+    arriveByTime: a.datetime(),
+    createdAt: a.datetime(),
+    updatedAt: a.datetime(),
+  }),
+
   CalendarSyncResult: a.customType({
-    createdGames: a.ref('Game').array(), // full Game objects, complete enough for direct GraphQL serialization
-    updatedGames: a.ref('Game').array(),
+    createdGames: a.ref('GameSyncSummary').array(), // GameSyncSummary, not Game -- see the comment above
+    updatedGames: a.ref('GameSyncSummary').array(),
     skippedCount: a.integer(),
     cancelledCount: a.integer(),
     adoptedCount: a.integer(), // hand-created games matched and linked to a feed event instead of duplicated

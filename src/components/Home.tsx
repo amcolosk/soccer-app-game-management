@@ -488,7 +488,16 @@ export function Home() {
     (result.cancelledCount ?? 0) === 0;
 
   const absorbImportResult = (result: CalendarSyncResult) => {
-    const created = (result.createdGames ?? []).filter((g): g is Game => g != null);
+    // createdGames is typed GameSyncSummary[], not Game[] — Amplify Gen2
+    // doesn't allow a customType field to a.ref() a model (see the comment
+    // on GameSyncSummary in amplify/data/resource.ts), so the returned
+    // shape is a duplicate scalar-field type, not the real Game type. Same
+    // `as unknown as Game` bridge already used for createGameSafe's return
+    // at this file's handleCreateGame, for the same reason: it's structurally
+    // Game-like (enough fields for the card to render) but not nominally Game.
+    const created = (result.createdGames ?? [])
+      .filter((g): g is NonNullable<typeof g> => g != null)
+      .map((g) => g as unknown as Game);
     if (created.length > 0) {
       // Same overlay mechanism createGameSafe already uses (Home.tsx:130) —
       // SDK writes don't fire AppSync subscriptions, so newly created games
