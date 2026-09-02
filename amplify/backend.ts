@@ -24,6 +24,7 @@ import { assignTeamOwner } from './functions/assign-team-owner/resource';
 import { createGameSafe } from './functions/create-game-safe/resource';
 import { syncTeamCalendar } from './functions/sync-team-calendar/resource';
 import { unlinkTeamCalendar } from './functions/unlink-team-calendar/resource';
+import { revokeCoachAccess } from './functions/revoke-coach-access/resource';
 
 const backend = defineBackend({
   auth,
@@ -48,6 +49,7 @@ const backend = defineBackend({
   createGameSafe,
   syncTeamCalendar,
   unlinkTeamCalendar,
+  revokeCoachAccess,
 });
 
 // Add deployment ID to outputs
@@ -417,3 +419,53 @@ backend.unlinkTeamCalendar.resources.lambda.addToRolePolicy(
 );
 backend.unlinkTeamCalendar.addEnvironment('TEAM_TABLE', teamTable.tableName);
 backend.unlinkTeamCalendar.addEnvironment('CALENDAR_FEED_TABLE', calendarFeedTable.tableName);
+
+// Grant table access for revokeCoachAccess Lambda (ISSUE-162-REVOKE-COACH-
+// ACCESS-CASCADE.md, file #8). Least-privilege, matching exactly what
+// handler.ts does: Get + Update on Team (no Scan -- the original draft's
+// cross-team remainingTeams scan is gone, Major 4 is moot); Query (not
+// Scan) + Update + Get on TeamRoster/FieldPosition/Game/TeamInvitation --
+// Data Model/API Impact's Minor-8 GSI-existence check (verified against
+// the deployed CDK synth output in .amplify/artifacts/cdk.out before this
+// handler was written) confirmed a teamId-hash-key, ALL-projection
+// relationship GSI exists on all four (gsi-Team.roster/positions/games/
+// invitations), so Query against the confirmed index is used instead of a
+// full-table Scan -- table ARNs alone do not authorize a Query against a
+// GSI, so each policy below also grants the specific index ARN.
+const fieldPositionTable = backend.data.resources.tables['FieldPosition'];
+
+backend.revokeCoachAccess.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem', 'dynamodb:UpdateItem'],
+    resources: [teamTable.tableArn],
+  })
+);
+backend.revokeCoachAccess.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query', 'dynamodb:UpdateItem', 'dynamodb:GetItem'],
+    resources: [teamRosterTable.tableArn, `${teamRosterTable.tableArn}/index/gsi-Team.roster`],
+  })
+);
+backend.revokeCoachAccess.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query', 'dynamodb:UpdateItem', 'dynamodb:GetItem'],
+    resources: [fieldPositionTable.tableArn, `${fieldPositionTable.tableArn}/index/gsi-Team.positions`],
+  })
+);
+backend.revokeCoachAccess.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query', 'dynamodb:UpdateItem', 'dynamodb:GetItem'],
+    resources: [gameTable.tableArn, `${gameTable.tableArn}/index/gsi-Team.games`],
+  })
+);
+backend.revokeCoachAccess.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query', 'dynamodb:UpdateItem', 'dynamodb:GetItem'],
+    resources: [teamInvitationTable.tableArn, `${teamInvitationTable.tableArn}/index/gsi-Team.invitations`],
+  })
+);
+backend.revokeCoachAccess.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.revokeCoachAccess.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);
+backend.revokeCoachAccess.addEnvironment('FIELD_POSITION_TABLE', fieldPositionTable.tableName);
+backend.revokeCoachAccess.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.revokeCoachAccess.addEnvironment('TEAM_INVITATION_TABLE', teamInvitationTable.tableName);

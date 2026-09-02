@@ -1,6 +1,7 @@
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../amplify/data/resource';
 import { getCurrentUser } from 'aws-amplify/auth';
+import { assertMutationResult } from './amplifyMutationResult';
 
 const client = generateClient<Schema>();
 
@@ -94,37 +95,17 @@ export async function declineTeamInvitation(invitationId: string) {
 }
 
 /**
- * Revoke a coach's access by removing them from the team's coaches array
+ * Revoke a coach's access, cascading the removal to every team-scoped
+ * record for that team (TeamRoster, FieldPosition, Game,
+ * TeamInvitation.coaches), plus closing the invitation-reversibility hole
+ * (issue #162 / ISSUE-162-REVOKE-COACH-ACCESS-CASCADE.md). Moved to a
+ * Lambda-backed custom mutation — see
+ * amplify/functions/revoke-coach-access/handler.ts for the actual sweep
+ * logic; this is a thin wrapper only.
  */
 export async function revokeCoachAccess(teamId: string, userId: string) {
-  try {
-    // Get the team
-    const teamResponse = await client.models.Team.get({ id: teamId });
-    const team = teamResponse.data;
-
-    if (!team) {
-      throw new Error('Team not found');
-    }
-
-    // Remove user from coaches array
-    const coaches = team.coaches || [];
-    const updatedCoaches = coaches.filter(id => id !== userId);
-
-    if (updatedCoaches.length === coaches.length) {
-      throw new Error('User is not a coach of this team');
-    }
-
-    // Update team
-    await client.models.Team.update({
-      id: teamId,
-      coaches: updatedCoaches,
-    });
-
-    return true;
-  } catch (error) {
-    console.error('Error revoking coach access:', error);
-    throw error;
-  }
+  const result = await client.mutations.revokeCoachAccess({ teamId, userId });
+  return assertMutationResult(result, 'Failed to revoke coach access');
 }
 
 /**

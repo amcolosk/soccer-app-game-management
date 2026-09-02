@@ -18,7 +18,7 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 - **Team Rosters**: Assign players to teams with jersey numbers and preferred positions
 - **Birth Year Filtering**: Filter the player pool by one or more birth years when adding players to a roster
 - **Roster Editing**: Edit player details, numbers, and position preferences directly from team rosters
-- **Multi-Coach Sharing**: Invite other coaches to co-manage a team via email invitations
+- **Multi-Coach Sharing**: Invite other coaches to co-manage a team via email invitations; removing a coach cascades server-side, revoking their access to that team's roster, lineup positions, and games, and closing the invitation-reversibility hole for a target with at least one accepted invitation on the team (see `docs/SHARING-PERMISSIONS.md`)
 
 ### Calendar Feed Import
 - **Link a Team Calendar**: Import a schedule from a PlayMetrics (or generic RFC-5545) `.ics` feed by URL, or upload an `.ics` file directly

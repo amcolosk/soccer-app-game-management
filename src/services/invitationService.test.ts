@@ -17,6 +17,7 @@ const {
   mockTeamInvitationCreate,
   mockTeamInvitationUpdate,
   mockAcceptInvitation,
+  mockRevokeCoachAccessMutation,
   mockGetUserInvitations,
   mockGetCurrentUser,
 } = vi.hoisted(() => ({
@@ -25,6 +26,7 @@ const {
   mockTeamInvitationCreate: vi.fn(),
   mockTeamInvitationUpdate: vi.fn(),
   mockAcceptInvitation: vi.fn(),
+  mockRevokeCoachAccessMutation: vi.fn(),
   mockGetUserInvitations: vi.fn(),
   mockGetCurrentUser: vi.fn(),
 }));
@@ -43,6 +45,7 @@ vi.mock('aws-amplify/data', () => ({
     },
     mutations: {
       acceptInvitation: mockAcceptInvitation,
+      revokeCoachAccess: mockRevokeCoachAccessMutation,
     },
     queries: {
       getUserInvitations: mockGetUserInvitations,
@@ -178,41 +181,41 @@ describe('invitationService', () => {
   });
 
   describe('revokeCoachAccess', () => {
-    it('removes the target userId from the team coaches array', async () => {
-      const teamData = {
-        id: 'team-1',
-        coaches: ['coach-1', 'coach-2', 'coach-3'],
-      };
-
-      mockTeamGet.mockResolvedValue({ data: teamData });
-      mockTeamUpdate.mockResolvedValue({ data: {} });
+    // The actual cascade (Team.coaches removal, TeamRoster/FieldPosition/
+    // Game/TeamInvitation.coaches sweep, TeamInvitation status-transition
+    // reversibility close) now lives server-side in the Lambda-backed
+    // revokeCoachAccess custom mutation
+    // (amplify/functions/revoke-coach-access/handler.ts, covered directly by
+    // amplify/functions/revoke-coach-access/handler.test.ts). This file only
+    // verifies the thin wrapper's call shape, matching how
+    // acceptTeamInvitation's own tests above don't re-test
+    // accept-invitation/handler.ts's internals either.
+    it('calls the revokeCoachAccess custom mutation with teamId and userId', async () => {
+      mockRevokeCoachAccessMutation.mockResolvedValue({ data: { id: 'team-1', coaches: ['coach-1'] } });
 
       await revokeCoachAccess('team-1', 'coach-2');
 
-      expect(mockTeamUpdate).toHaveBeenCalledWith({
-        id: 'team-1',
-        coaches: ['coach-1', 'coach-3'],
+      expect(mockRevokeCoachAccessMutation).toHaveBeenCalledWith({
+        teamId: 'team-1',
+        userId: 'coach-2',
       });
     });
 
-    it('throws if userId is not in the coaches array', async () => {
-      const teamData = {
-        id: 'team-1',
-        coaches: ['coach-1'],
-      };
+    it('throws if mutation returns an errors array', async () => {
+      mockRevokeCoachAccessMutation.mockResolvedValue({
+        errors: [{ message: 'Access denied: caller is not a coach on this team' }],
+      });
 
-      mockTeamGet.mockResolvedValue({ data: teamData });
-
-      await expect(revokeCoachAccess('team-1', 'coach-999')).rejects.toThrow(
-        'User is not a coach of this team'
+      await expect(revokeCoachAccess('team-1', 'coach-2')).rejects.toThrow(
+        'Access denied: caller is not a coach on this team'
       );
     });
 
-    it('throws if the team is not found', async () => {
-      mockTeamGet.mockResolvedValue({ data: null });
+    it('throws with a fallback message if mutation returns no data and no errors', async () => {
+      mockRevokeCoachAccessMutation.mockResolvedValue({});
 
-      await expect(revokeCoachAccess('team-1', 'coach-1')).rejects.toThrow(
-        'Team not found'
+      await expect(revokeCoachAccess('team-1', 'coach-2')).rejects.toThrow(
+        'Failed to revoke coach access'
       );
     });
   });
