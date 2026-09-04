@@ -194,7 +194,17 @@ const schema = a.schema({
       externalContentHash: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]), // sha256 of the import-owned fields; drives skip-vs-update
       externalSyncedAt: a.datetime().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
       externalCancelled: a.boolean().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]), // feed says CANCELLED; game kept + flagged, never deleted
-      externalHomeAwayUnverified: a.boolean().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]), // generic adapter guessed isHome
+      // Deliberately coach-writable, unlike the other external* fields above
+      // -- its only purpose is to prompt a human check, and it's meaningless
+      // to leave permanently un-clearable once that check happens. Home.tsx's
+      // handleSaveEditGame sets this to false whenever the coach saves the
+      // Edit Game form's Home/Away checkbox, since submitting that form is
+      // the confirmation this flag exists to request. A later re-sync can
+      // still re-flag it (feed always wins on a content-hash change, same as
+      // locationName/etc. below) if the feed's own data is still ambiguous.
+      // No field-level override -- inherits coach read+update from the
+      // model-level grant below.
+      externalHomeAwayUnverified: a.boolean(), // generic adapter guessed isHome; cleared by the coach confirming/correcting it via Edit Game
       externalAdoptedAt: a.datetime().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]), // set once, when a hand-created game is matched to a feed event; never cleared
       // locationName/locationAddress/arriveByTime are feed-owned but
       // coach-editable (see plan's "Coach edits vs. re-sync"): the feed
