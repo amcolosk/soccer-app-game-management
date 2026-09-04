@@ -155,6 +155,7 @@ export type TeamFormAction =
   | { type: 'START_CREATE' }
   | { type: 'SET_FIELD'; field: 'name' | 'maxPlayers' | 'halfLength' | 'selectedFormation' | 'sport' | 'gameFormat'; value: string }
   | { type: 'EDIT_TEAM'; team: Team }
+  | { type: 'REFRESH_EDITING'; team: Team }
   | { type: 'TOGGLE_EXPAND'; teamId: string }
   | { type: 'RESET' };
 
@@ -188,6 +189,17 @@ export function teamFormReducer(state: TeamFormState, action: TeamFormAction): T
         sport: action.team.sport || DEFAULT_FORM_VALUES.sport,
         gameFormat: action.team.gameFormat || DEFAULT_FORM_VALUES.gameFormat,
       };
+    case 'REFRESH_EDITING':
+      // Deliberately narrower than EDIT_TEAM: swaps in the freshest server
+      // copy of the team being edited (so read-only display fields like
+      // Team.calendarFeedHost pick up a Lambda-only SDK write once the
+      // caller's own refreshKey forces a re-fetch) without touching name/
+      // maxPlayers/halfLength/selectedFormation/sport/gameFormat -- those
+      // mirror the Update Team form's editable inputs and would otherwise
+      // get silently reset out from under whatever the coach is mid-typing.
+      return state.editing?.id === action.team.id
+        ? { ...state, editing: action.team }
+        : state;
     case 'TOGGLE_EXPAND':
       return { ...state, expandedTeamId: state.expandedTeamId === action.teamId ? null : action.teamId };
     case 'RESET':

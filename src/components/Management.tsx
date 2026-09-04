@@ -255,6 +255,23 @@ export function Management() {
     });
   }, [teams]);
 
+  // Keeps the team edit panel's `editing` snapshot fresh as `teams` refetches
+  // (e.g. after CalendarFeedSettings' onTeamDataChanged bumps teamRefreshKey
+  // once syncTeamCalendar's SDK write — which bypasses AppSync subscriptions,
+  // same gap as everywhere else in this app — actually lands). Without this,
+  // `teamForm.editing` stays the point-in-time object captured when Edit was
+  // clicked, so a coach who links a feed and stays on this same open edit
+  // panel keeps seeing "no calendar linked" even though the save succeeded —
+  // only closing and reopening Edit (a fresh EDIT_TEAM dispatch from the
+  // live `teams` list) would otherwise pick it up.
+  useEffect(() => {
+    if (!teamForm.editing) return;
+    const fresh = teams.find(t => t.id === teamForm.editing!.id);
+    if (fresh && fresh !== teamForm.editing) {
+      teamDispatch({ type: 'REFRESH_EDITING', team: fresh });
+    }
+  }, [teams, teamForm.editing]);
+
   // Merged list used for all lifecycle-dependent rendering.
   const teamsForDisplay = useMemo(
     () => teams.map(t => {

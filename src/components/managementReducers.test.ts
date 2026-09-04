@@ -337,6 +337,37 @@ describe('teamFormReducer', () => {
     expect(result.gameFormat).toBe(DEFAULT_FORM_VALUES.gameFormat);
   });
 
+  it('REFRESH_EDITING swaps in the fresh team when it matches the id currently being edited, without touching the draft form fields', () => {
+    const original = { id: 'team-1', name: 'Hawks', maxPlayersOnField: 11, halfLengthMinutes: 45, formationId: 'f-1', sport: 'Soccer', gameFormat: 'Halves' } as any;
+    const editingState = teamFormReducer(initialTeamForm, { type: 'EDIT_TEAM', team: original });
+    // Coach has since typed a draft name change the server doesn't know about yet.
+    const midEdit = teamFormReducer(editingState, { type: 'SET_FIELD', field: 'name', value: 'Hawks (draft)' });
+
+    const fresh = { ...original, calendarFeedHost: 'calendar.playmetrics.com' };
+    const result = teamFormReducer(midEdit, { type: 'REFRESH_EDITING', team: fresh });
+
+    expect(result.editing).toBe(fresh);
+    expect((result.editing as any).calendarFeedHost).toBe('calendar.playmetrics.com');
+    // Draft form fields are untouched -- REFRESH_EDITING must not reset them
+    // the way a re-dispatched EDIT_TEAM would.
+    expect(result.name).toBe('Hawks (draft)');
+  });
+
+  it('REFRESH_EDITING is a no-op when the fresh team is for a different id', () => {
+    const original = { id: 'team-1', name: 'Hawks', maxPlayersOnField: 11, halfLengthMinutes: 45, formationId: 'f-1', sport: 'Soccer', gameFormat: 'Halves' } as any;
+    const editingState = teamFormReducer(initialTeamForm, { type: 'EDIT_TEAM', team: original });
+
+    const otherTeam = { id: 'team-2', name: 'Eagles' } as any;
+    const result = teamFormReducer(editingState, { type: 'REFRESH_EDITING', team: otherTeam });
+
+    expect(result.editing).toBe(original);
+  });
+
+  it('REFRESH_EDITING is a no-op when nothing is being edited', () => {
+    const result = teamFormReducer(initialTeamForm, { type: 'REFRESH_EDITING', team: { id: 'team-1' } as any });
+    expect(result.editing).toBeNull();
+  });
+
   it('TOGGLE_EXPAND toggles the expanded team id', () => {
     const result1 = teamFormReducer(initialTeamForm, { type: 'TOGGLE_EXPAND', teamId: 'team-1' });
     expect(result1.expandedTeamId).toBe('team-1');
