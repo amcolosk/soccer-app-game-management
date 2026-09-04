@@ -17,6 +17,7 @@ import { assignTeamOwner } from "../functions/assign-team-owner/resource";
 import { createGameSafe } from "../functions/create-game-safe/resource";
 import { syncTeamCalendar } from "../functions/sync-team-calendar/resource";
 import { unlinkTeamCalendar } from "../functions/unlink-team-calendar/resource";
+import { revokeCoachAccess } from "../functions/revoke-coach-access/resource";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -546,6 +547,23 @@ const schema = a.schema({
     .returns(a.ref('Team'))
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(assignTeamOwner)),
+
+  // Coach-authorized cascade revoke (issue #162 / ISSUE-162-REVOKE-COACH-
+  // ACCESS-CASCADE.md). The declared authorization is only "must be signed
+  // in" -- the real check is caller-membership on the target team (any
+  // existing coach may revoke any other coach, including the owner --
+  // assign-team-owner's already-accepted tradeoff), re-evaluated on every
+  // retry attempt inside the handler, not just once up front. Same shape as
+  // archiveTeam/assignTeamOwner.
+  revokeCoachAccess: a
+    .mutation()
+    .arguments({
+      teamId: a.string().required(),
+      userId: a.string().required(), // the coach being revoked
+    })
+    .returns(a.ref('Team'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(revokeCoachAccess)),
 
   // Lambda-backed game creation (TEAM-ARCHIVE-STEP11). Derives `coaches`
   // from the team's own coaches array server-side rather than trusting a

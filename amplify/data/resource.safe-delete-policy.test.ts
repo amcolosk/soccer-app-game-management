@@ -141,4 +141,20 @@ describe('team lifecycle field authorization policy', () => {
       expect(block).toContain(`a.handler.function(${operation})`);
     }
   });
+
+  // ISSUE-162-REVOKE-COACH-ACCESS-CASCADE.md: revokeCoachAccess moved from a
+  // plain client-side Team.update to a Lambda-backed custom mutation, same
+  // "declared auth is just allow.authenticated(), real check lives in the
+  // handler" shape as archiveTeam/restoreTeam/assignTeamOwner above, plus a
+  // second required argument (the coach being revoked).
+  it('declares a Lambda-backed revokeCoachAccess mutation returning Team with teamId and userId arguments', () => {
+    const block = extractBlock('revokeCoachAccess');
+
+    expect(block).toContain('.mutation()');
+    expect(block).toContain('teamId: a.string().required()');
+    expect(block).toContain('userId: a.string().required()');
+    expect(block).toContain(".returns(a.ref('Team'))");
+    expect(block).toContain('allow.authenticated()');
+    expect(block).toContain('a.handler.function(revokeCoachAccess)');
+  });
 });

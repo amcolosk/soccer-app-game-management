@@ -4,21 +4,25 @@ import { DynamoDBClient, type AttributeValue } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
   GetCommand,
-  ScanCommand,
   UpdateCommand,
   TransactWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { unmarshall } from "@aws-sdk/util-dynamodb";
 import { CognitoIdentityProviderClient, AdminGetUserCommand } from '@aws-sdk/client-cognito-identity-provider';
+import {
+  isConditionalCheckFailed,
+  normalizeEmail,
+  getRecordById,
+  scanByField,
+  withBoundedConcurrency,
+  updateRecordCoachesWithRetry,
+  type CoachScopedRecord,
+  type CoachesStrategy,
+} from "../shared/coachArraySync";
 
 const client = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(client);
 const cognitoClient = new CognitoIdentityProviderClient({});
-
-type CoachScopedRecord = {
-  id: string;
-  coaches?: string[];
-};
 
 type TeamRosterBackfillRecord = CoachScopedRecord & {
   playerId?: string;
@@ -39,14 +43,6 @@ type InvitationRecord = {
   expiresAt?: string;
 };
 
-function normalizeEmail(value: string | undefined | null): string {
-  if (!value) {
-    return '';
-  }
-
-  return value.trim().toLowerCase();
-}
-
 function toInvitationStateError(status: string): Error {
   if (status === 'EXPIRED') {
     return new Error('Invitation has expired');
@@ -65,27 +61,33 @@ export function shouldBackfillCoaches(existing: string[] | undefined, incoming: 
   return merged.length !== existing.length || merged.some((coachId) => !existing.includes(coachId));
 }
 
-async function withBoundedConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = [];
-  for (let i = 0; i < items.length; i += concurrency) {
-    const batch = items.slice(i, i + concurrency);
-    const batchResults = await Promise.all(batch.map(fn));
-    results.push(...batchResults);
-  }
-  return results;
+// Add/merge strategy for the shared retry helper — always 'write' or 'skip',
+// never 'abort' (the add side has no invariant that can regress mid-retry).
+function backfillStrategy(teamCoaches: string[]): CoachesStrategy {
+  return (current) => {
+    if (!shouldBackfillCoaches(current, teamCoaches)) {
+      return { action: 'skip' };
+    }
+    return { action: 'write', next: mergeCoachLists(current, teamCoaches) };
+  };
 }
 
-function isConditionalCheckFailed(error: unknown): boolean {
-  if (!error || typeof error !== 'object') {
-    return false;
-  }
+async function updateRecordCoachesIfNeeded(
+  tableName: string,
+  record: CoachScopedRecord,
+  teamCoaches: string[],
+  updatedAtIso: string,
+): Promise<boolean> {
+  const result = await updateRecordCoachesWithRetry(
+    docClient,
+    tableName,
+    record,
+    backfillStrategy(teamCoaches),
+    updatedAtIso,
+    ['id', 'coaches'],
+  );
 
-  const maybeName = (error as { name?: unknown }).name;
-  return maybeName === 'ConditionalCheckFailedException';
+  return result.action === 'write';
 }
 
 function isTransactionCanceledException(
@@ -101,105 +103,6 @@ function isTransactionCanceledException(
 // the same order as the TransactItems request.
 const INVITATION_TRANSACT_INDEX = 0;
 const TEAM_TRANSACT_INDEX = 1;
-
-async function updateRecordCoachesIfNeeded(
-  tableName: string,
-  record: CoachScopedRecord,
-  teamCoaches: string[],
-  updatedAtIso: string,
-): Promise<boolean> {
-  let latestRecord = record;
-
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (!shouldBackfillCoaches(latestRecord.coaches, teamCoaches)) {
-      return false;
-    }
-
-    const mergedCoaches = mergeCoachLists(latestRecord.coaches, teamCoaches);
-
-    try {
-      if (latestRecord.coaches === undefined) {
-        await docClient.send(new UpdateCommand({
-          TableName: tableName,
-          Key: { id: latestRecord.id },
-          UpdateExpression: 'SET coaches = :coaches, updatedAt = :updatedAt',
-          ConditionExpression: 'attribute_not_exists(coaches)',
-          ExpressionAttributeValues: {
-            ':coaches': mergedCoaches,
-            ':updatedAt': updatedAtIso,
-          },
-        }));
-      } else {
-        await docClient.send(new UpdateCommand({
-          TableName: tableName,
-          Key: { id: latestRecord.id },
-          UpdateExpression: 'SET coaches = :coaches, updatedAt = :updatedAt',
-          ConditionExpression: 'coaches = :expectedCoaches',
-          ExpressionAttributeValues: {
-            ':coaches': mergedCoaches,
-            ':expectedCoaches': latestRecord.coaches,
-            ':updatedAt': updatedAtIso,
-          },
-        }));
-      }
-
-      return true;
-    } catch (error) {
-      if (!isConditionalCheckFailed(error)) {
-        throw error;
-      }
-
-      const refreshed = await getRecordById<CoachScopedRecord>(tableName, latestRecord.id, ['id', 'coaches']);
-      if (!refreshed) {
-        return false;
-      }
-
-      latestRecord = refreshed;
-    }
-  }
-
-  throw new Error(`Failed to backfill coaches for record ${latestRecord.id} in ${tableName} after concurrent update retries`);
-}
-
-async function scanByField<T extends Record<string, unknown>>(
-  tableName: string,
-  fieldName: string,
-  fieldValue: string,
-  projectionFields: string[],
-): Promise<T[]> {
-  const results: T[] = [];
-  let exclusiveStartKey: Record<string, unknown> | undefined;
-
-  do {
-    const scanResult = await docClient.send(new ScanCommand({
-      TableName: tableName,
-      FilterExpression: '#field = :fieldValue',
-      ExpressionAttributeNames: { '#field': fieldName },
-      ExpressionAttributeValues: { ':fieldValue': fieldValue },
-      ProjectionExpression: projectionFields.join(', '),
-      ExclusiveStartKey: exclusiveStartKey,
-    }));
-
-    results.push(...((scanResult.Items as T[] | undefined) ?? []));
-    exclusiveStartKey = scanResult.LastEvaluatedKey as Record<string, unknown> | undefined;
-  } while (exclusiveStartKey);
-
-  return results;
-}
-
-async function getRecordById<T extends Record<string, unknown>>(
-  tableName: string,
-  id: string,
-  projectionFields: string[],
-): Promise<T | null> {
-  const response = await docClient.send(new GetCommand({
-    TableName: tableName,
-    Key: { id },
-    ProjectionExpression: projectionFields.join(', '),
-  }));
-
-  return (response.Item as T | undefined) ?? null;
-}
 
 // Shared UpdateExpression/ConditionExpression shape for the PENDING ->
 // ACCEPTED invitation transition — used both as a TransactItems[].Update
@@ -234,6 +137,7 @@ async function classifyInvitationConflict(
   authenticatedEmail: string,
 ): Promise<InvitationRecord> {
   const latestInvitation = await getRecordById<InvitationRecord>(
+    docClient,
     teamInvitationTable,
     invitationId,
     ['id', 'teamId', 'email', 'status', 'acceptedBy', 'expiresAt'],
@@ -364,6 +268,7 @@ export const handler: Schema['acceptInvitation']['functionHandler'] = async (eve
         }
 
         const latestInvitation = await getRecordById<InvitationRecord>(
+          docClient,
           teamInvitationTable,
           invitationId,
           ['id', 'teamId', 'email', 'status', 'acceptedBy', 'expiresAt'],
@@ -555,6 +460,7 @@ export const handler: Schema['acceptInvitation']['functionHandler'] = async (eve
 
   // Backfill TeamRoster coaches for this team.
   const rosterRecords = await scanByField<TeamRosterBackfillRecord>(
+    docClient,
     teamRosterTable,
     'teamId',
     invitation.teamId,
@@ -573,7 +479,7 @@ export const handler: Schema['acceptInvitation']['functionHandler'] = async (eve
   ));
 
   const rosterPlayers = await Promise.all(
-    rosterPlayerIds.map((playerId) => getRecordById<CoachScopedRecord>(playerTable, playerId, ['id', 'coaches']))
+    rosterPlayerIds.map((playerId) => getRecordById<CoachScopedRecord>(docClient, playerTable, playerId, ['id', 'coaches']))
   );
 
   await Promise.all(
@@ -585,12 +491,13 @@ export const handler: Schema['acceptInvitation']['functionHandler'] = async (eve
   // Backfill Team's formation and formation positions to keep lineup workflows visible.
   const formationId = typeof team.formationId === 'string' ? team.formationId : null;
   if (formationId) {
-    const formation = await getRecordById<CoachScopedRecord>(formationTable, formationId, ['id', 'coaches']);
+    const formation = await getRecordById<CoachScopedRecord>(docClient, formationTable, formationId, ['id', 'coaches']);
     if (formation) {
       await updateRecordCoachesIfNeeded(formationTable, formation, mergedTeamCoaches, updatedAtIso);
     }
 
     const formationPositions = await scanByField<CoachScopedRecord>(
+      docClient,
       formationPositionTable,
       'formationId',
       formationId,
@@ -606,6 +513,7 @@ export const handler: Schema['acceptInvitation']['functionHandler'] = async (eve
 
   // Backfill Game coaches for this team so shared users can see games.
   const gameRecords = await scanByField<CoachScopedRecord>(
+    docClient,
     gameTable,
     'teamId',
     invitation.teamId,

@@ -608,9 +608,10 @@ Three numeric steppers inside the setup card, arranged in two rows:
 
 #### Sections (tabbed or accordion)
 1. **Teams** — create/edit/delete teams; set name, formation, field size, max players
-2. **Players** — add players to a team; set name, jersey number, preferred positions; swipe-to-delete
-3. **Formations** — select or edit formation templates (4-3-3, 4-4-2, etc.); define positions
-4. **Invitations** — invite assistant coaches by email; view pending invitations
+2. **Formations** — select or edit formation templates (4-3-3, 4-4-2, etc.); define positions
+3. **Players** — add players to a team; set name, jersey number, preferred positions; swipe-to-delete
+4. **Sharing** — manage which coaches have access to a team (see "Sharing & Permissions" below)
+5. **App** — app-level settings (not documented in detail here)
 
 #### Empty States
 | Condition | Message |
@@ -636,6 +637,24 @@ Three numeric steppers inside the setup card, arranged in two rows:
 - Interaction: drag position nodes directly, mobile nudge controls move by 2%, and focused nodes support keyboard arrow movement by 2% with aria-live announcements.
 - Actions: Save persists clamped integer coordinates (`1..99`) with optimistic lock on `layoutVersion`; Reset restores last-saved coordinates and clears dirty state; Cancel closes immediately when clean and prompts discard confirmation when dirty.
 - States: loading state during position fetch, save error alert on write failure, conflict warning when `layoutVersion` mismatches, and unsaved-changes guard for close/backdrop attempts.
+
+#### Sharing & Permissions (Manage > Sharing)
+**File:** `src/components/InvitationManagement.tsx`
+
+- **Entry:** Sharing tab → per-team list (active teams only) → "Manage Sharing" button → drill-in panel titled "Sharing & Permissions: {team name}".
+- **Three regions:**
+  1. Invite-by-email form — email address + role (`Coach (Can edit)` / `Parent (Read-only)`).
+  2. "Current Coaches" list — every coach on the team except the current signed-in user, each with a "Remove" button.
+  3. "Pending Invitations" list — every `PENDING` `TeamInvitation` for the team, each with a "Cancel" button.
+- **Confirmation:** both "Remove" and "Cancel" route through the standard Confirmation Modal (§5.6) before the underlying call.
+  - Remove: title "Revoke Access", message "Are you sure you want to revoke access for this coach?", `variant: 'danger'` — then calls `revokeCoachAccess` (Lambda-backed custom mutation as of issue #162; see `docs/SHARING-PERMISSIONS.md`).
+  - Cancel: `variant: 'warning'` — then deletes the invitation directly (`client.models.TeamInvitation.delete`).
+- **Message display:** a single success/error line rendered under the invite form (not per-item) — the same line is reused for invite-send, revoke, and cancel outcomes. Plain `<div>`, not an `aria-live` region (pre-existing, no fix proposed here).
+- **Revoke rejection messages surfaced verbatim through that same message line** (`InvitationManagement.tsx` passes `error.message` straight through unchanged):
+  - "Cannot revoke the team's last coach. Invite another coach first." — a team can never be revoked down to zero coaches.
+  - "Cannot revoke coach access for an archived team. Restore the team first." — if attempted against an archived team.
+  - "Access denied: caller is not a coach on this team" — the concurrent-revoke rejection; rare in practice (the caller normally already passed the team-active/team-membership check before this can fire), but still a real rejection path reachable through this same message line.
+- **Sharing tab's active-teams-only rule is backend-enforced, not just client-side:** the team picker filters to active teams client-side, and `revokeCoachAccess`'s handler additionally rejects any call against an archived team server-side (`requireActive: true`) — see `docs/SHARING-PERMISSIONS.md`, "Security Model."
 
 ---
 
@@ -899,8 +918,8 @@ identify your notes during games.
 | Loading | Spinner + "Loading invitation…" |
 | Valid (logged out) | "You've been invited to join [Team Name]" + Sign In / Create Account CTA |
 | Valid (logged in) | "Accept invitation to join [Team Name]?" + Accept / Decline buttons |
-| Already accepted | "You're already a coach on this team." + link to home |
-| Expired / invalid | "This invitation is no longer valid." |
+| No longer `PENDING` (accepted, or expired via revocation) | "Invitation not found" + "Go Back" button — **documented limitation, not a bug:** `get-user-invitations/handler.ts` scans only `status = 'PENDING'` rows for every caller, and `InvitationAcceptance.tsx`'s only load path is `getUserInvitations()` + `.find()` against that already-PENDING-filtered array. Once an invitation is `ACCEPTED`, `DECLINED`, or `EXPIRED` (including newly, as of issue #162, `EXPIRED` via `revokeCoachAccess`), `getUserInvitations` stops returning it entirely — the invite link renders this generic "not found" state, not a status-specific message. Fixing this would mean loosening the `get-user-invitations` PENDING-only filter, which is explicitly out of scope for issue #162. |
+| Expired / invalid (`expiresAt` in the past, still `PENDING`) | "This invitation is no longer valid." — a genuinely different, still-reachable branch (`isExpired` check against a `PENDING` row that was actually returned) from the row above. |
 
 ---
 
