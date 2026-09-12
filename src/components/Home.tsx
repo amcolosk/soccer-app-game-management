@@ -758,11 +758,18 @@ export function Home() {
         opponent: editOpponent.trim(),
         isHome: editIsHome,
         gameDate: editGameDate ? new Date(editGameDate).toISOString() : null,
+        // Submitting this form is the human check externalHomeAwayUnverified
+        // exists to request — clear it unconditionally on every save, not
+        // just when the checkbox value actually changed, since confirming
+        // the existing value is itself a valid verification. No-op for a
+        // game that was never flagged. A later re-sync can still re-flag it
+        // if the feed's own data is still ambiguous (see the schema comment).
+        externalHomeAwayUnverified: false,
       });
       clearTimeout(timeoutId);
       setPendingCreatedGames((prev) => prev.map((g) =>
         g.id === editingGameId
-          ? { ...g, opponent: editOpponent.trim(), isHome: editIsHome, gameDate: editGameDate ? new Date(editGameDate).toISOString() : null }
+          ? { ...g, opponent: editOpponent.trim(), isHome: editIsHome, gameDate: editGameDate ? new Date(editGameDate).toISOString() : null, externalHomeAwayUnverified: false }
           : g
       ));
       trackEvent(AnalyticsEvents.GAME_UPDATED.category, AnalyticsEvents.GAME_UPDATED.action);

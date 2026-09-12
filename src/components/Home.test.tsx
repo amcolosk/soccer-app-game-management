@@ -1152,5 +1152,21 @@ describe('Home — Calendar Feed Import (Phase 4, UI polish: badges + imported m
 
     expect(screen.queryByText(/arrive by/i)).not.toBeInTheDocument();
   });
+
+  it('saving the Edit Game form clears externalHomeAwayUnverified, since submitting it is the human check the flag exists to request', async () => {
+    seedTeamAndGame({ externalHomeAwayUnverified: true });
+    render(<Home />);
+
+    expect(screen.getByText(/verify home\/away/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('✏️ Edit'));
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(mockGameUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'g1', externalHomeAwayUnverified: false }),
+      );
+    });
+  });
 });
 
