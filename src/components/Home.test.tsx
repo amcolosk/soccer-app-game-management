@@ -1069,6 +1069,38 @@ describe('Home — Calendar Feed Import (Phase 3, "Sync now" relabeling)', () =>
     });
   });
 
+  it('regression (#170): clicking "Sync now" with a single linked team shows the re-sync action immediately, without requiring the dropdown to be reselected', () => {
+    teamQueryResult.data = [
+      { id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], calendarFeedHost: 'calendar.playmetrics.com' },
+    ];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /sync now/i }));
+
+    // Before the fix, importTeamId stayed '' until the user manually touched
+    // the dropdown, so showFileInput fell back to true and this file input
+    // appeared instead of the re-sync button — even though a feed is linked.
+    expect(screen.queryByLabelText(/calendar \.ics file/i)).not.toBeInTheDocument();
+    // The outer trigger unmounts once the panel opens, so the surviving
+    // "Sync now" button is the panel's own re-sync action.
+    expect(screen.getByRole('button', { name: /sync now/i })).toBeInTheDocument();
+  });
+
+  it('regression (#170): clicking "Sync now" with multiple teams defaults the dropdown to the team with a linked feed', () => {
+    teamQueryResult.data = [
+      { id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], calendarFeedHost: null },
+      { id: 'team-2', name: 'Hawks', coaches: ['test-user-id'], calendarFeedHost: 'calendar.playmetrics.com' },
+    ];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /sync now/i }));
+
+    expect(screen.getByLabelText(/team to import games for/i)).toHaveValue('team-2');
+    expect(screen.queryByLabelText(/calendar \.ics file/i)).not.toBeInTheDocument();
+  });
+
   it('a team without a linked feed still shows the file input even when "Sync now" is the trigger label', () => {
     teamQueryResult.data = [
       { id: 'team-1', name: 'Eagles', coaches: ['test-user-id'], calendarFeedHost: 'calendar.playmetrics.com' },
