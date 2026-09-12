@@ -627,6 +627,87 @@ describe('LineupPanel', () => {
     expect(mockHandleApiError).not.toHaveBeenCalledWith(expect.anything(), 'Failed to remove player from lineup');
   });
 
+  // ── Optimistic remove (#172: multiple clicks needed to remove a player) ----
+
+  it('halftime remove: hides the slot immediately, before the delete resolves', async () => {
+    let resolveDelete: (() => void) | undefined;
+    mockDeleteLineupAssignment.mockReturnValueOnce(
+      new Promise((resolve) => { resolveDelete = () => resolve({}); }),
+    );
+    const user = userEvent.setup();
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[lineupAssignment]}
+      />,
+    );
+
+    const removeButton = document.querySelector('.btn-remove-small') as HTMLButtonElement;
+    await user.click(removeButton);
+
+    // Before the mutation's promise ever settles, the slot should already read as
+    // empty and the remove button gone — a second click has nothing to act on.
+    expect(mockDeleteLineupAssignment).toHaveBeenCalledWith({ id: 'la-1' });
+    expect(document.querySelector('.btn-remove-small')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Empty')).toHaveLength(2); // pos-1 now empty too, alongside pos-2
+
+    resolveDelete?.();
+    await waitFor(() => expect(mockHandleApiError).not.toHaveBeenCalled());
+  });
+
+  it('halftime remove: restores the slot if the delete fails unexpectedly', async () => {
+    mockDeleteLineupAssignment.mockRejectedValueOnce(new Error('network error'));
+    const user = userEvent.setup();
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[lineupAssignment]}
+      />,
+    );
+
+    const removeButton = document.querySelector('.btn-remove-small') as HTMLButtonElement;
+    await user.click(removeButton);
+
+    await waitFor(() =>
+      expect(mockHandleApiError).toHaveBeenCalledWith(expect.anything(), 'Failed to remove player from lineup'),
+    );
+    // Slot reappears so the coach can see the player is still assigned and retry.
+    expect(document.querySelector('.btn-remove-small')).toBeInTheDocument();
+  });
+
+  it('Clear All: hides all slots immediately, before the deletes resolve', async () => {
+    let resolveFirst: (() => void) | undefined;
+    mockDeleteLineupAssignment
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = () => resolve({}); }))
+      .mockResolvedValueOnce({});
+    const user = userEvent.setup();
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[
+          lineupAssignment,
+          { ...lineupAssignment, id: 'la-2', positionId: 'pos-2', playerId: 'player-b' },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /clear all positions/i }));
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+    await waitFor(() => expect(mockDeleteLineupAssignment).toHaveBeenCalledWith({ id: 'la-2' }));
+
+    expect(document.querySelector('.btn-remove-small')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Empty')).toHaveLength(2);
+
+    resolveFirst?.();
+    await waitFor(() => expect(mockHandleApiError).not.toHaveBeenCalled());
+  });
+
   it('Clear All: ignores stale missing-record deletes and continues', async () => {
     mockDeleteLineupAssignment
       .mockRejectedValueOnce(new Error('not found'))

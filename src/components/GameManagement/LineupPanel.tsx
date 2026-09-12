@@ -67,8 +67,16 @@ export function LineupPanel({
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [showPositionPicker, setShowPositionPicker] = useState(false);
 
+  // Assignment ids whose delete has been fired but hasn't round-tripped back through
+  // the observeQuery subscription yet. Slots referencing these ids are treated as
+  // already-empty so the UI updates the instant a coach clicks remove, instead of
+  // waiting on network latency and inviting repeat clicks (#172).
+  const [pendingRemovalIds, setPendingRemovalIds] = useState<Set<string>>(new Set());
+  const isPendingRemoval = (id?: string | null) => !!id && pendingRemovalIds.has(id);
+  const visibleLineup = lineup.filter(l => !isPendingRemoval(l.id));
+
   const startersCount = positions.filter(pos =>
-    lineup.some(l => l.positionId === pos.id && l.isStarter)
+    visibleLineup.some(l => l.positionId === pos.id && l.isStarter)
   ).length;
 
   const shapeEnabled = gameState.status === "scheduled" || gameState.status === "in-progress" || gameState.status === "halftime";
@@ -84,16 +92,16 @@ export function LineupPanel({
     onStarterLimitReached: showWarning,
   });
 
-  const isInLineup = (playerId: string) => isPlayerInLineup(playerId, lineup);
+  const isInLineup = (playerId: string) => isPlayerInLineup(playerId, visibleLineup);
 
   const getPositionPlayer = (positionId: string) => {
-    const assignment = lineup.find(l => l.positionId === positionId && l.isStarter);
+    const assignment = visibleLineup.find(l => l.positionId === positionId && l.isStarter);
     if (!assignment) return null;
     return players.find(p => p.id === assignment.playerId);
   };
 
   const getPlayerPosition = (playerId: string) => {
-    const assignment = lineup.find(l => l.playerId === playerId);
+    const assignment = visibleLineup.find(l => l.playerId === playerId);
     if (!assignment?.positionId) return null;
     return positions.find(p => p.id === assignment.positionId);
   };
@@ -118,6 +126,10 @@ export function LineupPanel({
   const handleRemoveFromLineup = async (lineupId: string) => {
     if (!isInteractive) return;
     if (!lineupId) return;
+    if (isPendingRemoval(lineupId)) return; // already in flight — avoid a duplicate delete call
+    // Optimistically hide the slot immediately so the click has visible effect
+    // even before the delete round-trips back through the subscription.
+    setPendingRemovalIds(prev => new Set(prev).add(lineupId));
     try {
       await mutations.deleteLineupAssignment(lineupId);
     } catch (error) {
@@ -125,13 +137,21 @@ export function LineupPanel({
         // Treat stale delete targets as already-cleared to avoid noisy halftime errors.
         return;
       }
+      // Unexpected failure — restore the slot so the coach can see it's still there and retry.
+      setPendingRemovalIds(prev => {
+        const next = new Set(prev);
+        next.delete(lineupId);
+        return next;
+      });
       handleApiError(error, 'Failed to remove player from lineup');
     }
   };
 
   const handleClearAllPositions = async () => {
     if (!isInteractive) return;
-    const starterAssignments = lineup.filter(
+    // Base the batch on visibleLineup so an id already hidden by an in-flight
+    // individual remove isn't re-submitted for deletion here.
+    const starterAssignments = visibleLineup.filter(
       (assignment): assignment is typeof assignment & { id: string } =>
         assignment.isStarter && typeof assignment.id === 'string' && assignment.id.length > 0,
     );
@@ -145,17 +165,36 @@ export function LineupPanel({
     });
     if (!confirmed) return;
 
+    const idsToRemove = starterAssignments.map((assignment) => assignment.id);
+    setPendingRemovalIds(prev => new Set([...prev, ...idsToRemove]));
+
     try {
       const results = await Promise.allSettled(
         starterAssignments.map((assignment) => mutations.deleteLineupAssignment(assignment.id)),
       );
-      const firstUnexpectedFailure = results.find(
-        (result) =>
-          result.status === 'rejected'
-          && !isConflictError(result.reason)
-          && !isMissingRecordError(result.reason),
-      );
-      if (firstUnexpectedFailure?.status === 'rejected') {
+      const unexpectedFailureIds = starterAssignments
+        .filter((_, index) => {
+          const result = results[index];
+          return result.status === 'rejected'
+            && !isConflictError(result.reason)
+            && !isMissingRecordError(result.reason);
+        })
+        .map((assignment) => assignment.id);
+
+      if (unexpectedFailureIds.length > 0) {
+        // Restore only the slots that actually failed — ones that succeeded (or hit a
+        // benign conflict/missing-record error) stay hidden instead of flashing back in.
+        setPendingRemovalIds(prev => {
+          const next = new Set(prev);
+          unexpectedFailureIds.forEach(id => next.delete(id));
+          return next;
+        });
+        const firstUnexpectedFailure = results.find(
+          (result) =>
+            result.status === 'rejected'
+            && !isConflictError(result.reason)
+            && !isMissingRecordError(result.reason),
+        ) as PromiseRejectedResult;
         throw firstUnexpectedFailure.reason;
       }
     } catch (error) {
@@ -290,7 +329,7 @@ export function LineupPanel({
 
   const handlePlayerClick = (player: Player) => {
     if (!isInteractive) return;
-    const existing = lineup.find(l => l.playerId === player.id);
+    const existing = visibleLineup.find(l => l.playerId === player.id);
 
     if (existing) {
       void handleRemoveFromLineup(existing.id);
@@ -477,7 +516,10 @@ export function LineupPanel({
                             isInteractive ? (
                               <button
                                 onClick={() => {
-                                  const assignment = lineup.find(l => l.positionId === position.id);
+                                  // Match getPositionPlayer's lookup (visibleLineup + isStarter) exactly so
+                                  // this always targets the assignment actually rendered in the slot, not a
+                                  // stale one still round-tripping through the subscription (#172).
+                                  const assignment = visibleLineup.find(l => l.positionId === position.id && l.isStarter);
                                   if (assignment) void handleRemoveFromLineup(assignment.id);
                                 }}
                                 className="btn-remove-small"
