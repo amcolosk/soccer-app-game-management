@@ -111,6 +111,14 @@ test.describe.serial('Team archive ownership edge cases', () => {
     await expect(sharedCard.getByRole('button', { name: 'Archive' })).not.toBeVisible();
     await expect(sharedCard.getByText('Owner Unassigned')).not.toBeVisible();
 
+    // Strengthen: Archive is not merely absent from the card (Archive never
+    // renders on the card for anyone, post-relocation) — it's also absent from
+    // the Edit Team form itself for a non-owner coach, proving the owner gate.
+    await sharedCard.getByRole('button', { name: 'Edit team' }).click();
+    await expect(page.getByRole('heading', { name: /edit team/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Archive' })).not.toBeVisible();
+    await page.locator('.create-form').getByRole('button', { name: 'Cancel' }).click();
+
     // --- Coach A: send a throwaway invitation, then archive; the throwaway
     // invitation should be expired (removed from Pending Invitations) as a
     // side effect of archiving. loginUser() signs out Coach B's session
@@ -128,7 +136,8 @@ test.describe.serial('Team archive ownership edge cases', () => {
     await expect(page.locator('.invitations-list')).toContainText(THROWAWAY_INVITE_EMAIL, { timeout: 5000 });
 
     await clickManagementTab(page, 'Teams');
-    await page.locator('.team-card-wrapper').filter({ hasText: TEAM_NAME }).getByRole('button', { name: 'Archive' }).click();
+    await page.locator('.team-card-wrapper').filter({ hasText: TEAM_NAME }).getByRole('button', { name: 'Edit team' }).click();
+    await page.getByRole('button', { name: 'Archive' }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 
@@ -215,17 +224,24 @@ test.describe.serial('Team archive ownership edge cases', () => {
     await clickManagementTab(page, 'Teams');
     const lockedCard = page.locator('.team-card-wrapper').filter({ hasText: TEAM_NAME });
     await expect(lockedCard.getByText('Owner Unassigned')).toBeVisible({ timeout: 15000 });
-    await expect(lockedCard.getByRole('button', { name: 'Archive' })).not.toBeVisible();
+    // (Archive is never on the card itself anymore; the pre-assignment "not
+    // visible" check that used to live here is dropped as uninformative
+    // post-relocation — see the equivalent note for the shared-card check above.)
 
     await lockedCard.getByRole('button', { name: 'Assign Owner' }).click();
     await clickConfirmModalConfirm(page); // 'Assign Team Owner' confirm
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
-    await expect(lockedCard.getByText('Owner Unassigned')).not.toBeVisible();
-    await expect(lockedCard.getByRole('button', { name: 'Archive' })).toBeVisible({ timeout: 10000 });
+    await expect(lockedCard.getByText('Owner Unassigned')).not.toBeVisible(); // poll/wait mechanism, unchanged
+
+    // Now that ownership has actually propagated, open Edit and confirm Archive appears.
+    await lockedCard.getByRole('button', { name: 'Edit team' }).click();
+    await expect(page.getByRole('button', { name: 'Archive' })).toBeVisible({ timeout: 10000 });
 
     // Proves the reclaim is a *real* ownership transfer, not just a UI flag:
-    // Coach B (the new owner) can now archive and restore the team.
-    await lockedCard.getByRole('button', { name: 'Archive' }).click();
+    // Coach B (the new owner) can now archive and restore the team. The edit
+    // form is already open from the check above, so Archive is clicked
+    // directly at the page level with no need to reopen Edit.
+    await page.getByRole('button', { name: 'Archive' }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await page.getByRole('button', { name: /Archived Teams/ }).click();
@@ -238,7 +254,8 @@ test.describe.serial('Team archive ownership edge cases', () => {
     await expect(page.locator('.item-card:not(.archived)').filter({ hasText: TEAM_NAME })).toBeVisible();
 
     // Cleanup.
-    await page.locator('.team-card-wrapper').filter({ hasText: TEAM_NAME }).getByRole('button', { name: 'Archive' }).click();
+    await page.locator('.team-card-wrapper').filter({ hasText: TEAM_NAME }).getByRole('button', { name: 'Edit team' }).click();
+    await page.getByRole('button', { name: 'Archive' }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await page.getByRole('button', { name: /Archived Teams/ }).click();
@@ -270,8 +287,14 @@ test.describe.serial('Team archive ownership edge cases', () => {
       const activeStale = page.locator('.team-card-wrapper').filter({ hasText: TEAM_NAME });
       let activeCount = await activeStale.count();
       while (activeCount > 0) {
-        const archiveButton = activeStale.first().getByRole('button', { name: 'Archive' });
-        if (!(await archiveButton.isVisible({ timeout: 1000 }).catch(() => false))) break;
+        // Archive now lives inside the team's Edit Team form, not the card —
+        // open Edit first, then check for Archive at the page level.
+        await activeStale.first().getByRole('button', { name: 'Edit team' }).click();
+        const archiveButton = page.getByRole('button', { name: 'Archive' });
+        if (!(await archiveButton.isVisible({ timeout: 1000 }).catch(() => false))) {
+          await page.locator('.create-form').getByRole('button', { name: 'Cancel' }).click().catch(() => {});
+          break;
+        }
         await archiveButton.click();
         await clickConfirmModalConfirm(page);
         await page.waitForTimeout(UI_TIMING.DATA_OPERATION);

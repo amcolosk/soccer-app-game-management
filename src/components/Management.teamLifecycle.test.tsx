@@ -41,7 +41,7 @@ describe('Management — team lifecycle (archive / restore / assign owner)', () 
     expect(screen.queryByText('Active FC')).not.toBeInTheDocument();
   });
 
-  it('shows Archive for the owner and archives the team, moving it into the Archived Teams list', async () => {
+  it('shows Archive for the owner inside the Edit Team form and archives the team, moving it into the Archived Teams list and closing the form', async () => {
     const user = userEvent.setup();
     const team = teamFixture({ id: 'team-1', name: 'Owned FC', coaches: ['test-user-id'], ownerId: 'test-user-id' });
 
@@ -49,7 +49,14 @@ describe('Management — team lifecycle (archive / restore / assign owner)', () 
       queryData: managementFixtures({ Team: [team] }),
     });
 
-    const archiveButton = await screen.findByRole('button', { name: 'Archive' });
+    await screen.findByText('Owned FC');
+    // Archive no longer renders on the un-expanded active team card.
+    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Edit team' }));
+    expect(screen.getByRole('heading', { name: /edit team/i })).toBeInTheDocument();
+
+    const archiveButton = screen.getByRole('button', { name: 'Archive' });
     await user.click(archiveButton);
 
     await waitFor(() => {
@@ -67,12 +74,35 @@ describe('Management — team lifecycle (archive / restore / assign owner)', () 
       expect(screen.queryByText('Owned FC')).not.toBeInTheDocument();
     });
 
+    // Form auto-closes on successful archive (Decision 5).
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { name: /edit team/i })).not.toBeInTheDocument();
+    });
+
     await user.click(screen.getByRole('button', { name: /archived teams/i }));
     expect(screen.getByText('Owned FC')).toBeInTheDocument();
     expect(screen.getByText('Archived')).toBeInTheDocument();
   });
 
-  it('does not show Archive or Owner Unassigned for an active team owned by a different coach', async () => {
+  it('renders Archive inside the Edit Team form container, not merely somewhere in the document', async () => {
+    const user = userEvent.setup();
+    const team = teamFixture({ id: 'team-1', name: 'Scoped FC', coaches: ['test-user-id'], ownerId: 'test-user-id' });
+
+    renderWithProviders(<Management />, {
+      queryData: managementFixtures({ Team: [team] }),
+    });
+
+    await screen.findByText('Scoped FC');
+    await user.click(screen.getByRole('button', { name: 'Edit team' }));
+
+    const formContainer = screen.getByRole('heading', { name: /edit team/i }).closest('.create-form');
+    if (!formContainer) throw new Error('Expected .create-form container around the Edit Team heading');
+
+    expect(within(formContainer as HTMLElement).getByRole('button', { name: 'Archive' })).toBeInTheDocument();
+  });
+
+  it('does not show Archive or Owner Unassigned for an active team owned by a different coach, on the card or inside the Edit Team form', async () => {
+    const user = userEvent.setup();
     const team = teamFixture({
       id: 'team-1',
       name: 'Other Owner FC',
@@ -87,9 +117,13 @@ describe('Management — team lifecycle (archive / restore / assign owner)', () 
     await screen.findByText('Other Owner FC');
     expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
     expect(screen.queryByText('Owner Unassigned')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Edit team' }));
+    expect(screen.getByRole('heading', { name: /edit team/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
   });
 
-  it('shows Owner Unassigned + Assign Owner for an orphaned-owner active team, and assigning replaces it with Archive', async () => {
+  it('shows Owner Unassigned + Assign Owner for an orphaned-owner active team, and assigning replaces it with Archive inside the Edit Team form', async () => {
     const user = userEvent.setup();
     const team = teamFixture({
       id: 'team-1',
@@ -112,9 +146,51 @@ describe('Management — team lifecycle (archive / restore / assign owner)', () 
     });
 
     await waitFor(() => {
+      expect(screen.queryByText('Owner Unassigned')).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Edit team' }));
+    expect(screen.getByRole('heading', { name: /edit team/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
+  });
+
+  it('reveals Archive inside an already-open Edit Team form once ownership is assigned, with no re-open (editingTeamMerged override-merge fix)', async () => {
+    const user = userEvent.setup();
+    const team = teamFixture({
+      id: 'team-1',
+      name: 'Concurrent Assign FC',
+      coaches: ['test-user-id'],
+      ownerId: 'someone-else', // not in coaches: orphaned
+    });
+
+    renderWithProviders(<Management />, {
+      queryData: managementFixtures({ Team: [team] }),
+    });
+
+    await screen.findByText('Owner Unassigned');
+
+    // Coach opens Edit before ownership is assigned — Archive is absent.
+    await user.click(screen.getByRole('button', { name: 'Edit team' }));
+    expect(screen.getByRole('heading', { name: /edit team/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
+
+    // Assign Owner is clicked from the main card while the edit form stays open
+    // (simulating a co-coach concurrently assigning ownership).
+    await user.click(screen.getByRole('button', { name: 'Assign Owner' }));
+
+    await waitFor(() => {
+      expect(managementUiMocks.teamLifecycle.assignTeamOwner).toHaveBeenCalledWith('team-1');
+    });
+
+    // Archive appears in the still-open form once the lifecycle override lands,
+    // without any re-open of Edit — only possible if the gate reads the
+    // override-merged team (editingTeamMerged/teamsForDisplay), not raw
+    // teamForm.editing (which REFRESH_EDITING only ever re-syncs from the raw,
+    // un-merged `teams` array).
+    await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
     });
-    expect(screen.queryByText('Owner Unassigned')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /edit team/i })).toBeInTheDocument();
   });
 
   it('gates Assign Owner behind a confirm dialog: cancelling does not call assignTeamOwner, confirming does', async () => {
@@ -315,13 +391,18 @@ describe('Management — team lifecycle (archive / restore / assign owner)', () 
       queryData: managementFixtures({ Team: [team] }),
     });
 
-    await user.click(await screen.findByRole('button', { name: 'Archive' }));
+    await user.click(await screen.findByRole('button', { name: 'Edit team' }));
+    await user.click(screen.getByRole('button', { name: 'Archive' }));
 
     await waitFor(() => {
       expect(managementUiMocks.toast.showError).toHaveBeenCalledWith(
         'Access denied: only the team owner can archive this team',
       );
     });
+
+    // RESET is only dispatched on the success path (Decision 5) — the form
+    // stays open on archive failure so the coach sees the error and can retry.
+    expect(screen.getByRole('heading', { name: /edit team/i })).toBeInTheDocument();
   });
 
   it('passes ownerId: currentUserId when creating a team', async () => {

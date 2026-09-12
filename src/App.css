@@ -7255,7 +7255,7 @@
   line-height: 1;
 }
 
-/* Team lifecycle actions (Archive / Restore / Assign Owner / Delete Permanently) */
+/* Team lifecycle actions: active card = Assign Owner/Owner Unassigned only (Archive moved to the Edit Team form, see .form-lifecycle-actions below); archived card = Restore / Assign Owner / Delete Permanently (unchanged) */
 .team-lifecycle-actions {
   display: flex;
   align-items: center;
@@ -8503,4 +8503,45 @@
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+/* Team lifecycle actions inside the Edit Team form (Archive only — see
+   docs/plans/ISSUE-171-ARCHIVE-EDIT-FORM-RELOCATION.md). Intentionally a
+   separate rule from .team-lifecycle-actions (main-card Assign
+   Owner/Owner Unassigned row) so the two can be restyled independently. */
+.form-lifecycle-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.form-lifecycle-actions__hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* Muted treatment so Archive doesn't read as a third peer of the
+   Update/Cancel form-actions row above it (UI review, round 3) — modeled
+   on .btn-signout rather than reusing .btn-secondary. */
+.btn-archive-in-form {
+  align-self: flex-start;
+  background-color: transparent;
+  color: var(--text-secondary);
+  padding: 0.5em 1em;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.btn-archive-in-form:hover {
+  background-color: var(--hover-background);
+  color: var(--text-primary);
+}
+
+.btn-archive-in-form:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

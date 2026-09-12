@@ -283,6 +283,16 @@ export function Management() {
   const activeTeams = teamsForDisplay.filter(isTeamActive);
   const archivedTeams = teamsForDisplay.filter(isTeamArchived);
 
+  // Override-merged lookup for the team currently being edited. `teamForm.editing`
+  // is only ever set from EDIT_TEAM/REFRESH_EDITING, both of which read the raw
+  // `teams` array — it never picks up an in-flight archiveTeam/restoreTeam/
+  // assignTeamOwner override the way teamsForDisplay (and therefore the active
+  // card's own ownership checks) already does. Used to gate/call the in-form
+  // Archive control so it reflects current ownership, not a stale snapshot.
+  const editingTeamMerged = teamForm.editing
+    ? (teamsForDisplay.find(t => t.id === teamForm.editing!.id) ?? teamForm.editing)
+    : null;
+
   const [formationForm, formationDispatch] = useReducer(formationFormReducer, initialFormationForm);
   const [playerForm, playerDispatch] = useReducer(playerFormReducer, initialPlayerForm);
 
@@ -414,6 +424,18 @@ export function Management() {
       const updated = await archiveTeam(team.id);
       applyLifecycleOverride(updated);
       trackEvent(AnalyticsEvents.TEAM_ARCHIVED.category, AnalyticsEvents.TEAM_ARCHIVED.action);
+      // Close the edit form once the team being edited is the one just archived
+      // (it leaves activeTeams, so there's nothing left to edit). RESET_IF_EDITING
+      // re-checks against the reducer's current state at dispatch time rather than
+      // a `teamForm.editing` value closed over before the two awaits above (confirm
+      // dialog, then the archive call) — otherwise a coach who cancels this form and
+      // opens a different team's edit while the archive call is still in flight
+      // would have that unrelated form closed out from under them once this resolves.
+      // Dispatched here (success path only, before `finally` clears
+      // pendingTeamActionId) so the form unmounts slightly before the disabled state
+      // would otherwise clear — a non-issue since no re-render ever shows an
+      // enabled-but-stale button.
+      teamDispatch({ type: 'RESET_IF_EDITING', teamId: team.id });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to archive team';
       showError(message);
@@ -1140,6 +1162,21 @@ export function Management() {
                   Cancel
                 </button>
               </div>
+              {editingTeamMerged && isTeamOwner(editingTeamMerged, currentUserId) && (
+                <div className="form-lifecycle-actions">
+                  <p className="form-lifecycle-actions__hint" id="archive-team-hint">
+                    Archiving moves this team out of Active Teams. It's reversible — restore it anytime from Archived Teams.
+                  </p>
+                  <button
+                    className="btn-archive-in-form"
+                    aria-describedby="archive-team-hint"
+                    disabled={pendingTeamActionId === editingTeamMerged.id}
+                    onClick={() => handleArchiveTeam(editingTeamMerged)}
+                  >
+                    Archive
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1590,29 +1627,18 @@ export function Management() {
                       </div>
                     )}
 
-                    <div className="team-lifecycle-actions">
-                      {isTeamOwner(team, currentUserId) && (
+                    {!isTeamOwnershipAssigned(team) && (
+                      <div className="team-lifecycle-actions">
+                        <span className="archive-badge">Owner Unassigned</span>
                         <button
                           className="btn-secondary"
                           disabled={pendingTeamActionId === team.id}
-                          onClick={() => handleArchiveTeam(team)}
+                          onClick={() => handleAssignTeamOwner(team)}
                         >
-                          Archive
+                          Assign Owner
                         </button>
-                      )}
-                      {!isTeamOwnershipAssigned(team) && (
-                        <>
-                          <span className="archive-badge">Owner Unassigned</span>
-                          <button
-                            className="btn-secondary"
-                            disabled={pendingTeamActionId === team.id}
-                            onClick={() => handleAssignTeamOwner(team)}
-                          >
-                            Assign Owner
-                          </button>
-                        </>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

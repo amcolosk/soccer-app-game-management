@@ -157,7 +157,8 @@ export type TeamFormAction =
   | { type: 'EDIT_TEAM'; team: Team }
   | { type: 'REFRESH_EDITING'; team: Team }
   | { type: 'TOGGLE_EXPAND'; teamId: string }
-  | { type: 'RESET' };
+  | { type: 'RESET' }
+  | { type: 'RESET_IF_EDITING'; teamId: string };
 
 export const initialTeamForm: TeamFormState = {
   isCreating: false,
@@ -204,6 +205,18 @@ export function teamFormReducer(state: TeamFormState, action: TeamFormAction): T
       return { ...state, expandedTeamId: state.expandedTeamId === action.teamId ? null : action.teamId };
     case 'RESET':
       return { ...initialTeamForm, expandedTeamId: state.expandedTeamId };
+    case 'RESET_IF_EDITING':
+      // Like RESET, but only closes the form if it's still open for the
+      // team the caller means to close it for. Evaluated against current
+      // state (not a value closed over before an earlier await), so a
+      // caller with a stale reference to "which team was being edited when
+      // this async action started" can't close a form the coach has since
+      // switched to editing a different team in. Same staleness guard as
+      // REFRESH_EDITING above, applied to closing the form instead of
+      // refreshing it.
+      return state.editing?.id === action.teamId
+        ? { ...initialTeamForm, expandedTeamId: state.expandedTeamId }
+        : state;
     default:
       return state;
   }
