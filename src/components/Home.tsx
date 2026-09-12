@@ -871,7 +871,18 @@ export function Home() {
           (Phase 3+). See "Sync interaction flow" in the plan. */}
       {!isCreatingGame && !isImportingCalendar && activeTeams.length > 0 && (
         <button
-          onClick={() => setIsImportingCalendar(true)}
+          onClick={() => {
+            // Default the dropdown so the panel opens straight into the
+            // "Sync now" action rather than the file input (issue #170) --
+            // otherwise importTeamId stays '' until the user re-touches the
+            // dropdown, and showFileInput's `!importTeamId` fallback forces
+            // the .ics upload even when a feed is already linked.
+            const defaultTeam = activeTeams.length === 1
+              ? activeTeams[0]
+              : activeTeams.find((t) => t.calendarFeedHost);
+            setImportTeamId(defaultTeam?.id ?? '');
+            setIsImportingCalendar(true);
+          }}
           className="btn-secondary calendar-import-trigger"
         >
           {hasAnyLinkedFeed ? '🔄 Sync now' : '📅 Import from calendar'}
