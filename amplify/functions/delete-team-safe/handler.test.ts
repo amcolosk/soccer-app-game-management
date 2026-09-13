@@ -45,6 +45,8 @@ describe('delete-team-safe handler', () => {
     process.env.TEAM_INVITATION_TABLE = 'TeamInvitationTable';
     process.env.PLAY_TIME_RECORD_TABLE = 'PlayTimeRecordTable';
     process.env.GOAL_TABLE = 'GoalTable';
+    process.env.SHOT_TABLE = 'ShotTable';
+    process.env.SAVE_TABLE = 'SaveTable';
     process.env.GAME_NOTE_TABLE = 'GameNoteTable';
     process.env.SUBSTITUTION_TABLE = 'SubstitutionTable';
     process.env.LINEUP_ASSIGNMENT_TABLE = 'LineupAssignmentTable';
@@ -67,6 +69,12 @@ describe('delete-team-safe handler', () => {
         }
         if (table === 'TeamInvitationTable') {
           return { Items: [{ id: 'invite-1', teamId: 'team-1' }] };
+        }
+        if (table === 'ShotTable') {
+          return { Items: [{ id: 'shot-1', gameId: 'game-1' }] };
+        }
+        if (table === 'SaveTable') {
+          return { Items: [{ id: 'save-1', gameId: 'game-1' }] };
         }
         return { Items: [] };
       }
@@ -94,6 +102,16 @@ describe('delete-team-safe handler', () => {
     const deleteCalls = mockSend.mock.calls.filter(([cmd]) => cmd.__type === 'DeleteCommand');
     const deleteTables = deleteCalls.map(([cmd]) => (cmd.input as { TableName: string }).TableName);
     expect(deleteTables[deleteTables.length - 1]).toBe('TeamTable');
+  });
+
+  it('cascades shot and save deletion for each team game', async () => {
+    const result = await invoke(createEvent());
+
+    expect(result).toEqual(expect.objectContaining({ success: true }));
+
+    const deleteCalls = mockSend.mock.calls.filter(([cmd]) => cmd.__type === 'DeleteCommand');
+    const deleteTables = deleteCalls.map(([cmd]) => (cmd.input as { TableName: string }).TableName);
+    expect(deleteTables).toEqual(expect.arrayContaining(['ShotTable', 'SaveTable']));
   });
 
   it('rolls back prior deletes when a later delete fails', async () => {

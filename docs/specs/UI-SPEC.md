@@ -389,8 +389,10 @@ Active game cards: left-border accent treatment.
 
 | Tab | Contents |
 |-----|----------|
-| **Lineup** | `LineupPanel` with `hideAvailablePlayers=true`; shows current field positions |
+| **Plan** | `PlanTab` (read-only in this state) — rotation timeline and planned substitutions |
+| **Field** | `LineupPanel` with `hideAvailablePlayers=true`; shows current field positions |
 | **Bench** | `BenchTab` — bench players with play time, sorted by least time |
+| **Goals** | A `StatsSubViewTabs` segmented control (Goals / Shots / Saves, `aria-label="Goals sub-view"`) followed by `GoalTracker` or `ShotSaveTracker` depending on the selected sub-view. Goals shows scorer/assist entry; Shots and Saves each open with an Us/Opponent choice (mirroring Goal's own two-button pattern) — an "Us" Shot requires a player, a Save's player (goalkeeper) stays optional either way. Neither `Shot` nor `Save` carries a `notes` field, so the Edit action is suppressed on opponent-attributed rows (Delete remains available). |
 | **Notes** | `PlayerNotesPanel` — per-player annotations: ⭐ gold star, 🟨 yellow card, 🟥 red card, other |
 
 #### Always-Mounted Modals (not in tabs)
@@ -1114,20 +1116,21 @@ A separate **Help Content Specification** document will define the help content,
 
 ---
 
-## 13. Note And Goal Actions (Post-Game)
+## 13. Note, Goal, Shot, and Save Actions (Post-Game)
 
 ### 13.1 Additive Swipe Requirement
 
 - Swipe-reveal actions on touch devices are additive only.
-- Every note and goal row must keep visible, keyboard-focusable Edit/Delete controls even when swipe is not performed.
+- Every note, goal, shot, and save row must keep visible, keyboard-focusable Edit/Delete controls even when swipe is not performed (except where Edit is intentionally suppressed — see 13.2).
 - Hidden swipe-only controls must never receive keyboard focus.
 
 ### 13.2 Unified Action Contract
 
-- Notes and goals share one action renderer and action ordering.
+- Notes, goals, shots, and saves share one action renderer (`GameActionRow`/`actionContract`) and action ordering.
 - Order is always Edit then Delete.
 - Action buttons are trailing-aligned across phone, tablet, and desktop.
 - Tap targets are at least 44x44 px.
+- **Shot/Save exception**: neither model carries a `notes` field, so an opponent-attributed row (no player, no assist, no notes) has nothing meaningful to edit. Edit is suppressed on opponent-attributed Shot/Save rows; Delete remains available. Us-attributed rows keep both actions (Edit lets the coach re-attribute the player, and for Shot, correct on/off-target).
 
 ### 13.3 Delete Confirmation Contract
 
@@ -1139,6 +1142,14 @@ A separate **Help Content Specification** document will define the help content,
 - Goal delete modal:
   - Title: Delete goal?
   - Body: This permanently removes this goal event from the game timeline.
+  - Actions: Cancel (initial focus), Delete.
+- Shot delete modal:
+  - Title: Delete shot?
+  - Body: This permanently removes this shot event from the game timeline.
+  - Actions: Cancel (initial focus), Delete.
+- Save delete modal:
+  - Title: Delete save?
+  - Body: This permanently removes this save event from the game timeline.
   - Actions: Cancel (initial focus), Delete.
 - Escape key cancels.
 - Cancel returns focus to the invoking action.

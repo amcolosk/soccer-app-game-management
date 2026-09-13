@@ -45,6 +45,8 @@ describe('delete-player-safe handler', () => {
     process.env.TEAM_ROSTER_TABLE = 'TeamRosterTable';
     process.env.PLAY_TIME_RECORD_TABLE = 'PlayTimeRecordTable';
     process.env.GOAL_TABLE = 'GoalTable';
+    process.env.SHOT_TABLE = 'ShotTable';
+    process.env.SAVE_TABLE = 'SaveTable';
     process.env.GAME_NOTE_TABLE = 'GameNoteTable';
     process.env.PLAYER_AVAILABILITY_TABLE = 'PlayerAvailabilityTable';
 
@@ -61,6 +63,12 @@ describe('delete-player-safe handler', () => {
         const table = command.input.TableName as string;
         if (table === 'TeamRosterTable') {
           return { Items: [{ id: 'roster-1', teamId: 'team-1', playerId: 'player-1' }] };
+        }
+        if (table === 'ShotTable') {
+          return { Items: [{ id: 'shot-1', playerId: 'player-1' }] };
+        }
+        if (table === 'SaveTable') {
+          return { Items: [{ id: 'save-1', playerId: 'player-1' }] };
         }
         const filterExpression = command.input.FilterExpression as string;
         if (filterExpression.includes('assistId')) {
@@ -102,6 +110,19 @@ describe('delete-player-safe handler', () => {
     const deleteCalls = mockSend.mock.calls.filter(([cmd]) => cmd.__type === 'DeleteCommand');
     const lastDeleteTable = (deleteCalls[deleteCalls.length - 1][0].input as { TableName: string }).TableName;
     expect(lastDeleteTable).toBe('PlayerTable');
+  });
+
+  it('cascades shot and save deletion alongside goals', async () => {
+    const result = await invoke(createEvent());
+
+    expect(result).toEqual(expect.objectContaining({
+      success: true,
+      deletedCounts: expect.objectContaining({ shots: 1, saves: 1 }),
+    }));
+
+    const deleteCalls = mockSend.mock.calls.filter(([cmd]) => cmd.__type === 'DeleteCommand');
+    const deleteTables = deleteCalls.map(([cmd]) => (cmd.input as { TableName: string }).TableName);
+    expect(deleteTables).toEqual(expect.arrayContaining(['ShotTable', 'SaveTable']));
   });
 
   it('rolls back prior deletes when a later delete fails', async () => {

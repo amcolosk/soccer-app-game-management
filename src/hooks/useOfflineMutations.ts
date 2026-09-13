@@ -20,6 +20,8 @@ const client = generateClient<Schema>();
 type LineupAssignmentCreateInput = Parameters<typeof client.models.LineupAssignment.create>[0];
 type PlayTimeRecordCreateInput = Parameters<typeof client.models.PlayTimeRecord.create>[0];
 type GoalCreateInput = Parameters<typeof client.models.Goal.create>[0];
+type ShotCreateInput = Parameters<typeof client.models.Shot.create>[0];
+type SaveCreateInput = Parameters<typeof client.models.Save.create>[0];
 type PlayerAvailabilityCreateInput = Parameters<typeof client.models.PlayerAvailability.create>[0];
 type PlayerAvailabilityUpdateInput = Parameters<typeof client.models.PlayerAvailability.update>[0];
 
@@ -70,6 +72,11 @@ export interface LineupAssignmentUpdateFields {
   playerId?: string;
 }
 
+// loggedVia is required (not optional) at the TypeScript level even though
+// a.enum() can't be .required() at the schema level — every write path is
+// forced to pass it explicitly rather than relying on discipline. Absent/
+// undefined on a historical row (written before this field existed) is
+// still treated as COACH everywhere it's read.
 export interface GoalCreateFields {
   gameId: string;
   scoredByUs: boolean;
@@ -79,6 +86,7 @@ export interface GoalCreateFields {
   assistId?: string | null;
   notes?: string | null;
   timestamp?: string | null;
+  loggedVia: 'COACH' | 'HELPER';
   coaches?: string[] | null;
 }
 
@@ -86,6 +94,38 @@ export interface GoalUpdateFields {
   scorerId?: string | null;
   assistId?: string | null;
   notes?: string | null;
+}
+
+export interface ShotCreateFields {
+  gameId: string;
+  takenByUs: boolean;
+  onTarget: boolean;
+  gameSeconds: number;
+  half?: number | null;
+  playerId?: string | null;
+  timestamp?: string | null;
+  loggedVia: 'COACH' | 'HELPER';
+  coaches?: string[] | null;
+}
+
+export interface ShotUpdateFields {
+  playerId?: string | null;
+  onTarget?: boolean;
+}
+
+export interface SaveCreateFields {
+  gameId: string;
+  byUs: boolean;
+  gameSeconds: number;
+  half?: number | null;
+  playerId?: string | null;
+  timestamp?: string | null;
+  loggedVia: 'COACH' | 'HELPER';
+  coaches?: string[] | null;
+}
+
+export interface SaveUpdateFields {
+  playerId?: string | null;
 }
 
 export interface GameNoteCreateFields {
@@ -143,6 +183,12 @@ export interface GameMutationInput {
   createGoal: (fields: GoalCreateFields) => Promise<void>;
   deleteGoal: (id: string) => Promise<void>;
   updateGoal: (id: string, fields: GoalUpdateFields) => Promise<void>;
+  createShot: (fields: ShotCreateFields) => Promise<void>;
+  deleteShot: (id: string) => Promise<void>;
+  updateShot: (id: string, fields: ShotUpdateFields) => Promise<void>;
+  createSave: (fields: SaveCreateFields) => Promise<void>;
+  deleteSave: (id: string) => Promise<void>;
+  updateSave: (id: string, fields: SaveUpdateFields) => Promise<void>;
   createGameNote: (fields: GameNoteCreateFields) => Promise<void>;
   updateGameNote: (id: string, fields: GameNoteUpdateFields) => Promise<void>;
   deleteGameNote: (id: string) => Promise<void>;
@@ -161,7 +207,7 @@ export interface UseOfflineMutationsResult {
 
 // ── Replay a single queued mutation against the live API ─────────────────────
 
-const ALLOWED_MODELS = new Set(['Game', 'PlayTimeRecord', 'Substitution', 'LineupAssignment', 'Goal', 'GameNote', 'PlayerAvailability', 'QueuedSubstitution']);
+const ALLOWED_MODELS = new Set(['Game', 'PlayTimeRecord', 'Substitution', 'LineupAssignment', 'Goal', 'Shot', 'Save', 'GameNote', 'PlayerAvailability', 'QueuedSubstitution']);
 const ALLOWED_OPS = new Set(['create', 'update', 'delete']);
 
 function getSafeErrorMessage(error: unknown): string {
@@ -673,6 +719,82 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
     [enqueueOrRun]
   );
 
+  const createShot = useCallback(
+    async (fields: ShotCreateFields): Promise<void> => {
+      await enqueueOrRun(
+        'Shot', 'create',
+        fields as unknown as Record<string, unknown>,
+        async () => {
+          const result = await client.models.Shot.create(fields as ShotCreateInput);
+          assertNoGraphQLErrors(result, 'Failed to create shot');
+        }
+      );
+    },
+    [enqueueOrRun]
+  );
+
+  const deleteShot = useCallback(
+    async (id: string): Promise<void> => {
+      await enqueueOrRun(
+        'Shot', 'delete',
+        { id },
+        () => client.models.Shot.delete({ id }).then(() => undefined)
+      );
+    },
+    [enqueueOrRun]
+  );
+
+  const updateShot = useCallback(
+    async (id: string, fields: ShotUpdateFields): Promise<void> => {
+      const { playerId, onTarget } = fields;
+      const safeFields = { playerId, onTarget };
+      await enqueueOrRun(
+        'Shot', 'update',
+        { id, ...safeFields } as Record<string, unknown>,
+        () => client.models.Shot.update({ id, ...safeFields }).then(() => undefined)
+      );
+    },
+    [enqueueOrRun]
+  );
+
+  const createSave = useCallback(
+    async (fields: SaveCreateFields): Promise<void> => {
+      await enqueueOrRun(
+        'Save', 'create',
+        fields as unknown as Record<string, unknown>,
+        async () => {
+          const result = await client.models.Save.create(fields as SaveCreateInput);
+          assertNoGraphQLErrors(result, 'Failed to create save');
+        }
+      );
+    },
+    [enqueueOrRun]
+  );
+
+  const deleteSave = useCallback(
+    async (id: string): Promise<void> => {
+      await enqueueOrRun(
+        'Save', 'delete',
+        { id },
+        () => client.models.Save.delete({ id }).then(() => undefined)
+      );
+    },
+    [enqueueOrRun]
+  );
+
+  const updateSave = useCallback(
+    async (id: string, fields: SaveUpdateFields): Promise<void> => {
+      const { playerId } = fields;
+      const safeFields = { playerId };
+      await enqueueOrRun(
+        'Save', 'update',
+        { id, ...safeFields } as Record<string, unknown>,
+        () => client.models.Save.update({ id, ...safeFields }).then(() => undefined)
+      );
+    },
+    [enqueueOrRun]
+  );
+
   const createGameNote = useCallback(
     async (fields: GameNoteCreateFields): Promise<void> => {
       const { authorId: _strippedAuthorId, coaches: _strippedCoaches, ...safeFields } = fields as GameNoteCreateFields & {
@@ -784,6 +906,12 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       createGoal,
       deleteGoal,
       updateGoal,
+      createShot,
+      deleteShot,
+      updateShot,
+      createSave,
+      deleteSave,
+      updateSave,
       createGameNote,
       updateGameNote,
       deleteGameNote,
@@ -795,7 +923,10 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
     [
       updateGame, createPlayTimeRecord, updatePlayTimeRecord, createSubstitution,
       createLineupAssignment, deleteLineupAssignment, updateLineupAssignment,
-      createGoal, deleteGoal, updateGoal, createGameNote, updateGameNote, deleteGameNote,
+      createGoal, deleteGoal, updateGoal,
+      createShot, deleteShot, updateShot,
+      createSave, deleteSave, updateSave,
+      createGameNote, updateGameNote, deleteGameNote,
       createPlayerAvailability, updatePlayerAvailability,
       createQueuedSubstitution, deleteQueuedSubstitution,
     ]

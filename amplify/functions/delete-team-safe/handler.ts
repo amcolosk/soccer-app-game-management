@@ -84,6 +84,8 @@ export const handler: Handler = async (event) => {
   const teamInvitationTable = process.env.TEAM_INVITATION_TABLE;
   const playTimeRecordTable = process.env.PLAY_TIME_RECORD_TABLE;
   const goalTable = process.env.GOAL_TABLE;
+  const shotTable = process.env.SHOT_TABLE;
+  const saveTable = process.env.SAVE_TABLE;
   const gameNoteTable = process.env.GAME_NOTE_TABLE;
   const substitutionTable = process.env.SUBSTITUTION_TABLE;
   const lineupAssignmentTable = process.env.LINEUP_ASSIGNMENT_TABLE;
@@ -91,7 +93,7 @@ export const handler: Handler = async (event) => {
   const gamePlanTable = process.env.GAME_PLAN_TABLE;
   const plannedRotationTable = process.env.PLANNED_ROTATION_TABLE;
 
-  if (!teamTable || !gameTable || !teamRosterTable || !teamInvitationTable || !playTimeRecordTable || !goalTable || !gameNoteTable || !substitutionTable || !lineupAssignmentTable || !playerAvailabilityTable || !gamePlanTable || !plannedRotationTable) {
+  if (!teamTable || !gameTable || !teamRosterTable || !teamInvitationTable || !playTimeRecordTable || !goalTable || !shotTable || !saveTable || !gameNoteTable || !substitutionTable || !lineupAssignmentTable || !playerAvailabilityTable || !gamePlanTable || !plannedRotationTable) {
     throw new Error('Required environment variables are not set');
   }
 
@@ -129,6 +131,8 @@ export const handler: Handler = async (event) => {
     const gameChildren = [] as Array<{
       playTimeRecords: DbItem[];
       goals: DbItem[];
+      shots: DbItem[];
+      saves: DbItem[];
       gameNotes: DbItem[];
       substitutions: DbItem[];
       lineupAssignments: DbItem[];
@@ -138,9 +142,11 @@ export const handler: Handler = async (event) => {
     }>;
 
     for (const game of games) {
-      const [playTimeRecords, goals, gameNotes, substitutions, lineupAssignments, playerAvailabilities, gamePlans] = await Promise.all([
+      const [playTimeRecords, goals, shots, saves, gameNotes, substitutions, lineupAssignments, playerAvailabilities, gamePlans] = await Promise.all([
         scanAll(playTimeRecordTable, 'gameId = :gameId', { ':gameId': game.id }),
         scanAll(goalTable, 'gameId = :gameId', { ':gameId': game.id }),
+        scanAll(shotTable, 'gameId = :gameId', { ':gameId': game.id }),
+        scanAll(saveTable, 'gameId = :gameId', { ':gameId': game.id }),
         scanAll(gameNoteTable, 'gameId = :gameId', { ':gameId': game.id }),
         scanAll(substitutionTable, 'gameId = :gameId', { ':gameId': game.id }),
         scanAll(lineupAssignmentTable, 'gameId = :gameId', { ':gameId': game.id }),
@@ -157,6 +163,8 @@ export const handler: Handler = async (event) => {
       gameChildren.push({
         playTimeRecords,
         goals,
+        shots,
+        saves,
         gameNotes,
         substitutions,
         lineupAssignments,
@@ -178,6 +186,12 @@ export const handler: Handler = async (event) => {
       }
       for (const item of child.goals) {
         await deleteWithSnapshot(goalTable, item, rollbackStack);
+      }
+      for (const item of child.shots) {
+        await deleteWithSnapshot(shotTable, item, rollbackStack);
+      }
+      for (const item of child.saves) {
+        await deleteWithSnapshot(saveTable, item, rollbackStack);
       }
       for (const item of child.gameNotes) {
         await deleteWithSnapshot(gameNoteTable, item, rollbackStack);

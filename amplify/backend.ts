@@ -107,6 +107,8 @@ const teamRosterTable = backend.data.resources.tables['TeamRoster'];
 const gameTable = backend.data.resources.tables['Game'];
 const playTimeRecordTable = backend.data.resources.tables['PlayTimeRecord'];
 const goalTable = backend.data.resources.tables['Goal'];
+const shotTable = backend.data.resources.tables['Shot'];
+const saveTable = backend.data.resources.tables['Save'];
 const substitutionTable = backend.data.resources.tables['Substitution'];
 const lineupAssignmentTable = backend.data.resources.tables['LineupAssignment'];
 const playerAvailabilityTable = backend.data.resources.tables['PlayerAvailability'];
@@ -259,6 +261,8 @@ gameTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 teamTable.grantReadData(backend.deleteGameSafe.resources.lambda);
 playTimeRecordTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 goalTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+shotTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+saveTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 gameNoteTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 substitutionTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 lineupAssignmentTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
@@ -266,10 +270,29 @@ playerAvailabilityTable.grantReadWriteData(backend.deleteGameSafe.resources.lamb
 gamePlanTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 plannedRotationTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 queuedSubstitutionTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+// grantReadWriteData above only authorizes the base table ARN, not its GSIs
+// (confirmed against the synthesized IAM policy in .amplify/artifacts/
+// cdk.out — no `/index/*` resource is included), same finding documented
+// at revokeCoachAccess's Query grants below. deleteGameSafe's handler now
+// Queries Goal/Shot/Save by their physical `gameId` GSI names
+// (goalsByGameId/shotsByGameId/savesByGameId) instead of scanning, so it
+// needs an explicit dynamodb:Query grant scoped to those index ARNs.
+backend.deleteGameSafe.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [
+      `${goalTable.tableArn}/index/goalsByGameId`,
+      `${shotTable.tableArn}/index/shotsByGameId`,
+      `${saveTable.tableArn}/index/savesByGameId`,
+    ],
+  })
+);
 backend.deleteGameSafe.addEnvironment('GAME_TABLE', gameTable.tableName);
 backend.deleteGameSafe.addEnvironment('TEAM_TABLE', teamTable.tableName);
 backend.deleteGameSafe.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
 backend.deleteGameSafe.addEnvironment('GOAL_TABLE', goalTable.tableName);
+backend.deleteGameSafe.addEnvironment('SHOT_TABLE', shotTable.tableName);
+backend.deleteGameSafe.addEnvironment('SAVE_TABLE', saveTable.tableName);
 backend.deleteGameSafe.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
 backend.deleteGameSafe.addEnvironment('SUBSTITUTION_TABLE', substitutionTable.tableName);
 backend.deleteGameSafe.addEnvironment('LINEUP_ASSIGNMENT_TABLE', lineupAssignmentTable.tableName);
@@ -285,6 +308,8 @@ teamRosterTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
 teamInvitationTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
 playTimeRecordTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
 goalTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+shotTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+saveTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
 gameNoteTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
 substitutionTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
 lineupAssignmentTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
@@ -297,6 +322,8 @@ backend.deleteTeamSafe.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.table
 backend.deleteTeamSafe.addEnvironment('TEAM_INVITATION_TABLE', teamInvitationTable.tableName);
 backend.deleteTeamSafe.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
 backend.deleteTeamSafe.addEnvironment('GOAL_TABLE', goalTable.tableName);
+backend.deleteTeamSafe.addEnvironment('SHOT_TABLE', shotTable.tableName);
+backend.deleteTeamSafe.addEnvironment('SAVE_TABLE', saveTable.tableName);
 backend.deleteTeamSafe.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
 backend.deleteTeamSafe.addEnvironment('SUBSTITUTION_TABLE', substitutionTable.tableName);
 backend.deleteTeamSafe.addEnvironment('LINEUP_ASSIGNMENT_TABLE', lineupAssignmentTable.tableName);
@@ -311,6 +338,8 @@ teamTable.grantReadData(backend.deletePlayerSafe.resources.lambda);
 teamRosterTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 playTimeRecordTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 goalTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
+shotTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
+saveTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 gameNoteTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 playerAvailabilityTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 backend.deletePlayerSafe.addEnvironment('PLAYER_TABLE', playerTable.tableName);
@@ -318,6 +347,8 @@ backend.deletePlayerSafe.addEnvironment('TEAM_TABLE', teamTable.tableName);
 backend.deletePlayerSafe.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);
 backend.deletePlayerSafe.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
 backend.deletePlayerSafe.addEnvironment('GOAL_TABLE', goalTable.tableName);
+backend.deletePlayerSafe.addEnvironment('SHOT_TABLE', shotTable.tableName);
+backend.deletePlayerSafe.addEnvironment('SAVE_TABLE', saveTable.tableName);
 backend.deletePlayerSafe.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
 backend.deletePlayerSafe.addEnvironment('PLAYER_AVAILABILITY_TABLE', playerAvailabilityTable.tableName);
 

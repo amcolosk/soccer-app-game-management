@@ -57,6 +57,8 @@ Formation <────── Team
                                  ├──< Substitution >──── Player (in/out), FieldPosition
                                  ├──< PlayTimeRecord >──── Player, FieldPosition
                                  ├──< Goal >──── Player (scorer, assist)
+                                 ├──< Shot >──── Player (shooter, "Us" only)
+                                 ├──< Save >──── Player (goalkeeper, "Us" only)
                                  └──< GameNote >──── Player
                   Team ──────< TeamInvitation
 ```
@@ -107,7 +109,7 @@ Global player pool — players are not scoped to a team, they're shared via `Tea
 - `birthYear`: Int — optional (used for age-group filtering on roster)
 - `coaches`: String[]
 
-**Relationships**: Has many `TeamRoster`, `LineupAssignment`, `Substitution` (in/out), `PlayTimeRecord`, `Goal` (scorer/assist), `GameNote`, `PlayerAvailability`
+**Relationships**: Has many `TeamRoster`, `LineupAssignment`, `Substitution` (in/out), `PlayTimeRecord`, `Goal` (scorer/assist), `Shot`, `Save`, `GameNote`, `PlayerAvailability`
 
 ---
 
@@ -224,7 +226,39 @@ A goal scored during a game.
 - `scorerId`, `assistId`: ID (FKs to Player, both optional)
 - `notes`: String
 - `timestamp`: DateTime
+- `loggedVia`: Enum (`COACH | HELPER`, optional) — absent/undefined on a historical row is treated as `COACH`
 - `coaches`: String[]
+
+**Note**: `Goal` also carries an explicit `gameId`-hash-key secondary index (`listGoalsByGameId`) so `delete-game-safe` can `Query` its rows by physical GSI name instead of scanning the table — see `Shot`/`Save` below, which carry the same index for the same reason.
+
+---
+
+#### **Shot**
+A shot taken during a game (on goal, either team), independent of whether it resulted in a goal.
+- `gameId`: ID (FK)
+- `playerId`: ID (FK to Player, optional — only set when `takenByUs` is true, and required by the client-side validation in that case)
+- `takenByUs`: Boolean — true = our team took the shot, false = opponent (named `takenByUs`, not `scoredByUs`, since a shot isn't "scored")
+- `onTarget`: Boolean — whether the shot was on target
+- `gameSeconds`, `half`: Int
+- `timestamp`: DateTime
+- `loggedVia`: Enum (`COACH | HELPER`, optional)
+- `coaches`: String[]
+
+**Relationships**: Belongs to `Game` and (optionally) `Player`. Secondary index `listShotsByGameId`.
+
+---
+
+#### **Save**
+A save made during a game, either by our goalkeeper or the opponent's.
+- `gameId`: ID (FK)
+- `playerId`: ID (FK to Player, optional — the goalkeeper, when known; stays optional even when `byUs` is true, since a save can be logged before anyone identifies the keeper)
+- `byUs`: Boolean — true = our keeper made the save, false = the opponent's keeper did (symmetric with `Shot.takenByUs`)
+- `gameSeconds`, `half`: Int
+- `timestamp`: DateTime
+- `loggedVia`: Enum (`COACH | HELPER`, optional)
+- `coaches`: String[]
+
+**Relationships**: Belongs to `Game` and (optionally) `Player`. Secondary index `listSavesByGameId`.
 
 ---
 

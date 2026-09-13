@@ -123,6 +123,8 @@ const schema = a.schema({
       assists: a.hasMany('Goal', 'assistId'),
       gameNotes: a.hasMany('GameNote', 'playerId'),
       playerAvailabilities: a.hasMany('PlayerAvailability', 'playerId'),
+      shots: a.hasMany('Shot', 'playerId'),
+      saves: a.hasMany('Save', 'playerId'),
     })
     .authorization((allow) => [
       // Delete is intentionally disallowed on the model. Use deletePlayerSafe.
@@ -180,6 +182,8 @@ const schema = a.schema({
       queuedSubstitutions: a.hasMany('QueuedSubstitution', 'gameId'),
       playTimeRecords: a.hasMany('PlayTimeRecord', 'gameId'),
       goals: a.hasMany('Goal', 'gameId'),
+      shots: a.hasMany('Shot', 'gameId'),
+      saves: a.hasMany('Save', 'gameId'),
       gameNotes: a.hasMany('GameNote', 'gameId'),
       playerAvailability: a.hasMany('PlayerAvailability', 'gameId'),
       gamePlan: a.hasOne('GamePlan', 'gameId'),
@@ -338,11 +342,63 @@ const schema = a.schema({
       assist: a.belongsTo('Player', 'assistId'),
       notes: a.string(), // Any additional notes about the goal
       timestamp: a.datetime().required(), // Real-world timestamp when goal was recorded
+      // a.enum() can't be .required() at the schema level (DynamoDB-side
+      // constraint, not a TypeScript one) -- absent/undefined is treated as
+      // COACH everywhere it's read (historical rows predate this field).
+      // GoalCreateFields/ShotCreateFields/SaveCreateFields make this a
+      // *required* TypeScript field so every new write path must pass it
+      // explicitly instead of relying on discipline.
+      loggedVia: a.enum(['COACH', 'HELPER']),
       coaches: a.string().array(), // Team coaches who can access this goal
     })
+    .secondaryIndexes((index) => [
+      index('gameId').queryField('listGoalsByGameId'),
+    ])
     .authorization((allow) => [
       allow.ownersDefinedIn('coaches'), // Only team coaches can access goals
     ]),
+
+  // Per-shot stat event, same template shape as Goal. takenByUs (not
+  // scoredByUs) -- a shot isn't "scored"; this reads correctly next to
+  // Goal.scoredByUs and Save.byUs without colliding in meaning with either.
+  Shot: a
+    .model({
+      gameId: a.id().required(),
+      game: a.belongsTo('Game', 'gameId'),
+      playerId: a.id(),
+      player: a.belongsTo('Player', 'playerId'),
+      takenByUs: a.boolean().required(),
+      onTarget: a.boolean().required(),
+      gameSeconds: a.integer().required(),
+      half: a.integer().required(),
+      timestamp: a.datetime().required(),
+      loggedVia: a.enum(['COACH', 'HELPER']), // absent/undefined == COACH (legacy-safe default)
+      coaches: a.string().array(),
+    })
+    .secondaryIndexes((index) => [index('gameId').queryField('listShotsByGameId')])
+    .authorization((allow) => [allow.ownersDefinedIn('coaches')]),
+
+  // Per-save stat event. byUs is symmetric with Shot.takenByUs -- without
+  // it, "our keeper saved a shot" and "the opponent's keeper saved our shot"
+  // are indistinguishable, which breaks any season-report split of
+  // saves-for vs. saves-against. playerId stays optional (a save can be
+  // logged before anyone identifies the keeper), but byUs is always
+  // required.
+  Save: a
+    .model({
+      gameId: a.id().required(),
+      game: a.belongsTo('Game', 'gameId'),
+      playerId: a.id(), // goalkeeper, when known
+      player: a.belongsTo('Player', 'playerId'),
+      byUs: a.boolean().required(),
+      gameSeconds: a.integer().required(),
+      half: a.integer().required(),
+      timestamp: a.datetime().required(),
+      loggedVia: a.enum(['COACH', 'HELPER']),
+      coaches: a.string().array(),
+    })
+    .secondaryIndexes((index) => [index('gameId').queryField('listSavesByGameId')])
+    .authorization((allow) => [allow.ownersDefinedIn('coaches')]),
 
   GameNote: a
     .model({

@@ -8545,3 +8545,178 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ── Goals/Shots/Saves segmented control (Fan Mode + Sideline Stat Tracking,
+   Milestone A) ──────────────────────────────────────────────────────────
+   Reuses the tablist/pill interaction already established for the Game
+   Planner timeline (.planner-timeline-pill, above) rather than inventing a
+   new pattern — three segments comfortably fit the same 375px budget that
+   pill sizing was already verified against. Deliberately NOT a copy of
+   .game-tab-nav's styling: this is a secondary, in-page control nested
+   inside (or, in the completed layout, directly above) the Goals content,
+   not a peer of the top-level tab bar. */
+.stats-subview-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.stats-subview-tab {
+  flex: 1;
+  padding: 0.625rem 0.75rem;
+  border: 2px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--card-background);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: all 0.15s;
+}
+
+.stats-subview-tab--active {
+  border-color: var(--primary-green);
+  background: var(--primary-green);
+  color: white;
+}
+
+.stats-subview-tab:focus-visible {
+  outline: 3px solid rgba(26, 71, 42, 0.35);
+  outline-offset: 2px;
+}
+
+/* Shot/Save entry buttons — same shape as .goal-buttons/.btn-goal, kept as
+   parallel classes rather than reused directly since they're conceptually
+   distinct from Goal (see ShotSaveTracker.tsx). */
+.stat-buttons {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.btn-stat {
+  flex: 1;
+  padding: 1rem;
+  border: none;
+  border-radius: 10px;
+  font-size: 1.1em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.btn-stat-us {
+  background: var(--primary-green);
+  color: white;
+}
+
+.btn-stat-us:hover {
+  background: #155f2e;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(26, 71, 42, 0.3);
+}
+
+.btn-stat-opponent {
+  background: #d32f2f;
+  color: white;
+}
+
+.btn-stat-opponent:hover {
+  background: #b71c1c;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);
+}
+
+.stats-empty-state {
+  text-align: center;
+  padding: 1.5rem 1rem;
+  color: var(--text-secondary);
+}
+
+.stats-section {
+  margin: 2rem 0;
+  padding: 1.5rem;
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+}
+
+.stats-section h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+
+.stats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.stat-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 8px;
+  border-left: 4px solid;
+}
+
+.stat-card.stat-us {
+  background: rgba(26, 71, 42, 0.05);
+  border-left-color: var(--primary-green);
+}
+
+.stat-card.stat-opponent {
+  background: rgba(211, 47, 47, 0.05);
+  border-left-color: #d32f2f;
+}
+
+.stat-icon {
+  font-size: 1.5em;
+  flex-shrink: 0;
+}
+
+.stat-info {
+  flex: 1;
+}
+
+.stat-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+  align-self: flex-start;
+}
+
+.stat-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.stat-minute {
+  font-weight: bold;
+}
+
+.stat-half {
+  color: var(--text-secondary);
+  font-size: 0.9em;
+}
+
+.stat-on-target {
+  font-size: 0.8em;
+  color: var(--text-secondary);
+}
+
+.stat-player {
+  font-weight: 500;
+}
+
+.stat-opponent-label {
+  color: var(--text-secondary);
+}

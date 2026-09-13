@@ -40,6 +40,7 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 - **Substitution Management**: Easy substitution interface with live play time visibility
 - **Halftime Lineup Changes**: Modify the lineup between halves
 - **Score Tracking**: Record goals with scorer, assist, and game time
+- **Shot & Save Tracking**: Log shots (on/off target) and saves for either team from the same Goals tab, via a Goals/Shots/Saves segmented control
 - **Game Notes**: Log events such as gold stars and cards
 
 ### Play Time Tracking
@@ -141,6 +142,7 @@ npm run lint         # Lint TypeScript/TSX files
 - **Substitution**: Records when a player enters/exits a position
 - **PlayTimeRecord**: Granular tracking (player, position, start/end game seconds)
 - **Goal / GameNote**: Scoring and event records
+- **Shot / Save**: Per-shot (on/off target) and per-save stat events, attributable to either team; both carry a `loggedVia` (`COACH`/`HELPER`) flag
 - **TeamInvitation**: Email-based coach invitations with status tracking
 
 ## Deploying to AWS

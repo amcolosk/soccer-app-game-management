@@ -81,6 +81,7 @@ export function GoalTracker({
         assistId: goalScoredByUs && goalAssistId ? goalAssistId : undefined,
         notes: goalNotes || undefined,
         timestamp: new Date().toISOString(),
+        loggedVia: 'COACH',
         coaches: team.coaches,
       });
 
