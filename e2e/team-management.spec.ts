@@ -75,13 +75,18 @@ test.describe('Team Management Smoke', () => {
     await clickButton(page, 'Create');
     await expect(page.locator('.item-card').filter({ hasText: teamName })).toBeVisible();
 
+    // Archive now lives inside the team's Edit Team form (see
+    // docs/plans/ISSUE-171-ARCHIVE-EDIT-FORM-RELOCATION.md), not on the card
+    // itself: open Edit first, then click Archive at the page level.
     // Archive: cancel, then confirm.
-    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Archive' }).click();
+    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Edit team' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
     await clickConfirmModalCancel(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await expect(page.locator('.item-card:not(.archived)').filter({ hasText: teamName })).toBeVisible();
 
-    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Archive' }).click();
+    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Edit team' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await expect(page.locator('.item-card:not(.archived)').filter({ hasText: teamName })).not.toBeVisible();
@@ -120,10 +125,12 @@ test.describe('Team Management Smoke', () => {
     await expect(page.locator('.item-card').filter({ hasText: teamName })).toBeVisible();
 
     // Owner is stamped implicitly at create time (Correction 1): Archive is
-    // visible, no "Owner Unassigned" pill.
+    // visible inside the Edit Team form, no "Owner Unassigned" pill on the card.
     const activeCard = page.locator('.team-card-wrapper').filter({ hasText: teamName });
-    await expect(activeCard.getByRole('button', { name: 'Archive' })).toBeVisible();
     await expect(activeCard.getByText('Owner Unassigned')).not.toBeVisible();
+    await activeCard.getByRole('button', { name: 'Edit team' }).click();
+    await expect(page.getByRole('button', { name: 'Archive', exact: true })).toBeVisible();
+    await page.locator('.create-form').getByRole('button', { name: 'Cancel' }).click();
 
     // Sanity: present in the Schedule Game dropdown while active. Team.create
     // is a normal AppSync mutation and *does* trigger a subscription push, so
@@ -143,7 +150,8 @@ test.describe('Team Management Smoke', () => {
     // Archive, then confirm exclusion from the dropdown.
     await navigateToManagement(page);
     await clickManagementTab(page, 'Teams');
-    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Archive' }).click();
+    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Edit team' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await expect(page.locator('.item-card:not(.archived)').filter({ hasText: teamName })).not.toBeVisible();
@@ -167,7 +175,8 @@ test.describe('Team Management Smoke', () => {
     // Cleanup: archive + delete permanently (matches the existing test's pattern).
     await navigateToManagement(page);
     await clickManagementTab(page, 'Teams');
-    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Archive' }).click();
+    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Edit team' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await page.getByRole('button', { name: /Archived Teams/ }).click();

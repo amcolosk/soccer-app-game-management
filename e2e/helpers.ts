@@ -315,7 +315,17 @@ export async function cleanupTestData(page: Page) {
     const activeCards = page.locator('.team-card-wrapper:has(.item-card:not(.archived))');
     let activeCount = await activeCards.count();
     while (activeCount > 0) {
-      await activeCards.first().getByRole('button', { name: 'Archive' }).click().catch(() => {});
+      // Archive now lives inside the team's Edit Team form (see
+      // docs/plans/ISSUE-171-ARCHIVE-EDIT-FORM-RELOCATION.md), not on the card
+      // itself — open Edit first, then click Archive at the page level.
+      await activeCards.first().getByRole('button', { name: 'Edit team' }).click().catch(() => {});
+      await page.getByRole('button', { name: 'Archive', exact: true }).click().catch(() => {});
+      // Defensive: if this active card has no owner (legacy ownerless team), no
+      // Archive button renders inside the opened edit form — close it so a
+      // stuck-open form doesn't interfere with the next loop iteration's card
+      // lookup. Scoped to the edit form specifically to avoid Playwright
+      // strict-mode ambiguity with the ConfirmModal's own Cancel button.
+      await page.locator('.create-form').getByRole('button', { name: 'Cancel' }).click().catch(() => {});
       await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
       const newCount = await page.locator('.team-card-wrapper:has(.item-card:not(.archived))').count();
       if (newCount === activeCount) break; // no Archive button (ownerless legacy team) or stuck; stop to avoid hanging

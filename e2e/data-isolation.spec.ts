@@ -58,7 +58,8 @@ test.describe.serial('Data isolation smoke wiring', () => {
     await navigateToManagement(page);
     await clickManagementTab(page, 'Teams');
 
-    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Archive' }).click();
+    await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Edit team' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 

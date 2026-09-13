@@ -607,7 +607,7 @@ Three numeric steppers inside the setup card, arranged in two rows:
 **File:** `src/components/Management.tsx`
 
 #### Sections (tabbed or accordion)
-1. **Teams** — create/edit/delete teams; set name, formation, field size, max players
+1. **Teams** — create/edit/archive teams (permanent delete only from Archived Teams); set name, formation, field size, max players
 2. **Formations** — select or edit formation templates (4-3-3, 4-4-2, etc.); define positions
 3. **Players** — add players to a team; set name, jersey number, preferred positions; swipe-to-delete
 4. **Sharing** — manage which coaches have access to a team (see "Sharing & Permissions" below)
@@ -622,6 +622,15 @@ Three numeric steppers inside the setup card, arranged in two rows:
 
 #### Tablet Adaptation
 - Master list (left column) + detail/form (right column) pattern
+
+#### Team Lifecycle Actions (Manage > Teams)
+**File:** `src/components/Management.tsx`
+
+- Active team card: shows only "Assign Owner" / "Owner Unassigned" when the team's owner is not in `coaches` (`isTeamOwnershipAssigned`); no Archive control on the card itself.
+- Edit Team form (owner only): a bordered secondary row (`.form-lifecycle-actions`) below Update/Cancel with helper text and a single, muted "Archive" button (`.btn-archive-in-form`, styled like Sign Out rather than a primary/secondary form action), gated on `isTeamOwner` (evaluated against the override-merged team, not a stale snapshot).
+- Reversible; shows the existing "Archive Team" confirm dialog before calling `archiveTeam`.
+- Archiving from inside the edit form closes the form automatically (the team leaves Active Teams, so there's nothing left open to edit).
+- Archived team card: unchanged — Restore Team / Assign Owner / Delete Permanently, no Edit affordance at all (see Calendar Feed Settings below, which already states this).
 
 #### Calendar Feed Settings (Manage > Teams > edit a team)
 **File:** `src/components/CalendarFeedSettings.tsx`

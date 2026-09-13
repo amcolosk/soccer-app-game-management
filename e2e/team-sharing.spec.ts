@@ -563,9 +563,11 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     // First, clean up any stale teams BEFORE attempting to accept invitation or login.
     // Stale "Shared Eagles FC ..." teams are always created (and owned) by User 1
     // (see the "User 1 creates team..." test above) — User 2 only ever joins as a
-    // coach via invitation, never as owner. The Archive button in Management.tsx is
-    // owner-gated (isTeamOwner), so this cleanup must run as User 1, not User 2, or
-    // the Archive click below would target a button that never renders and time out.
+    // coach via invitation, never as owner. The Archive button (now inside that
+    // team's Edit Team form, not the card — see
+    // docs/plans/ISSUE-171-ARCHIVE-EDIT-FORM-RELOCATION.md) is owner-gated
+    // (isTeamOwner), so this cleanup must run as User 1, not User 2, or the
+    // Archive click below would target a button that never renders and time out.
     await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);
     console.log('✓ User 1 logged in for cleanup');
 
@@ -593,7 +595,8 @@ test.describe.serial('Team Sharing and Collaboration', () => {
         // Teams no longer support swipe-to-delete (archive-first lifecycle) —
         // archive, then permanently delete from the Archived Teams sub-tab.
         await page.locator('.team-card-wrapper').filter({ hasText: /Shared Eagles FC/ }).first()
-          .getByRole('button', { name: 'Archive' }).click();
+          .getByRole('button', { name: 'Edit team' }).click();
+        await page.getByRole('button', { name: 'Archive', exact: true }).click();
         await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 
         await page.getByRole('button', { name: /Archived Teams/ }).click();
@@ -1368,7 +1371,8 @@ test.describe.serial('Team Sharing and Collaboration', () => {
 
     // Teams no longer support swipe-to-delete (archive-first lifecycle) —
     // archive, then permanently delete from the Archived Teams sub-tab.
-    await page.locator('.team-card-wrapper').first().getByRole('button', { name: 'Archive' }).click();
+    await page.locator('.team-card-wrapper').first().getByRole('button', { name: 'Edit team' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 
     await page.getByRole('button', { name: /Archived Teams/ }).click();
