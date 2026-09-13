@@ -108,7 +108,7 @@ test.describe.serial('Team archive ownership edge cases', () => {
     await clickManagementTab(page, 'Teams');
     const sharedCard = page.locator('.team-card-wrapper').filter({ hasText: TEAM_NAME });
     await expect(sharedCard).toBeVisible({ timeout: 20000 });
-    await expect(sharedCard.getByRole('button', { name: 'Archive' })).not.toBeVisible();
+    await expect(sharedCard.getByRole('button', { name: 'Archive', exact: true })).not.toBeVisible();
     await expect(sharedCard.getByText('Owner Unassigned')).not.toBeVisible();
 
     // Strengthen: Archive is not merely absent from the card (Archive never
@@ -116,7 +116,7 @@ test.describe.serial('Team archive ownership edge cases', () => {
     // the Edit Team form itself for a non-owner coach, proving the owner gate.
     await sharedCard.getByRole('button', { name: 'Edit team' }).click();
     await expect(page.getByRole('heading', { name: /edit team/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Archive' })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: 'Archive', exact: true })).not.toBeVisible();
     await page.locator('.create-form').getByRole('button', { name: 'Cancel' }).click();
 
     // --- Coach A: send a throwaway invitation, then archive; the throwaway
@@ -137,7 +137,7 @@ test.describe.serial('Team archive ownership edge cases', () => {
 
     await clickManagementTab(page, 'Teams');
     await page.locator('.team-card-wrapper').filter({ hasText: TEAM_NAME }).getByRole('button', { name: 'Edit team' }).click();
-    await page.getByRole('button', { name: 'Archive' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 
@@ -235,13 +235,13 @@ test.describe.serial('Team archive ownership edge cases', () => {
 
     // Now that ownership has actually propagated, open Edit and confirm Archive appears.
     await lockedCard.getByRole('button', { name: 'Edit team' }).click();
-    await expect(page.getByRole('button', { name: 'Archive' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: 'Archive', exact: true })).toBeVisible({ timeout: 10000 });
 
     // Proves the reclaim is a *real* ownership transfer, not just a UI flag:
     // Coach B (the new owner) can now archive and restore the team. The edit
     // form is already open from the check above, so Archive is clicked
     // directly at the page level with no need to reopen Edit.
-    await page.getByRole('button', { name: 'Archive' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await page.getByRole('button', { name: /Archived Teams/ }).click();
@@ -255,7 +255,7 @@ test.describe.serial('Team archive ownership edge cases', () => {
 
     // Cleanup.
     await page.locator('.team-card-wrapper').filter({ hasText: TEAM_NAME }).getByRole('button', { name: 'Edit team' }).click();
-    await page.getByRole('button', { name: 'Archive' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await page.getByRole('button', { name: /Archived Teams/ }).click();
@@ -290,7 +290,7 @@ test.describe.serial('Team archive ownership edge cases', () => {
         // Archive now lives inside the team's Edit Team form, not the card —
         // open Edit first, then check for Archive at the page level.
         await activeStale.first().getByRole('button', { name: 'Edit team' }).click();
-        const archiveButton = page.getByRole('button', { name: 'Archive' });
+        const archiveButton = page.getByRole('button', { name: 'Archive', exact: true });
         if (!(await archiveButton.isVisible({ timeout: 1000 }).catch(() => false))) {
           await page.locator('.create-form').getByRole('button', { name: 'Cancel' }).click().catch(() => {});
           break;

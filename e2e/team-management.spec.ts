@@ -80,13 +80,13 @@ test.describe('Team Management Smoke', () => {
     // itself: open Edit first, then click Archive at the page level.
     // Archive: cancel, then confirm.
     await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Edit team' }).click();
-    await page.getByRole('button', { name: 'Archive' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
     await clickConfirmModalCancel(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await expect(page.locator('.item-card:not(.archived)').filter({ hasText: teamName })).toBeVisible();
 
     await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Edit team' }).click();
-    await page.getByRole('button', { name: 'Archive' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await expect(page.locator('.item-card:not(.archived)').filter({ hasText: teamName })).not.toBeVisible();
@@ -129,7 +129,7 @@ test.describe('Team Management Smoke', () => {
     const activeCard = page.locator('.team-card-wrapper').filter({ hasText: teamName });
     await expect(activeCard.getByText('Owner Unassigned')).not.toBeVisible();
     await activeCard.getByRole('button', { name: 'Edit team' }).click();
-    await expect(page.getByRole('button', { name: 'Archive' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Archive', exact: true })).toBeVisible();
     await page.locator('.create-form').getByRole('button', { name: 'Cancel' }).click();
 
     // Sanity: present in the Schedule Game dropdown while active. Team.create
@@ -151,7 +151,7 @@ test.describe('Team Management Smoke', () => {
     await navigateToManagement(page);
     await clickManagementTab(page, 'Teams');
     await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Edit team' }).click();
-    await page.getByRole('button', { name: 'Archive' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await expect(page.locator('.item-card:not(.archived)').filter({ hasText: teamName })).not.toBeVisible();
@@ -176,7 +176,7 @@ test.describe('Team Management Smoke', () => {
     await navigateToManagement(page);
     await clickManagementTab(page, 'Teams');
     await page.locator('.team-card-wrapper').filter({ hasText: teamName }).getByRole('button', { name: 'Edit team' }).click();
-    await page.getByRole('button', { name: 'Archive' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
     await clickConfirmModalConfirm(page);
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
     await page.getByRole('button', { name: /Archived Teams/ }).click();

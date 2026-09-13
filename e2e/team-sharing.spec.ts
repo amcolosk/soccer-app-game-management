@@ -596,7 +596,7 @@ test.describe.serial('Team Sharing and Collaboration', () => {
         // archive, then permanently delete from the Archived Teams sub-tab.
         await page.locator('.team-card-wrapper').filter({ hasText: /Shared Eagles FC/ }).first()
           .getByRole('button', { name: 'Edit team' }).click();
-        await page.getByRole('button', { name: 'Archive' }).click();
+        await page.getByRole('button', { name: 'Archive', exact: true }).click();
         await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 
         await page.getByRole('button', { name: /Archived Teams/ }).click();
@@ -1372,7 +1372,7 @@ test.describe.serial('Team Sharing and Collaboration', () => {
     // Teams no longer support swipe-to-delete (archive-first lifecycle) —
     // archive, then permanently delete from the Archived Teams sub-tab.
     await page.locator('.team-card-wrapper').first().getByRole('button', { name: 'Edit team' }).click();
-    await page.getByRole('button', { name: 'Archive' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
     await page.waitForTimeout(UI_TIMING.DATA_OPERATION);
 
     await page.getByRole('button', { name: /Archived Teams/ }).click();

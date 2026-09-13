@@ -319,7 +319,7 @@ export async function cleanupTestData(page: Page) {
       // docs/plans/ISSUE-171-ARCHIVE-EDIT-FORM-RELOCATION.md), not on the card
       // itself — open Edit first, then click Archive at the page level.
       await activeCards.first().getByRole('button', { name: 'Edit team' }).click().catch(() => {});
-      await page.getByRole('button', { name: 'Archive' }).click().catch(() => {});
+      await page.getByRole('button', { name: 'Archive', exact: true }).click().catch(() => {});
       // Defensive: if this active card has no owner (legacy ownerless team), no
       // Archive button renders inside the opened edit form — close it so a
       // stuck-open form doesn't interfere with the next loop iteration's card
