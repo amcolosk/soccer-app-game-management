@@ -53,6 +53,7 @@ describe('delete-team-safe handler', () => {
     process.env.PLAYER_AVAILABILITY_TABLE = 'PlayerAvailabilityTable';
     process.env.GAME_PLAN_TABLE = 'GamePlanTable';
     process.env.PLANNED_ROTATION_TABLE = 'PlannedRotationTable';
+    process.env.SHARE_LINK_TABLE = 'ShareLinkTable';
 
     mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
       if (command.__type === 'GetCommand') {
@@ -75,6 +76,9 @@ describe('delete-team-safe handler', () => {
         }
         if (table === 'SaveTable') {
           return { Items: [{ id: 'save-1', gameId: 'game-1' }] };
+        }
+        if (table === 'ShareLinkTable') {
+          return { Items: [{ token: 'tok-1', teamId: 'team-1' }] };
         }
         return { Items: [] };
       }
@@ -102,6 +106,17 @@ describe('delete-team-safe handler', () => {
     const deleteCalls = mockSend.mock.calls.filter(([cmd]) => cmd.__type === 'DeleteCommand');
     const deleteTables = deleteCalls.map(([cmd]) => (cmd.input as { TableName: string }).TableName);
     expect(deleteTables[deleteTables.length - 1]).toBe('TeamTable');
+  });
+
+  it('cascades ShareLink deletion by teamId, keyed on token not id', async () => {
+    const result = await invoke(createEvent());
+
+    expect(result).toEqual(expect.objectContaining({ success: true, deletedCounts: expect.objectContaining({ shareLinks: 1 }) }));
+
+    const deleteCalls = mockSend.mock.calls.filter(([cmd]) => cmd.__type === 'DeleteCommand');
+    const shareLinkDelete = deleteCalls.find(([cmd]) => (cmd.input as { TableName: string }).TableName === 'ShareLinkTable');
+    expect(shareLinkDelete).toBeDefined();
+    expect((shareLinkDelete![0].input as { Key: Record<string, unknown> }).Key).toEqual({ token: 'tok-1' });
   });
 
   it('cascades shot and save deletion for each team game', async () => {

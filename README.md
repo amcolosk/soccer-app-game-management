@@ -43,6 +43,11 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 - **Shot & Save Tracking**: Log shots (on/off target) and saves for either team from the same Goals tab, via a Goals/Shots/Saves segmented control
 - **Game Notes**: Log events such as gold stars and cards
 
+### Fan Mode (public read-only live game view)
+- **One persistent public link per team**: generate/copy/revoke a `/watch/:token` link from Sharing & Permissions — no account needed to view it
+- **Live score, clock, and lineup**: a fan opens the link and sees the current score, running game clock, half, on-field lineup (first name + last initial only), and a recent-events feed
+- **State-aware**: distinguishes "game finished" (with the date), "next game" (with the scheduled date/time), and "no game right now" from an outright invalid/revoked link
+
 ### Play Time Tracking
 - **Automatic Tracking**: Records start/end game seconds for each player in each position
 - **Live Display**: Shows current play time for active players during the game
@@ -144,6 +149,8 @@ npm run lint         # Lint TypeScript/TSX files
 - **Goal / GameNote**: Scoring and event records
 - **Shot / Save**: Per-shot (on/off target) and per-save stat events, attributable to either team; both carry a `loggedVia` (`COACH`/`HELPER`) flag
 - **TeamInvitation**: Email-based coach invitations with status tracking
+- **ShareLink**: A public, unguessable token granting either `FAN` (read-only) or `STAT_TRACKER` (write, future milestone) access to a team — Lambda-only, zero direct client grants
+- **FanViewRateLimit**: Read-path rate limiting for Fan Mode's `getFanGameView` query, keyed on both the viewer's guest identity and the shared token
 
 ## Deploying to AWS
 

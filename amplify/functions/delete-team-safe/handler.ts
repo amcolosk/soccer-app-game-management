@@ -41,11 +41,11 @@ async function scanAll(tableName: string, filterExpression: string, expressionAt
   return results;
 }
 
-async function deleteWithSnapshot(tableName: string, item: DbItem, rollbackStack: SnapshotRecord[]): Promise<void> {
+async function deleteWithSnapshot(tableName: string, item: DbItem, rollbackStack: SnapshotRecord[], keyField: string = 'id'): Promise<void> {
   await docClient.send(new DeleteCommand({
     TableName: tableName,
-    Key: { id: item.id },
-    ConditionExpression: 'attribute_exists(id)',
+    Key: { [keyField]: item[keyField] },
+    ConditionExpression: `attribute_exists(${keyField})`,
   }));
 
   rollbackStack.push({ tableName, item });
@@ -61,7 +61,7 @@ async function restoreSnapshots(rollbackStack: SnapshotRecord[]): Promise<string
         Item: snapshot.item,
       }));
     } catch {
-      failures.push(`${snapshot.tableName}:${snapshot.item.id}`);
+      failures.push(`${snapshot.tableName}:${snapshot.item.id ?? snapshot.item.token}`);
     }
   }
   return failures;
@@ -92,8 +92,12 @@ export const handler: Handler = async (event) => {
   const playerAvailabilityTable = process.env.PLAYER_AVAILABILITY_TABLE;
   const gamePlanTable = process.env.GAME_PLAN_TABLE;
   const plannedRotationTable = process.env.PLANNED_ROTATION_TABLE;
+  // Milestone B1: ShareLink is a second team-scoped table this cascade
+  // didn't know about yet — same by-teamId scan-and-delete shape already
+  // used for TeamInvitation below.
+  const shareLinkTable = process.env.SHARE_LINK_TABLE;
 
-  if (!teamTable || !gameTable || !teamRosterTable || !teamInvitationTable || !playTimeRecordTable || !goalTable || !shotTable || !saveTable || !gameNoteTable || !substitutionTable || !lineupAssignmentTable || !playerAvailabilityTable || !gamePlanTable || !plannedRotationTable) {
+  if (!teamTable || !gameTable || !teamRosterTable || !teamInvitationTable || !playTimeRecordTable || !goalTable || !shotTable || !saveTable || !gameNoteTable || !substitutionTable || !lineupAssignmentTable || !playerAvailabilityTable || !gamePlanTable || !plannedRotationTable || !shareLinkTable) {
     throw new Error('Required environment variables are not set');
   }
 
@@ -122,10 +126,11 @@ export const handler: Handler = async (event) => {
   const rollbackStack: SnapshotRecord[] = [];
 
   try {
-    const [games, teamRosters, teamInvitations] = await Promise.all([
+    const [games, teamRosters, teamInvitations, shareLinks] = await Promise.all([
       scanAll(gameTable, 'teamId = :teamId', { ':teamId': teamId }),
       scanAll(teamRosterTable, 'teamId = :teamId', { ':teamId': teamId }),
       scanAll(teamInvitationTable, 'teamId = :teamId', { ':teamId': teamId }),
+      scanAll(shareLinkTable, 'teamId = :teamId', { ':teamId': teamId }),
     ]);
 
     const gameChildren = [] as Array<{
@@ -218,6 +223,9 @@ export const handler: Handler = async (event) => {
     for (const item of teamInvitations) {
       await deleteWithSnapshot(teamInvitationTable, item, rollbackStack);
     }
+    for (const item of shareLinks) {
+      await deleteWithSnapshot(shareLinkTable, item, rollbackStack, 'token');
+    }
 
     await deleteWithSnapshot(teamTable, team, rollbackStack);
 
@@ -227,6 +235,7 @@ export const handler: Handler = async (event) => {
         games: games.length,
         teamRosters: teamRosters.length,
         teamInvitations: teamInvitations.length,
+        shareLinks: shareLinks.length,
       },
     };
   } catch (error) {

@@ -1,0 +1,179 @@
+/*
+ * Fan Mode / Stat Tracker public-page styles.
+ *
+ * Deliberately NOT part of App.css (a documented, narrow exception to this
+ * repo's normal single-stylesheet convention — see CLAUDE.md /
+ * docs/ARCHITECTURE.md). App.css is imported exactly once, by App.tsx,
+ * which the routing restructure (Milestone B1) moves behind the lazy
+ * AppRoot chunk — so /watch/:token never loads it. Importing App.css
+ * directly into FanGameView would pull ~4500+ lines into the public bundle
+ * and defeat the whole code-splitting justification for that restructure.
+ * `index.css` (the CSS custom-property theme tokens) stays available either
+ * way, since main.tsx imports it directly at module scope.
+ */
+
+.fan-mode-page {
+  min-height: 100vh;
+  padding: 1rem;
+  background: var(--background);
+  color: var(--text-primary);
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  box-sizing: border-box;
+}
+
+.fan-mode-page--center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 100vh;
+  gap: 0.5rem;
+}
+
+.fan-mode-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.fan-mode-header__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.fan-mode-header__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.fan-mode-stale-banner {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.fan-mode-score__value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--primary-green);
+}
+
+.fan-mode-score {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--primary-green);
+}
+
+.fan-mode-score__dash {
+  color: var(--text-secondary);
+}
+
+.fan-mode-timer {
+  text-align: right;
+}
+
+.fan-mode-timer__value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.fan-mode-timer__meta {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.fan-mode-lineup,
+.fan-mode-events {
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.fan-mode-lineup h2,
+.fan-mode-events h2 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1rem;
+  color: var(--text-secondary);
+}
+
+.fan-mode-lineup__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.5rem;
+}
+
+.fan-mode-lineup__player {
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem;
+  border-radius: 8px;
+  background: var(--hover-background);
+}
+
+.fan-mode-lineup__name {
+  font-weight: 600;
+}
+
+.fan-mode-lineup__position {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.fan-mode-events__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.fan-mode-events__item {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.fan-mode-events__item:last-child {
+  border-bottom: none;
+}
+
+.fan-mode-events__type {
+  font-weight: 600;
+}
+
+.fan-mode-events__minute {
+  margin-left: auto;
+  color: var(--text-secondary);
+}
+
+.fan-mode-empty {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+@media (min-width: 768px) {
+  .fan-mode-page {
+    max-width: 640px;
+    margin: 0 auto;
+  }
+}

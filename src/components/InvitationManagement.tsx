@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
 import type { Schema } from '../../amplify/data/resource';
+import type { ShareLinkSummary } from '../types/schema';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import {
   sendTeamInvitation,
@@ -32,9 +33,28 @@ export function InvitationManagement({
   const [message, setMessage] = useState('');
   const [currentUserId, setCurrentUserId] = useState<string>('');
 
+  // Share Links (Milestone B1 — Fan Mode): ShareLink is a zero-client-grant
+  // model, so there is no observeQuery subscription available — state is
+  // fetched/refreshed explicitly via the listTeamShareLinks/generateShareLink/
+  // revokeShareLink custom operations instead of useAmplifyQuery.
+  const [shareLinks, setShareLinks] = useState<ShareLinkSummary[]>([]);
+
   const { data: invitations } = useAmplifyQuery('TeamInvitation', {
     filter: { teamId: { eq: resourceId } },
   }, [resourceId]);
+
+  const refreshShareLinks = useCallback(async () => {
+    try {
+      const response = await client.queries.listTeamShareLinks({ teamId: resourceId });
+      setShareLinks((response.data ?? []).filter((link): link is ShareLinkSummary => !!link));
+    } catch (error) {
+      console.error('Error loading share links:', error);
+    }
+  }, [resourceId]);
+
+  useEffect(() => {
+    void refreshShareLinks();
+  }, [refreshShareLinks]);
 
   useEffect(() => {
     getCurrentUser().then(user => setCurrentUserId(user.userId)).catch(() => {});
@@ -124,6 +144,71 @@ export function InvitationManagement({
       // Invitations update automatically via observeQuery
     } catch (error) {
       setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to cancel invitation'}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const activeFanLink = shareLinks.find((link) => link.type === 'FAN' && !link.revokedAt);
+
+  function fanLinkUrl(token: string): string {
+    return `${window.location.origin}/watch/${token}`;
+  }
+
+  async function handleCopyFanLink(token: string) {
+    try {
+      await navigator.clipboard.writeText(fanLinkUrl(token));
+      setMessage('Fan link copied to clipboard');
+    } catch {
+      setMessage(`Fan link: ${fanLinkUrl(token)}`);
+    }
+  }
+
+  async function handleGenerateFanLink() {
+    if (activeFanLink) {
+      const confirmed = await confirm({
+        title: 'Replace this link?',
+        message: 'This replaces the current link — anyone still using it will lose access.',
+        confirmText: 'Replace Link',
+        variant: 'warning',
+      });
+      if (!confirmed) return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await client.mutations.generateShareLink({ teamId: resourceId, type: 'FAN' });
+      if (response.errors && response.errors.length > 0) {
+        throw new Error(response.errors[0]?.message || 'Failed to generate share link');
+      }
+      setMessage('Fan link generated');
+      await refreshShareLinks();
+    } catch (error) {
+      setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to generate share link'}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRevokeFanLink(token: string) {
+    const confirmed = await confirm({
+      title: 'Revoke this link?',
+      message: 'Anyone using it will immediately lose access.',
+      confirmText: 'Revoke',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const response = await client.mutations.revokeShareLink({ token });
+      if (response.errors && response.errors.length > 0) {
+        throw new Error(response.errors[0]?.message || 'Failed to revoke share link');
+      }
+      setMessage('Fan link revoked');
+      await refreshShareLinks();
+    } catch (error) {
+      setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to revoke share link'}`);
     } finally {
       setLoading(false);
     }
@@ -240,6 +325,63 @@ export function InvitationManagement({
         </p>
       )}
 
+      {/* Share Links — a materially different trust boundary (public,
+          unauthenticated) than inviting a coach or parent above, so it's
+          visually separated with its own divider/heading rather than folded
+          into the existing regions. */}
+      <hr className="share-links-divider" />
+      <div className="share-links-section">
+        <h4>Share Links</h4>
+        <p className="form-hint">
+          Generate a public link so parents/fans can follow the live score and
+          lineup — no account needed.
+        </p>
+
+        {activeFanLink ? (
+          <div className="share-link-item" data-testid="fan-share-link-active">
+            <div className="share-link-info">
+              <span className="share-link-label">Fan link (live view)</span>
+              <span className="share-link-url">{fanLinkUrl(activeFanLink.token)}</span>
+            </div>
+            <div className="share-link-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => handleCopyFanLink(activeFanLink.token)}
+                disabled={loading}
+              >
+                Copy Link
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleGenerateFanLink}
+                disabled={loading}
+              >
+                Replace
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => handleRevokeFanLink(activeFanLink.token)}
+                disabled={loading}
+              >
+                Revoke
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={handleGenerateFanLink}
+            disabled={loading}
+          >
+            Generate Fan Link
+          </button>
+        )}
+      </div>
+
       <style>{`
         .invitation-management {
           margin-top: 20px;
@@ -340,6 +482,55 @@ export function InvitationManagement({
           color: #666;
           padding: 20px;
           font-style: italic;
+        }
+
+        .share-links-divider {
+          margin: 24px 0;
+          border: none;
+          border-top: 1px solid #ddd;
+        }
+
+        .share-links-section {
+          margin-top: 10px;
+        }
+
+        .share-links-section h4 {
+          margin-top: 0;
+        }
+
+        .share-link-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 10px;
+          padding: 15px;
+          background: white;
+          border: 1px solid #ddd;
+          border-radius: 8px;
+        }
+
+        .share-link-info {
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+          min-width: 0;
+        }
+
+        .share-link-label {
+          font-weight: 600;
+        }
+
+        .share-link-url {
+          font-size: 0.85em;
+          color: #666;
+          word-break: break-all;
+        }
+
+        .share-link-actions {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
         }
       `}</style>
     </div>

@@ -18,6 +18,10 @@ import { createGameSafe } from "../functions/create-game-safe/resource";
 import { syncTeamCalendar } from "../functions/sync-team-calendar/resource";
 import { unlinkTeamCalendar } from "../functions/unlink-team-calendar/resource";
 import { revokeCoachAccess } from "../functions/revoke-coach-access/resource";
+import { generateShareLink } from "../functions/generate-share-link/resource";
+import { revokeShareLink } from "../functions/revoke-share-link/resource";
+import { listTeamShareLinks } from "../functions/list-team-share-links/resource";
+import { getFanGameView } from "../functions/get-fan-game-view/resource";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -219,6 +223,16 @@ const schema = a.schema({
       locationAddress: a.string(), // "3740 86th St., Urbandale, IA 50322"
       arriveByTime: a.datetime(), // parsed from "Arrive by 2:45 PM"
     })
+    // Milestone B1 (Fan Mode): partition-key-only index for "this team's
+    // games", used by get-fan-game-view's 4-branch game-selection algorithm
+    // (shared/shareLinkAccess.ts). A sortKeys(['gameDate']) index was
+    // considered and rejected -- gameDate is optional
+    // (create-game-safe/handler.ts writes `gameDate ?? null`), and a
+    // sort-key GSI omits every item where the sort attribute is absent,
+    // which would make a dateless in-progress game invisible to Fan Mode.
+    .secondaryIndexes((index) => [
+      index('teamId').queryField('listGamesByTeamId'),
+    ])
     .authorization((allow) => [
       // Create is intentionally routed through the Lambda-backed
       // createGameSafe mutation (TEAM-ARCHIVE-STEP11), so coaches-population
@@ -306,6 +320,15 @@ const schema = a.schema({
       timestamp: a.datetime(),
       coaches: a.string().array(), // Team coaches who can access this substitution
     })
+    // Milestone B1 (Fan Mode): same queryField treatment Milestone A gave
+    // Goal -- get-fan-game-view's recentEvents derivation needs to reach
+    // Substitution rows by gameId from a raw-SDK Lambda, and the implicit
+    // relationship GSI has no queryField to reach it without a GraphQL
+    // client. Same accepted GSI-backfill-window tradeoff already stated for
+    // Goal/Shot/Save.
+    .secondaryIndexes((index) => [
+      index('gameId').queryField('listSubstitutionsByGameId'),
+    ])
     .authorization((allow) => [
       allow.ownersDefinedIn('coaches'), // Only team coaches can access substitutions
     ]),
@@ -803,6 +826,134 @@ const schema = a.schema({
     .returns(a.json())
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(getTeamCoachProfiles)),
+
+  // ── Milestone B1: Fan Mode (public read-only) ─────────────────────────
+  //
+  // Fully closed model, same rationale as CalendarFeed. No client (coach or
+  // guest) ever reads/writes this table directly; every access goes through
+  // a Lambda that does its own authorization/validation. Token is the
+  // primary key for O(1) lookups. Field named `issuedAt`, not `createdAt`
+  // -- avoids colliding with Amplify's auto-managed createdAt/updatedAt
+  // timestamps (same reason Goal uses `timestamp` instead of `createdAt`).
+  ShareLink: a
+    .model({
+      token: a.string().required(), // crypto.randomBytes(18).toString('base64url') -- NOT
+                                     // nanoid, which isn't a dependency of this project.
+      teamId: a.id().required(),
+      type: a.enum(['FAN', 'STAT_TRACKER']),
+      createdBy: a.string().required(), // coach Cognito sub
+      issuedAt: a.datetime().required(),
+      revokedAt: a.datetime(), // null = active
+    })
+    .identifier(['token'])
+    .secondaryIndexes((index) => [index('teamId').queryField('listShareLinksByTeamId')])
+    .authorization((allow) => [allow.authenticated().to([])]), // no client grants at all
+
+  // Read-path rate limiting for getFanGameView, keyed on TWO independent
+  // dimensions per request (see generate-share-link/get-fan-game-view
+  // below): `identity#<cognitoIdentityId>` (the real per-viewer limit --
+  // generous, ~30/min) and `token#<token>` (a per-team billing
+  // circuit-breaker, ~600/min -- an attacker can mint fresh guest
+  // identities trivially, so this is not the real abuse control). Keying
+  // solely on the shared token (as an earlier draft did) would throttle out
+  // most of a live game's actual audience within the first two minutes of
+  // polling.
+  FanViewRateLimit: a
+    .model({
+      limiterKey: a.string().required(), // "identity#<id>" or "token#<token>"
+      minuteBucket: a.string().required(), // e.g. "2026-09-06T18:32"
+      count: a.integer().required(),
+      ttl: a.integer(), // DynamoDB TTL, ~10 min
+    })
+    .identifier(['limiterKey', 'minuteBucket'])
+    .authorization((allow) => [allow.authenticated().to([])]),
+
+  // Curated custom type for generateShareLink/listTeamShareLinks --
+  // ShareLink is allow.authenticated().to([]) (zero client grants), so
+  // a.ref('ShareLink') can't be returned directly (same reasoning as
+  // CalendarFeed/CalendarSyncResult above).
+  ShareLinkSummary: a.customType({
+    token: a.string().required(),
+    type: a.string(),
+    issuedAt: a.datetime().required(),
+    revokedAt: a.datetime(),
+  }),
+
+  generateShareLink: a
+    .mutation()
+    .arguments({ teamId: a.string().required(), type: a.string().required() })
+    .returns(a.ref('ShareLinkSummary'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(generateShareLink)),
+
+  revokeShareLink: a
+    .mutation()
+    .arguments({ token: a.string().required() })
+    .returns(a.boolean())
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(revokeShareLink)),
+
+  listTeamShareLinks: a
+    .query()
+    .arguments({ teamId: a.string().required() })
+    .returns(a.ref('ShareLinkSummary').array())
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(listTeamShareLinks)),
+
+  // Curated read-only payload for Fan Mode -- deliberately anonymized
+  // (first name + last INITIAL only, no playerId, no coach identities).
+  // getStatTrackerView (Milestone B2) is a separate query/type with a
+  // different, roster-including payload -- see the plan's "getFanGameView
+  // stays FAN-only" decision. gameDate is required so the frontend can
+  // distinguish "today's final" from a stale bye-week recency-window
+  // fallback.
+  FanOnFieldPlayer: a.customType({
+    firstName: a.string().required(),
+    lastInitial: a.string().required(),
+    positionName: a.string(),
+  }),
+
+  FanRecentEvent: a.customType({
+    type: a.string().required(), // 'GOAL' | 'SUBSTITUTION'
+    playerName: a.string(),
+    minute: a.integer(),
+    half: a.integer(),
+  }),
+
+  FanGameViewResult: a.customType({
+    // Discriminator for the frontend's named states -- see
+    // shareLinkAccess.ts's SelectedGame branches.
+    state: a.string().required(), // 'INVALID_LINK' | 'LIVE' | 'FINISHED' | 'NEXT_GAME' | 'NO_GAMES_YET' | 'NO_GAME_RIGHT_NOW' | 'RATE_LIMITED'
+    teamName: a.string(),
+    opponentName: a.string(),
+    locationName: a.string(),
+    status: a.string(),
+    currentHalf: a.integer(),
+    elapsedSeconds: a.integer(),
+    lastStartTime: a.string(),
+    halfLengthMinutes: a.integer(),
+    ourScore: a.integer(),
+    opponentScore: a.integer(),
+    gameDate: a.datetime(),
+    onFieldPlayers: a.ref('FanOnFieldPlayer').array(),
+    recentEvents: a.ref('FanRecentEvent').array(),
+  }),
+
+  // Guest + authenticated(identityPool) -- allow.guest() ALONE only grants
+  // the Identity Pool's unauthenticated role. A signed-in coach opening
+  // their own freshly-generated link resolves to the AUTHENTICATED
+  // Identity Pool role via fetchAuthSession(), which would not carry this
+  // permission without the second grant, producing an Unauthorized error on
+  // the single most likely first interaction with this feature. The query
+  // is token-gated regardless of caller identity, so granting both roles
+  // doesn't widen data exposure -- only who can reach the (already-narrow)
+  // door.
+  getFanGameView: a
+    .query()
+    .arguments({ token: a.string().required() })
+    .returns(a.ref('FanGameViewResult'))
+    .authorization((allow) => [allow.guest(), allow.authenticated('identityPool')])
+    .handler(a.handler.function(getFanGameView)),
 });
 
 export type Schema = ClientSchema<typeof schema>;

@@ -40,6 +40,8 @@ await client.models.Team.create({
 });
 ```
 
+**Guest-auth exception (Milestone B1 — Fan Mode).** `getFanGameView` is the first genuinely public/unauthenticated operation in the app: it's reachable from a `/watch/:token` link with no Cognito session at all, and carries `allow.guest()` **and** `allow.authenticated('identityPool')` instead of `allow.ownersDefinedIn('coaches')`. `allow.authenticated('identityPool')` refers to the Amplify **Identity Pool's** IAM "authenticated" role — a different thing from the Cognito user-pool `allow.authenticated()` used everywhere else in this schema; both grants are needed because a signed-in coach opening their own link still resolves to the Identity Pool's authenticated role via `fetchAuthSession()`, not the guest/unauthenticated one. This is a narrow, deliberate exception: `ShareLink` and `FanViewRateLimit` (the models backing it) stay fully closed (`allow.authenticated().to([])`, the same `CalendarFeed`-style pattern below) — no client of any kind reads/writes them directly, only the Lambda does, via `amplify/functions/shared/shareLinkAccess.ts`. Every other model/operation is untouched.
+
 ## Data Architecture
 
 ### Entity Relationship Model
@@ -61,6 +63,7 @@ Formation <────── Team
                                  ├──< Save >──── Player (goalkeeper, "Us" only)
                                  └──< GameNote >──── Player
                   Team ──────< TeamInvitation
+                  Team ──────< ShareLink            (public link, Lambda-only)
 ```
 
 ### Data Models
@@ -295,34 +298,68 @@ In-app bug/feature request tracking. `IssueCounter` is Lambda-only (no client ac
 
 ---
 
+#### **ShareLink**
+A public, unguessable token granting read-only (`FAN`) or (a future milestone's) write (`STAT_TRACKER`) access to a team, with no Cognito account required by the viewer. Fully closed model — same rationale as `CalendarFeed` — no client (coach or guest) ever reads/writes it directly; every access goes through a Lambda.
+- `token`: String — primary key (`identifier`), `crypto.randomBytes(18).toString('base64url')`, not nanoid (not a project dependency)
+- `teamId`: ID (FK)
+- `type`: Enum — `FAN | STAT_TRACKER`
+- `createdBy`: String — coach Cognito sub
+- `issuedAt`: DateTime
+- `revokedAt`: DateTime — null = active
+
+Secondary index: `teamId` → `listShareLinksByTeamId` (physical name `shareLinksByTeamId`, used by `delete-team-safe`'s cascade and `archive-team`'s revoke sweep).
+
+One active link per team per `type` — `generate-share-link` creates the replacement before revoking the old one, so a mid-process failure never leaves zero active links.
+
+---
+
+#### **FanViewRateLimit**
+Read-path rate limiting for `getFanGameView`, keyed on **two independent dimensions** per request rather than one shared bucket — a single `[token, minuteBucket]` key would throttle out most of a live game's actual audience within the first two minutes of normal polling.
+- `limiterKey`: String — `identity#<cognitoIdentityId>` (per-viewer, ~30/min ceiling) or `token#<token>` (per-team billing circuit-breaker, ~600/min ceiling)
+- `minuteBucket`: String — e.g. `"2026-09-06T18:32"`
+- `count`: Int
+- `ttl`: Int — DynamoDB TTL, ~10 min
+
+`identifier`: `[limiterKey, minuteBucket]`. Both dimensions are checked independently by the shared `amplify/functions/shared/shareLinkAccess.ts` module.
+
+---
+
 ## Frontend Architecture
 
 ### Navigation Structure
 
-Tab-based navigation with four top-level tabs:
+**`App.tsx` is no longer the sole router owner (Milestone B1).** `main.tsx` now hoists the single app-wide `<BrowserRouter>` and adds two public routes that sit *outside* the authenticated shell entirely — no Cognito session, no `Authenticator.Provider` — ahead of a catch-all that falls through to the lazy-loaded `AppRoot` (`Authenticator.Provider` + `Root`'s configuring/landing/authenticator/app branches, moved out of `main.tsx` into `src/AppRoot.tsx` and `React.lazy`-loaded so the public routes' bundle never pulls in `App.css`/the amplify-ui stylesheet/`Authenticator`). `App.tsx` itself now renders only `<Routes>` (no router) for the authenticated shell:
+
 ```
-App.tsx
-└── Authenticator (AWS Cognito)
-    └── Main Application
-        ├── Games Tab (default)
-        │   ├── Team selector
-        │   ├── Game list (upcoming + completed)
-        │   ├── Schedule new game
-        │   └── [Click game] → GameManagement
-        │
-        ├── Reports Tab
-        │   └── SeasonReport
-        │
-        ├── Manage Tab
-        │   └── Management
-        │       ├── Teams (expandable: roster, sharing)
-        │       ├── Formations
-        │       └── Players
-        │
-        └── Profile Tab
-            ├── User settings
-            └── Pending invitations
+main.tsx
+└── <BrowserRouter> + <Suspense fallback="Loading...">
+    ├── /watch/:token  → FanGameView (public, unauthenticated, no AppLayout, no App.css)
+    └── *              → AppRoot (lazy-loaded chunk)
+                           └── Authenticator.Provider
+                               └── App.tsx
+                                   └── Authenticator (AWS Cognito)
+                                       └── Main Application
+                                           ├── Games Tab (default)
+                                           │   ├── Team selector
+                                           │   ├── Game list (upcoming + completed)
+                                           │   ├── Schedule new game
+                                           │   └── [Click game] → GameManagement
+                                           │
+                                           ├── Reports Tab
+                                           │   └── SeasonReport
+                                           │
+                                           ├── Manage Tab
+                                           │   └── Management
+                                           │       ├── Teams (expandable: roster, sharing)
+                                           │       ├── Formations
+                                           │       └── Players
+                                           │
+                                           └── Profile Tab
+                                               ├── User settings
+                                               └── Pending invitations
 ```
+
+`FanGameView` (`src/components/FanMode/FanGameView.tsx`) imports its own dedicated `src/components/FanMode/FanMode.css`, not `App.css` — a deliberate, narrow exception to this repo's single-stylesheet convention (see "Styling and types" in CLAUDE.md): `App.css` is imported exactly once, by `App.tsx`, which now sits behind the lazy `AppRoot` chunk, so importing it from `FanGameView` would pull ~4500+ lines into the public, unauthenticated bundle and defeat the code-splitting this restructure exists to provide. `index.css` (the CSS custom-property theme tokens) stays available either way, since `main.tsx` imports it directly at module scope.
 
 Active game state is persisted to `localStorage` so a page refresh returns to the open game.
 
@@ -390,6 +427,10 @@ Infrastructure as code defined in the `amplify/` directory.
 | `update-issue-status` | Custom GraphQL mutation | Updates issue status (accessible to both authenticated users and public API key) |
 | `sync-team-calendar` | Custom GraphQL mutation | Parses an uploaded `.ics` file or fetches+parses an SSRF-hardened feed URL, reconciles events against existing `Game` rows, and writes creates/updates via the DynamoDB SDK (see "Calendar Feed Import" below) |
 | `unlink-team-calendar` | Custom GraphQL mutation | Deletes the team's `CalendarFeed` row and clears `Team` status fields; leaves already-imported `Game.external*` fields untouched |
+| `generate-share-link` | Custom GraphQL mutation (coach-authenticated) | Verifies caller ∈ `team.coaches`, rejects archived teams, validates `type`, writes a new `ShareLink` (random token) then revokes any existing active link of that type (create-before-revoke ordering) |
+| `revoke-share-link` | Custom GraphQL mutation (coach-authenticated) | Looks up `ShareLink` by token → resolves team → verifies caller membership → sets `revokedAt` |
+| `list-team-share-links` | Custom GraphQL query (coach-authenticated) | Verifies caller membership, returns every `ShareLink` for the team as curated `ShareLinkSummary` records (Sharing & Permissions UI) |
+| `get-fan-game-view` | Custom GraphQL query (**guest + authenticated identityPool**) | Composes `amplify/functions/shared/shareLinkAccess.ts`: token→team validation, dual-dimension rate limiting, the 4-branch game-selection algorithm, then assembles the anonymized `FanGameViewResult` payload |
 
 ### GraphQL Operations
 
@@ -400,6 +441,10 @@ Standard CRUDL auto-generated by Amplify (`list`, `get`, `create`, `update`, `de
 - `updateIssueStatus` mutation — updates issue status
 - `syncTeamCalendar` mutation — imports/re-syncs a team's schedule from an `.ics` file or feed URL
 - `unlinkTeamCalendar` mutation — removes a team's saved calendar feed
+- `generateShareLink` mutation — creates (and rotates) a team's public share link for a given `type` (`FAN` today; `STAT_TRACKER` in a future milestone)
+- `revokeShareLink` mutation — revokes a share link by token
+- `listTeamShareLinks` query — lists a team's share links (active and revoked) for the Sharing & Permissions UI
+- `getFanGameView` query — the public, guest-reachable Fan Mode read; the only operation in the schema carrying `allow.guest()`
 
 ### Calendar Feed Import
 
@@ -478,6 +523,7 @@ The game timer runs client-side and syncs to DynamoDB periodically:
 - `lastStartTime` (ISO string) + `elapsedSeconds` = current game time when running
 - `lastStartTime = null` = timer paused; `elapsedSeconds` is the ground truth
 - Auto-pauses when `elapsedSeconds` reaches `halfLengthMinutes * 60`
+- The conversion formula itself lives in `src/utils/gameClock.ts` (`computeCurrentGameSeconds`) — extracted from `useGameSubscriptions.ts` in Milestone B1 so the public `FanGameView` page (which runs the same formula locally on a 1-second tick, seeded from each poll) can't silently diverge from the authenticated app's timer logic
 
 ### 5. Granular PlayTimeRecord
 Individual enter/exit records rather than aggregated totals. This provides a complete audit trail, enables per-position breakdowns, and powers the fair play algorithm. Records store game clock seconds (not wall clock) for accuracy across pauses.

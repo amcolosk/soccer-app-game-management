@@ -25,6 +25,10 @@ import { createGameSafe } from './functions/create-game-safe/resource';
 import { syncTeamCalendar } from './functions/sync-team-calendar/resource';
 import { unlinkTeamCalendar } from './functions/unlink-team-calendar/resource';
 import { revokeCoachAccess } from './functions/revoke-coach-access/resource';
+import { generateShareLink } from './functions/generate-share-link/resource';
+import { revokeShareLink } from './functions/revoke-share-link/resource';
+import { listTeamShareLinks } from './functions/list-team-share-links/resource';
+import { getFanGameView } from './functions/get-fan-game-view/resource';
 
 const backend = defineBackend({
   auth,
@@ -50,6 +54,10 @@ const backend = defineBackend({
   syncTeamCalendar,
   unlinkTeamCalendar,
   revokeCoachAccess,
+  generateShareLink,
+  revokeShareLink,
+  listTeamShareLinks,
+  getFanGameView,
 });
 
 // Add deployment ID to outputs
@@ -500,3 +508,90 @@ backend.revokeCoachAccess.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.ta
 backend.revokeCoachAccess.addEnvironment('FIELD_POSITION_TABLE', fieldPositionTable.tableName);
 backend.revokeCoachAccess.addEnvironment('GAME_TABLE', gameTable.tableName);
 backend.revokeCoachAccess.addEnvironment('TEAM_INVITATION_TABLE', teamInvitationTable.tableName);
+
+// ── Milestone B1: Fan Mode (public read-only) ──────────────────────────
+// Following the CalendarFeed/GameNote least-privilege grant pattern: each
+// Lambda only gets the specific actions its handler actually performs.
+const shareLinkTable = backend.data.resources.tables['ShareLink'];
+const fanViewRateLimitTable = backend.data.resources.tables['FanViewRateLimit'];
+
+// generate-share-link: read Team (membership/archived-team check), read/
+// write ShareLink (create-before-revoke), Query ShareLink's teamId index to
+// find any existing active link of the same type to revoke.
+teamTable.grantReadData(backend.generateShareLink.resources.lambda);
+shareLinkTable.grantReadWriteData(backend.generateShareLink.resources.lambda);
+backend.generateShareLink.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [`${shareLinkTable.tableArn}/index/shareLinksByTeamId`],
+  })
+);
+backend.generateShareLink.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.generateShareLink.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+
+// revoke-share-link: read ShareLink (resolve teamId) + Team (membership
+// check), update ShareLink (set revokedAt).
+teamTable.grantReadData(backend.revokeShareLink.resources.lambda);
+shareLinkTable.grantReadWriteData(backend.revokeShareLink.resources.lambda);
+backend.revokeShareLink.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.revokeShareLink.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+
+// list-team-share-links: read Team (membership check), Query ShareLink's
+// teamId index for the InvitationManagement.tsx display.
+teamTable.grantReadData(backend.listTeamShareLinks.resources.lambda);
+backend.listTeamShareLinks.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [`${shareLinkTable.tableArn}/index/shareLinksByTeamId`],
+  })
+);
+backend.listTeamShareLinks.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.listTeamShareLinks.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+
+// get-fan-game-view: guest + authenticated(identityPool) -- read ShareLink
+// (token lookup) + Team (curated payload), read/write FanViewRateLimit
+// (both rate-limit dimensions), Query Game's teamId index (4-branch
+// selection), Query PlayTimeRecord/Goal/Substitution's gameId indexes
+// (on-field lineup + recent events), read Player/FieldPosition (name/
+// position lookups for the anonymized payload).
+shareLinkTable.grantReadData(backend.getFanGameView.resources.lambda);
+teamTable.grantReadData(backend.getFanGameView.resources.lambda);
+fanViewRateLimitTable.grantReadWriteData(backend.getFanGameView.resources.lambda);
+playerTable.grantReadData(backend.getFanGameView.resources.lambda);
+fieldPositionTable.grantReadData(backend.getFanGameView.resources.lambda);
+backend.getFanGameView.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [
+      `${gameTable.tableArn}/index/gamesByTeamId`,
+      `${playTimeRecordTable.tableArn}/index/playTimeRecordsByGameId`,
+      `${goalTable.tableArn}/index/goalsByGameId`,
+      `${substitutionTable.tableArn}/index/substitutionsByGameId`,
+    ],
+  })
+);
+backend.getFanGameView.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+backend.getFanGameView.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.getFanGameView.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.getFanGameView.addEnvironment('FAN_VIEW_RATE_LIMIT_TABLE', fanViewRateLimitTable.tableName);
+backend.getFanGameView.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
+backend.getFanGameView.addEnvironment('PLAYER_TABLE', playerTable.tableName);
+backend.getFanGameView.addEnvironment('FIELD_POSITION_TABLE', fieldPositionTable.tableName);
+backend.getFanGameView.addEnvironment('GOAL_TABLE', goalTable.tableName);
+backend.getFanGameView.addEnvironment('SUBSTITUTION_TABLE', substitutionTable.tableName);
+
+// delete-team-safe: ShareLink cascade (mirrors its existing TeamInvitation
+// cascade by teamId).
+shareLinkTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+backend.deleteTeamSafe.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+
+// archive-team: extend its existing TeamInvitation-sweeping behavior to
+// also revoke any active ShareLinks for the team (Query by teamId index +
+// per-item conditional UpdateItem, same shape as the TeamInvitation sweep).
+backend.archiveTeam.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query', 'dynamodb:UpdateItem'],
+    resources: [shareLinkTable.tableArn, `${shareLinkTable.tableArn}/index/shareLinksByTeamId`],
+  })
+);
+backend.archiveTeam.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);

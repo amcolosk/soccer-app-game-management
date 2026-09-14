@@ -29,6 +29,7 @@
    - [Pre-Game Notes & Attribution](#711-pre-game-notes--attribution)
    - [Onboarding](#712-onboarding)
    - [Invitation Flow](#713-invitation-flow)
+   - [Fan Mode (public, read-only)](#714-fan-mode-public-read-only)
 8. [Modal & Overlay Patterns](#8-modal--overlay-patterns)
 9. [Help & Bug Report FAB](#9-help--bug-report-fab)
 10. [z-index Stack](#10-z-index-stack)
@@ -217,6 +218,7 @@ Inline pill badges on game cards:
 
 - `/invite/:invitationId` — full screen, no bottom nav
 - `/dev` — developer dashboard, full screen, no bottom nav
+- `/watch/:token` — **Fan Mode** (public, read-only live game view; see §7.14). Unlike the two routes above, this one is outside the *auth gate* entirely, not just outside `AppLayout`'s chrome — there is no Cognito session, no `Authenticator.Provider`, and no coach identity at all on this route (see `src/AppRouter.tsx`).
 
 ---
 
@@ -653,13 +655,16 @@ Three numeric steppers inside the setup card, arranged in two rows:
 **File:** `src/components/InvitationManagement.tsx`
 
 - **Entry:** Sharing tab → per-team list (active teams only) → "Manage Sharing" button → drill-in panel titled "Sharing & Permissions: {team name}".
-- **Three regions:**
+- **Four regions** (a fourth added in Milestone B1 — Fan Mode):
   1. Invite-by-email form — email address + role (`Coach (Can edit)` / `Parent (Read-only)`).
   2. "Current Coaches" list — every coach on the team except the current signed-in user, each with a "Remove" button.
   3. "Pending Invitations" list — every `PENDING` `TeamInvitation` for the team, each with a "Cancel" button.
-- **Confirmation:** both "Remove" and "Cancel" route through the standard Confirmation Modal (§5.6) before the underlying call.
+  4. **"Share Links"** — visually separated from regions 1–3 by a divider/distinguishing heading, since it's a materially different trust boundary (public/unauthenticated) than inviting a coach or parent. Generate/copy/revoke controls for the `FAN` link type (`/watch/:token`, read-only live view — see §7.14); the `STAT_TRACKER` half of this region ships in a later milestone. No active link: a single "Generate Fan Link" button. Active link: the link URL plus "Copy Link", "Replace", and "Revoke" buttons.
+- **Confirmation:** "Remove", "Cancel", "Replace" (region 4, when an active link exists), and "Revoke" (region 4) all route through the standard Confirmation Modal (§5.6) before the underlying call.
   - Remove: title "Revoke Access", message "Are you sure you want to revoke access for this coach?", `variant: 'danger'` — then calls `revokeCoachAccess` (Lambda-backed custom mutation as of issue #162; see `docs/SHARING-PERMISSIONS.md`).
   - Cancel: `variant: 'warning'` — then deletes the invitation directly (`client.models.TeamInvitation.delete`).
+  - Share Link Replace: title "Replace this link?", message "This replaces the current link — anyone still using it will lose access.", `variant: 'warning'` — then calls `generateShareLink`.
+  - Share Link Revoke: title "Revoke this link?", message "Anyone using it will immediately lose access.", `variant: 'danger'` — then calls `revokeShareLink`. An explicit Revoke tap is at least as disruptive as Remove/Cancel above (it immediately cuts off anyone actively viewing/polling), so it gets the same confirmation treatment even though the original draft of this feature only covered Generate.
 - **Message display:** a single success/error line rendered under the invite form (not per-item) — the same line is reused for invite-send, revoke, and cancel outcomes. Plain `<div>`, not an `aria-live` region (pre-existing, no fix proposed here).
 - **Revoke rejection messages surfaced verbatim through that same message line** (`InvitationManagement.tsx` passes `error.message` straight through unchanged):
   - "Cannot revoke the team's last coach. Invite another coach first." — a team can never be revoked down to zero coaches.
@@ -934,6 +939,46 @@ identify your notes during games.
 
 ---
 
+### 7.14 Fan Mode (public, read-only)
+
+**Route:** `/watch/:token`
+**File:** `src/components/FanMode/FanGameView.tsx`
+**Stylesheet:** `src/components/FanMode/FanMode.css` (not `App.css` — see §6/CLAUDE.md "narrow exception")
+
+The app's first public/unauthenticated screen — no `AppLayout` chrome, no bottom nav, no Help FAB (§9.4), no Cognito session at all. Polls `getFanGameView` every 10–15s, paused via the Page Visibility API while the tab is hidden and immediately re-polled on resume (otherwise the clock would look frozen/broken rather than correctly paused). Runs the shared `src/utils/gameClock.ts` formula locally on a 1-second tick, seeded from each poll's payload, so the displayed clock advances smoothly between polls instead of jumping in 10–15s steps.
+
+#### Layout (live state)
+- Header: `<h1>{team} vs {opponent}</h1>` (page-level heading, so a first-time visitor with no onboarding lands on real heading hierarchy, not a bare scoreboard) + score (large, `aria-live="polite" aria-atomic="true"`, same accessibility contract as `CommandBand`'s score block) + running clock + half label. Half label reads "Halftime" (not "1st/2nd Half", and the half-length suffix is suppressed) when the game's `status` is `halftime`.
+- On-field lineup grid: first name + last initial + position for each player currently on the field (no jersey numbers, no `playerId` — anonymized by design, see the Data Architecture section's guest-auth note)
+- Recent events feed: last ~5 goals/substitutions, newest first
+- If a poll after the first successful load fails (a real scenario on the mobile/stadium connections this page targets), the page keeps showing the last-known-good state rather than dropping to "Invalid link" — a small "Having trouble refreshing — showing the last update." note appears on the Live and Finished states in that case.
+- `document.title` updates per state — team name alone for the empty/next-game states, `"{score} · {team} - TeamTrack"` while live, `"Final: {score} · {team} - TeamTrack"` when finished — so a bookmarked/shared tab is identifiable in a browser tab list instead of showing the generic app title for the whole game.
+
+#### Named states
+Matching the backend's 4-branch game-selection algorithm (`amplify/functions/shared/shareLinkAccess.ts`) plus the rate-limit rejection:
+
+| State | Trigger | Copy |
+|-------|---------|------|
+| Invalid link | Token missing, garbage, never existed, revoked, or wrong `type` — one generic state, not split into "revoked" vs. "not found" (a fan can't act differently on the distinction) | "This link isn't valid" |
+| Rate limited | Either rate-limit dimension rejected the request | "You're checking a bit too often — try again in a moment" |
+| Next game | Nearest game is in the future (no live/recent game) | Team name + opponent + scheduled date/time |
+| Finished (with date) | Most recent game is within the 12-hour recency window, not live | "Final ({date})" + score — dated so a stale/bye-week view isn't mistaken for today's game |
+| No games yet | Team has never had a game | "No games yet — check back once your coach schedules one" |
+| No game right now | Games exist, but none live/recent/upcoming (e.g. a bye week) | "No game right now — check back closer to the next one" |
+| Live (default/main view) | A game is `in-progress`/`halftime` | Full scoreboard + lineup + events layout described above |
+
+#### Accessibility
+- Every state (including Live) renders exactly one page-level `<h1>` before any `<h2>`s — correct 1→2 heading hierarchy on a page with no other navigation landmarks to orient a screen-reader user
+- Score block: `aria-live="polite" aria-atomic="true"` (announces score changes without re-reading the whole page)
+- On-field lineup grid: `<ul>`/`<li>` list structure with an `aria-label="On-field lineup"` landmark on the containing section
+- Recent events feed: `aria-label="Recent events"` landmark; each entry is plain text, not a live region (avoids over-announcing on every poll)
+
+#### Responsive behavior
+- Phone (< 768px): full-width single column, matching the app's baseline mobile-first layout
+- Tablet+ (≥ 768px): content max-width `640px`, centered
+
+---
+
 ## 8. Modal & Overlay Patterns
 
 All modals share:
@@ -1025,6 +1070,7 @@ The FAB sits above the bottom navigation bar and below any modal overlays. It mu
 | Landing page (unauthenticated) | ❌ No |
 | Invitation flow (`/invite/:id`) | ❌ No |
 | Dev Dashboard (`/dev`) | ❌ No |
+| Fan Mode (`/watch/:token`) | ❌ No — no coach, no `HelpFabContext` debug data to attach to a session that was never authenticated |
 | Any open modal overlay (z-index 1000) | Hidden (FAB is below modal z-index) |
 
 ### 9.5 Interaction: Bottom Sheet Menu
