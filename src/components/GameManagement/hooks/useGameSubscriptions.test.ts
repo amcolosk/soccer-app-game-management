@@ -457,6 +457,75 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     expect(setIsRunning).not.toHaveBeenCalledWith(true);
   });
 
+  // Reproduces issue #177: "Game scores are showing 0-0 at halftime".
+  //
+  // GameManagement derives ourScore/opponentScore locally from the `goals`
+  // array during active play and never persists them to the Game record
+  // (see docs/plans/GAME-SCORE-SNAPSHOT-CONCURRENCY-PLAN.md — active-state
+  // score is goal-derived, no DB write). But any *other* Game field update
+  // during active play (pause, resume, halftime transition, second-half
+  // start, half-length edit, ...) round-trips through this hook's
+  // Game.observeQuery subscription, whose fallback branch does
+  // `return updatedGame` — replacing the whole local gameState wholesale
+  // with the DB record, whose ourScore/opponentScore are still 0 because
+  // they were never written. This clobbers the locally-derived score back
+  // to 0-0 until the next goal is scored (which re-triggers the derivation
+  // effect in GameManagement).
+  it('does not clobber locally-derived score when an unrelated Game field update arrives (issue #177)', () => {
+    const setIsRunning = vi.fn();
+    const setCurrentTime = vi.fn();
+    const liveGame = createDefaultGame({
+      status: 'in-progress',
+      currentHalf: 1,
+      elapsedSeconds: 1200,
+      lastStartTime: new Date().toISOString(),
+      ourScore: 0,
+      opponentScore: 0,
+    });
+    const props = createDefaultProps({
+      isRunning: true,
+      setIsRunning,
+      setCurrentTime,
+      game: liveGame,
+    });
+
+    const { result } = renderHook(() => useGameSubscriptions(props));
+
+    // Simulate GameManagement's active-state score-derivation effect, which
+    // computes the score from the subscribed `goals` array and writes it
+    // into local gameState (no DB write) once goals have been recorded.
+    act(() => {
+      result.current.setGameState(prev => ({ ...prev, ourScore: 3, opponentScore: 2 }));
+    });
+    expect(result.current.gameState.ourScore).toBe(3);
+    expect(result.current.gameState.opponentScore).toBe(2);
+
+    // An unrelated Game update round-trips through the subscription — e.g. the
+    // halftime transition write (status/elapsedSeconds/lastStartTime only).
+    // Because score is never persisted during active play, the DB record
+    // (and thus this event) still carries the stale ourScore/opponentScore: 0.
+    act(() => {
+      capturedGameNext!({
+        items: [
+          {
+            id: 'game-1',
+            status: 'halftime',
+            currentHalf: 1,
+            elapsedSeconds: 1500,
+            lastStartTime: null,
+            ourScore: 0,
+            opponentScore: 0,
+          } as Partial<Game>,
+        ],
+      });
+    });
+
+    // The goal-derived score must survive an unrelated field update — it
+    // should still read 3-2, not be clobbered back to the stale DB 0-0.
+    expect(result.current.gameState.ourScore).toBe(3);
+    expect(result.current.gameState.opponentScore).toBe(2);
+  });
+
   it('does NOT recreate the subscription when isRunning changes (isRunningRef fix)', () => {
     // This tests Bug Fix 1: isRunning was previously in the observeQuery useEffect
     // deps, causing the subscription to recreate on every timer tick. The new
