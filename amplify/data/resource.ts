@@ -18,6 +18,7 @@ import { createGameSafe } from "../functions/create-game-safe/resource";
 import { syncTeamCalendar } from "../functions/sync-team-calendar/resource";
 import { unlinkTeamCalendar } from "../functions/unlink-team-calendar/resource";
 import { revokeCoachAccess } from "../functions/revoke-coach-access/resource";
+import { emailGameSummary } from "../functions/email-game-summary/resource";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -452,6 +453,22 @@ const schema = a.schema({
       allow.authenticated().to([]),
     ]),
 
+  // Rate limiting for emailGameSummary (Major 4) — identical shape to
+  // BugReportRateLimit, own dedicated table (own resource, own
+  // legitimate-volume profile; not sharing a counter with bug reports).
+  EmailGameSummaryRateLimit: a
+    .model({
+      userId: a.string().required(),
+      hourBucket: a.string().required(), // ISO hour e.g. "2026-03-07T14"
+      count: a.integer().required(),
+      ttl: a.integer(), // Unix timestamp for DynamoDB TTL auto-expiry (2 hours)
+    })
+    .identifier(['userId', 'hourBucket'])
+    .authorization((allow) => [
+      // No client access — only Lambda IAM role accesses this table
+      allow.authenticated().to([]),
+    ]),
+
   // Custom mutation for accepting invitations with elevated permissions
   // NOTE: After deployment, run: .\scripts\fix-appsync-datasource.ps1
   acceptInvitation: a
@@ -590,6 +607,29 @@ const schema = a.schema({
     .returns(a.ref('Game'))
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(createGameSafe)),
+
+  // Non-model return shape for emailGameSummary's response — success flag
+  // plus the resolved recipient address, so the button's success toast can
+  // show where the email went.
+  EmailGameSummaryResult: a.customType({
+    success: a.boolean().required(),
+    sentTo: a.string(), // the resolved recipient address, for the success toast
+  }),
+
+  // "Email Me a Game Summary" — sends the calling coach a summary email
+  // (score, goals, pre-game/in-game notes) for a completed game they coach.
+  // Declared authorization is only "must be signed in" — the real checks
+  // (caller in Game.coaches, game.status === 'completed', per-caller rate
+  // limit) happen inside the handler, same shape as createGameSafe/
+  // revokeCoachAccess/archiveTeam above.
+  emailGameSummary: a
+    .mutation()
+    .arguments({
+      gameId: a.string().required(),
+    })
+    .returns(a.ref('EmailGameSummaryResult'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(emailGameSummary)),
 
   // Calendar Feed Import: minimal Lambda-only model holding the feed URL
   // itself, keyed directly by teamId (one row per team, enforced by the key

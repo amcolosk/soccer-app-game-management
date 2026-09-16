@@ -38,6 +38,7 @@ import { LineupPanel } from "./LineupPanel";
 import { PlanTab, type GenerateRotationsOptions } from "./PlanTab";
 import type { PlannedRotationsUpdateInput, PlannerMutationResult } from "./PlanTab";
 import { CompletedPlayTimeSummary } from "./CompletedPlayTimeSummary";
+import { EmailSummaryButton } from "./EmailSummaryButton";
 import { CompletedGameTimeline } from "./CompletedGameTimeline";
 import { OfflineBanner } from "../OfflineBanner";
 import { ArchivedTeamBanner } from "../shared/ArchivedTeamBanner";
@@ -2681,6 +2682,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
             <Link to={`/reports/${team.id}`} className="btn-link completed-report-link__anchor">
               View Full Season Report →
             </Link>
+            <EmailSummaryButton gameId={game.id} />
             {deleteGameButton}
           </div>
         )}

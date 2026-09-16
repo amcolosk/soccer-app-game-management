@@ -41,6 +41,7 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 - **Halftime Lineup Changes**: Modify the lineup between halves
 - **Score Tracking**: Record goals with scorer, assist, and game time
 - **Game Notes**: Log events such as gold stars and cards
+- **Email Game Summary**: After a game is completed, a coach can email themselves a summary — final score, goal scorers/assists, and all game notes/cards/gold stars
 
 ### Play Time Tracking
 - **Automatic Tracking**: Records start/end game seconds for each player in each position
@@ -63,7 +64,7 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 - **Authentication**: Amazon Cognito
 - **API**: GraphQL with AWS AppSync
 - **Database**: Amazon DynamoDB
-- **Email**: Amazon SES (team invitation emails)
+- **Email**: Amazon SES (team invitation emails, post-game summary emails)
 - **Hosting**: AWS Amplify Hosting
 
 ## Getting Started
