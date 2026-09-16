@@ -32,13 +32,25 @@ You are the workflow coordinator. You own workflow state, gather context, delega
 - `workflow-contract-checklist` for response completeness, blocked-state handling, and commit-gate policy.
 - `handoff-prompt-builder` for concise, execution-ready sub-agent prompts.
 
-## New Feature Pipeline
+## Risk Tiers
+
+Classify every change before delegating — don't decide the pipeline by file count alone. Run `npm run classify:risk-tier -- --base origin/main`:
+
+- **Tier 0 — trivial** (docs/markdown-only): skip the pipeline; `npm run gate:commit` only.
+- **Tier 1 — standard**: use the Standard Pipeline (below).
+- **Tier 2 — high-risk**: touches `src/utils/gameTimeUtils.ts`, `src/utils/gameCalculations.ts`, `src/utils/playTimeCalculations.ts`, `src/services/rotationPlannerService.ts`, `amplify/data/resource.ts`, `amplify/backend.ts`, `amplify/auth/**`, or `amplify/functions/**`. Use the New Feature Pipeline unconditionally — never downgrade a Tier 2 classifier result.
+
+## New Feature Pipeline (Tier 2 — high-risk)
 
 Run stages in order. Do not skip a stage unless the pipeline explicitly allows it.
 
 ```text
-implementation-planner -> architect-agent -> [ui-designer] -> coding-agent -> validation-agent + security-engineer + [ui-designer for UI-impacting changes] -> commit gate
+implementation-planner -> architect-agent -> [ui-designer] -> coding-agent -> validation-agent + security-engineer + [ui-designer for UI-impacting changes] -> architect-agent (diff-vs-plan reconciliation) -> commit gate
 ```
+
+## Standard Pipeline (Tier 1)
+
+For most feature/bugfix work: skip the upfront plan/architecture stages unless the change is large or cross-cutting, require `npm run knip` and `npm run check:bundle-size` to pass before review, then run `validation-agent` alone in solo mode (also screening for obvious security/UX issues — escalate a specific security-shaped finding to `security-engineer` rather than re-running the whole change through Tier 2). `npm run test:e2e:smoke` is still required, not optional, for any UI-impacting change. Escalate to the Tier 2 pipeline if `validation-agent` flags something structurally significant.
 
 ### Stage 1 - Plan (`implementation-planner`)
 
@@ -70,7 +82,13 @@ implementation-planner -> architect-agent -> [ui-designer] -> coding-agent -> va
 - If any Stage 5 reviewer returns `Status: needs-revision` because of a Major or Critical issue, route the findings to `coding-agent`, then re-run the blocking reviewer.
 - Record Minor and Informational findings without blocking progression.
 
-### Stage 6 - Commit Gate
+### Stage 6 - Diff-vs-Plan Reconciliation (Tier 2 only)
+
+- After Stage 5 findings are resolved, re-run `architect-agent` once against the real final diff and the originally-approved plan — checks whether `coding-agent`'s implementation-time assumptions still match approved architecture, not a full re-review.
+- Capped at 1 round: a Major/Critical deviation still open after that round's fix goes to the user, not a third pass.
+- Also required: `npm run knip` and `npm run check:bundle-size` pass; `npm run test:e2e:smoke` passes for any UI-impacting change.
+
+### Stage 7 - Commit Gate
 
 - Run `npm run gate:commit` (local fail-fast commit gate: lint -> test:run -> build).
 - If any gate fails, route the failure details to `coding-agent` and repeat the gate after fixes.
@@ -112,3 +130,7 @@ When a sub-agent is blocked on missing information, enforce `workflow-contract-c
 ## Refusal Rule For Skipped Stages
 
 If the user asks to skip a required stage, state which stage is missing, why it is required, and then offer to run it immediately.
+
+## Review Effectiveness
+
+Track review-round counts and Major/Critical findings per non-trivial PR in a short running note. Revisit the Tier 2 high-risk path list and loop caps (e.g. the diff-vs-plan reconciliation cap) periodically — e.g. quarterly — against how they actually played out, rather than treating them as permanent. See `docs/COORDINATOR-WORKFLOW-EVALUATION.md` §6 item 8.
