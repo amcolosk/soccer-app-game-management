@@ -1,23 +1,46 @@
 # Email Me A Game Summary — Implementation Plan
 
 **Feature:** Manual "Email Summary" button on the completed-game screen. Sends the clicking coach a summary email of the game (their own address only — no team-wide fan-out, no opt-in setting; clicking is the consent).
-**Status:** Ready for architecture review
+**Status:** Revised after architecture review round 1 (4 Major findings resolved below)
 **Last Updated:** 2026-09-16
+
+---
+
+## 0. Architecture Review Round 1 — Resolutions Log
+
+| # | Finding | Resolution |
+|---|---|---|
+| Q1 | GameNote ordering: flat timestamp sort was a third ordering scheme not used elsewhere in the product | **Changed.** §6 now splits notes into two sections matching the app's own existing split (`PreGameNotesPanel.tsx` vs. `PlayerNotesPanel.tsx:147`'s `noteType !== 'coaching-point'` filter): "Pre-Game Notes" (timestamp asc) and "In-Game Notes" (half asc, gameSeconds asc, timestamp as tiebreak). Null-handling special case is gone — the validation invariant guarantees non-null `half`/`gameSeconds` in the in-game bucket. |
+| Q2 | Team name inclusion in email | **Approved as planned**, no change. |
+| Major 1 | Scan-vs-Query claim unverified | **Verified and changed to Query.** See §3.7 — read the actual `@aws-amplify/graphql-relational-transformer` source (`resolvers.js`, `updateTableForConnection`), not just analogy. Confirms `gsi-Game.goals` (on `Goal`, partition key `gameId`) and `gsi-Game.gameNotes` (on `GameNote`, partition key `gameId`) are unconditionally created by the transformer for these exact `hasMany`/`belongsTo` shapes — same mechanism already exploited by `revoke-coach-access`. Handler and IAM policy below now use `QueryCommand` + index ARNs, not `Scan`. |
+| Major 2 | `Game.coaches`-only gate over-exposes rows the caller isn't backfilled onto | **Resolved — row-level filter added.** See §4/§5.2 step 9. Query adds `FilterExpression: 'contains(coaches, :callerId)'` on both `Goal` and `GameNote`, so a coach who is in `Game.coaches` but was never backfilled onto a specific pre-existing `Goal`/`GameNote` row (accept-invitation's IAM grants — `backend.ts:116-122` — do NOT backfill `Goal`/`GameNote`/`PlayTimeRecord`) sees exactly what the in-app UI would show them, not more. |
+| Major 3 | No HTML escaping on interpolated user text (opponent, note text, player names) | **Resolved.** New `amplify/functions/shared/escapeHtml.ts` helper, applied to every dynamic value in the HTML branch. See §5.2a, §5.2b. |
+| Major 4 | No rate limit on a user-triggered SES send sharing quota with invitation email | **Resolved.** New `EmailGameSummaryRateLimit` table, reusing `create-github-issue`'s `checkRateLimit` shape exactly (`amplify/functions/create-github-issue/handler.ts` lines 122-145), capped at 10 sends/caller/hour. See §4, §5.2, §5.6. |
+| Minor 1 | `resource.ts` timeout | `timeoutSeconds: 60` (not 30), with the same rationale comment style as `revoke-coach-access/resource.ts:7`. |
+| Minor 2 | Distinguish "not found" vs "not authorized"? | Kept distinguishing (matches `delete-game-safe` precedent) — explicit choice, noted in §5.2. |
+| Minor 3 | New service file vs. existing `gameService.ts` | Changed — added to existing `src/services/gameService.ts`, no new service file. |
+| Minor 4 | Jersey numbers in email? | Decision: **omitted**, deferred. Would require a `TeamRoster` read + new IAM grant for a field not in R1-R9's explicit scope. Noted in §6/§8 as a deliberate deferral, not a silent gap. |
+| Minor 5 | Offline behavior | Addressed in §7 — custom mutations aren't queued by `offlineQueueService` (model-CRUD-only); button is online-only. |
+| Minor 6 | PII risk line was inaccurate | Restated in §8 — this does move data into a new surface (inbox + SES/CloudWatch logs), not "no new exposure." |
+| Minor 7 | `docs/ARCHITECTURE.md` has two stale lists | Both updated (§5.15) — new entries added accurately, existing drift (`send-bug-report`/`update-issue-status`/etc., already stale before this plan) not touched further. |
+| Minor 8 | Button placement: between play-time table/timeline, or in `.completed-footer`? | Plan now proposes `.completed-footer` (alongside "View Full Season Report" / delete-game — same "game-level action" grouping), reusing existing CSS with no new block needed. **Final call deferred to ui-reviewer**, flagged explicitly in §5.10 and §12. |
+| (approved as-is) | New Lambda folder, `allow.authenticated()` + in-handler check, per-table `PolicyStatement` IAM style, `EmailSummaryButton` as a separate component, archived-team behavior | No changes; archived-team sentence added to §7 for completeness/consistency with sibling handlers. |
 
 ---
 
 ## 1. Overview
 
-Add a new Lambda-backed custom mutation, `emailGameSummary(gameId)`, invoked directly (synchronously, on click — not stream-triggered) from a new button rendered in `GameManagement.tsx`'s completed-state layout, next to `CompletedPlayTimeSummary`. The Lambda:
+Add a new Lambda-backed custom mutation, `emailGameSummary(gameId)`, invoked directly (synchronously, on click — not stream-triggered) from a new button rendered in `GameManagement.tsx`'s completed-state layout (`.completed-footer`, alongside the existing "View Full Season Report" link and delete-game button — see Minor 8). The Lambda:
 
-1. Verifies the caller is in `Game.coaches` (403-equivalent otherwise).
-2. Verifies `Game.status === 'completed'`.
+1. Verifies the caller is in `Game.coaches` (403-equivalent otherwise), and the game is `completed`.
+2. Applies a per-caller rate limit (10 sends/hour) before doing any further work.
 3. Resolves the caller's email server-side via `cognito-idp:AdminGetUser` (access token has no `email` claim — CLAUDE.md's Amplify v6 auth gotcha).
-4. Reads `Game`, `Team` (for names), all `Goal` rows for the game, all `GameNote` rows for the game, and the `Player` rows referenced by them.
-5. Builds an HTML+text email (opponent/date/home-away/score, goal-by-goal scorers/assists, all game notes chronologically) and sends it via SES, reusing `send-invitation-email`'s SES send shape but not its DynamoDB Stream trigger.
-6. Returns `{ success, sentTo }` synchronously so the UI can show a toast.
+4. Reads `Game`, `Team` (for names), and **queries** (not scans — confirmed GSIs exist, §3.7) all `Goal`/`GameNote` rows for the game, filtered server-side to rows whose own `coaches` array includes the caller (row-level parity with the in-app `ownersDefinedIn('coaches')` model auth this handler otherwise bypasses by using the raw SDK).
+5. Resolves the `Player` rows referenced by those rows via chunked `BatchGetItem`.
+6. Builds an HTML+text email (opponent/date/home-away/score; goals in order with scorer/assist; pre-game notes and in-game notes as two separately-ordered sections; every dynamic value HTML-escaped) and sends it via SES, reusing `send-invitation-email`'s SES send shape but not its DynamoDB Stream trigger.
+7. Returns `{ success, sentTo }` synchronously so the UI can show a toast.
 
-No changes to any existing data model. One new custom mutation, one new customType, one new Lambda, one new frontend service + button component.
+No changes to any existing data model's fields. Two new models (`EmailGameSummaryResult` customType — API response shape; `EmailGameSummaryRateLimit` — Lambda-only rate-limit table), one new Lambda, one new shared helper, one new frontend button component, one new function added to an existing service file.
 
 ---
 
@@ -25,7 +48,7 @@ No changes to any existing data model. One new custom mutation, one new customTy
 
 | # | Requirement | Source |
 |---|---|---|
-| R1 | "Email Summary" button in completed-state layout, near `CompletedPlayTimeSummary` | User requirement |
+| R1 | "Email Summary" button in completed-state layout | User requirement |
 | R2 | Recipient is only the clicking coach, their own address; no opt-in setting | User requirement |
 | R3 | Email resolved server-side via `cognito-idp:AdminGetUser` | User requirement, CLAUDE.md auth gotcha |
 | R4 | Content: opponent, date, home/away, final score | User requirement |
@@ -54,9 +77,7 @@ GameNote: {
   coaches: a.string().array(),
 }
 ```
-Validation invariant (enforced in `create-game-note`/`update-game-note` handlers, not the schema): `noteType === 'coaching-point'` ⇒ `gameSeconds === null && half === null`; every other `noteType` ⇒ both non-null. The four non-coaching-point types are exactly "cards" (`yellow-card`, `red-card`) and "gold-star recognitions" (`gold-star`), plus a catch-all `other`. Per requirement R6, the email includes **all** `GameNote` rows for the game regardless of `noteType` — no filtering.
-
-There is no secondary index on `GameNote.gameId`. `amplify/functions/delete-game-safe/handler.ts` already reads all `GameNote` (and `Goal`) rows for a game via a full-table `Scan` + `FilterExpression: 'gameId = :gameId'` (see `scanAll` helper, lines 22–42, 143). This Lambda will reuse that exact same pattern — it's established precedent, not a new anti-pattern.
+Validation invariant (enforced in `create-game-note`/`update-game-note` handlers, not the schema): `noteType === 'coaching-point'` ⇒ `gameSeconds === null && half === null`; every other `noteType` ⇒ both non-null. The four non-coaching-point types are exactly "cards" (`yellow-card`, `red-card`) and "gold-star recognitions" (`gold-star`), plus a catch-all `other`. Per requirement R6, the email includes **all** `GameNote` rows for the game regardless of `noteType` — no filtering by type. It **is** split by pre-game vs. in-game per the Q1 resolution above — that split mirrors an ordering distinction the app already makes (`PreGameNotesPanel.tsx` vs. `PlayerNotesPanel.tsx:147`), not a new filter.
 
 ### 3.2 `Goal` model (lines ~328–345)
 ```ts
@@ -72,7 +93,7 @@ Goal: {
   coaches: a.string().array(),
 }
 ```
-No existing player-id→display-name helper is reused server-side elsewhere (the frontend has display-name helpers for `CoachProfile`, not `Player`; `Player.firstName`/`Player.lastName` are already plain, non-privacy-gated fields — see `Player` model, lines 110–130). The Lambda will do its own minimal `BatchGetItem` against the `Player` table (id, firstName, lastName only), following the exact chunked-`BatchGetCommand` pattern already used in `amplify/functions/get-team-coach-profiles/handler.ts` (`batchGetCoachProfiles`, lines 50–90) — reuse the *shape*, not the coach-profile-specific privacy logic (`Player` has no privacy setting to respect).
+No existing player-id→display-name helper is reused server-side elsewhere. The Lambda does its own minimal `BatchGetItem` against `Player` (id, firstName, lastName only), following the chunked-`BatchGetCommand` shape already used in `amplify/functions/get-team-coach-profiles/handler.ts` (`batchGetCoachProfiles`, lines 50–90) — reuse the *shape*, not the coach-profile-specific privacy logic (`Player` has no privacy setting to respect).
 
 Ordering "in order" (R5) = sort by `half` ascending, then `gameSeconds` ascending.
 
@@ -81,26 +102,55 @@ Confirmed against `upsertMyCoachProfile`/`getTeamCoachProfiles` (`amplify/data/r
 1. `amplify/functions/<name>/resource.ts` — `defineFunction({ name, entry: './handler.ts', runtime: 22, timeoutSeconds, resourceGroupName: 'data' })`.
 2. `amplify/functions/<name>/handler.ts` — typed `Schema['<mutationName>']['functionHandler']`.
 3. `amplify/data/resource.ts` — import the function, add a `<mutationName>: a.mutation().arguments({...}).returns(a.ref(<Type>) | a.json()).authorization((allow) => [allow.authenticated()]).handler(a.handler.function(<fn>))` entry. Declared authorization is always just "must be signed in" — the real access check (team/game membership) happens inside the handler, since Amplify's declarative auth can't express "caller must be in this specific record's `coaches` array" for a *custom* op. Same shape as `archiveTeam`/`revokeCoachAccess`/`createGameSafe`.
-4. `amplify/backend.ts` — import the function's `resource.ts` export, add it to the `defineBackend({...})` object, then wire least-privilege `PolicyStatement`s per table (`dynamodb:GetItem`/`Scan`/`BatchGetItem` as needed — see `getTeamCoachProfiles`/`archiveTeam` blocks, lines 232–246, 344–357) and `addEnvironment(...)` calls for table names.
+4. `amplify/backend.ts` — import the function's `resource.ts` export, add it to the `defineBackend({...})` object, then wire least-privilege `PolicyStatement`s per table (`dynamodb:GetItem`/`Query`/`BatchGetItem` as needed) and `addEnvironment(...)` calls for table names.
 
 ### 3.4 Email resolution via `AdminGetUser`
-CLAUDE.md's cited reference, `update-issue-status`, **no longer exists in this repo** — it was removed by the GitHub-issues migration (`docs/specs/Bug-Reporting-GitHub.md` lines 31, 169, 504; confirmed via `git grep`, zero hits under `amplify/functions/`). The live, in-repo reference pattern is `amplify/functions/accept-invitation/handler.ts` (lines 161–201): a fallback chain — `identity.claims.email` → `identity.username` (if it looks like an email) → `identity.claims.username` → `identity.claims['cognito:username']` → `cognito-idp:AdminGetUser` keyed on `identity.username || identity.sub`, requiring `USER_POOL_ID` env var + `cognito-idp:AdminGetUser` IAM grant on `backend.auth.resources.userPool.userPoolArn` (wired in `amplify/backend.ts` lines 134–143).
+CLAUDE.md's cited reference, `update-issue-status`, **no longer exists in this repo** — it was removed by the GitHub-issues migration (`docs/specs/Bug-Reporting-GitHub.md` lines 31, 169, 504; confirmed via grep, zero hits under `amplify/functions/`). The live, in-repo reference pattern is `amplify/functions/accept-invitation/handler.ts` (lines 161–201): a fallback chain — `identity.claims.email` → `identity.username` (if it looks like an email) → `identity.claims.username` → `identity.claims['cognito:username']` → `cognito-idp:AdminGetUser` keyed on `identity.username || identity.sub`, requiring `USER_POOL_ID` env var + `cognito-idp:AdminGetUser` IAM grant on `backend.auth.resources.userPool.userPoolArn` (wired in `amplify/backend.ts` lines 134–143).
 
-Since the access token AppSync receives carries **no** `email` claim at all (CLAUDE.md), the first few fallback steps in that chain will essentially never resolve for an access-token-authenticated call — only `AdminGetUser` will. This plan keeps the full fallback chain anyway (cheap, defensive, consistent with the only two working examples in the codebase — `accept-invitation` and `get-user-invitations` both use it) rather than hand-rolling a `AdminGetUser`-only path.
+Since the access token AppSync receives carries **no** `email` claim at all (CLAUDE.md), the first few fallback steps in that chain will essentially never resolve for an access-token-authenticated call — only `AdminGetUser` will. This plan keeps the full fallback chain anyway (cheap, defensive, consistent with the only two working examples in the codebase — `accept-invitation` and `get-user-invitations` both use it) rather than hand-rolling an `AdminGetUser`-only path.
 
 ### 3.5 `send-invitation-email` reusable pieces
-`amplify/functions/send-invitation-email/handler.ts` has no exported/shared template helpers — the HTML/text bodies are inlined in `sendInvitationEmail()` (lines 52–202). This plan inlines a new template in the new handler, following the same visual style (header banner div, `.content` div, `.footer` div, matching inline CSS) rather than extracting a shared template module (small, one-off content shape; not worth a premature abstraction). `FROM_EMAIL` is set as a literal in `send-invitation-email/resource.ts` (`'TeamTrack Support <admin@coachteamtrack.com>'`) — reuse the identical value for the new function's `resource.ts`, and reuse the already-verified SES identity/config-set ARNs already computed in `amplify/backend.ts` (`sesIdentityArn`, `sesConfigSetArn`, lines 74–79) for the new function's `ses:SendEmail`/`ses:SendRawEmail` grant.
+`amplify/functions/send-invitation-email/handler.ts` has no exported/shared template helpers — the HTML/text bodies are inlined in `sendInvitationEmail()` (lines 52–202), and notably interpolates `teamName` into HTML with **no escaping** (lines 66, 132) — a gap this plan does not propagate (see Major 3 / §5.2a). This plan inlines a new template in the same visual style (header banner div, `.content` div, `.footer` div, matching inline CSS) rather than extracting a shared template module (small, one-off content shape; not worth a premature abstraction), but does add a small shared escaping helper (§5.2a) since that gap is a real, distinct security concern independent of the templating-reuse question. `FROM_EMAIL` is set as a literal in `send-invitation-email/resource.ts` (`'TeamTrack Support <admin@coachteamtrack.com>'`) — reuse the identical value, and reuse the already-verified SES identity/config-set ARNs already computed in `amplify/backend.ts` (`sesIdentityArn`, `sesConfigSetArn`, lines 74–79) for the new function's `ses:SendEmail`/`ses:SendRawEmail` grant.
 
 ### 3.6 Async-button UX pattern
 No global toast/notification context component exists; the codebase uses `react-hot-toast` via `src/utils/toast.ts` (`showError`, `showSuccess`, `showWarning`, `showInfo`) — already the pattern `GameManagement.tsx`'s own `deleteGameButton` uses for its async mutation (lines 2107–2132: try/await/`showError` on catch). The new button follows the exact same shape: local `isSending` state, `showSuccess`/`showError` on settle, no new UI primitive needed.
 
-Service-layer convention: a thin wrapper in `src/services/*.ts` that calls `client.mutations.<name>({...})` and unwraps via the shared `assertMutationResult` helper (`src/services/amplifyMutationResult.ts`) when the mutation `.returns(a.ref(<customType>))` — exactly what `teamLifecycleService.ts`'s `archiveTeam`/`restoreTeam`/`assignTeamOwner` do (lines 8–23). This plan's new mutation follows that, not the `a.json()`-with-`assertMutationSuccess` variant used for the safe-delete mutations.
+Service-layer convention: a thin wrapper in `src/services/*.ts` that calls `client.mutations.<name>({...})` and unwraps via the shared `assertMutationResult` helper (`src/services/amplifyMutationResult.ts`) when the mutation `.returns(a.ref(<customType>))` — exactly what `src/services/gameService.ts`'s `createGame` and `teamLifecycleService.ts`'s `archiveTeam`/`restoreTeam`/`assignTeamOwner` do. Per Minor 3, `emailGameSummary` is added to the existing `gameService.ts` (already the game-scoped Lambda-mutation wrapper module) rather than a new file.
+
+### 3.7 GSI verification for `Goal.gameId` / `GameNote.gameId` (Major 1)
+`amplify/backend.ts` lines 423-434 (the `revoke-coach-access` grants) document that this repo already verified — against deployed CDK synth output — that Amplify Gen2 auto-creates a relationship GSI, named `gsi-<ParentModel>.<hasManyFieldName>`, on the *child* table for every implicit (`fields`/`references`-less) `hasMany`/`belongsTo` pair, keyed on the FK attribute, ALL-projection. `delete-game-safe`'s `Scan` over `Goal`/`GameNote` predates that finding and is not itself evidence the index doesn't exist — it just never got revisited.
+
+This plan verified the mechanism directly rather than relying on analogy or a live deploy (neither AWS credentials nor a `cdk.out` artifact were available in the planning environment): `npm pack @aws-amplify/graphql-relational-transformer` (the actual open-source GraphQL transformer package Amplify Gen2's `defineData` runs under the hood) and read `lib/resolvers.js`:
+
+```js
+const updateTableForConnection = (config, ctx) => {
+    const { fields, indexName: incomingIndexName } = config;
+    if (incomingIndexName || fields.length > 0) {
+        return;   // only skips if the model author supplied explicit fields/index
+    }
+    const { field, object, relatedType } = config;
+    const mappedObjectName = ctx.resourceHelper.getModelNameMapping(object.name.value);
+    ...
+    const indexName = `gsi-${mappedObjectName}.${field.name.value}`;
+    ...
+    addGlobalSecondaryIndex(table, { indexName, partitionKey: { name: partitionKeyName, ... }, ... projectionType: 'ALL' ... });
+};
+```
+This runs **unconditionally** for every implicit relation — exactly the shape used by `Game.goals: a.hasMany('Goal', 'gameId')` / `Goal.game: a.belongsTo('Game', 'gameId')` and `Game.gameNotes: a.hasMany('GameNote', 'gameId')` / `GameNote.game: a.belongsTo('Game', 'gameId')` (no `fields`/`references`/custom index specified on either side, same as the already-verified `Team.roster`/`Team.games`/etc. pairs). `object` here is `Game` (the type declaring the `hasMany` field), `field.name.value` is `goals` / `gameNotes` — so the created indexes are:
+
+- **`gsi-Game.goals`** on the `Goal` table, partition key `gameId`, projection `ALL`.
+- **`gsi-Game.gameNotes`** on the `GameNote` table, partition key `gameId`, projection `ALL`.
+
+**Conclusion: switch both reads from `Scan` to `Query` against these indexes.** IAM grants must include both the table ARN and the specific index ARN (`${tableArn}/index/gsi-Game.goals`, `${tableArn}/index/gsi-Game.gameNotes`) — a table-ARN-only grant does not authorize a GSI `Query`, per the `revoke-coach-access` comment block's own warning (`amplify/backend.ts` lines 423-434). This is confirmed against the transformer's actual source, not asserted by precedent alone; still, the implementer should do one cheap sanity check the first time this deploys to a real sandbox — a `ResourceNotFoundException: index not found` on first invocation would mean this analysis needs revisiting — but no code-level fallback-to-Scan branch is needed given the strength of this evidence.
+
+### 3.8 Rate limiting precedent (Major 4)
+`amplify/functions/create-github-issue/handler.ts` lines 118-145 (`checkRateLimit`) is the exact existing pattern for a user-triggered, quota-sensitive action: a dedicated table keyed on `(userId, hourBucket)`, an `UpdateCommand` with `ADD #count :one SET #ttl = if_not_exists(...)` (atomic increment + one-time TTL set), and a post-increment threshold check that throws if exceeded. `BugReportRateLimit` (`amplify/data/resource.ts` lines 442-453) is the backing table shape: `identifier(['userId', 'hourBucket'])`, `count`, `ttl`, `allow.authenticated().to([])` (no client access at all — Lambda-only via IAM). This plan reuses both pieces verbatim for `emailGameSummary`, under a new dedicated table (not a shared counter with bug reports — different resource, different legitimate-use volume shape) — see §4, §5.2, §5.6.
 
 ---
 
 ## 4. Data Model Impact
 
-**No changes to any existing model.** This feature is additive/read-only against `Game`, `Team`, `Goal`, `GameNote`, `Player`. One new schema addition:
+**No changes to any existing model's fields.** This feature is additive/read-only against `Game`, `Team`, `Goal`, `GameNote`, `Player`. Two new schema additions:
 
 ```ts
 // amplify/data/resource.ts
@@ -117,9 +167,29 @@ emailGameSummary: a
   .returns(a.ref('EmailGameSummaryResult'))
   .authorization((allow) => [allow.authenticated()])
   .handler(a.handler.function(emailGameSummary)),
+
+// Rate limiting (Major 4) — identical shape to BugReportRateLimit, own table
+// (own resource, own legitimate-volume profile; not sharing a counter with
+// bug reports).
+EmailGameSummaryRateLimit: a
+  .model({
+    userId: a.string().required(),
+    hourBucket: a.string().required(), // ISO hour e.g. "2026-03-07T14"
+    count: a.integer().required(),
+    ttl: a.integer(), // Unix timestamp for DynamoDB TTL auto-expiry (2 hours)
+  })
+  .identifier(['userId', 'hourBucket'])
+  .authorization((allow) => [
+    // No client access — only Lambda IAM role accesses this table
+    allow.authenticated().to([]),
+  ]),
 ```
 
-No `coaches[]` population concern — no new coach-scoped record is ever created or persisted by this feature; it only reads existing coach-scoped records after verifying `game.coaches.includes(callerSub)` up front, then scopes every subsequent read to that specific `gameId` or to the exact player IDs referenced within that game's `Goal`/`GameNote` rows. No IDOR surface beyond the initial membership check.
+**Authorization decision (Major 2, explicit — not left implicit):** `Goal`/`GameNote` both carry their own `coaches[]` and use `allow.ownersDefinedIn('coaches')` at the model level, but this handler reads them via the raw DynamoDB SDK (bypassing that row-level AppSync authorization entirely, same as every other custom-mutation Lambda in this repo). `accept-invitation`'s coach-onboarding backfill (`backend.ts` lines 116-122) does **not** touch `Goal`/`GameNote`/`PlayTimeRecord` — so a coach who joins a team after some goals/notes already exist is present in `Game.coaches` (Games *are* backfilled) but absent from those specific pre-existing `Goal`/`GameNote` rows' own `coaches` arrays. The in-app UI, which does go through normal AppSync `ownersDefinedIn` auth, would not show that coach those older rows.
+
+**Chosen approach: (a) filter to row-level visibility**, not "declare `Game.coaches` the sole gate." The `Query` against `gsi-Game.goals`/`gsi-Game.gameNotes` includes `FilterExpression: 'contains(coaches, :callerId)'` alongside the `KeyConditionExpression: 'gameId = :gameId'`, so the email can never contain a goal or note the caller wouldn't already be able to see in the app itself. `Game.coaches` membership remains the *first* gate (cheap early rejection of a caller with zero relationship to the game at all — §5.2 step 4); the per-row filter is a second, independent check applied to the actual content, not a replacement for it. Test case added in §10.
+
+No `coaches[]` population concern for the two new records — `EmailGameSummaryResult` is a non-persisted response shape, and `EmailGameSummaryRateLimit` rows are Lambda-only (no coach ever reads them, no multi-coach sharing concept applies to a per-user rate-limit counter).
 
 ---
 
@@ -133,7 +203,7 @@ export const emailGameSummary = defineFunction({
   name: 'email-game-summary-handler',
   entry: './handler.ts',
   runtime: 22,
-  timeoutSeconds: 30,
+  timeoutSeconds: 60, // Cognito AdminGetUser + 2 point reads + 2 GSI queries + BatchGet + SES send, cold start — matches revoke-coach-access's 60s (not assign-team-owner's 30s single-item one)
   resourceGroupName: 'data',
   environment: {
     FROM_EMAIL: 'TeamTrack Support <admin@coachteamtrack.com>',
@@ -145,26 +215,55 @@ export const emailGameSummary = defineFunction({
 Typed as `Schema['emailGameSummary']['functionHandler']`. Logic:
 
 1. Extract `callerSub = (event.identity as AppSyncIdentityCognito)?.sub`; throw `'User not authenticated'` if missing.
-2. Read `gameId` from `event.arguments`. Read env vars `GAME_TABLE`, `TEAM_TABLE`, `GOAL_TABLE`, `GAME_NOTE_TABLE`, `PLAYER_TABLE`, `USER_POOL_ID`, `FROM_EMAIL`; throw if any missing.
-3. `GetCommand` the `Game`. Throw `'Game not found'` if absent.
+2. Read `gameId` from `event.arguments`. Read env vars `GAME_TABLE`, `TEAM_TABLE`, `GOAL_TABLE`, `GAME_NOTE_TABLE`, `PLAYER_TABLE`, `RATE_LIMIT_TABLE`, `USER_POOL_ID`, `FROM_EMAIL`; throw if any missing.
+3. `GetCommand` the `Game`. Throw `'Game not found'` if absent. **(Minor 2 — deliberately distinguished from the access-denied error below, matching `delete-game-safe`'s precedent of a specific "not found" message; the alternative single generic-error style from `get-team-coach-profiles` was considered and rejected here since a coach clicking the button on their own already-rendered completed-game screen realistically never hits "not found" except via a stale/deleted-game race, which deserves a distinct, clearer message than "access denied.")**
 4. **Authz gate (R7) — before any other read**: `if (!game.coaches?.includes(callerSub)) throw new Error('Access denied: caller is not a coach on this game')`. Mirrors `create-game-note`/`delete-game-safe`'s exact check.
-5. **Status gate**: `if (game.status !== 'completed') throw new Error('Game summary email is only available once the game is completed')`.
-6. Resolve caller email via the `accept-invitation`-style fallback chain (§3.4), ending in `AdminGetUserCommand({ UserPoolId: process.env.USER_POOL_ID, Username: identity.username || callerSub })`. If no email attribute is found after all fallbacks, throw `'Unable to resolve your account email address'` (edge case: coach's Cognito user has no email attribute — surfaces as a clear button-click error, not a silent no-op).
-7. `GetCommand` the `Team` (best-effort — used only for display name in the subject/greeting; if missing, fall back to a generic `'Your Team'` string rather than failing the whole send).
-8. In parallel, `scanAll(goalTable, 'gameId = :gameId', ...)` and `scanAll(gameNoteTable, 'gameId = :gameId', ...)` (same `scanAll` shape as `delete-game-safe/handler.ts` lines 22–42 — duplicated locally, not imported cross-function, matching this repo's existing convention of no shared-across-function-folder logic modules beyond `amplify/functions/shared/`).
-9. Sort goals by `(half, gameSeconds)` ascending; sort notes by `timestamp` ascending (ISO strings sort lexicographically — no `Date` parsing needed).
-10. Collect distinct player IDs referenced (`goal.scorerId`, `goal.assistId`, `note.playerId`), `BatchGetCommand` the `Player` table (id, firstName, lastName only) in chunks of 100, matching `get-team-coach-profiles/handler.ts`'s `batchGetCoachProfiles` shape. Build an `id → "First Last"` map; any ID with no match (e.g. a hard-deleted player edge case) renders as `"a former player"` in the email rather than blank/crashing.
-11. Build subject: `` `Game Summary: ${teamName} vs ${game.opponent}` ``. Build HTML + plain-text bodies (§6 below).
-12. `SendEmailCommand` via `SESClient`, `Source: FROM_EMAIL`, `Destination.ToAddresses: [resolvedEmail]`. **Do not catch-and-swallow** the SES call — let a send failure propagate as a thrown error (surfaces to the UI as an error toast per R... edge case "SES send failure must not silently succeed").
-13. Return `{ success: true, sentTo: resolvedEmail }`.
+5. **Status gate**: `if (game.status !== 'completed') throw new Error('Game summary email is only available once the game is completed')`. (No special-case for archived teams — an archived team's games remain readable/emailable, consistent with the rest of the app's "archived = read-only, not read-blocked" behavior.)
+6. **Rate limit gate (Major 4)**: `checkRateLimit(callerSub)` — same `UpdateCommand`-based atomic-increment-then-check shape as `create-github-issue/handler.ts` lines 122-145, against `RATE_LIMIT_TABLE`, `MAX_SUMMARY_EMAILS_PER_HOUR = 10` (generous relative to realistic usage — a handful of completed games in a single tournament day — while still bounding the cost of a bypassed/absent client-side `isSending` guard, direct API calls, or reload-and-reclick). Throws `'Rate limit exceeded. Try again later.'` if exceeded. Placed after the authz/status gates (so a caller who isn't even a coach on the game, or the game isn't completed, doesn't consume their own quota on a call that was going to fail anyway) but before any further reads.
+7. Resolve caller email via the `accept-invitation`-style fallback chain (§3.4), ending in `AdminGetUserCommand({ UserPoolId: process.env.USER_POOL_ID, Username: identity.username || callerSub })`. If no email attribute is found after all fallbacks, throw `'Unable to resolve your account email address'` (edge case: coach's Cognito user has no email attribute — surfaces as a clear button-click error, not a silent no-op).
+8. `GetCommand` the `Team` (best-effort — used only for display name in the subject/greeting; if missing, fall back to a generic `'Your Team'` string rather than failing the whole send).
+9. In parallel, `QueryCommand` both `Goal` and `GameNote` (§3.7/§4): `IndexName: 'gsi-Game.goals'` / `'gsi-Game.gameNotes'`, `KeyConditionExpression: 'gameId = :gameId'`, `FilterExpression: 'contains(coaches, :callerId)'`, `ExpressionAttributeValues: { ':gameId': gameId, ':callerId': callerSub }`. Paginate via `LastEvaluatedKey` in a `do...while` loop (same shape as `delete-game-safe`'s `scanAll`, renamed locally to `queryAllByGameId` since it's now index-based, not a full scan).
+10. Split `GameNote` results into `preGameNotes` (`noteType === 'coaching-point'`, sorted by `timestamp` ascending) and `inGameNotes` (everything else, sorted by `(half, gameSeconds)` ascending with `timestamp` as a tiebreak) — see Q1 resolution in §0/§6. Sort `Goal` results by `(half, gameSeconds)` ascending.
+11. Collect distinct player IDs referenced (`goal.scorerId`, `goal.assistId`, `note.playerId` across both note buckets), `BatchGetCommand` the `Player` table (id, firstName, lastName only) in chunks of 100, matching `get-team-coach-profiles/handler.ts`'s `batchGetCoachProfiles` shape. Build an `id → "First Last"` map; any ID with no match (e.g. a hard-deleted-player edge case) renders as `"a former player"` rather than blank/crashing.
+12. Build subject: `` `Game Summary: ${teamName} vs ${game.opponent}` ``. Build HTML + plain-text bodies (§6 below), passing every dynamic string through the new `escapeHtml` helper (§5.2a) in the HTML branch only.
+13. `SendEmailCommand` via `SESClient`, `Source: FROM_EMAIL`, `Destination.ToAddresses: [resolvedEmail]`. **Do not catch-and-swallow** the SES call — let a send failure propagate as a thrown error (surfaces to the UI as an error toast; edge case "SES send failure must not silently succeed").
+14. Return `{ success: true, sentTo: resolvedEmail }`.
+
+### 5.2a NEW: `amplify/functions/shared/escapeHtml.ts` (Major 3)
+A minimal, dependency-free helper — this folder is already the established home for cross-function logic (`coachArraySync.ts`, `ical/parser.ts`):
+```ts
+const HTML_ESCAPE_MAP: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+/** Escapes the five HTML-significant characters. Apply to every dynamic
+ * string interpolated into an HTML email/document body — do NOT apply to
+ * plain-text bodies (unnecessary there, and would show literal "&amp;" etc.
+ * to the reader). */
+export function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => HTML_ESCAPE_MAP[char]);
+}
+```
+Applied in the new handler to: `teamName`, `game.opponent`, every resolved player display name (scorer/assist/note-player), and `GameNote.notes` free text (the highest-risk field — up to 500 chars of coach-authored content, potentially containing `<a href>`/`<script>`-shaped text). Not applied to the plain-text email branch.
+
+### 5.2b NEW: `amplify/functions/shared/escapeHtml.test.ts`
+Cases: escapes all five characters; leaves plain alphanumeric/punctuation text untouched; a realistic phishing-style input (`<a href="evil.example">click</a>`) renders as inert escaped text, not a live tag, when the output is embedded in an HTML fragment assertion.
 
 ### 5.3 NEW: `amplify/functions/email-game-summary/handler.test.ts`
 Vitest, mocking `@aws-sdk/client-dynamodb`, `@aws-sdk/lib-dynamodb`, `@aws-sdk/client-ses`, `@aws-sdk/client-cognito-identity-provider` the same way `get-team-coach-profiles/handler.test.ts` mocks Dynamo (hoisted `mockSend` per client). Cases:
-- Caller not in `Game.coaches` → throws access-denied, no Scan/SES calls made (assert call counts).
-- `Game` not found → throws, no further calls.
-- `Game.status !== 'completed'` (e.g. `'in-progress'`) → throws, no Goal/GameNote/SES calls.
-- Happy path: mocked Game (completed, caller in coaches), Team, Goal rows (mixed `scoredByUs`), GameNote rows (mixed `noteType` including a `coaching-point` with null `gameSeconds`/`half`), Player batch-get → asserts `SendEmailCommand` called once with the resolved recipient, correct subject, and that the email body contains each goal's scorer/assist name and every note's text (spot-check via substring assertions on the `Html`/`Text` body strings).
-- Game with zero goals and zero notes → still sends, body contains the "no goals recorded"/"no notes recorded" copy (not a blank section).
+- Caller not in `Game.coaches` → throws access-denied, no Query/BatchGet/SES/rate-limit calls made (assert call counts).
+- `Game` not found → throws distinct "not found" message, no further calls.
+- `Game.status !== 'completed'` (e.g. `'in-progress'`) → throws, no Query/GameNote/SES/rate-limit calls.
+- Rate limit exceeded (`checkRateLimit` returns/mocks a count over the cap) → throws `'Rate limit exceeded...'`, no Query/BatchGet/SES calls made after the check.
+- **Row-level filter (Major 2):** mocked `QueryCommand` response includes a `Goal`/`GameNote` row whose `coaches` array does *not* include the caller — asserted via the constructed `FilterExpression`/`ExpressionAttributeValues` on the `QueryCommand` call (`contains(coaches, :callerId)` present with the correct caller ID), and/or via a mock that only returns filter-matching rows and confirms the email body doesn't reference the excluded row's content.
+- **Query targets the confirmed GSIs, not Scan:** asserts `QueryCommand` (not `ScanCommand`) is constructed with `IndexName: 'gsi-Game.goals'` and `'gsi-Game.gameNotes'` respectively.
+- Happy path: mocked Game (completed, caller in coaches), Team, Goal rows (mixed `scoredByUs`), GameNote rows split across pre-game (`coaching-point`, null half/gameSeconds) and in-game (`yellow-card`, `gold-star`, `other`) types → asserts `SendEmailCommand` called once with the resolved recipient, correct subject, correct two-section note ordering, and that the email body contains each goal's scorer/assist name and every note's text (spot-check via substring assertions on the `Html`/`Text` body strings).
+- **HTML escaping (Major 3):** a `GameNote.notes` value containing `<a href="...">`/`<script>` renders as escaped entities in the `Html` body (assert no literal `<a `/`<script` substring survives) while the `Text` body contains the raw, unescaped string.
+- Game with zero goals and zero notes → still sends, body contains the "no goals recorded"/"no pre-game notes"/"no in-game notes" copy (not a blank section).
 - `AdminGetUser` returns no `email` attribute (and all earlier fallbacks also miss) → throws `'Unable to resolve your account email address'`, no SES call.
 - `SendEmailCommand` rejects (mocked SES throwing) → error propagates out of the handler (not swallowed), asserted via `await expect(handler(...)).rejects.toThrow(...)`.
 
@@ -173,12 +272,12 @@ Mirrors `get-team-coach-profiles/package.json` shape, dependencies: `@aws-sdk/cl
 
 ### 5.5 MODIFIED: `amplify/data/resource.ts`
 - Add `import { emailGameSummary } from "../functions/email-game-summary/resource";` alongside the other function imports (top of file).
-- Add the `EmailGameSummaryResult` customType and `emailGameSummary` mutation (§4 above), placed near the other Game-adjacent custom mutations (after `createGameSafe`, before `CalendarFeed`, to keep game-lifecycle mutations grouped — matches the file's existing loose grouping-by-topic).
+- Add the `EmailGameSummaryResult` customType, `EmailGameSummaryRateLimit` model, and `emailGameSummary` mutation (§4 above), placed near the other Game-adjacent custom mutations (after `createGameSafe`, before `CalendarFeed`) and near `BugReportRateLimit` for the rate-limit table (keeps same-shaped Lambda-only tables grouped).
 
 ### 5.6 MODIFIED: `amplify/backend.ts`
 - Import `emailGameSummary` from `./functions/email-game-summary/resource`.
 - Add `emailGameSummary` to the `defineBackend({...})` object.
-- Wire least-privilege grants, placed near the existing `gameTable`/`goalTable`/`gameNoteTable` constants (already declared, lines 107–113; no new table constants needed except reusing `teamTable`, `goalTable`, `gameNoteTable`, `gameTable`, `playerTable`):
+- Wire least-privilege grants, reusing the existing `gameTable`, `teamTable`, `goalTable`, `gameNoteTable`, `playerTable` constants already declared in the file (lines 102-113; `playerTable` is already in scope from `acceptInvitation`'s grants):
   ```ts
   backend.emailGameSummary.resources.lambda.addToRolePolicy(
     new PolicyStatement({
@@ -186,18 +285,29 @@ Mirrors `get-team-coach-profiles/package.json` shape, dependencies: `@aws-sdk/cl
       resources: [gameTable.tableArn, teamTable.tableArn],
     })
   );
+
+  // Major 1 / §3.7: Query against the confirmed relationship GSIs — table
+  // ARN alone does not authorize a GSI Query (see revoke-coach-access's own
+  // comment on this, lines 423-434), so both the table and index ARNs are
+  // granted, same shape as that Lambda's TeamRoster/FieldPosition/Game/
+  // TeamInvitation grants.
   backend.emailGameSummary.resources.lambda.addToRolePolicy(
     new PolicyStatement({
-      actions: ['dynamodb:Scan'],
-      resources: [goalTable.tableArn, gameNoteTable.tableArn],
+      actions: ['dynamodb:Query'],
+      resources: [
+        goalTable.tableArn, `${goalTable.tableArn}/index/gsi-Game.goals`,
+        gameNoteTable.tableArn, `${gameNoteTable.tableArn}/index/gsi-Game.gameNotes`,
+      ],
     })
   );
+
   backend.emailGameSummary.resources.lambda.addToRolePolicy(
     new PolicyStatement({
       actions: ['dynamodb:GetItem', 'dynamodb:BatchGetItem'],
       resources: [playerTable.tableArn],
     })
   );
+
   backend.emailGameSummary.addEnvironment('GAME_TABLE', gameTable.tableName);
   backend.emailGameSummary.addEnvironment('TEAM_TABLE', teamTable.tableName);
   backend.emailGameSummary.addEnvironment('GOAL_TABLE', goalTable.tableName);
@@ -220,18 +330,24 @@ Mirrors `get-team-coach-profiles/package.json` shape, dependencies: `@aws-sdk/cl
       resources: [sesIdentityArn, sesConfigSetArn],
     })
   );
+
+  // Rate limiting (Major 4 / §3.8) — Lambda-only table, UpdateItem only
+  // (atomic ADD counter), no GetItem/Query needed since checkRateLimit's
+  // single UpdateCommand with ReturnValues: 'ALL_NEW' both writes and reads.
+  const emailGameSummaryRateLimitTable = backend.data.resources.tables['EmailGameSummaryRateLimit'];
+  backend.emailGameSummary.resources.lambda.addToRolePolicy(
+    new PolicyStatement({
+      actions: ['dynamodb:UpdateItem'],
+      resources: [emailGameSummaryRateLimitTable.tableArn],
+    })
+  );
+  backend.emailGameSummary.addEnvironment('RATE_LIMIT_TABLE', emailGameSummaryRateLimitTable.tableName);
   ```
-  `playerTable` is not currently declared as a `const` in `backend.ts` (only referenced inline for `acceptInvitation`'s grants via the local `playerTable` const at line 103 — reuse it, it's already in scope for the whole file).
 
-### 5.7 NEW: `src/services/gameSummaryEmailService.ts`
+### 5.7 MODIFIED: `src/services/gameService.ts` (Minor 3 — not a new file)
+Add alongside the existing `createGame`:
 ```ts
-import { generateClient } from 'aws-amplify/data';
-import type { Schema } from '../../amplify/data/resource';
-import { assertMutationResult } from './amplifyMutationResult';
-
-const client = generateClient<Schema>();
-
-/** Sends the calling coach a summary email for a completed game. Recipient is always the caller's own Cognito email — resolved server-side. */
+/** Sends the calling coach a summary email for a completed game they coach. Recipient is always the caller's own Cognito email — resolved server-side, never client-supplied. */
 export async function emailGameSummary(gameId: string): Promise<NonNullable<Schema['emailGameSummary']['returnType']>> {
   const result = await client.mutations.emailGameSummary({ gameId });
   return assertMutationResult(result, 'Failed to send game summary email');
@@ -239,7 +355,7 @@ export async function emailGameSummary(gameId: string): Promise<NonNullable<Sche
 ```
 
 ### 5.8 NEW: `src/components/GameManagement/EmailSummaryButton.tsx`
-Small, self-contained component (pure-ish, one Amplify-backed action) — follows the "each completed-state section is its own component" convention (ISSUE-63 plan §3.1), but is deliberately **not** merged into `CompletedPlayTimeSummary` (that component is explicitly documented as having "No imports of Amplify client or hooks — pure display component"; keep that boundary intact).
+Small, self-contained component (pure-ish, one Amplify-backed action) — follows the "each completed-state section is its own component" convention, but is deliberately **not** merged into `CompletedPlayTimeSummary` (that component is explicitly documented as having "No imports of Amplify client or hooks — pure display component"; keep that boundary intact).
 
 ```ts
 interface EmailSummaryButtonProps {
@@ -262,22 +378,20 @@ export function EmailSummaryButton({ gameId }: EmailSummaryButtonProps) {
   };
 
   return (
-    <div className="completed-email-summary">
-      <button
-        onClick={handleClick}
-        className="btn-secondary"
-        disabled={isSending}
-      >
-        {isSending ? 'Sending…' : 'Email Summary'}
-      </button>
-    </div>
+    <button
+      onClick={handleClick}
+      className="btn-secondary"
+      disabled={isSending}
+    >
+      {isSending ? 'Sending…' : 'Email Summary'}
+    </button>
   );
 }
 ```
-Uses `showSuccess`/`showError` from `src/utils/toast.ts` — same as `deleteGameButton`'s inline handler in `GameManagement.tsx`.
+Uses `showSuccess`/`showError` from `src/utils/toast.ts` — same as `deleteGameButton`'s inline handler in `GameManagement.tsx`. No wrapping `<div>` with a dedicated CSS class this time (Minor 8/§5.11) — it renders as a plain sibling button inside `.completed-footer`, which already provides flex/gap layout.
 
 ### 5.9 NEW: `src/components/GameManagement/EmailSummaryButton.test.tsx`
-Mocks `src/services/gameSummaryEmailService.ts` (`vi.mock`) and `src/utils/toast.ts`. Cases:
+Mocks `src/services/gameService.ts` (`vi.mock`) and `src/utils/toast.ts`. Cases:
 - Renders "Email Summary" button, not disabled initially.
 - Click → button shows "Sending…" and is disabled while the mocked promise is pending.
 - Resolves with `{ success: true, sentTo: 'coach@example.com' }` → `showSuccess` called with a message containing the email; button re-enabled.
@@ -286,48 +400,55 @@ Mocks `src/services/gameSummaryEmailService.ts` (`vi.mock`) and `src/utils/toast
 
 ### 5.10 MODIFIED: `src/components/GameManagement/GameManagement.tsx`
 - Import `EmailSummaryButton` from `./EmailSummaryButton`.
-- In the `completed-layout` block (line ~2637), render it immediately after `CompletedPlayTimeSummary`:
+- **Placement (Minor 8 — proposed, final call deferred to ui-reviewer):** render inside the existing `completed-footer` block (line ~2679-2686), between the "View Full Season Report" link and `deleteGameButton` — grouping it with the other game-level (non-content) actions rather than inserting it into the content flow between `CompletedPlayTimeSummary` and `CompletedGameTimeline`:
   ```tsx
-  <CompletedPlayTimeSummary
-    players={players}
-    playTimeRecords={playTimeRecords}
-    gameEndSeconds={gameState.elapsedSeconds ?? 0}
-  />
-  <EmailSummaryButton gameId={game.id} />
-  <CompletedGameTimeline ... />
+  {gameState.status === 'completed' && (
+    <div className="completed-footer">
+      <Link to={`/reports/${team.id}`} className="btn-link completed-report-link__anchor">
+        View Full Season Report →
+      </Link>
+      <EmailSummaryButton gameId={game.id} />
+      {deleteGameButton}
+    </div>
+  )}
   ```
-  `game.id` is already in scope (used elsewhere in this component, e.g. `deleteGameCascade(game.id)`).
+  `game.id` is already in scope (used elsewhere in this component, e.g. `deleteGameCascade(game.id)`). If the ui-reviewer prefers the original "next to `CompletedPlayTimeSummary`" placement instead, the only other file this affects is §5.11 (whether a new CSS block is needed).
 
 ### 5.11 MODIFIED: `src/App.css`
-Append a new section at the bottom (per CLAUDE.md's single-stylesheet convention) for `.completed-email-summary` — spacing/margin to sit naturally between the play-time table and the timeline; button reuses the existing `.btn-secondary` class, no new button variant needed.
+With the `.completed-footer` placement (§5.10), **no new CSS block is needed** — `.completed-footer` (`App.css` lines 8307-8314) is already a `flex`/`column`/`gap: 1rem` container and the button reuses the existing `.btn-secondary` class. Implementer should confirm `.btn-secondary:disabled` already has a reasonable visual state (it's used elsewhere for disabled async actions, e.g. the halftime `Manage Injuries`/`Add note` buttons don't currently disable, so this may be the first `.btn-secondary` `disabled` use — check and add a minimal `:disabled` rule near `.btn-delete-game`'s existing block, lines 3998-4017, if missing). If the ui-reviewer instead picks the original near-`CompletedPlayTimeSummary` placement, add a small `.completed-email-summary` wrapper block at the bottom of `App.css` for spacing, per CLAUDE.md's single-stylesheet convention.
 
 ### 5.12 MODIFIED: `src/types/schema.ts`
 Add, alongside the existing `CalendarSyncResult` line (19):
 ```ts
 export type EmailGameSummaryResult = NonNullable<Schema["emailGameSummary"]["returnType"]>;
 ```
-Not strictly required by the button component (which can consume the service's return type directly), but matches this file's existing convention of centralizing every schema-derived type, and gives `EmailSummaryButton.tsx` a clean import if a future consumer needs the shape.
+Not strictly required by the button component (which can consume the service's return type directly), but matches this file's existing convention of centralizing every schema-derived type.
 
 ### 5.13 MODIFIED: `README.md`
 - **Features → Game Day Management**: add a bullet, e.g. `- **Email Game Summary**: After a game is completed, a coach can email themselves a summary — final score, goal scorers/assists, and all game notes/cards/gold stars`.
 - **Technology Stack**: update the `Email` line from `Amazon SES (team invitation emails)` to `Amazon SES (team invitation emails, post-game summary emails)`.
-- No Data Model section change — no new model.
+- No Data Model section change — no new coach-visible model (the rate-limit table is Lambda-only, not part of the app's data model from a coach's perspective).
 
 ### 5.14 MODIFIED: `docs/specs/UI-SPEC.md`
-Update §7.6 "Game Management — Completed State" (lines 433–447), "Components Rendered" list — insert the new button between items 2 and 3:
+Update §7.6 "Game Management — Completed State" (lines 433–447), "Components Rendered" list:
 ```
 1. **GameHeader** — final score
 2. Play time summary table (player → total minutes)
-3. **Email Summary button** — sends the current coach a game-summary email (opponent, score, goals, notes); shows a loading state while sending and a success/error toast on completion
-4. Game notes summary (gold stars, cards)
-5. `View Full Report` link → navigates to `/reports/:teamId`
+3. Game notes summary (gold stars, cards)
+4. **Completed-footer actions**: `View Full Report` link → `/reports/:teamId`; **Email Summary button** — sends the current coach a game-summary email (opponent, score, goals, pre-game and in-game notes); shows a loading state while sending and a success/error toast on completion; delete-game button
 ```
-(renumbering the two existing trailing items).
+(If ui-reviewer moves the button per Minor 8's open question, update this list accordingly — item 3 gains a fifth line instead of item 4 gaining a bullet.)
 
-### 5.15 MODIFIED: `docs/ARCHITECTURE.md`
-Add a row to the Lambda functions table (same table containing `accept-invitation`, `sync-team-calendar`, etc., lines ~353–359):
+### 5.15 MODIFIED: `docs/ARCHITECTURE.md` (Minor 7 — both stale lists)
+Both the Lambda Functions table (~line 348) and the GraphQL Operations list (~line 360) currently list `send-bug-report`/`update-issue-status`/`submitBugReport`/`updateIssueStatus`, none of which exist anymore (§3.4) — pre-existing drift, not touched further here, just not perpetuated by the new entries. Add:
+
+Lambda Functions table, new row:
 ```
-| `email-game-summary` | Custom GraphQL mutation | Verifies caller is in `Game.coaches` and game is completed, resolves caller's email via `AdminGetUser`, and sends a summary email (score, goals, notes) via SES |
+| `email-game-summary` | Custom GraphQL mutation | Verifies caller is in `Game.coaches` and the game is completed, rate-limits per caller, resolves caller's email via `AdminGetUser`, queries `Goal`/`GameNote` via their relationship GSIs filtered to caller-visible rows, and sends a summary email (score, goals, notes) via SES |
+```
+GraphQL Operations list, new bullet:
+```
+- `emailGameSummary` mutation — sends the calling coach a summary email for a completed game they coach
 ```
 
 ---
@@ -336,16 +457,19 @@ Add a row to the Lambda functions table (same table containing `accept-invitatio
 
 **Subject:** `Game Summary: {teamName} vs {opponent}`
 
-**Body sections (HTML mirrors `send-invitation-email`'s visual style — header banner, `.content` box, `.footer`; plain-text fallback included per SES multipart convention):**
+**Body sections (HTML mirrors `send-invitation-email`'s visual style — header banner, `.content` box, `.footer`; plain-text fallback included per SES multipart convention). Every dynamic value in the HTML branch is passed through `escapeHtml` (§5.2a) — the plain-text branch uses raw values, unescaped, since it's not markup:**
 
-1. **Header:** `{teamName} vs {opponent}` — `{Home|Away}` — formatted `gameDate` (fallback: "Date not recorded" if `gameDate` is null) — **Final Score:** `{teamName} {ourScore} – {opponent} {opponentScore}`.
+1. **Header:** `{teamName} vs {opponent}` — `{Home|Away}` — formatted `gameDate` (fallback: "Date not recorded" if `gameDate` is null) — **Final Score:** `{teamName} {ourScore} – {opponent} {opponentScore}`. (Jersey numbers are not included anywhere in the email — Minor 4 — since they live on `TeamRoster`, not `Player`, and pulling them in would need a new table read/IAM grant for a field outside R1-R9's explicit scope. Deliberate deferral, not an oversight.)
 2. **Goals** (sorted `half` asc, `gameSeconds` asc):
    - If none: "No goals recorded for this game."
    - Else, one line per goal: `Half {half}, {mm:ss} — ` then either `{teamName} goal by {scorerName}` (+ `, assisted by {assistName}` if `assistId` present) when `scoredByUs`, or `{opponent} goal` when not `scoredByUs` (no scorer/assist fields exist for opponent goals in the schema).
-3. **Game Notes** (sorted `timestamp` asc, unfiltered — every `noteType`):
-   - If none: "No notes recorded for this game."
-   - Else, one line per note: `{formatted timestamp} — [{noteTypeLabel}]{ ' ' + playerName if playerId present }: {notes text}`, where `noteTypeLabel` maps `coaching-point → "Coaching Note"`, `gold-star → "⭐ Gold Star"`, `yellow-card → "🟨 Yellow Card"`, `red-card → "🟥 Red Card"`, `other → "Note"`.
-4. **Footer:** standard "you're receiving this because you clicked Email Summary in TeamTrack" line — no unsubscribe link needed (not a recurring/marketing email; matches R2's "clicking is the consent" decision).
+3. **Pre-Game Notes** (Q1 resolution — separate section, `noteType === 'coaching-point'` only, sorted `timestamp` asc):
+   - If none: "No pre-game notes recorded."
+   - Else, one line per note: `{formatted timestamp} — {notes text}` (no player attribution shown here even if `playerId` is set — pre-game notes are general team-level notes by convention, matching `PreGameNotesPanel.tsx`'s own display).
+4. **In-Game Notes** (Q1 resolution — separate section, every `noteType !== 'coaching-point'`, sorted `half` asc then `gameSeconds` asc, `timestamp` as tiebreak):
+   - If none: "No in-game notes recorded."
+   - Else, one line per note: `Half {half}, {mm:ss} — [{noteTypeLabel}]{ ' ' + playerName if playerId present }: {notes text}`, where `noteTypeLabel` maps `gold-star → "⭐ Gold Star"`, `yellow-card → "🟨 Yellow Card"`, `red-card → "🟥 Red Card"`, `other → "Note"`. (`coaching-point` never appears here by construction — it's exhaustively the other bucket.)
+5. **Footer:** standard "you're receiving this because you clicked Email Summary in TeamTrack" line — no unsubscribe link needed (not a recurring/marketing email; matches R2's "clicking is the consent" decision).
 
 ---
 
@@ -353,46 +477,58 @@ Add a row to the Lambda functions table (same table containing `accept-invitatio
 
 | Case | Handling |
 |---|---|
-| Caller not in `Game.coaches` | Handler throws before any Goal/GameNote/Player read or SES call; AppSync surfaces the error; button shows `showError` toast |
+| Caller not in `Game.coaches` | Handler throws before any Query/BatchGet/SES/rate-limit call; AppSync surfaces the error; button shows `showError` toast |
 | `Game.status !== 'completed'` | Handler throws a clear message; caught by the button, shown via `showError`. (UI layer never actually offers the button outside `completed-layout`, so this is a defense-in-depth server check, not the primary UX gate) |
+| Caller is in `Game.coaches` but not backfilled onto a specific older `Goal`/`GameNote` row (Major 2) | Row-level `FilterExpression: contains(coaches, :callerId)` excludes it from both the Query result and the email — matches what that coach would see in-app |
+| Caller exceeds 10 sends/hour (Major 4) | Handler throws `'Rate limit exceeded. Try again later.'` before any Query/SES call; shown via `showError` |
 | Game has no goals | Email still sends; "No goals recorded" copy, not an empty/malformed section |
-| Game has no notes | Email still sends; "No notes recorded" copy |
+| Game has no pre-game or in-game notes | Email still sends; each empty section gets its own "No ... recorded" copy independently |
+| `GameNote.notes` contains HTML-significant characters (Major 3) | Escaped in the HTML body via `escapeHtml`; shown raw (correctly) in the plain-text body |
 | SES send failure (throttling, unverified identity edge case, etc.) | Not caught/swallowed in the handler — propagates as a thrown error, AppSync returns it as a GraphQL error, `assertMutationResult` throws, button's catch shows `showError`. UI never shows a false "Sent!" success |
-| Coach's Cognito user has no `email` attribute at all | All fallback steps miss (including `AdminGetUser`); handler throws `'Unable to resolve your account email address'` before touching Goal/GameNote/Player tables or SES |
+| Coach's Cognito user has no `email` attribute at all | All fallback steps miss (including `AdminGetUser`); handler throws `'Unable to resolve your account email address'` before touching Goal/GameNote/Player tables, rate-limit table, or SES |
 | Goal/GameNote references a player ID that no longer resolves (edge case even though `delete-player-safe` cascades `Goal`/`GameNote` cleanup on delete) | Batch-get miss renders as `"a former player"` rather than blank text or a crash |
 | `Team` record missing (orphaned game) | Falls back to `"Your Team"` in subject/header rather than failing the whole send |
-| Double-click / rapid repeat clicks | Button is `disabled` while `isSending` is true — prevents duplicate concurrent sends from a single click sequence. (Two separate deliberate clicks across two sends is accepted — each is a valid, intentional resend, there's no dedup requirement in the requirements) |
+| Game belongs to an archived team | No special-case — archived teams are read-only, not read-blocked; the game and its goals/notes remain fully queryable and emailable, consistent with how the rest of the app treats archived-team data (view/report, not edit) |
+| Coach is offline (or the mutation call fails mid-flight for a network reason) | Custom mutations are **not** queued by `offlineQueueService` (it only intercepts model create/update/delete calls, not custom Lambda-backed mutations) — this is an online-only action. A network failure surfaces as a rejected promise from `client.mutations.emailGameSummary(...)`, caught by `EmailSummaryButton`'s existing try/catch, showing the generic `'Failed to send summary email'` fallback via `showError` (the thrown error in this case is a raw network/GraphQL-transport error, not one of the handler's own `Error` messages, so it won't have a specific instructive string — acceptable, since retry-when-back-online is the only actionable guidance anyway) |
+| Double-click / rapid repeat clicks | Button is `disabled` while `isSending` is true — prevents duplicate concurrent sends from a single click sequence. (Two separate deliberate clicks across two sends is accepted — each is a valid, intentional resend, within the rate limit's bound) |
 
 ---
 
 ## 8. Risks
 
-- **SES sending limits/verified-identity scope:** reuses the already-verified `coachteamtrack.com` identity and existing config-set ARNs — no new SES setup needed, but this adds a second call path (button clicks, potentially bursty right after many games complete on a Saturday) on top of the existing invitation-email volume against the same sending quota. Low risk given current usage patterns, but worth a mental note if SES throttling errors start appearing in this Lambda's logs.
-- **IAM permission scope:** kept least-privilege and per-table (mirrors `getTeamCoachProfiles`/`archiveTeam` style grants, not a blanket `grantReadWriteData`) — `GetItem` only on `Game`/`Team`, `Scan` only on `Goal`/`GameNote` (no write actions granted at all, since this Lambda never mutates anything).
-- **PII in email body:** player first/last names, plus the clicking coach's own resolved email as the sole recipient. No new PII exposure beyond what a coach can already see on-screen in the completed-game view (play time, notes, goals) — the email is just that same data, addressed only to someone who already has read access to it.
-- **`Scan`-based reads on `Goal`/`GameNote` (no GSI on `gameId`):** cost grows with total table size, not just the game's own row count — but this is pre-existing, accepted precedent in `delete-game-safe`, not a new pattern introduced here. Not blocking, but if a future plan ever adds a `gameId` GSI to either table (matching what `PlayTimeRecord`/`QueuedSubstitution` already have via `secondaryIndexes`), this Lambda should be switched to `Query` at that time.
+- **SES sending limits/quota shared with invitation email:** mitigated by the new per-caller rate limit (Major 4, §3.8, §4) — 10 sends/caller/hour bounds worst-case volume from a single compromised/misbehaving client to a level far below any realistic SES account-level quota concern, and specifically prevents this feature from being able to exhaust the shared quota and cause `send-invitation-email` (a business-critical path) to start failing. No SES-quota-headroom analysis was done beyond this bound, since the bound itself is the mitigation, not a claim about current quota headroom.
+- **IAM permission scope:** kept least-privilege and per-table (mirrors `getTeamCoachProfiles`/`archiveTeam`/`revoke-coach-access` style grants, not a blanket `grantReadWriteData`) — `GetItem` only on `Game`/`Team`, `Query` (not `Scan`) on the confirmed `Goal`/`GameNote` relationship GSIs with both table and index ARNs granted, `UpdateItem` only on the new rate-limit table, no write actions granted on any coach-visible table (this Lambda never mutates `Game`/`Goal`/`GameNote`/`Player`).
+- **PII exposure (restated accurately, Minor 6):** this feature moves player first/last names and disciplinary records (yellow/red cards) — data a coach can already see on-screen in the completed-game view — into a **new** surface: the coach's own email inbox, plus SES delivery logs and this Lambda's CloudWatch logs. That's a real, distinct exposure surface (a different retention/access model than an authenticated in-app view, e.g. inbox forwarding, email provider retention, log retention policy), even though the only recipient is the same coach who already has read access to the underlying data. Not blocking — this is the entire point of the feature and R2's "clicking is the consent" already accepts it for the recipient side — but it should not be described as "no new exposure."
+- **`Query`-based reads on `Goal`/`GameNote` via their relationship GSIs (Major 1, resolved):** confirmed to exist via the actual transformer source (§3.7), not analogy — this removes what would otherwise have been an unbounded-Scan risk on a synchronous, user-facing click path. Residual risk is limited to the (considered unlikely, given the source-level evidence) case that the first real sandbox deploy surfaces a `ResourceNotFoundException` for either index name, which would be caught immediately by the handler's own `handler.test.ts` `IndexName` assertions failing to match reality only if a manual deploy/integration check is also run — this plan does not add an automated deploy-time index-existence check beyond that.
 
 ---
 
 ## 9. Sequencing
 
-1. Backend first (`amplify/functions/email-game-summary/`, `amplify/data/resource.ts`, `amplify/backend.ts`) — the frontend service/component import `Schema['emailGameSummary']`, which only exists after the schema change is deployed (`ampx sandbox` locally / pipeline-deploy in CI) and `amplify_outputs.json`/generated types are refreshed.
-2. Frontend service (`gameSummaryEmailService.ts`) and `EmailSummaryButton.tsx` next, once the mutation is deployed and typed.
-3. `GameManagement.tsx` wiring + CSS last.
-4. Docs (`README.md`, `UI-SPEC.md`, `ARCHITECTURE.md`) updated alongside the corresponding code change, not deferred to the end.
+1. Backend first (`amplify/functions/email-game-summary/`, `amplify/functions/shared/escapeHtml.ts`, `amplify/data/resource.ts`, `amplify/backend.ts`) — the frontend service/component import `Schema['emailGameSummary']`, which only exists after the schema change is deployed (`ampx sandbox` locally / pipeline-deploy in CI) and generated types are refreshed. The new `EmailGameSummaryRateLimit` table must exist before the handler's `checkRateLimit` can run (same ordering constraint `create-github-issue`/`BugReportRateLimit` already has).
+2. On first real sandbox deploy, do a quick manual smoke check that the `Query` calls against `gsi-Game.goals`/`gsi-Game.gameNotes` succeed against a real game with at least one goal and one note (cheap, since §3.7's evidence is strong but not itself a live-deploy confirmation).
+3. Frontend service addition (`gameService.ts`) and `EmailSummaryButton.tsx` next, once the mutation is deployed and typed.
+4. `GameManagement.tsx` wiring + any CSS adjustment last, after ui-reviewer resolves the Minor 8 placement question.
+5. Docs (`README.md`, `UI-SPEC.md`, `ARCHITECTURE.md`) updated alongside the corresponding code change, not deferred to the end.
 
 ---
 
 ## 10. Test Strategy
 
-**Backend (`amplify/functions/email-game-summary/handler.test.ts`, Vitest, mocked AWS SDK clients — see §5.3 for full case list):**
+**Backend (`amplify/functions/email-game-summary/handler.test.ts`, Vitest, mocked AWS SDK clients — full case list in §5.3):**
 - Authz rejection (caller ∉ `Game.coaches`).
 - Game-not-found rejection.
 - Non-`completed` status rejection.
-- Happy path: correct SES call (recipient, subject, body contents) with mixed goals/notes/note-types.
-- Empty-goals / empty-notes still sends with fallback copy.
+- Rate-limit-exceeded rejection, before any Query/SES call.
+- Row-level visibility filter (Major 2) — excluded row never reaches the email.
+- `QueryCommand` (not `ScanCommand`) used, with the correct `IndexName`s (Major 1).
+- Happy path: correct SES call (recipient, subject, two-section note ordering, body contents) with mixed goals/notes/note-types.
+- HTML escaping (Major 3) — malicious-shaped note text is inert in the HTML body, raw in the text body.
+- Empty-goals / empty-pre-game-notes / empty-in-game-notes still sends with fallback copy, independently.
 - Email-resolution total failure (no `AdminGetUser` email attribute).
 - SES send failure propagates, is not swallowed.
+
+`amplify/functions/shared/escapeHtml.test.ts` (§5.2b): escaping correctness, no-op on safe input, phishing-shaped input rendered inert.
 
 **Frontend (`src/components/GameManagement/EmailSummaryButton.test.tsx`, Vitest + Testing Library, mocked service module — see §5.9):**
 - Default render state.
@@ -400,7 +536,7 @@ Add a row to the Lambda functions table (same table containing `accept-invitatio
 - Success toast path.
 - Error toast path (both `Error` and non-`Error` rejection shapes).
 
-**Existing tests affected:** `GameManagement.test.tsx` may need a snapshot/assertion update if it asserts the exact child list of `completed-layout` (grep for any such assertion during implementation) — otherwise no existing test should need behavior changes, since this is purely additive.
+**Existing tests affected:** `GameManagement.test.tsx` may need an assertion update if it asserts the exact child list of `.completed-footer` or `completed-layout` (grep for any such assertion during implementation) — otherwise no existing test should need behavior changes, since this is purely additive.
 
 **Not covered by unit tests (acceptable gap, per CLAUDE.md's e2e layering guidance):** actual SES delivery — mocked at the SDK boundary in both directions (`send-invitation-email` has no e2e SES-delivery test either, for the same reason: no real inbox to assert against in CI).
 
@@ -408,6 +544,12 @@ Add a row to the Lambda functions table (same table containing `accept-invitatio
 
 ## 11. Questions / Assumptions Resolved While Planning
 
-- **GameNote chronological order** = sort by `timestamp` (real-world note-creation time), not `gameSeconds`/`half` (which is null for pre-game `coaching-point` notes and wouldn't give a single consistent sort key across all note types anyway). Documented as a deliberate choice in §6.
+- **GameNote ordering** (Q1, revised): two sections — Pre-Game Notes (timestamp asc) and In-Game Notes (half asc, gameSeconds asc, timestamp tiebreak) — matching the app's own existing `PreGameNotesPanel`/`PlayerNotesPanel` split, not a new third ordering scheme.
 - **Opponent goals** (`scoredByUs === false`) are included in the goals list (for score-context completeness) but obviously carry no scorer/assist — schema has no such fields for them.
-- **Team name** is included in the email even though not explicitly listed in R4's four fields — it's already available from a `Game.teamId` lookup that's cheap to add, and "opponent" alone reads oddly without it (`"vs {opponent}"` needs a subject). Flagged here in case the architecture reviewer wants it trimmed.
+- **Team name** (Q2, approved as originally planned) is included in the email even though not explicitly listed in R4's four fields — cheap additional `Game.teamId` lookup, and "vs {opponent}" alone reads oddly as a subject without it.
+- **Row-level `Goal`/`GameNote` visibility** (Major 2): filtered to the caller's own `coaches` membership per row, not just gated at the `Game` level — see §4.
+- **Jersey numbers** (Minor 4): deliberately omitted/deferred — out of R1-R9's explicit scope, would need a new `TeamRoster` read.
+
+## 12. Open Item for Next Reviewer
+
+**Button placement (Minor 8):** this revision proposes `.completed-footer` (grouped with "View Full Season Report"/delete-game as a game-level action) over the original "next to `CompletedPlayTimeSummary`" placement, since it needs zero new CSS and groups semantically similar actions together. This is explicitly **not** a final decision — flagged for the ui-reviewer to confirm or override before implementation, since it changes which part of §5 (5.10/5.11/5.14) applies.
