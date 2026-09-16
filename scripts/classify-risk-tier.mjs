@@ -21,11 +21,19 @@ const HIGH_RISK_EXACT = [
 ];
 const HIGH_RISK_PREFIXES = ['amplify/auth/', 'amplify/functions/'];
 
+// Pipeline governance files are never trivial, even though they're markdown —
+// a change to the rules that gate every other change (e.g. narrowing the
+// Tier 2 glob list above, or loosening a loop cap) needs at least a Tier 1
+// review, not a free pass just because it's prose. See the "self-assigned"
+// risk-classification blind spot in docs/COORDINATOR-WORKFLOW-EVALUATION.md.
+const GOVERNANCE_EXACT = ['CLAUDE.md', '.github/copilot-instructions.md'];
+const GOVERNANCE_PREFIXES = ['.claude/', '.github/agents/', '.github/skills/'];
+
 function getChangedFiles(baseRef) {
   try {
     const remote = baseRef.includes('/') ? baseRef.split('/')[0] : 'origin';
     const branch = baseRef.includes('/') ? baseRef.split('/').slice(1).join('/') : baseRef;
-    execFileSync('git', ['fetch', '--quiet', remote, branch], { stdio: 'ignore' });
+    execFileSync('git', ['fetch', '--quiet', remote, '--', branch], { stdio: 'ignore' });
   } catch {
     // Best effort — fall back to whatever refs are already available locally
     // (e.g. offline, or the ref is already up to date).
@@ -48,7 +56,14 @@ function getChangedFiles(baseRef) {
     tracked = out.split('\n').map((line) => line.trim()).filter(Boolean);
   } catch {
     // No usable ref at all — fall back to working-tree + staged changes
-    // against HEAD (e.g. no base ref reachable).
+    // against HEAD (e.g. no base ref reachable). This under-reports files
+    // changed since the branch diverged from baseRef, so say so explicitly
+    // rather than letting a low tier look like a confident result.
+    console.error(
+      `warning: could not diff against "${baseRef}" (or its merge-base) — falling back to a ` +
+        'working-tree-vs-HEAD diff, which may miss files already committed since the branch ' +
+        'diverged. Treat the result below as a lower bound, not a confident classification.',
+    );
     const out = execFileSync('git', ['diff', '--name-only', 'HEAD'], { encoding: 'utf8' });
     tracked = out.split('\n').map((line) => line.trim()).filter(Boolean);
   }
@@ -69,7 +84,13 @@ function isHighRisk(file) {
   return HIGH_RISK_PREFIXES.some((prefix) => file.startsWith(prefix));
 }
 
+function isGovernance(file) {
+  if (GOVERNANCE_EXACT.includes(file)) return true;
+  return GOVERNANCE_PREFIXES.some((prefix) => file.startsWith(prefix));
+}
+
 function isTrivial(file) {
+  if (isGovernance(file)) return false;
   return file.startsWith('docs/') || file.endsWith('.md');
 }
 

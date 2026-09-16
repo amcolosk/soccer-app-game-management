@@ -11,10 +11,23 @@
 import { readFileSync } from 'node:fs';
 
 const CLAUDE_CODE_FILE = '.claude/skills/dev-pipeline/SKILL.md';
-const CLAUDE_CODE_HEADING = '## Stage sequence';
-
 const COPILOT_FILE = '.github/copilot-instructions.md';
-const COPILOT_HEADING = '### New Feature Pipeline';
+
+// Both the Tier 2 (full pipeline) and Tier 1 (lean) sequences are checked —
+// Tier 1 is the more commonly-exercised path, so drift there matters just as
+// much as drift in the Tier 2 sequence.
+const SEQUENCE_PAIRS = [
+  {
+    name: 'Tier 2 (high-risk)',
+    claudeHeading: '## Stage sequence (Tier 2 — high-risk)',
+    copilotHeading: '### New Feature Pipeline (Tier 2 — high-risk)',
+  },
+  {
+    name: 'Tier 1 (standard)',
+    claudeHeading: '## Stage sequence (Tier 1 — standard)',
+    copilotHeading: '### Standard Pipeline (Tier 1)',
+  },
+];
 
 // canonical stage name -> aliases used in each tool's pipeline files.
 // 'coordinator-agent' is intentionally excluded: Claude Code has no separate
@@ -73,20 +86,29 @@ function main() {
   const claudeContent = readFileSync(CLAUDE_CODE_FILE, 'utf8');
   const copilotContent = readFileSync(COPILOT_FILE, 'utf8');
 
-  const claudeBlock = extractFencedBlockAfterHeading(claudeContent, CLAUDE_CODE_FILE, CLAUDE_CODE_HEADING);
-  const copilotBlock = extractFencedBlockAfterHeading(copilotContent, COPILOT_FILE, COPILOT_HEADING);
+  let anyDrift = false;
 
-  const claudeSeq = canonicalSequence(claudeBlock);
-  const copilotSeq = canonicalSequence(copilotBlock);
+  for (const pair of SEQUENCE_PAIRS) {
+    const claudeBlock = extractFencedBlockAfterHeading(claudeContent, CLAUDE_CODE_FILE, pair.claudeHeading);
+    const copilotBlock = extractFencedBlockAfterHeading(copilotContent, COPILOT_FILE, pair.copilotHeading);
 
-  console.log(`Claude Code pipeline:  ${claudeSeq.join(' -> ')}`);
-  console.log(`Copilot pipeline:      ${copilotSeq.join(' -> ')}`);
+    const claudeSeq = canonicalSequence(claudeBlock);
+    const copilotSeq = canonicalSequence(copilotBlock);
 
-  const same = claudeSeq.length === copilotSeq.length && claudeSeq.every((stage, i) => stage === copilotSeq[i]);
+    console.log(`${pair.name}:`);
+    console.log(`  Claude Code pipeline:  ${claudeSeq.join(' -> ')}`);
+    console.log(`  Copilot pipeline:      ${copilotSeq.join(' -> ')}`);
 
-  if (!same) {
-    console.error('');
-    console.error('Pipeline stage sequences have drifted between the two tool variants.');
+    const same = claudeSeq.length === copilotSeq.length && claudeSeq.every((stage, i) => stage === copilotSeq[i]);
+
+    if (!same) {
+      anyDrift = true;
+      console.error(`  DRIFT: ${pair.name} sequences differ between the two tool variants.`);
+    }
+    console.log('');
+  }
+
+  if (anyDrift) {
     console.error(`Reconcile ${CLAUDE_CODE_FILE} and ${COPILOT_FILE}, or update this script's alias`);
     console.error('table in scripts/check-pipeline-drift.mjs if a stage was intentionally renamed.');
     process.exit(1);

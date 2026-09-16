@@ -54,7 +54,7 @@ calc-mode ──┬────────────────────�
 | `smoke-e2e` | Smoke E2E with S3-fetched runtime config via OIDC; runs on trusted PRs that have risk paths or the `run-smoke-e2e` label | 25 |
 | `full-e2e` | Full E2E with S3-fetched runtime config via OIDC; runs on mainline (`merge_group` / `push main`) or trusted PR with `run-full-e2e` label | 45 |
 | `ci-policy-gate` | Always-run gate: evaluates required-by-context outcomes and fails if any required job did not pass | 10 |
-| `pipeline-drift` | Informational only — diffs the dev-pipeline stage sequence between `.claude/skills/dev-pipeline/SKILL.md` and `.github/copilot-instructions.md` when either changes; see §11a | 5 |
+| `pipeline-drift` | Informational only — diffs the dev-pipeline stage sequence between `.claude/skills/dev-pipeline/SKILL.md` and `.github/copilot-instructions.md` when either changes; see §10a | 5 |
 
 ---
 

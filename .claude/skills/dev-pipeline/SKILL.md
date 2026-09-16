@@ -48,7 +48,8 @@ plan-writer -> architect-reviewer -> [ui-reviewer, if UI/UX/layout/accessibility
 Most feature and bugfix work. Optimizes for the common case: deterministic checks catch what tooling catches reliably and cheaply, one reviewer with full-diff context catches what tooling can't.
 
 ```
-[coding-agent, if the change needs no upfront plan]
+[plan-writer -> architect-reviewer, if large/cross-cutting]
+  -> coding-agent
   -> npm run knip && npm run check:bundle-size
   -> validation-reviewer (solo: correctness + security + UX in one pass)
   -> [npm run test:e2e:smoke, if UI-impacting]
