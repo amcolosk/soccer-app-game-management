@@ -191,7 +191,12 @@ export function useGameSubscriptions({
             ) {
               return prev;
             }
-            return updatedGame;
+            // Active-state score is derived locally from goals and is never
+            // persisted to the Game record (see GameManagement's score-derivation
+            // effect). Preserve it here so an unrelated Game field update (pause,
+            // resume, halftime transition, ...) doesn't clobber it back to the
+            // DB's stale 0-0 (issue #177).
+            return { ...updatedGame, ourScore: prev.ourScore, opponentScore: prev.opponentScore };
           });
 
           // If local state is already completed, skip all timer logic — this
