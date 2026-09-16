@@ -16,8 +16,9 @@
 | B | Game clock can't be stopped by a crash/forgotten pause; unstoppable drift feeds bad data into `PlayTimeRecord` | **P1 — data-integrity safety net** | Medium (new UX surface, must not race the two existing auto-triggers) | Full dev-pipeline (UI-impacting) |
 | C | Ref-guard sprawl across three files patching races between local game state and the `observeQuery` subscription | **P2 — maintainability** | Medium — higher than originally scoped; see revision below | Defect-fix pipeline, refactor-only, staged |
 | D | No transactional guarantee across `PlayTimeRecord`/`LineupAssignment`/`Substitution` writes | **P3 — structural, high value, high cost** | High | Own plan-writer + architect-reviewer pass; **not scoped for implementation here** |
+| F | Pre-release testing has no real-world/field-conditions coverage — Desktop Chrome only, offline/network testing is unit-mocked only | **P1 — release-readiness gate, parallel track** | Low for F1/F3/F6 (additive test infra); process cost for F2/F7 | F3/F6 land alongside A/B as their regression coverage; F1/F2/F7 independent; F4/F5 lower urgency |
 
-**Revised order: A → B → C → D** (changed from A → C → B — see "Sequencing" revision note below).
+**Revised order: A → B → C → D**, with **F run as a parallel track**, not a blocking predecessor — F3 and F6 specifically are the regression tests that prove A and B actually work, so they land alongside those issues rather than before or after them (changed from v1's A → C → B order — see "Sequencing" revision note below).
 
 A self-contained subset — the deterministic-id fix and the GSI query swap inside Issue A — is low-risk enough to land ahead of the rest of this plan if the team wants to unblock incrementally.
 
@@ -132,16 +133,48 @@ Surfaced during Issue A's review, not part of the original four findings: there 
 
 ---
 
+## Issue F — Pre-release real-world/field-conditions testing
+
+### Motivation (verified gap)
+`playwright.config.ts` runs **Desktop Chrome only** across both the `smoke` and `full` projects — no WebKit/Safari engine, no mobile viewport, no device emulation. Every offline/network-condition test in the repo today is a **unit-level mock** of `navigator.onLine` (`useOfflineMutations.test.ts`, `useNetworkStatus.test.ts`); there is no E2E spec that drives the real UI through an actual offline/reconnect cycle, a backgrounding event, or two coaches touching the same game concurrently. This is exactly the gap two real production bugs (#31 iOS backgrounding, #35 offline mutation loss) already came from, and it's where Issues A and B's fixes above currently have no integration-level regression coverage — only the unit tests each issue's "Files" section lists.
+
+### Sub-items
+1. **F1 — WebKit + mobile-viewport Playwright project.** Cheap addition: `devices['iPhone 13']` (or similar) plus a WebKit-engine project. Catches non-iOS-lifecycle-specific mobile/Safari-engine issues in ordinary CI. Independent of A-E.
+2. **F2 — Real-device pass for iOS PWA standalone-mode lifecycle.** Not CI-automatable with Playwright alone — desktop WebKit doesn't fully replicate real iOS backgrounding/memory-pressure behavior, which is exactly where #31 originated. A release-gate process step: install-to-homescreen → background via home button → wait 5+ minutes → reopen, on BrowserStack/Sauce Labs or physical devices. Independent of A-E; needs a vendor/budget decision (see Open questions).
+3. **F3 — E2E specs that drive real offline/reconnect cycles** via `context.setOffline(true/false)`. Direct regression coverage for **Issue A**: offline substitution → offline halftime → reconnect → assert `PlayTimeRecord.endGameSeconds` lands on the halftime boundary through the real UI + real IndexedDB + real drain, not mocked pieces. Also the natural place to catch **Issue E**'s dual-drain-path divergence if it manifests as a real race. **Land alongside Issue A**, not before or after — it's A's regression test.
+4. **F4 — Degraded-connectivity simulation** via `context.route()` with injected latency/jitter/random failure, rather than the binary online/offline F3 covers. A sideline is usually "one bar of LTE," not airplane mode — this exercises mutations that hang or time out mid-flight, which is closer to what produces the partial-write states **Issue D** is concerned with. Lower urgency than F3/F6; most useful once/if Issue D's follow-up plan proceeds.
+5. **F5 — Multi-browser-context concurrency specs.** Two authenticated coach contexts against the same team/game, driving genuinely concurrent actions (one subs a player while the other logs a goal; one goes offline mid-action while the other stays online). Currently zero coverage of this — `data-isolation.spec.ts` tests *different*-team isolation, not same-team concurrent-edit races. Directly exercises the last-write-wins risk from the original architecture review and gives **Issue C**'s refactor a regression safety net for exactly the class of race it's consolidating guards against. Lower urgency than F3/F6; useful ahead of Issue C's refactor landing.
+6. **F6 — Clock/lifecycle fault injection at the E2E level**, via Playwright's `page.clock` API plus dispatched `visibilitychange`/`pagehide` events, driving the real render tree (not a mocked hook). Direct regression coverage for **Issue B**: verifies the gap-detection modal doesn't race the two silent auto-triggers (halftime, 7200s auto-end) through the actual subscription + timer + modal stack. **Land alongside Issue B**, same reasoning as F3/A.
+7. **F7 — Formal field-beta gate.** Process change, not a test suite: a small cohort of real coaches runs a release candidate for a few live games before general promotion, using the existing `send-bug-report` Lambda / `Issue` model as the structured feedback channel instead of ad hoc dogfooding. No amount of automated testing replaces this for conditions like sun glare, gloves, or genuinely rural coverage. Independent of A-E; needs a process owner (see Open questions).
+
+### Sequencing within F
+F3 and F6 are regression tests for Issues A and B respectively — they land with those issues, not as separate follow-on work. F1, F2, and F7 are independent infrastructure/process additions that can start anytime, including before A-E. F4 and F5 are lower urgency and best timed against Issue D and Issue C respectively.
+
+### Files
+- `playwright.config.ts` — new project(s) for WebKit/mobile; consider a separate `field-conditions`-tagged project so these (slower, more flake-prone) specs don't run on every commit, mirroring the existing `smoke`/`full` CI-budget split
+- New specs: an offline/reconnect spec (F3), a concurrent-coaches spec (F5), a backgrounding/lifecycle spec (F6), a degraded-connectivity spec (F4)
+- `package.json` — a new script (e.g. `test:e2e:field-conditions`) and CI wiring to run it pre-release rather than per-commit
+- A release-process doc or checklist recording F2 and F7 as gates (location TBD — see Open questions)
+
+### Edge cases
+- F3/F6 specs are inherently more flake-prone (real timers, real IndexedDB, real network toggling) — budget for retries and treat occasional flakes as a signal to investigate, not silence, per the repo's existing stance against skipping/disabling tests to get green.
+- F5's concurrency specs need deterministic ordering assertions (which action "wins") documented explicitly, since the current architecture is last-write-wins by design in places — the test should assert the *actual* documented behavior, not an idealized one, until/unless that behavior changes.
+
+---
+
 ## Open questions for human sign-off
 
 1. **Issue B's gap threshold and audit-trail decision** (recommend: no persisted audit trail in v1, per the revision above — confirm).
 2. **Issue D** — confirm the team wants to invest in the transactional-Lambda path at all, versus accepting Issue A's targeted fix as sufficient.
 3. **Issue E** — confirm this should be tracked as its own short follow-up rather than folded into Issue A or D.
-4. **Sequencing** — confirm the revised A → B → C → D ordering.
+4. **Sequencing** — confirm the revised A → B → C → D ordering, with F run as a parallel track.
+5. **Issue F2/F7** — who owns the device-farm vendor/budget decision (BrowserStack vs. Sauce Labs vs. physical devices) and the field-beta process (where it lives, who recruits the coach cohort)? Both are process/budget calls, not engineering ones.
+6. **Issue F** CI cost — should the new `field-conditions` suite block release, or start as informational-only given its higher flake surface?
 
 ---
 
 ## Revision history
 
 - **v1** — initial plan, four issues, order A → C → B → D.
-- **v2 (this version)** — after two independent `architect-reviewer` passes: dropped v1's Issue A design (would have introduced a critical regression blocking second-half start while offline; also reinvented an existing deterministic-id/idempotent-create mechanism) in favor of the deterministic-id fix; added the GSI query fix to Issue A's scope; corrected Issue B's design to not race the two existing silent auto-triggers (halftime, 7200s auto-end) and to make the audit-trail mechanism an explicit decision; corrected Issue C's scope from one file to three and dropped the "collapse to one predicate" approach in favor of preserving distinct decision inputs; re-sequenced to A → B → C → D; added Issue E (tracked, out of scope) for the divergent drain-path finding.
+- **v2** — after two independent `architect-reviewer` passes: dropped v1's Issue A design (would have introduced a critical regression blocking second-half start while offline; also reinvented an existing deterministic-id/idempotent-create mechanism) in favor of the deterministic-id fix; added the GSI query fix to Issue A's scope; corrected Issue B's design to not race the two existing silent auto-triggers (halftime, 7200s auto-end) and to make the audit-trail mechanism an explicit decision; corrected Issue C's scope from one file to three and dropped the "collapse to one predicate" approach in favor of preserving distinct decision inputs; re-sequenced to A → B → C → D; added Issue E (tracked, out of scope) for the divergent drain-path finding.
+- **v3 (this version)** — folded in a pre-release field-conditions testing strategy as Issue F (real device/browser matrix, real offline/reconnect E2E specs, degraded-connectivity simulation, multi-coach concurrency specs, clock/lifecycle fault injection, formal field-beta gate), tied F3/F6 explicitly to Issues A/B as their regression coverage, and added two new open questions for vendor/process ownership. Sent out for a second round of architect review.
