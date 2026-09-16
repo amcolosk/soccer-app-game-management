@@ -1,6 +1,7 @@
 # Coordinator / Dev-Pipeline Workflow Evaluation
 
 **Date:** 2026-09-16
+**Implementation status:** Steps 1–7 of the §6 plan are implemented on this branch (risk-tier classification, deterministic gates, the Tier 1 lean sequence, the Tier 2 timer/play-time resilience checklist, diff-vs-plan reconciliation, mandatory e2e for UI-impacting changes, and the non-required pipeline-drift CI check). Step 8 (a lightweight review-effectiveness log) and step 9 (this sequencing note itself) are process habits to adopt going forward rather than one-time file changes — see the updated pipeline docs for where they're referenced.
 **Scope:** The staged multi-agent development workflow described in `CLAUDE.md` §"Development workflow (agent pipeline)" — the Claude Code native version (`.claude/agents/`, `.claude/skills/dev-pipeline/`, `.claude/skills/review-rubric/`) and its mirrored GitHub Copilot version (`.github/agents/`, `.github/copilot-instructions.md`).
 **Method:** Direct review of the pipeline definitions, a critical evaluation against the goal of "high quality, tested, performant" code, five alternative workflow designs, and independent stress-testing ("rubber duck") of that evaluation and those alternatives by three separate models (Opus 5, Haiku 4.5, and a second independent Sonnet 5 pass — Fable 5.1 was requested but unavailable due to account usage-credit limits, so a second Sonnet 5 instance stood in as the third reviewer).
 

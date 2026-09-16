@@ -48,3 +48,7 @@ For each finding, include:
 - Check regression risk around changed boundaries.
 - Verify tests are targeted and adequate.
 - Record residual risks even when status is success.
+
+## Risk Tiers
+
+`coordinator-agent` classifies every change into Tier 0/1/2 (see `copilot-instructions.md`'s Risk Tiers section) before delegating, and tells each reviewer it invokes which tier applies. At Tier 1, `validation-agent` runs alone in solo-review mode (see its own agent definition) — the severity rubric above is unchanged; only which reviewer catches which category of issue changes.

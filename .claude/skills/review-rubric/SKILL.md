@@ -28,3 +28,7 @@ On a re-review, only report:
 Do not re-open a Minor/Informational item you already recorded, and do not re-litigate a Major finding the fix already addressed just because you'd have solved it differently. If you disagree with how it was fixed, that disagreement is only a new finding if the fix leaves a real Major/Critical defect behind — say what's still broken, not what you'd have preferred.
 
 This rule exists specifically to stop fix→re-review cycles from running forever: each round must shrink the open finding list, never just reshuffle it.
+
+## Risk tiers
+
+The orchestrating thread (`dev-pipeline` skill) classifies every change into Tier 0/1/2 before choosing which of you run, and tells each reviewer it invokes which tier applies. At Tier 1, `validation-reviewer` runs alone in solo-review mode (see its own charter) — the severity rubric above still applies unchanged; only which reviewer catches which category of issue changes.

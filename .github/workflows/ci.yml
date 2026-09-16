@@ -426,6 +426,29 @@ jobs:
         if: always()
         run: rm -f amplify_outputs.json
 
+  pipeline-drift:
+    name: Pipeline Drift Check
+    needs: [calc-mode]
+    if: ${{ needs.calc-mode.outputs.is_pr == 'true' || needs.calc-mode.outputs.is_push_main == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Paths filter
+        id: paths
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            pipeline:
+              - '.claude/skills/dev-pipeline/SKILL.md'
+              - '.github/copilot-instructions.md'
+
+      - name: Check pipeline stage sequences match
+        if: ${{ steps.paths.outputs.pipeline == 'true' }}
+        run: node scripts/check-pipeline-drift.mjs
+
   ci-policy-gate:
     name: CI Policy Gate
     if: always()

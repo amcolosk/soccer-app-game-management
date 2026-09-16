@@ -54,6 +54,7 @@ calc-mode ──┬────────────────────�
 | `smoke-e2e` | Smoke E2E with S3-fetched runtime config via OIDC; runs on trusted PRs that have risk paths or the `run-smoke-e2e` label | 25 |
 | `full-e2e` | Full E2E with S3-fetched runtime config via OIDC; runs on mainline (`merge_group` / `push main`) or trusted PR with `run-full-e2e` label | 45 |
 | `ci-policy-gate` | Always-run gate: evaluates required-by-context outcomes and fails if any required job did not pass | 10 |
+| `pipeline-drift` | Informational only — diffs the dev-pipeline stage sequence between `.claude/skills/dev-pipeline/SKILL.md` and `.github/copilot-instructions.md` when either changes; see §11a | 5 |
 
 ---
 
@@ -253,6 +254,14 @@ The smoke subset is an explicit file list in the `smoke-e2e` job step:
 ```
 
 To include a test in smoke, add its spec file path to this command. Keep the smoke set small — its purpose is fast signal on the most critical paths within the 20-minute job budget.
+
+---
+
+## 10a. Pipeline Drift Check (informational, non-required)
+
+`pipeline-drift` runs `node scripts/check-pipeline-drift.mjs` whenever `.claude/skills/dev-pipeline/SKILL.md` or `.github/copilot-instructions.md` changes. It extracts the stage-sequence fenced block from each file, canonicalizes agent names to a shared set of stage tokens (the two tool ecosystems intentionally use different agent names for the same role — see CLAUDE.md), and fails if the resulting sequences differ.
+
+This job is **deliberately not added to `ci-policy-gate`'s `needs`** and is not a required branch-protection check — per §9's warning, individual job names besides `CI Policy Gate` are never added to required checks. A failure shows as a red status on the PR for a human/reviewer to notice and reconcile; it never blocks a merge on its own. Run `npm run check:pipeline-drift` locally to check before pushing.
 
 ---
 
