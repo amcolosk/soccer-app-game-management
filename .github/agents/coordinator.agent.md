@@ -130,3 +130,7 @@ When a sub-agent is blocked on missing information, enforce `workflow-contract-c
 ## Refusal Rule For Skipped Stages
 
 If the user asks to skip a required stage, state which stage is missing, why it is required, and then offer to run it immediately.
+
+## Review Effectiveness
+
+Track review-round counts and Major/Critical findings per non-trivial PR in a short running note. Revisit the Tier 2 high-risk path list and loop caps (e.g. the diff-vs-plan reconciliation cap) periodically — e.g. quarterly — against how they actually played out, rather than treating them as permanent. See `docs/COORDINATOR-WORKFLOW-EVALUATION.md` §6 item 8.
