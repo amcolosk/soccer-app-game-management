@@ -1,7 +1,7 @@
 # Email Me A Game Summary — Implementation Plan
 
 **Feature:** Manual "Email Summary" button on the completed-game screen. Sends the clicking coach a summary email of the game (their own address only — no team-wide fan-out, no opt-in setting; clicking is the consent).
-**Status:** Revised after architecture review round 1 (4 Major findings resolved below)
+**Status:** Approved — architecture review round 2 (final) and UI review both passed with no blocking findings. Ready for implementation.
 **Last Updated:** 2026-09-16
 
 ---
@@ -383,16 +383,16 @@ export function EmailSummaryButton({ gameId }: EmailSummaryButtonProps) {
       className="btn-secondary"
       disabled={isSending}
     >
-      {isSending ? 'Sending…' : 'Email Summary'}
+      {isSending ? 'Sending…' : 'Email Game Summary'}
     </button>
   );
 }
 ```
-Uses `showSuccess`/`showError` from `src/utils/toast.ts` — same as `deleteGameButton`'s inline handler in `GameManagement.tsx`. No wrapping `<div>` with a dedicated CSS class this time (Minor 8/§5.11) — it renders as a plain sibling button inside `.completed-footer`, which already provides flex/gap layout.
+Button label is "Email Game Summary" (not the shorter "Email Summary") per ui-reviewer's accessibility finding — a generic "Email Summary" is ambiguous to a screen-reader user scanning a button list out of context, and the app already disambiguates similarly generic actions elsewhere (`"Delete Game"` not `"Delete"`, `"Delete Account"` not `"Delete"`). Uses `showSuccess`/`showError` from `src/utils/toast.ts` — same as `deleteGameButton`'s inline handler in `GameManagement.tsx`. No wrapping `<div>` with a dedicated CSS class — it renders as a plain sibling button inside `.completed-footer`, which already provides flex/gap layout.
 
 ### 5.9 NEW: `src/components/GameManagement/EmailSummaryButton.test.tsx`
 Mocks `src/services/gameService.ts` (`vi.mock`) and `src/utils/toast.ts`. Cases:
-- Renders "Email Summary" button, not disabled initially.
+- Renders "Email Game Summary" button, not disabled initially.
 - Click → button shows "Sending…" and is disabled while the mocked promise is pending.
 - Resolves with `{ success: true, sentTo: 'coach@example.com' }` → `showSuccess` called with a message containing the email; button re-enabled.
 - Rejects with an `Error('Access denied...')` → `showError` called with that message; button re-enabled (not stuck disabled).
@@ -400,7 +400,7 @@ Mocks `src/services/gameService.ts` (`vi.mock`) and `src/utils/toast.ts`. Cases:
 
 ### 5.10 MODIFIED: `src/components/GameManagement/GameManagement.tsx`
 - Import `EmailSummaryButton` from `./EmailSummaryButton`.
-- **Placement (Minor 8 — proposed, final call deferred to ui-reviewer):** render inside the existing `completed-footer` block (line ~2679-2686), between the "View Full Season Report" link and `deleteGameButton` — grouping it with the other game-level (non-content) actions rather than inserting it into the content flow between `CompletedPlayTimeSummary` and `CompletedGameTimeline`:
+- **Placement (Minor 8/§12 — RESOLVED by ui-reviewer: use `.completed-footer`).** The `.completed-footer`/`.delete-game-section` divider (`App.css:3990-3996`) already visually separates the destructive delete action from what sits above it, and "View Full Season Report" already establishes this footer as the home for data-export-adjacent actions on this screen — Email Summary fits the same category. Render inside the existing `completed-footer` block (line ~2679-2686), between the "View Full Season Report" link and `deleteGameButton`:
   ```tsx
   {gameState.status === 'completed' && (
     <div className="completed-footer">
@@ -412,10 +412,10 @@ Mocks `src/services/gameService.ts` (`vi.mock`) and `src/utils/toast.ts`. Cases:
     </div>
   )}
   ```
-  `game.id` is already in scope (used elsewhere in this component, e.g. `deleteGameCascade(game.id)`). If the ui-reviewer prefers the original "next to `CompletedPlayTimeSummary`" placement instead, the only other file this affects is §5.11 (whether a new CSS block is needed).
+  `game.id` is already in scope (used elsewhere in this component, e.g. `deleteGameCascade(game.id)`).
 
 ### 5.11 MODIFIED: `src/App.css`
-With the `.completed-footer` placement (§5.10), **no new CSS block is needed** — `.completed-footer` (`App.css` lines 8307-8314) is already a `flex`/`column`/`gap: 1rem` container and the button reuses the existing `.btn-secondary` class. Implementer should confirm `.btn-secondary:disabled` already has a reasonable visual state (it's used elsewhere for disabled async actions, e.g. the halftime `Manage Injuries`/`Add note` buttons don't currently disable, so this may be the first `.btn-secondary` `disabled` use — check and add a minimal `:disabled` rule near `.btn-delete-game`'s existing block, lines 3998-4017, if missing). If the ui-reviewer instead picks the original near-`CompletedPlayTimeSummary` placement, add a small `.completed-email-summary` wrapper block at the bottom of `App.css` for spacing, per CLAUDE.md's single-stylesheet convention.
+**No changes needed.** With the `.completed-footer` placement (§5.10), no new CSS block is required — `.completed-footer` (`App.css` lines 8307-8314) is already a `flex`/`column`/`gap: 1rem` container and the button reuses the existing `.btn-secondary` class. ui-reviewer confirmed the global `button:disabled { opacity: 0.5; cursor: not-allowed; }` rule (`src/index.css:136-139`) already applies to every button including `.btn-secondary` (already used disabled elsewhere, e.g. `PlayerNotesPanel.tsx:587`, `CreateEditNoteModal.tsx:164`), so the disabled state needs no new rule.
 
 ### 5.12 MODIFIED: `src/types/schema.ts`
 Add, alongside the existing `CalendarSyncResult` line (19):
@@ -435,9 +435,9 @@ Update §7.6 "Game Management — Completed State" (lines 433–447), "Component
 1. **GameHeader** — final score
 2. Play time summary table (player → total minutes)
 3. Game notes summary (gold stars, cards)
-4. **Completed-footer actions**: `View Full Report` link → `/reports/:teamId`; **Email Summary button** — sends the current coach a game-summary email (opponent, score, goals, pre-game and in-game notes); shows a loading state while sending and a success/error toast on completion; delete-game button
+4. **Completed-footer actions**: `View Full Report` link → `/reports/:teamId`; **Email Game Summary button** — sends the current coach a game-summary email (opponent, score, goals, pre-game and in-game notes); shows a loading state while sending and a success/error toast on completion; delete-game button
 ```
-(If ui-reviewer moves the button per Minor 8's open question, update this list accordingly — item 3 gains a fifth line instead of item 4 gaining a bullet.)
+(Also fixes pre-existing spec drift: the current list at lines 442-447 doesn't mention the delete-game button at all — folding it in here per ui-reviewer's note, since this list is already being touched.)
 
 ### 5.15 MODIFIED: `docs/ARCHITECTURE.md` (Minor 7 — both stale lists)
 Both the Lambda Functions table (~line 348) and the GraphQL Operations list (~line 360) currently list `send-bug-report`/`update-issue-status`/`submitBugReport`/`updateIssueStatus`, none of which exist anymore (§3.4) — pre-existing drift, not touched further here, just not perpetuated by the new entries. Add:
@@ -550,6 +550,12 @@ GraphQL Operations list, new bullet:
 - **Row-level `Goal`/`GameNote` visibility** (Major 2): filtered to the caller's own `coaches` membership per row, not just gated at the `Game` level — see §4.
 - **Jersey numbers** (Minor 4): deliberately omitted/deferred — out of R1-R9's explicit scope, would need a new `TeamRoster` read.
 
-## 12. Open Item for Next Reviewer
+## 12. UI Review Resolution (was: Open Item for Next Reviewer)
 
-**Button placement (Minor 8):** this revision proposes `.completed-footer` (grouped with "View Full Season Report"/delete-game as a game-level action) over the original "next to `CompletedPlayTimeSummary`" placement, since it needs zero new CSS and groups semantically similar actions together. This is explicitly **not** a final decision — flagged for the ui-reviewer to confirm or override before implementation, since it changes which part of §5 (5.10/5.11/5.14) applies.
+**Button placement (Minor 8) — RESOLVED: `.completed-footer`.** ui-reviewer confirmed via direct inspection of `App.css`/`GameManagement.tsx` that `.completed-footer` is the right home: the `.delete-game-section` divider already visually separates the destructive delete button from what sits above it, and "View Full Season Report" already establishes this footer as the home for data-export-adjacent actions on this screen. No new CSS needed (§5.11).
+
+**Button label — changed to "Email Game Summary"** (from "Email Summary") per ui-reviewer's accessibility finding: a generic label is ambiguous to a screen-reader user scanning a button list out of context; the app already disambiguates similarly generic actions elsewhere ("Delete Game", "Delete Account"). Applied in §5.8.
+
+**Disabled-state styling — no gap found.** The plan's premise that this "may be the first `.btn-secondary:disabled` use" was checked and found inaccurate — a global `button:disabled` rule (`src/index.css:136-139`) already covers it, and `.btn-secondary` is already used disabled elsewhere in the app. No CSS change needed.
+
+Plan is approved by both architecture (2 rounds) and UI review with no blocking findings. Proceeding to implementation.
