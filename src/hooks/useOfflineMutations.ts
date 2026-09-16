@@ -136,6 +136,18 @@ export interface GameMutationInput {
   updateGame: (id: string, fields: GameUpdateFields) => Promise<void>;
   createPlayTimeRecord: (fields: PlayTimeRecordCreateFields) => Promise<void>;
   updatePlayTimeRecord: (id: string, fields: PlayTimeRecordUpdateFields) => Promise<void>;
+  /**
+   * Closes every PlayTimeRecord this device has locally opened and not yet
+   * locally closed, tracked independent of the observeQuery subscription —
+   * so it also covers a record that was created while offline and hasn't
+   * reached DynamoDB or React state yet. Never throws: each close is queued
+   * or retried individually (Promise.allSettled), and any that fail stay in
+   * the open-record map so the next call (e.g. at second-half start or
+   * end-game) retries them. This is the primary close path; the DB-scan-based
+   * closeActivePlayTimeRecords in substitutionService.ts is a cross-device
+   * backstop for records opened on a different coach's device.
+   */
+  closeAllOpenPlayTimeRecords: (endGameSeconds: number) => Promise<void>;
   createSubstitution: (fields: SubstitutionCreateFields) => Promise<void>;
   createLineupAssignment: (fields: LineupAssignmentCreateFields) => Promise<void>;
   deleteLineupAssignment: (id: string) => Promise<void>;
@@ -379,6 +391,12 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
   // Ref so mutation callbacks don't need to re-create when isOnline changes
   const isOnlineRef = useRef(navigator.onLine);
 
+  // Locally-tracked open PlayTimeRecords (id -> startGameSeconds), independent
+  // of the observeQuery subscription. Populated by createPlayTimeRecord,
+  // cleared by updatePlayTimeRecord once endGameSeconds is set. See
+  // closeAllOpenPlayTimeRecords below and GameMutationInput's doc comment.
+  const openPlayTimeRecordsRef = useRef<Map<string, number>>(new Map());
+
   // Load initial count from IndexedDB on mount (persists across reloads)
   useEffect(() => {
     void getQueuePendingCount()
@@ -561,6 +579,13 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
         fields as unknown as Record<string, unknown>,
         () => executePlayTimeRecordCreate(fields)
       );
+      // Only reached once the create has actually succeeded (thrown errors from
+      // enqueueOrRun above propagate out of this function first) — offline that
+      // means "reliably enqueued", online that means "written". Either way the
+      // record is now open from this device's perspective.
+      if (fields.id) {
+        openPlayTimeRecordsRef.current.set(fields.id, fields.startGameSeconds);
+      }
     },
     [enqueueOrRun]
   );
@@ -575,8 +600,33 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
           assertNoGraphQLErrors(result, 'Failed to update play time record');
         }
       );
+      if (fields.endGameSeconds !== undefined && fields.endGameSeconds !== null) {
+        openPlayTimeRecordsRef.current.delete(id);
+      }
     },
     [enqueueOrRun]
+  );
+
+  const closeAllOpenPlayTimeRecords = useCallback(
+    async (endGameSeconds: number): Promise<void> => {
+      const ids = Array.from(openPlayTimeRecordsRef.current.keys());
+      if (ids.length === 0) return;
+      const results = await Promise.allSettled(
+        ids.map((id) => updatePlayTimeRecord(id, { endGameSeconds }))
+      );
+      const failures = results.filter(
+        (r): r is PromiseRejectedResult => r.status === 'rejected'
+      );
+      if (failures.length > 0) {
+        // Failed ids are still in openPlayTimeRecordsRef (updatePlayTimeRecord only
+        // removes on success), so the next call to this function retries them.
+        console.warn(
+          `[closeAllOpenPlayTimeRecords] ${failures.length} of ${ids.length} close(s) failed; will retry on next call.`,
+          failures.map((f) => getSafeErrorMessage(f.reason))
+        );
+      }
+    },
+    [updatePlayTimeRecord]
   );
 
   const createSubstitution = useCallback(
@@ -777,6 +827,7 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       updateGame,
       createPlayTimeRecord,
       updatePlayTimeRecord,
+      closeAllOpenPlayTimeRecords,
       createSubstitution,
       createLineupAssignment,
       deleteLineupAssignment,
@@ -793,7 +844,7 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       deleteQueuedSubstitution,
     }),
     [
-      updateGame, createPlayTimeRecord, updatePlayTimeRecord, createSubstitution,
+      updateGame, createPlayTimeRecord, updatePlayTimeRecord, closeAllOpenPlayTimeRecords, createSubstitution,
       createLineupAssignment, deleteLineupAssignment, updateLineupAssignment,
       createGoal, deleteGoal, updateGoal, createGameNote, updateGameNote, deleteGameNote,
       createPlayerAvailability, updatePlayerAvailability,

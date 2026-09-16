@@ -7,6 +7,7 @@ import { renderHook, act } from '@testing-library/react';
 const {
   mockGameUpdate,
   mockPlayTimeRecordCreate,
+  mockPlayTimeRecordUpdate,
   mockCreateSecureGameNote,
   mockUpdateSecureGameNote,
   mockDeleteSecureGameNote,
@@ -25,6 +26,7 @@ const {
 } = vi.hoisted(() => ({
   mockGameUpdate: vi.fn(),
   mockPlayTimeRecordCreate: vi.fn(),
+  mockPlayTimeRecordUpdate: vi.fn(),
   mockCreateSecureGameNote: vi.fn(),
   mockUpdateSecureGameNote: vi.fn(),
   mockDeleteSecureGameNote: vi.fn(),
@@ -48,7 +50,7 @@ vi.mock('aws-amplify/data', () => ({
       Game: { update: mockGameUpdate },
       PlayTimeRecord: {
         create: mockPlayTimeRecordCreate,
-        update: vi.fn().mockResolvedValue({ data: {} }),
+        update: mockPlayTimeRecordUpdate,
       },
       Substitution: { create: vi.fn().mockResolvedValue({ data: {} }) },
       LineupAssignment: {
@@ -142,6 +144,7 @@ describe('useOfflineMutations', () => {
     setupOnline();
     mockGameUpdate.mockResolvedValue({ data: {} });
     mockPlayTimeRecordCreate.mockResolvedValue({ data: {} });
+    mockPlayTimeRecordUpdate.mockResolvedValue({ data: {} });
     mockCreateSecureGameNote.mockResolvedValue({ data: {} });
     mockUpdateSecureGameNote.mockResolvedValue({ data: {} });
     mockDeleteSecureGameNote.mockResolvedValue({ data: {} });
@@ -331,6 +334,153 @@ describe('useOfflineMutations', () => {
       });
 
       expect(mockDeleteSecureGameNote).toHaveBeenCalledWith({ id: 'note-1' });
+    });
+  });
+
+  // ── closeAllOpenPlayTimeRecords — local open-record map (Issue A fix) ──────
+
+  describe('closeAllOpenPlayTimeRecords', () => {
+    it('closes a record created via createPlayTimeRecord, using its id', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createPlayTimeRecord({
+          id: 'ptr:g1:p1:h1:t0',
+          gameId: 'g1',
+          playerId: 'p1',
+          startGameSeconds: 0,
+          coaches: ['coach-1'],
+        });
+      });
+
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(600);
+      });
+
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'ptr:g1:p1:h1:t0', endGameSeconds: 600 });
+    });
+
+    it('closes it even while offline (the record exists only in the queue, not DynamoDB or React state)', async () => {
+      setupOffline();
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createPlayTimeRecord({
+          id: 'ptr:g1:p1:h1:t0',
+          gameId: 'g1',
+          playerId: 'p1',
+          startGameSeconds: 0,
+          coaches: ['coach-1'],
+        });
+      });
+
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(600);
+      });
+
+      // Both the create and the close were enqueued, in order — no direct API calls.
+      expect(mockPlayTimeRecordCreate).not.toHaveBeenCalled();
+      expect(mockPlayTimeRecordUpdate).not.toHaveBeenCalled();
+      expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({
+        model: 'PlayTimeRecord', operation: 'create',
+        payload: expect.objectContaining({ id: 'ptr:g1:p1:h1:t0' }),
+      }));
+      expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({
+        model: 'PlayTimeRecord', operation: 'update',
+        payload: expect.objectContaining({ id: 'ptr:g1:p1:h1:t0', endGameSeconds: 600 }),
+      }));
+    });
+
+    it('does not re-close a record whose close already succeeded', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createPlayTimeRecord({
+          id: 'ptr:g1:p1:h1:t0', gameId: 'g1', playerId: 'p1', startGameSeconds: 0, coaches: ['coach-1'],
+        });
+      });
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(600);
+      });
+      mockPlayTimeRecordUpdate.mockClear();
+
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(900);
+      });
+
+      expect(mockPlayTimeRecordUpdate).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when nothing is open', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(600);
+      });
+
+      expect(mockPlayTimeRecordUpdate).not.toHaveBeenCalled();
+    });
+
+    it('closes multiple open records opened by separate createPlayTimeRecord calls', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createPlayTimeRecord({
+          id: 'ptr:g1:p1:h1:t0', gameId: 'g1', playerId: 'p1', startGameSeconds: 0, coaches: ['coach-1'],
+        });
+        await result.current.mutations.createPlayTimeRecord({
+          id: 'ptr:g1:p2:h1:t0', gameId: 'g1', playerId: 'p2', startGameSeconds: 0, coaches: ['coach-1'],
+        });
+      });
+
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(600);
+      });
+
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'ptr:g1:p1:h1:t0', endGameSeconds: 600 });
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'ptr:g1:p2:h1:t0', endGameSeconds: 600 });
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledTimes(2);
+    });
+
+    it('leaves a failed close in the open map so the next call retries it, and never throws itself', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createPlayTimeRecord({
+          id: 'ptr:g1:p1:h1:t0', gameId: 'g1', playerId: 'p1', startGameSeconds: 0, coaches: ['coach-1'],
+        });
+      });
+
+      mockPlayTimeRecordUpdate.mockResolvedValueOnce({ data: null, errors: [{ message: 'transient failure' }] });
+      await act(async () => {
+        await expect(
+          result.current.mutations.closeAllOpenPlayTimeRecords(600)
+        ).resolves.toBeUndefined();
+      });
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledTimes(1);
+
+      // Retry succeeds — the id was never removed from the open map on failure.
+      mockPlayTimeRecordUpdate.mockResolvedValueOnce({ data: {} });
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(600);
+      });
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not track a create that never had an id', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createPlayTimeRecord({
+          gameId: 'g1', playerId: 'p1', startGameSeconds: 0, coaches: ['coach-1'],
+        });
+      });
+
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(600);
+      });
+
+      expect(mockPlayTimeRecordUpdate).not.toHaveBeenCalled();
     });
   });
 

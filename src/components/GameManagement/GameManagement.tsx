@@ -12,6 +12,7 @@ import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, copyGamePlan, type PlannedSubstitution } from "../../services/rotationPlannerService";
 import { calculatePlayerPlayTime } from "../../utils/playTimeCalculations";
+import { buildDeterministicStartPlayTimeRecordId } from "../../utils/playTimeRecordId";
 import { getMissingRolePositions } from "../../utils/formationUtils";
 import {
   computeRevisionFingerprint,
@@ -85,16 +86,6 @@ class StarterCountError extends Error {
 
 function isStarterCountError(error: unknown): error is StarterCountError {
   return error instanceof StarterCountError;
-}
-
-function buildDeterministicStartPlayTimeRecordId(params: {
-  gameId: string;
-  playerId: string;
-  half: 1 | 2;
-  startGameSeconds: number;
-}): string {
-  const { gameId, playerId, half, startGameSeconds } = params;
-  return `ptr:${gameId}:${playerId}:h${half}:t${startGameSeconds}`;
 }
 
 type StarterSelection = {
@@ -1619,12 +1610,25 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     }
 
     // Close play time records after status is safely persisted.
+    //
+    // Two mechanisms, in order:
+    // 1. closeAllOpenPlayTimeRecords closes every record THIS device has locally
+    //    opened (game start, subs, direct lineup adds), tracked independent of the
+    //    observeQuery subscription. It never throws — offline it enqueues, online
+    //    it retries internally — so it reliably queues the close even for a record
+    //    created moments earlier while still offline (the record that used to get
+    //    silently missed because it existed in neither React state nor DynamoDB yet).
+    // 2. closeActivePlayTimeRecords is now a cross-device backstop only, for a
+    //    record opened on a DIFFERENT coach's device that this device's local map
+    //    can't know about. It still needs connectivity to see those records, so it
+    //    can still legitimately fail — that's what halftimePtrClosePendingRef tracks.
+    await mutations.closeAllOpenPlayTimeRecords(halftimeSeconds);
     try {
       await closeActivePlayTimeRecords(playTimeRecords, halftimeSeconds, undefined, game.id, mutations);
       halftimePtrClosePendingRef.current = false;
     } catch (error) {
       halftimePtrClosePendingRef.current = true;
-      console.warn('[handleHalftime] PTR closing failed; marked pending retry before second half start.', error);
+      console.warn('[handleHalftime] Cross-device PTR closing failed; marked pending retry before second half start.', error);
     } finally {
       manuallyPausedRef.current = false;
     }
@@ -1664,6 +1668,11 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       const resumeTime = currentTime; // Capture current time to continue from
 
       if (halftimePtrClosePendingRef.current) {
+        // Retry the local-map close too, in case any individual close failed at
+        // halftime (its ids stay in the map on failure so this naturally retries
+        // them). currentTime hasn't moved since halftime (timer is paused), so
+        // resumeTime is the same game-clock boundary as halftimeSeconds was.
+        await mutations.closeAllOpenPlayTimeRecords(resumeTime);
         try {
           await closeActivePlayTimeRecords(playTimeRecords, resumeTime, undefined, game.id, mutations);
           halftimePtrClosePendingRef.current = false;
@@ -1806,10 +1815,11 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
 
     // Close play time records after status is safely persisted.
     // Failures here are non-fatal — SeasonReport already handles unclosed PTRs as a fallback.
+    await mutations.closeAllOpenPlayTimeRecords(endGameTime);
     try {
       await closeActivePlayTimeRecords(playTimeRecords, endGameTime, undefined, game.id, mutations);
     } catch (error) {
-      console.error('[handleEndGame] PTR closing failed (non-fatal, game already completed):', error);
+      console.error('[handleEndGame] Cross-device PTR closing failed (non-fatal, game already completed):', error);
     } finally {
       manuallyPausedRef.current = false;
     }
