@@ -54,7 +54,7 @@ v2's "just add a deterministic id" was necessary but not sufficient. Architect r
 - `src/services/substitutionService.ts` — deterministic id on the substitution-created `PlayTimeRecord`; GSI query swap; remove stale comment
 - `src/components/GameManagement/GameManagement.tsx` — local open-record tracking map; unconditional enqueue of the halftime/end-game close against it; verify `handleStartSecondHalf`'s existing retry path still composes correctly as the cross-device backstop's retry path
 - `src/hooks/useOfflineQueueDrain.ts` — check `result.errors` on `create`/`update`/`delete` instead of treating any non-throwing call as success
-- Tests: `substitutionService.test.ts`, `useOfflineMutations.test.ts`, `useOfflineQueueDrain.test.ts`, `offlineQueueService.test.ts`, plus the offline-at-second-half-start case and the cross-device backstop case above
+- Tests: `substitutionService.test.ts`, `useOfflineMutations.test.ts`, `useOfflineQueueDrain.test.ts`, `offlineQueueService.test.ts`, plus the offline-at-second-half-start case and the cross-device backstop case above. **E2E regression coverage: Issue F3** (below) — a real offline/reconnect spec proving the exact offline-sub-then-offline-halftime chain closes correctly through the real UI, not just mocked units.
 
 ### Edge cases
 - Multiple offline substitutions before an offline halftime — each needs its own deterministic id; verify no collision.
@@ -90,7 +90,7 @@ The first draft under-specified how the proposed confirmation modal interacts wi
 - `src/components/GameManagement/GameManagement.tsx` — wiring
 - `docs/specs/Game-Management-Spec.md` — **required update**: the modal does not apply when the gap would trigger auto-halftime (half 1 only) or auto-end (either half); the existing "no confirmation" language for those specific cases is preserved, not the whole "crosses `halfLengthSeconds`" framing
 - `docs/specs/UI-SPEC.md` — required for the new modal
-- Tests: gap-detection unit tests with mocked `Date.now()` covering: half-1 gap crossing `halfLengthSeconds` (must stay silent), any-half gap crossing 7200s (must stay silent), a large half-2 gap that does **not** cross 7200s (must show the modal — this is the case v2's wording would have missed), modal component test, integration test for the correction flow
+- Tests: gap-detection unit tests with mocked `Date.now()` covering: half-1 gap crossing `halfLengthSeconds` (must stay silent), any-half gap crossing 7200s (must stay silent), a large half-2 gap that does **not** cross 7200s (must show the modal — this is the case v2's wording would have missed), modal component test, integration test for the correction flow. **E2E regression coverage: Issue F6** (below) — drives the same three cases through the real subscription + timer + modal stack via `page.clock` and dispatched `visibilitychange` events, which is the only way to catch the v2 wrong-file bug this issue itself was just corrected for (a unit test of `useGameSubscriptions.ts` in isolation wouldn't have caught the absorption-order problem the way an integration-level test would).
 
 ### Edge cases
 - A gap in the second half large enough to feel "anomalous" but nowhere near 7200s is the primary case this issue exists for — confirm the test suite actually covers it, not just the two silent-boundary cases.
@@ -119,7 +119,7 @@ The first draft claimed the guards lived in one file and could collapse into one
 ### Files
 - `src/components/GameManagement/hooks/useGameSubscriptions.ts`, `useGameTimer.ts`, `GameManagement.tsx` — extraction, no intended behavior change (see caveat above on the score-asymmetry)
 - `docs/ARCHITECTURE.md` — documentation
-- Tests: characterization tests in `useGameSubscriptions.test.ts`, `useGameTimer.test.ts`, and `GameManagement.tsx`'s existing test coverage before the refactor; same suites re-run after to prove equivalence
+- Tests: characterization tests in `useGameSubscriptions.test.ts`, `useGameTimer.test.ts`, and `GameManagement.tsx`'s existing test coverage before the refactor; same suites re-run after to prove equivalence. **E2E regression coverage: Issue F5** (below) — the multi-coach concurrency spec is this refactor's real-world safety net, since the race conditions these guards exist for only actually manifest with two genuinely concurrent sessions, which no unit test can produce.
 
 ---
 
