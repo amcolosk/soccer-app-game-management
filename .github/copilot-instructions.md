@@ -1,11 +1,19 @@
 ## Development Workflow
 
-### New Feature Pipeline
+### Risk Tiers
 
-Every new feature must go through this agent pipeline in order. Do not skip stages or proceed to the next stage until the current one is complete.
+The pipeline is risk-tiered, not uniform — see `docs/COORDINATOR-WORKFLOW-EVALUATION.md` for why file count alone is a poor proxy for risk. Before delegating, `coordinator-agent` classifies the change by running `npm run classify:risk-tier -- --base origin/main`, which reports a tier based on which files changed:
 
-```
-coordinator-agent → implementation-planner → architect-agent → [ui-designer] → coding-agent → validation-agent + security-engineer + [ui-designer for UI-impacting changes] → commit gate
+- **Tier 0 — trivial** (docs/markdown-only): skip the agent pipeline; `npm run gate:commit` is the only requirement.
+- **Tier 1 — standard** (most feature/bugfix work): use the Standard Pipeline below.
+- **Tier 2 — high-risk**: any change touching `src/utils/gameTimeUtils.ts`, `src/utils/gameCalculations.ts`, `src/utils/playTimeCalculations.ts`, `src/services/rotationPlannerService.ts`, `amplify/data/resource.ts`, `amplify/backend.ts`, `amplify/auth/**`, or `amplify/functions/**`. Use the New Feature Pipeline below unconditionally — never downgrade a Tier 2 result from the classifier.
+
+### New Feature Pipeline (Tier 2 — high-risk)
+
+Every Tier 2 change must go through this agent pipeline in order. Do not skip stages or proceed to the next stage until the current one is complete.
+
+```text
+coordinator-agent → implementation-planner → architect-agent → [ui-designer] → coding-agent → validation-agent + security-engineer + [ui-designer for UI-impacting changes] → architect-agent (diff-vs-plan reconciliation) → commit gate
 ```
 
 `coordinator-agent` is the entry point for this workflow. It owns workflow state, gathers context, delegates to the stage-specific agents below, and requires structured responses before advancing stages.
@@ -61,9 +69,30 @@ coordinator-agent → implementation-planner → architect-agent → [ui-designe
 - If any Stage 5 reviewer finds a **Major or higher severity issue**, the `coding-agent` must fix it and the blocking reviewer must re-run until no Major+ issues remain
 - Minor/informational findings are recorded but do not block progress
 
-**Stage 6 — Commit gate**
+**Stage 6 — Diff-vs-plan reconciliation** (`architect-agent`, Tier 2 only)
+- After Stage 5 findings are resolved, re-run `architect-agent` once against the real final diff and the originally-approved plan
+- Checks whether `coding-agent`'s implementation-time assumptions still match what architecture review approved — not a full re-review of correctness/security/UX, Stage 5 already covered that
+- Capped at 1 round: if it still reports a Major/Critical architectural deviation after that round's fix, `coordinator-agent` stops and puts the disagreement to the user rather than looping again
+- Also required at Tier 2: `npm run knip` and `npm run check:bundle-size` must pass — not advisory
+- If the change is UI-impacting: `npm run test:e2e:smoke` must pass before the commit gate — required, not left to `ui-designer`'s discretion
+
+**Stage 7 — Commit gate**
 - `npm run gate:commit` — local fail-fast commit gate (lint → test:run → build); must pass before committing
 - Only commit after all checks are green
+
+### Standard Pipeline (Tier 1)
+
+Most feature and bugfix work. Optimizes for the common case: deterministic tooling catches what it catches reliably and cheaply; one reviewer with full-diff context catches what tooling can't.
+
+```text
+coordinator-agent → [implementation-planner → architect-agent, if large/cross-cutting] → coding-agent → npm run knip && npm run check:bundle-size → validation-agent (solo: correctness + security + UX) → [npm run test:e2e:smoke, if UI-impacting] → commit gate
+```
+
+- `coordinator-agent` delegates straight to `coding-agent` for a well-understood standard change; it only runs `implementation-planner` → `architect-agent` first if the change is large or cross-cutting enough to need one.
+- **Deterministic gates**: `npm run knip` and `npm run check:bundle-size` must pass before the reviewer stage — these catch unused exports and bundle-size regressions more reliably and cheaply than a reviewer reading a diff.
+- **Single reviewer pass**: `validation-agent` runs alone but is explicitly told to also flag obvious security issues (injection, data exposure, authz gaps) and UX regressions, not just requirement coverage. If it surfaces something security-shaped it's not confident about, `coordinator-agent` escalates that one finding to `security-engineer` rather than re-running the whole change through the Tier 2 pipeline.
+- **Mandatory e2e for UI-impacting changes**: `npm run test:e2e:smoke` is required, not optional, before the commit gate — same as Tier 2.
+- If `validation-agent` flags something structurally significant mid-review, `coordinator-agent` escalates to the Tier 2 New Feature Pipeline rather than pushing through.
 
 **Communication contract**
 - `coordinator-agent` passes stage, requirements, relevant files, risks, and success criteria into every sub-agent call
@@ -87,18 +116,18 @@ coordinator-agent → implementation-planner → architect-agent → [ui-designe
 
 ### Defect Fix Pipeline
 
-For a simple defect fix touching **one or two files**:
+For a simple defect fix touching **one or two files, and not matching any Tier 2 high-risk path**:
 
 ```
 coordinator-agent → coding-agent → validation-agent → commit gate
 ```
 
 1. `coordinator-agent` gathers scope and routes the fix to `coding-agent`
-2. `validation-agent` reviews the changed files
+2. `validation-agent` reviews the changed files (solo mode — also screens for obvious security/UX issues, per Standard Pipeline above)
 3. If Major+ issues are found, fix them and re-run the agent
 4. `npm run gate:commit` must pass before committing
 
-> For defect fixes spanning more than two files, or that require architectural changes, use the full New Feature Pipeline instead. Mark issue as fixed using github hash.
+> For defect fixes spanning more than two files, touching a Tier 2 high-risk path, or that require architectural changes, use the full New Feature Pipeline instead. Mark issue as fixed using github hash.
 
 ### Assigned Defect Triage Agent
 
