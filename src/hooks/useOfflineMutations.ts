@@ -375,10 +375,15 @@ async function executeSingleMutation(item: QueuedMutation): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const m = (client.models as Record<string, any>)[item.model];
   if (!m) throw new Error(`Unknown model in offline queue: ${item.model}`);
+  // Amplify's data client returns GraphQL errors in the result rather than
+  // throwing — without this check a failed replay (e.g. a PlayTimeRecord
+  // close queued by closeAllOpenPlayTimeRecords) would look like a success
+  // and get dropped from the queue, with nothing left to retry it.
+  const context = `Failed to replay ${item.model}.${item.operation}`;
   switch (item.operation) {
-    case 'create': await m.create(item.payload); return;
-    case 'update': await m.update(item.payload); return;
-    case 'delete': await m.delete(item.payload); return;
+    case 'create': assertNoGraphQLErrors(await m.create(item.payload), context); return;
+    case 'update': assertNoGraphQLErrors(await m.update(item.payload), context); return;
+    case 'delete': assertNoGraphQLErrors(await m.delete(item.payload), context); return;
   }
 }
 

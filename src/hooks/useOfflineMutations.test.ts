@@ -882,6 +882,38 @@ describe('useOfflineMutations', () => {
       );
     });
 
+    it('requeues a mutation whose call resolves with GraphQL errors instead of dropping it as success', async () => {
+      // Same bug class as useOfflineQueueDrain.test.ts's equivalent test, in this
+      // file's own separate drain path (executeSingleMutation's generic branch).
+      // A generic-model update (e.g. PlayTimeRecord.update from
+      // closeAllOpenPlayTimeRecords) that resolves with { errors: [...] } must not
+      // be silently treated as success and dropped from the queue.
+      mockGameUpdate.mockResolvedValue({ data: null, errors: [{ message: 'Unauthorized' }] });
+      mockDequeueAll.mockResolvedValue([
+        {
+          id: 'q1',
+          model: 'Game',
+          operation: 'update',
+          payload: { id: 'g1' },
+          enqueuedAt: 1,
+          retryCount: 0,
+          ownerSub: DEFAULT_SUB,
+        },
+      ]);
+
+      renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        capturedOnReconnect?.();
+      });
+      await flush();
+
+      expect(mockGameUpdate).toHaveBeenCalledWith({ id: 'g1' });
+      expect(mockRequeueFailed).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ id: 'q1' })])
+      );
+    });
+
     it('requeues (and does not execute) items with a disallowed model name', async () => {
       mockDequeueAll.mockResolvedValue([
         {
