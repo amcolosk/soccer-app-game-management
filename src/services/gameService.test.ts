@@ -1,14 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createGame } from './gameService';
+import { createGame, emailGameSummary } from './gameService';
 
-const { mockCreateGame } = vi.hoisted(() => ({
+const { mockCreateGame, mockEmailGameSummary } = vi.hoisted(() => ({
   mockCreateGame: vi.fn(),
+  mockEmailGameSummary: vi.fn(),
 }));
 
 vi.mock('aws-amplify/data', () => ({
   generateClient: vi.fn(() => ({
     mutations: {
       createGameSafe: mockCreateGame,
+      emailGameSummary: mockEmailGameSummary,
     },
   })),
 }));
@@ -54,6 +56,38 @@ describe('createGame', () => {
 
     await expect(createGame({ teamId: 'team-1', opponent: 'Lions', isHome: true })).rejects.toThrow(
       /failed to create game/i,
+    );
+  });
+});
+
+describe('emailGameSummary', () => {
+  it('calls the emailGameSummary mutation with the given gameId and returns result.data', async () => {
+    mockEmailGameSummary.mockResolvedValueOnce({
+      data: { success: true, sentTo: 'coach@example.com' },
+      errors: undefined,
+    });
+
+    const result = await emailGameSummary('game-1');
+    expect(mockEmailGameSummary).toHaveBeenCalledWith({ gameId: 'game-1' });
+    expect(result).toEqual({ success: true, sentTo: 'coach@example.com' });
+  });
+
+  it('throws with the server error message when result.errors is present', async () => {
+    mockEmailGameSummary.mockResolvedValueOnce({
+      data: null,
+      errors: [{ message: 'Access denied: caller is not a coach on this game' }],
+    });
+
+    await expect(emailGameSummary('game-1')).rejects.toThrow(
+      /access denied: caller is not a coach on this game/i,
+    );
+  });
+
+  it('throws the fallback message when result.data is falsy with no errors', async () => {
+    mockEmailGameSummary.mockResolvedValueOnce({ data: null, errors: undefined });
+
+    await expect(emailGameSummary('game-1')).rejects.toThrow(
+      /failed to send game summary email/i,
     );
   });
 });

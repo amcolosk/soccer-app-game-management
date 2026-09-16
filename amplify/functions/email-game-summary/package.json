@@ -1,0 +1,16 @@
+{
+  "name": "email-game-summary",
+  "version": "1.0.0",
+  "description": "Lambda function for emailing the calling coach a summary of a completed game (score, goals, notes)",
+  "type": "module",
+  "main": "handler.ts",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "@aws-sdk/client-ses": "^3.600.0",
+    "@aws-sdk/client-cognito-identity-provider": "^3.600.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.138"
+  }
+}

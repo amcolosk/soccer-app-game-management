@@ -443,7 +443,7 @@ Active game cards: left-border accent treatment.
 1. **GameHeader** — final score
 2. Play time summary table (player → total minutes)
 3. Game notes summary (gold stars, cards)
-4. `View Full Report` link → navigates to `/reports/:teamId`
+4. **Completed-footer actions**: `View Full Report` link → `/reports/:teamId`; **Email Game Summary button** — sends the current coach a game-summary email (opponent, score, goals, pre-game and in-game notes); shows a loading state while sending and a success/error toast on completion; delete-game button
 
 ---
 

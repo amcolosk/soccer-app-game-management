@@ -25,6 +25,7 @@ import { createGameSafe } from './functions/create-game-safe/resource';
 import { syncTeamCalendar } from './functions/sync-team-calendar/resource';
 import { unlinkTeamCalendar } from './functions/unlink-team-calendar/resource';
 import { revokeCoachAccess } from './functions/revoke-coach-access/resource';
+import { emailGameSummary } from './functions/email-game-summary/resource';
 
 const backend = defineBackend({
   auth,
@@ -50,6 +51,7 @@ const backend = defineBackend({
   syncTeamCalendar,
   unlinkTeamCalendar,
   revokeCoachAccess,
+  emailGameSummary,
 });
 
 // Add deployment ID to outputs
@@ -469,3 +471,72 @@ backend.revokeCoachAccess.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.ta
 backend.revokeCoachAccess.addEnvironment('FIELD_POSITION_TABLE', fieldPositionTable.tableName);
 backend.revokeCoachAccess.addEnvironment('GAME_TABLE', gameTable.tableName);
 backend.revokeCoachAccess.addEnvironment('TEAM_INVITATION_TABLE', teamInvitationTable.tableName);
+
+// Grant table access for emailGameSummary Lambda ("Email Me a Game
+// Summary" plan). Least-privilege, per-table PolicyStatements: GetItem on
+// Game/Team; Query (not Scan, Major 1 / plan §3.7) on the confirmed
+// Goal/GameNote relationship GSIs -- table ARN alone does not authorize a
+// GSI Query (see revoke-coach-access's own comment on this above), so both
+// the table and index ARNs are granted; GetItem+BatchGetItem on Player;
+// AdminGetUser for server-side caller-email resolution (accept-invitation
+// pattern); SES send reusing the identity/config-set ARNs already computed
+// above for sendInvitationEmail; UpdateItem only on the new dedicated
+// rate-limit table (Major 4 / plan §3.8).
+backend.emailGameSummary.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem'],
+    resources: [gameTable.tableArn, teamTable.tableArn],
+  })
+);
+
+backend.emailGameSummary.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [
+      goalTable.tableArn, `${goalTable.tableArn}/index/gsi-Game.goals`,
+      gameNoteTable.tableArn, `${gameNoteTable.tableArn}/index/gsi-Game.gameNotes`,
+    ],
+  })
+);
+
+backend.emailGameSummary.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:GetItem', 'dynamodb:BatchGetItem'],
+    resources: [playerTable.tableArn],
+  })
+);
+
+backend.emailGameSummary.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.emailGameSummary.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.emailGameSummary.addEnvironment('GOAL_TABLE', goalTable.tableName);
+backend.emailGameSummary.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
+backend.emailGameSummary.addEnvironment('PLAYER_TABLE', playerTable.tableName);
+
+// Cognito email resolution (accept-invitation pattern, plan §3.4)
+backend.emailGameSummary.addEnvironment('USER_POOL_ID', backend.auth.resources.userPool.userPoolId);
+backend.emailGameSummary.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['cognito-idp:AdminGetUser'],
+    resources: [backend.auth.resources.userPool.userPoolArn],
+  })
+);
+
+// SES send (reuses the identity/config-set ARNs already computed above for sendInvitationEmail)
+backend.emailGameSummary.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+    resources: [sesIdentityArn, sesConfigSetArn],
+  })
+);
+
+// Rate limiting (Major 4 / plan §3.8) — Lambda-only table, UpdateItem only
+// (atomic ADD counter), no GetItem/Query needed since checkRateLimit's
+// single UpdateCommand with ReturnValues: 'ALL_NEW' both writes and reads.
+const emailGameSummaryRateLimitTable = backend.data.resources.tables['EmailGameSummaryRateLimit'];
+backend.emailGameSummary.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:UpdateItem'],
+    resources: [emailGameSummaryRateLimitTable.tableArn],
+  })
+);
+backend.emailGameSummary.addEnvironment('RATE_LIMIT_TABLE', emailGameSummaryRateLimitTable.tableName);

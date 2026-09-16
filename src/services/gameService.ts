@@ -21,3 +21,9 @@ export async function createGame(input: CreateGameInput): Promise<NonNullable<Sc
   const result = await client.mutations.createGameSafe(input);
   return assertMutationResult(result, 'Failed to create game');
 }
+
+/** Sends the calling coach a summary email for a completed game they coach. Recipient is always the caller's own Cognito email — resolved server-side, never client-supplied. */
+export async function emailGameSummary(gameId: string): Promise<NonNullable<Schema['emailGameSummary']['returnType']>> {
+  const result = await client.mutations.emailGameSummary({ gameId });
+  return assertMutationResult(result, 'Failed to send game summary email');
+}
