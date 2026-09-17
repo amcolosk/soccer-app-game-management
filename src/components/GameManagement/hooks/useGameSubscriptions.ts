@@ -153,6 +153,17 @@ export function useGameSubscriptions({
   const pendingGapCorrectionRef = useRef<PendingGapCorrection | null>(null);
   pendingGapCorrectionRef.current = pendingGapCorrection;
 
+  // Ref for userId — same reason as isRunningRef/gameStateRef above: the
+  // observeQuery effect's deps are [game.id] only, so it subscribes once at
+  // mount and never re-runs for the life of viewing one game. userId starts
+  // as '' in GameManagement.tsx and is populated later by an async
+  // getCurrentUser() call in a separate effect — without this ref, the
+  // closure below would permanently see the mount-time '', making the
+  // heartbeat continuity check (and the whole gap-confirmation feature)
+  // silently inert for the entire session (caught in review).
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+
   // Observe game changes and restore state (complex timer resume logic — stays manual)
   useEffect(() => {
     const gameSub = client.models.Game.observeQuery({
@@ -277,28 +288,30 @@ export function useGameSubscriptions({
             // (a second coach opening an already-running game) sees the same
             // large additionalSeconds on every first load and must stay silent,
             // exactly like today, or every second coach would be nagged on open.
-            const hasLocalContinuity = !!userId
+            const currentUserId = userIdRef.current;
+            const hasLocalContinuity = !!currentUserId
               && (() => {
                 try {
-                  return localStorage.getItem(buildTimerHeartbeatStorageKey(userId, game.id)) !== null;
+                  return localStorage.getItem(buildTimerHeartbeatStorageKey(currentUserId, game.id)) !== null;
                 } catch {
                   return false;
                 }
               })();
 
             const isAnomalousGap = additionalSeconds >= ANOMALOUS_GAP_THRESHOLD_SECONDS;
+            const gapNeedsConfirmation = hasLocalContinuity && isAnomalousGap && !willAutoHalftime && !willAutoEnd;
 
-            if (
-              hasLocalContinuity
-              && isAnomalousGap
-              && !willAutoHalftime
-              && !willAutoEnd
-              && !pendingGapCorrectionRef.current
-            ) {
-              // Don't apply the jump yet — leave currentTime/isRunning as they
-              // are (paused-looking locally) until the coach confirms via
-              // GameManagement's TimerGapConfirmationModal.
-              setPendingGapCorrection({ priorElapsed, proposedElapsed, gapSeconds: additionalSeconds });
+            if (gapNeedsConfirmation) {
+              if (!pendingGapCorrectionRef.current) {
+                // Don't apply the jump yet — leave currentTime/isRunning as they
+                // are (paused-looking locally) until the coach confirms via
+                // GameManagement's confirm() dialog.
+                setPendingGapCorrection({ priorElapsed, proposedElapsed, gapSeconds: additionalSeconds });
+              }
+              // else: a correction is already pending — do nothing and let the
+              // open dialog resolve first. Falling through to the silent-apply
+              // branch below would jump the clock underneath the coach's open
+              // "Was play stopped?" dialog (caught in review).
             } else {
               setCurrentTime(proposedElapsed);
               setIsRunning(true);
@@ -501,21 +514,25 @@ export function useGameSubscriptions({
   /**
    * Resolves a pending gap correction (see PendingGapCorrection above).
    * accept: applies the proposed elapsed time and resumes, exactly like the
-   *   silent auto-resume path would have. reject: applies nothing — currentTime
-   *   and isRunning are left as they were, so the coach's existing Resume
+   *   silent auto-resume path would have — isRunning becomes true, so the
+   *   earlier isRunningRef guard in the observeQuery callback blocks any
+   *   further auto-resume logic on its own; manuallyPausedRef is irrelevant
+   *   here. reject: applies nothing — currentTime and isRunning are left as
+   *   they were (isRunning stays false), so the coach's existing Resume
    *   button (handleResumeTimer in GameManagement.tsx) is the natural next
-   *   action, starting a fresh anchor from the un-jumped time. Either way,
-   *   manuallyPausedRef is set so a duplicate/replayed subscription event for
-   *   the same stale lastStartTime doesn't immediately re-propose the same
-   *   correction.
+   *   action, starting a fresh anchor from the un-jumped time. manuallyPausedRef
+   *   is set only in this branch, so a duplicate/replayed subscription event
+   *   for the same stale lastStartTime doesn't immediately re-propose the
+   *   same correction while isRunning is still false.
    */
   const resolveGapCorrection = (accept: boolean) => {
     const pending = pendingGapCorrectionRef.current;
     if (!pending) return;
-    manuallyPausedRef.current = true;
     if (accept) {
       setCurrentTime(pending.proposedElapsed);
       setIsRunning(true);
+    } else {
+      manuallyPausedRef.current = true;
     }
     setPendingGapCorrection(null);
   };

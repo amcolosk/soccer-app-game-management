@@ -300,6 +300,38 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
       expect(setIsRunning).toHaveBeenCalledWith(true);
     });
 
+    it('proposes a gap correction using the CURRENT userId even though it loaded after mount (regression: stale closure caught in review)', () => {
+      // Mirrors GameManagement.tsx's real timeline: userId starts as '' (useState('')),
+      // and is only populated later by an async getCurrentUser() effect — well after
+      // this hook's Game.observeQuery subscription (deps: [game.id] only) has already
+      // subscribed once. Without userIdRef, the subscription's `next` closure would
+      // permanently see the mount-time '', making the gap-confirmation feature
+      // silently inert for the entire session.
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: '' });
+
+      const now = Date.now();
+      const lastStartTime = new Date(now - 15 * 60_000).toISOString();
+
+      const { result, rerender } = renderHook((p) => useGameSubscriptions(p), { initialProps: props });
+
+      // userId loads asynchronously, same game.id — the subscription effect does NOT re-run.
+      rerender({ ...props, userId: 'user-1' });
+
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 2, elapsedSeconds: 2000, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(setIsRunning).not.toHaveBeenCalled();
+      expect(setCurrentTime).not.toHaveBeenCalled();
+      expect(result.current.pendingGapCorrection).not.toBeNull();
+    });
+
     it('applies a small gap silently even with a continuity heartbeat present (below threshold)', () => {
       vi.useFakeTimers();
       localStorage.setItem(HEARTBEAT_KEY, '1');
@@ -397,7 +429,11 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
       expect(result.current.pendingGapCorrection).toBeNull();
     });
 
-    it('does not propose a second pending correction while one is already awaiting an answer', () => {
+    it('does not propose a second pending correction — or silently apply the gap underneath the open dialog — while one is already awaiting an answer', () => {
+      // Regression (caught in review): a naive if/else that falls through to
+      // the silent-apply branch whenever the "propose" condition isn't met
+      // would silently jump the clock and resume the timer out from under an
+      // already-open "Was play stopped?" dialog on a second matching event.
       vi.useFakeTimers();
       localStorage.setItem(HEARTBEAT_KEY, '1');
       const setIsRunning = vi.fn();
@@ -415,6 +451,8 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
       });
       const firstPending = result.current.pendingGapCorrection;
       expect(firstPending).not.toBeNull();
+      expect(setIsRunning).not.toHaveBeenCalled();
+      expect(setCurrentTime).not.toHaveBeenCalled();
 
       // A second, slightly different event arrives while still pending.
       act(() => {
@@ -424,6 +462,9 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
       });
 
       expect(result.current.pendingGapCorrection).toBe(firstPending);
+      // Must still not have silently applied the gap underneath the open dialog.
+      expect(setIsRunning).not.toHaveBeenCalled();
+      expect(setCurrentTime).not.toHaveBeenCalled();
     });
 
     it('resolveGapCorrection(true) applies the proposed elapsed time and resumes', () => {
