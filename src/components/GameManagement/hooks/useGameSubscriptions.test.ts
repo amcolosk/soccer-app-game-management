@@ -185,6 +185,55 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     expect(setCurrentTime).toHaveBeenCalledWith(2700);
   });
 
+  it('does NOT preserve locally-derived score when the incoming status is completed (the other side of the #177 asymmetry — characterization for Issue C)', () => {
+    // The general merge path (setGameState(prev => ({...updatedGame, ourScore: prev.ourScore, ...})))
+    // deliberately preserves locally-derived score (issue #177, tested below). The
+    // `completed` branch takes a separate, earlier return and calls
+    // setGameState(updatedGame) directly — this is a real, load-bearing asymmetry
+    // (the final score snapshot IS written to the DB by handleEndGame before this
+    // event fires, so the DB's completed-status score is authoritative here, unlike
+    // the local derivation used for an in-progress game). Pinning both sides so a
+    // future refactor doesn't accidentally "fix" this into symmetry.
+    const props = createDefaultProps({ isRunning: false });
+    const { result } = renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      result.current.setGameState(prev => ({ ...prev, ourScore: 3, opponentScore: 2 }));
+    });
+    expect(result.current.gameState.ourScore).toBe(3);
+
+    act(() => {
+      capturedGameNext!({
+        items: [{ id: 'game-1', status: 'completed', elapsedSeconds: 2700, lastStartTime: null, ourScore: 5, opponentScore: 1 } as Partial<Game>],
+      });
+    });
+
+    // Overwritten with the DB's completed-snapshot score, NOT preserved.
+    expect(result.current.gameState.ourScore).toBe(5);
+    expect(result.current.gameState.opponentScore).toBe(1);
+  });
+
+  it('releases manuallyPausedRef when a confirmed-pause event arrives (lastStartTime cleared)', () => {
+    // handlePauseTimer sets manuallyPausedRef=true locally and writes
+    // lastStartTime:null to the DB. This event — the DB write echoing back — is
+    // the ONLY place manuallyPausedRef is reset from inside this hook (every
+    // other reset is a local handler in GameManagement.tsx setting it directly).
+    // Losing this in a refactor would permanently block auto-resume for any
+    // FUTURE resume event after one manual pause.
+    const props = createDefaultProps({ isRunning: false });
+    const { result } = renderHook(() => useGameSubscriptions(props));
+
+    result.current.manuallyPausedRef.current = true;
+
+    act(() => {
+      capturedGameNext!({
+        items: [{ id: 'game-1', status: 'in-progress', currentHalf: 1, elapsedSeconds: 500, lastStartTime: null } as Partial<Game>],
+      });
+    });
+
+    expect(result.current.manuallyPausedRef.current).toBe(false);
+  });
+
   it('does not stop timer or update time when a non-completed update arrives while running', () => {
     // Setup: isRunning = true — the timer is correctly running.
     // A score update (or other data change) arrives via the subscription.
