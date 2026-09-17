@@ -70,7 +70,7 @@ interface PendingGapCorrection {
  * callback must not act on (see the state-merge and early-return logic below
  * for how each is used).
  */
-function classifyIncomingGameEvent(
+export function classifyIncomingGameEvent(
   updatedGame: Pick<Game, 'status' | 'currentHalf'>,
   localStatus: string | null | undefined,
   localHalf: number
@@ -105,7 +105,7 @@ function classifyIncomingGameEvent(
  * deliberately does NOT go through this function — see its own comment for
  * why that asymmetry is intentional, not a bug).
  */
-function mergeIncomingGameState(
+export function mergeIncomingGameState(
   prev: Game,
   updatedGame: Game,
   isSecondHalfStartEvent: boolean
@@ -163,7 +163,7 @@ type GapConfirmationDecision =
  * independently testable, rather than buried in the observeQuery callback.
  * See docs/specs/Game-Management-Spec.md §3.6 for the full behavior spec.
  */
-function computeGapConfirmationDecision(inputs: GapConfirmationInputs): GapConfirmationDecision {
+export function computeGapConfirmationDecision(inputs: GapConfirmationInputs): GapConfirmationDecision {
   const { updatedGame, teamHalfLengthMinutes, priorElapsed, additionalSeconds, currentUserId, gameId, hasPendingCorrection } = inputs;
   const proposedElapsed = priorElapsed + additionalSeconds;
 

@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { useGameSubscriptions } from './useGameSubscriptions';
+import {
+  useGameSubscriptions,
+  classifyIncomingGameEvent,
+  mergeIncomingGameState,
+  computeGapConfirmationDecision,
+} from './useGameSubscriptions';
 import type { Game, Team } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -114,8 +119,202 @@ function createDefaultProps(overrides: {
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Direct unit tests for the extracted decision functions (Issue C) — these
+// exercise classifyIncomingGameEvent/mergeIncomingGameState/
+// computeGapConfirmationDecision in isolation, independent of the
+// observeQuery/renderHook machinery the tests below also cover them through.
 // ---------------------------------------------------------------------------
+
+describe('classifyIncomingGameEvent', () => {
+  it('flags a legitimate second-half start event', () => {
+    const result = classifyIncomingGameEvent({ status: 'in-progress', currentHalf: 2 }, 'halftime', 1);
+    expect(result.isSecondHalfStartEvent).toBe(true);
+  });
+
+  it('does not flag second-half start when status is not in-progress', () => {
+    const result = classifyIncomingGameEvent({ status: 'halftime', currentHalf: 2 }, 'halftime', 1);
+    expect(result.isSecondHalfStartEvent).toBe(false);
+  });
+
+  it('flags a stale first-half event arriving after local state already advanced to second half', () => {
+    const result = classifyIncomingGameEvent({ status: 'in-progress', currentHalf: 1 }, 'in-progress', 2);
+    expect(result.isStaleSecondHalfRegression).toBe(true);
+  });
+
+  it('does not flag stale second-half regression when the incoming half is also 2', () => {
+    const result = classifyIncomingGameEvent({ status: 'in-progress', currentHalf: 2 }, 'in-progress', 2);
+    expect(result.isStaleSecondHalfRegression).toBe(false);
+  });
+
+  it.each(['in-progress', 'halftime', 'completed'] as const)(
+    'flags a stale scheduled event when local status is already %s',
+    (localStatus) => {
+      const result = classifyIncomingGameEvent({ status: 'scheduled', currentHalf: 1 }, localStatus, 1);
+      expect(result.isStaleScheduledRegression).toBe(true);
+    }
+  );
+
+  it('does not flag stale scheduled regression when local status is also scheduled', () => {
+    const result = classifyIncomingGameEvent({ status: 'scheduled', currentHalf: 1 }, 'scheduled', 1);
+    expect(result.isStaleScheduledRegression).toBe(false);
+  });
+});
+
+describe('mergeIncomingGameState', () => {
+  it('keeps prev unchanged once local state is completed', () => {
+    const prev = createDefaultGame({ status: 'completed' });
+    const updatedGame = createDefaultGame({ status: 'in-progress' });
+    expect(mergeIncomingGameState(prev, updatedGame, false)).toBe(prev);
+  });
+
+  it('rejects a scheduled event regressing local in-progress/halftime state', () => {
+    const prev = createDefaultGame({ status: 'in-progress' });
+    const updatedGame = createDefaultGame({ status: 'scheduled' });
+    expect(mergeIncomingGameState(prev, updatedGame, false)).toBe(prev);
+  });
+
+  it('rejects a stale in-progress event while local state is halftime, unless it is a real second-half start', () => {
+    const prev = createDefaultGame({ status: 'halftime' });
+    const updatedGame = createDefaultGame({ status: 'in-progress', currentHalf: 2 });
+    expect(mergeIncomingGameState(prev, updatedGame, false)).toBe(prev);
+    expect(mergeIncomingGameState(prev, updatedGame, true)).not.toBe(prev);
+  });
+
+  it('rejects a stale first-half event regressing local second-half in-progress state', () => {
+    const prev = createDefaultGame({ status: 'in-progress', currentHalf: 2 });
+    const updatedGame = createDefaultGame({ status: 'in-progress', currentHalf: 1 });
+    expect(mergeIncomingGameState(prev, updatedGame, false)).toBe(prev);
+  });
+
+  it('merges the incoming game but preserves the locally-derived score (issue #177)', () => {
+    const prev = createDefaultGame({ status: 'in-progress', ourScore: 3, opponentScore: 2 });
+    const updatedGame = createDefaultGame({ status: 'in-progress', elapsedSeconds: 900, ourScore: 0, opponentScore: 0 });
+    const merged = mergeIncomingGameState(prev, updatedGame, false);
+    expect(merged.elapsedSeconds).toBe(900);
+    expect(merged.ourScore).toBe(3);
+    expect(merged.opponentScore).toBe(2);
+  });
+});
+
+describe('computeGapConfirmationDecision', () => {
+  const HEARTBEAT_KEY = 'teamtrack:timerHeartbeat:user-1:game-1';
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('returns already-pending when a correction is already pending, regardless of the gap', () => {
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 1, halfLengthMinutes: null },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 0,
+      additionalSeconds: 5,
+      currentUserId: 'user-1',
+      gameId: 'game-1',
+      hasPendingCorrection: true,
+    });
+    expect(decision.kind).toBe('already-pending');
+  });
+
+  it('returns silent-apply when there is no continuity heartbeat', () => {
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 1, halfLengthMinutes: null },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 0,
+      additionalSeconds: 1200,
+      currentUserId: 'user-1',
+      gameId: 'game-1',
+      hasPendingCorrection: false,
+    });
+    expect(decision).toEqual({ kind: 'silent-apply', proposedElapsed: 1200 });
+  });
+
+  it('returns silent-apply when the gap is below the anomalous threshold, even with continuity', () => {
+    localStorage.setItem(HEARTBEAT_KEY, '1');
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 1, halfLengthMinutes: null },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 0,
+      additionalSeconds: 30,
+      currentUserId: 'user-1',
+      gameId: 'game-1',
+      hasPendingCorrection: false,
+    });
+    expect(decision.kind).toBe('silent-apply');
+  });
+
+  it('returns propose when continuity, an anomalous gap, and no auto-trigger boundary all hold', () => {
+    localStorage.setItem(HEARTBEAT_KEY, '1');
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 2, halfLengthMinutes: null },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 2000,
+      additionalSeconds: 900,
+      currentUserId: 'user-1',
+      gameId: 'game-1',
+      hasPendingCorrection: false,
+    });
+    expect(decision).toEqual({ kind: 'propose', proposedElapsed: 2900 });
+  });
+
+  it('returns silent-apply when the proposed elapsed crosses the auto-halftime boundary in half 1', () => {
+    localStorage.setItem(HEARTBEAT_KEY, '1');
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 1, halfLengthMinutes: null },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 1700,
+      additionalSeconds: 650,
+      currentUserId: 'user-1',
+      gameId: 'game-1',
+      hasPendingCorrection: false,
+    });
+    expect(decision.kind).toBe('silent-apply');
+  });
+
+  it('returns silent-apply when the proposed elapsed crosses MAX_GAME_SECONDS, even in half 2', () => {
+    localStorage.setItem(HEARTBEAT_KEY, '1');
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 2, halfLengthMinutes: null },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 7000,
+      additionalSeconds: 900,
+      currentUserId: 'user-1',
+      gameId: 'game-1',
+      hasPendingCorrection: false,
+    });
+    expect(decision.kind).toBe('silent-apply');
+  });
+
+  it('uses the per-game halfLengthMinutes override over the team default when present', () => {
+    localStorage.setItem(HEARTBEAT_KEY, '1');
+    // Team default is 30 min (1800s); a 10-min (600s) per-game override means
+    // priorElapsed=500 + 650s gap = 1150, which crosses the 600s override but
+    // would NOT cross the 1800s team default — proves the override is honored.
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 1, halfLengthMinutes: 10 },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 500,
+      additionalSeconds: 650,
+      currentUserId: 'user-1',
+      gameId: 'game-1',
+      hasPendingCorrection: false,
+    });
+    expect(decision.kind).toBe('silent-apply');
+  });
+
+  it('returns silent-apply when currentUserId is empty (no continuity possible)', () => {
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 1, halfLengthMinutes: null },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 0,
+      additionalSeconds: 900,
+      currentUserId: '',
+      gameId: 'game-1',
+      hasPendingCorrection: false,
+    });
+    expect(decision.kind).toBe('silent-apply');
+  });
+});
 
 describe('useGameSubscriptions — Game observeQuery handler', () => {
   beforeEach(() => {
