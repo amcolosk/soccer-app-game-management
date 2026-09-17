@@ -9,6 +9,11 @@ import type {
 } from "../types";
 import { useAmplifyQuery } from "../../../hooks/useAmplifyQuery";
 import { handleApiError } from "../../../utils/errorHandler";
+import {
+  MAX_GAME_SECONDS,
+  ANOMALOUS_GAP_THRESHOLD_SECONDS,
+  buildTimerHeartbeatStorageKey,
+} from "../../../constants/gameTimer";
 
 const client = generateClient<Schema>();
 
@@ -19,6 +24,19 @@ interface UseGameSubscriptionsParams {
   setCurrentTime: React.Dispatch<React.SetStateAction<number>>;
   setIsRunning: React.Dispatch<React.SetStateAction<boolean>>;
   notesRefreshKey?: number;
+  /** Used to scope the timer-continuity heartbeat read (see constants/gameTimer.ts). */
+  userId: string;
+}
+
+/** A resume gap this device's timer needs a coach's confirmation about — see
+ * ANOMALOUS_GAP_THRESHOLD_SECONDS and the auto-trigger exclusion below. */
+interface PendingGapCorrection {
+  /** The elapsed value before this gap (what stays displayed while pending). */
+  priorElapsed: number;
+  /** The elapsed value this device would resume at if the coach confirms it's correct. */
+  proposedElapsed: number;
+  /** proposedElapsed - priorElapsed, for display ("advanced by N minutes"). */
+  gapSeconds: number;
 }
 
 export function useGameSubscriptions({
@@ -28,10 +46,12 @@ export function useGameSubscriptions({
   setCurrentTime,
   setIsRunning,
   notesRefreshKey = 0,
+  userId,
 }: UseGameSubscriptionsParams) {
   const [gameState, setGameState] = useState(game);
   const [gamePlan, setGamePlan] = useState<GamePlan | null>(null);
   const [plannedRotations, setPlannedRotations] = useState<PlannedRotation[]>([]);
+  const [pendingGapCorrection, setPendingGapCorrection] = useState<PendingGapCorrection | null>(null);
 
   // Simple data subscriptions via reusable hook
   const { data: lineupRaw } = useAmplifyQuery('LineupAssignment', {
@@ -125,6 +145,13 @@ export function useGameSubscriptions({
 
   // Ref to track if lineup sync is in progress - prevents duplicate creation
   const lineupSyncInProgressRef = useRef(false);
+
+  // Ref for pendingGapCorrection — lets the observeQuery callback (which only
+  // depends on [game.id], see below) avoid re-proposing a second gap
+  // correction while one is already awaiting the coach's answer, without
+  // needing pendingGapCorrection in that effect's deps.
+  const pendingGapCorrectionRef = useRef<PendingGapCorrection | null>(null);
+  pendingGapCorrectionRef.current = pendingGapCorrection;
 
   // Observe game changes and restore state (complex timer resume logic — stays manual)
   useEffect(() => {
@@ -235,8 +262,47 @@ export function useGameSubscriptions({
             const lastStart = new Date(updatedGame.lastStartTime).getTime();
             const now = Date.now();
             const additionalSeconds = Math.floor((now - lastStart) / 1000);
-            setCurrentTime((updatedGame.elapsedSeconds || 0) + additionalSeconds);
-            setIsRunning(true);
+            const priorElapsed = updatedGame.elapsedSeconds || 0;
+            const proposedElapsed = priorElapsed + additionalSeconds;
+
+            // Both existing auto-triggers (useGameTimer.ts) fire silently and are
+            // left untouched — the gap confirmation must not race or duplicate them.
+            const incomingHalfForGap = updatedGame.currentHalf ?? 1;
+            const willAutoHalftime = incomingHalfForGap === 1
+              && proposedElapsed >= (updatedGame.halfLengthMinutes ?? team.halfLengthMinutes ?? 30) * 60;
+            const willAutoEnd = proposedElapsed >= MAX_GAME_SECONDS;
+
+            // Only a device that has previously had THIS game's timer running
+            // (heartbeat present) can have "lost continuity" — a fresh device
+            // (a second coach opening an already-running game) sees the same
+            // large additionalSeconds on every first load and must stay silent,
+            // exactly like today, or every second coach would be nagged on open.
+            const hasLocalContinuity = !!userId
+              && (() => {
+                try {
+                  return localStorage.getItem(buildTimerHeartbeatStorageKey(userId, game.id)) !== null;
+                } catch {
+                  return false;
+                }
+              })();
+
+            const isAnomalousGap = additionalSeconds >= ANOMALOUS_GAP_THRESHOLD_SECONDS;
+
+            if (
+              hasLocalContinuity
+              && isAnomalousGap
+              && !willAutoHalftime
+              && !willAutoEnd
+              && !pendingGapCorrectionRef.current
+            ) {
+              // Don't apply the jump yet — leave currentTime/isRunning as they
+              // are (paused-looking locally) until the coach confirms via
+              // GameManagement's TimerGapConfirmationModal.
+              setPendingGapCorrection({ priorElapsed, proposedElapsed, gapSeconds: additionalSeconds });
+            } else {
+              setCurrentTime(proposedElapsed);
+              setIsRunning(true);
+            }
           } else {
             // Restore elapsed time for halftime or paused states
             if (updatedGame.elapsedSeconds !== null && updatedGame.elapsedSeconds !== undefined) {
@@ -432,6 +498,28 @@ export function useGameSubscriptions({
     void syncLineupFromGamePlan();
   }, [gamePlan, gameState.status, game.id, team.coaches, lineup]);
 
+  /**
+   * Resolves a pending gap correction (see PendingGapCorrection above).
+   * accept: applies the proposed elapsed time and resumes, exactly like the
+   *   silent auto-resume path would have. reject: applies nothing — currentTime
+   *   and isRunning are left as they were, so the coach's existing Resume
+   *   button (handleResumeTimer in GameManagement.tsx) is the natural next
+   *   action, starting a fresh anchor from the un-jumped time. Either way,
+   *   manuallyPausedRef is set so a duplicate/replayed subscription event for
+   *   the same stale lastStartTime doesn't immediately re-propose the same
+   *   correction.
+   */
+  const resolveGapCorrection = (accept: boolean) => {
+    const pending = pendingGapCorrectionRef.current;
+    if (!pending) return;
+    manuallyPausedRef.current = true;
+    if (accept) {
+      setCurrentTime(pending.proposedElapsed);
+      setIsRunning(true);
+    }
+    setPendingGapCorrection(null);
+  };
+
   return {
     gameState,
     setGameState,
@@ -444,5 +532,7 @@ export function useGameSubscriptions({
     playerAvailabilities,
     queuedSubstitutions,
     manuallyPausedRef,
+    pendingGapCorrection,
+    resolveGapCorrection,
   };
 }

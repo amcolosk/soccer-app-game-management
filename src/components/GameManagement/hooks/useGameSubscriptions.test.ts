@@ -100,6 +100,7 @@ function createDefaultProps(overrides: {
   setCurrentTime?: ReturnType<typeof vi.fn>;
   setIsRunning?: ReturnType<typeof vi.fn>;
   game?: Game;
+  userId?: string;
 } = {}) {
   return {
     game: overrides.game ?? createDefaultGame(),
@@ -108,6 +109,7 @@ function createDefaultProps(overrides: {
     setCurrentTime: overrides.setCurrentTime ?? vi.fn(),
     setIsRunning: overrides.setIsRunning ?? vi.fn(),
     notesRefreshKey: 0,
+    userId: overrides.userId ?? '',
   };
 }
 
@@ -146,6 +148,7 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    localStorage.clear();
   });
 
   it('stops the timer when completed status arrives even if isRunning is true (primary bug fix)', () => {
@@ -251,6 +254,233 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     // Allow ±1s tolerance for timing variance.
     expect(setTimeArg).toBeGreaterThanOrEqual(1029);
     expect(setTimeArg).toBeLessThanOrEqual(1031);
+  });
+
+  describe('timer gap confirmation (Issue B)', () => {
+    const HEARTBEAT_KEY = 'teamtrack:timerHeartbeat:user-1:game-1';
+
+    it('applies a large gap silently when this device has no continuity heartbeat (e.g. a second coach opening an already-running game)', () => {
+      vi.useFakeTimers();
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      // No heartbeat written — userId set, but this device never ran this game's timer.
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      const lastStartTime = new Date(now - 20 * 60_000).toISOString(); // 20 min gap — well past threshold
+
+      renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 1, elapsedSeconds: 0, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(setIsRunning).toHaveBeenCalledWith(true);
+      expect(setCurrentTime).toHaveBeenCalled();
+    });
+
+    it('applies a large gap silently when userId has not loaded yet', () => {
+      vi.useFakeTimers();
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: '' });
+      localStorage.setItem('teamtrack:timerHeartbeat::game-1', '1'); // can't happen for real, but prove userId is required
+
+      const now = Date.now();
+      const lastStartTime = new Date(now - 20 * 60_000).toISOString();
+
+      renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 1, elapsedSeconds: 0, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(setIsRunning).toHaveBeenCalledWith(true);
+    });
+
+    it('applies a small gap silently even with a continuity heartbeat present (below threshold)', () => {
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      const lastStartTime = new Date(now - 30_000).toISOString(); // 30s — below the 600s threshold
+
+      renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 1, elapsedSeconds: 0, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(setIsRunning).toHaveBeenCalledWith(true);
+      expect(setCurrentTime).toHaveBeenCalled();
+    });
+
+    it('proposes a gap correction instead of auto-resuming when this device has continuity, the gap is anomalous, and no auto-trigger boundary is crossed', () => {
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      // Second half, elapsed already past the half-length boundary — a 15 min
+      // gap here does NOT cross MAX_GAME_SECONDS (7200s), so it's eligible.
+      const lastStartTime = new Date(now - 15 * 60_000).toISOString();
+
+      const { result } = renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 2, elapsedSeconds: 2000, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      // Must NOT have auto-resumed.
+      expect(setIsRunning).not.toHaveBeenCalled();
+      expect(setCurrentTime).not.toHaveBeenCalled();
+      // Must have proposed a correction instead.
+      expect(result.current.pendingGapCorrection).not.toBeNull();
+      expect(result.current.pendingGapCorrection?.priorElapsed).toBe(2000);
+      expect(result.current.pendingGapCorrection?.gapSeconds).toBeGreaterThanOrEqual(899);
+      expect(result.current.pendingGapCorrection?.gapSeconds).toBeLessThanOrEqual(901);
+    });
+
+    it('stays silent when the gap would cross the auto-halftime boundary in half 1', () => {
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      // elapsedSeconds=1700 + an ~11 min (>600s, anomalous) gap crosses the
+      // 30-min (1800s) default half length.
+      const lastStartTime = new Date(now - 11 * 60_000).toISOString();
+
+      const { result } = renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 1, elapsedSeconds: 1700, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(setIsRunning).toHaveBeenCalledWith(true);
+      expect(setCurrentTime).toHaveBeenCalled();
+      expect(result.current.pendingGapCorrection).toBeNull();
+    });
+
+    it('stays silent when the gap would cross the auto-end boundary, even in the second half', () => {
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      // elapsedSeconds already at 7000; a 15 min gap pushes past MAX_GAME_SECONDS (7200).
+      const lastStartTime = new Date(now - 15 * 60_000).toISOString();
+
+      const { result } = renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 2, elapsedSeconds: 7000, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(setIsRunning).toHaveBeenCalledWith(true);
+      expect(setCurrentTime).toHaveBeenCalled();
+      expect(result.current.pendingGapCorrection).toBeNull();
+    });
+
+    it('does not propose a second pending correction while one is already awaiting an answer', () => {
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      const lastStartTime = new Date(now - 15 * 60_000).toISOString();
+
+      const { result } = renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 2, elapsedSeconds: 2000, lastStartTime } as Partial<Game>],
+        });
+      });
+      const firstPending = result.current.pendingGapCorrection;
+      expect(firstPending).not.toBeNull();
+
+      // A second, slightly different event arrives while still pending.
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 2, elapsedSeconds: 2000, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(result.current.pendingGapCorrection).toBe(firstPending);
+    });
+
+    it('resolveGapCorrection(true) applies the proposed elapsed time and resumes', () => {
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      const lastStartTime = new Date(now - 15 * 60_000).toISOString();
+
+      const { result } = renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 2, elapsedSeconds: 2000, lastStartTime } as Partial<Game>],
+        });
+      });
+      const proposed = result.current.pendingGapCorrection?.proposedElapsed;
+      expect(proposed).toBeDefined();
+
+      act(() => {
+        result.current.resolveGapCorrection(true);
+      });
+
+      expect(setCurrentTime).toHaveBeenCalledWith(proposed);
+      expect(setIsRunning).toHaveBeenCalledWith(true);
+      expect(result.current.pendingGapCorrection).toBeNull();
+    });
+
+    it('resolveGapCorrection(false) leaves currentTime/isRunning untouched and sets manuallyPausedRef', () => {
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      const lastStartTime = new Date(now - 15 * 60_000).toISOString();
+
+      const { result } = renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 2, elapsedSeconds: 2000, lastStartTime } as Partial<Game>],
+        });
+      });
+      expect(result.current.pendingGapCorrection).not.toBeNull();
+
+      act(() => {
+        result.current.resolveGapCorrection(false);
+      });
+
+      expect(setCurrentTime).not.toHaveBeenCalled();
+      expect(setIsRunning).not.toHaveBeenCalled();
+      expect(result.current.pendingGapCorrection).toBeNull();
+      expect(result.current.manuallyPausedRef.current).toBe(true);
+    });
   });
 
   it('does not fire setIsRunning or setCurrentTime when subscription data is empty', () => {

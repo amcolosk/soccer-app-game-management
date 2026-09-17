@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../../amplify/data/resource";
 import type { Game, GamePlan, PlannedRotation } from "../types";
+import { MAX_GAME_SECONDS, buildTimerHeartbeatStorageKey } from "../../../constants/gameTimer";
 
 const client = generateClient<Schema>();
 
@@ -16,6 +17,8 @@ interface UseGameTimerParams {
   plannedRotations: PlannedRotation[];
   onHalftime: () => void | Promise<void>;
   onEndGame: () => void | Promise<void>;
+  /** Used to scope the timer-continuity heartbeat (see constants/gameTimer.ts). */
+  userId: string;
 }
 
 interface UseGameTimerResult {
@@ -34,6 +37,7 @@ export function useGameTimer({
   plannedRotations,
   onHalftime,
   onEndGame,
+  userId,
 }: UseGameTimerParams): UseGameTimerResult {
   // Guards to prevent duplicate auto-halftime / auto-end-game calls.
   const halftimeTriggeredRef = useRef(false);
@@ -67,6 +71,21 @@ export function useGameTimer({
     if (isRunning) {
       startMsRef.current = Date.now();
       startElapsedRef.current = currentTime;
+      // Record that this device has had this game's timer running at least
+      // once — the signal useGameSubscriptions uses to tell "this device's
+      // timer was running and then lost continuity" (crash/backgrounding)
+      // apart from "this device is opening an already-running game for the
+      // first time" (a second coach's device — always silent). See
+      // constants/gameTimer.ts.
+      if (userId) {
+        try {
+          localStorage.setItem(buildTimerHeartbeatStorageKey(userId, game.id), '1');
+        } catch {
+          // localStorage unavailable (private browsing, quota) — the gap
+          // confirmation just stays silent for this device, an acceptable
+          // fallback since it only affects a UX nicety, not correctness.
+        }
+      }
     } else {
       startMsRef.current = null;
     }
@@ -105,8 +124,8 @@ export function useGameTimer({
           void onHalftimeRef.current();
         }
 
-        // Auto-end game after 2 hours maximum (7200 seconds)
-        if (derived >= 7200 && !endGameTriggeredRef.current) {
+        // Auto-end game after 2 hours maximum
+        if (derived >= MAX_GAME_SECONDS && !endGameTriggeredRef.current) {
           endGameTriggeredRef.current = true;
           void onEndGameRef.current();
         }

@@ -86,13 +86,14 @@ Pause does **not** close active `PlayTimeRecord` entries — those remain open a
 
 **Automatic halftime** triggers when `currentTime >= halfLengthSeconds` while `Game.currentHalf === 1`. The `halftimeTriggeredRef` guard ensures it fires exactly once.
 
-**If the app was backgrounded when half-time would have occurred**, the timer formula computes the correct elapsed time on the next foreground tick. If this value meets or exceeds `halfLengthSeconds`, `handleHalftime` fires immediately — no confirmation is shown to the coach. Play time records are closed at `halfLengthSeconds` (the actual half-end game time, not the later wall time when the coach returned).
+**If the app was backgrounded when half-time would have occurred**, the timer formula computes the correct elapsed time on the next foreground tick. If this value meets or exceeds `halfLengthSeconds`, `handleHalftime` fires immediately — no confirmation is shown to the coach, even if the resume gap is large (see §3.6 — a resume that crosses this boundary is explicitly excluded from the gap-confirmation modal, so the two features never race). Play time records are closed at `halfLengthSeconds` (the actual half-end game time, not the later wall time when the coach returned).
 
 **`handleHalftime` sequence:**
 1. Set `isRunning = false`
-2. Call `closeActivePlayTimeRecords(halfLengthSeconds)` — closes all open `PlayTimeRecord` entries at the half-end game second
-3. Update `Game.status = 'halftime'`, `Game.elapsedSeconds = halfLengthSeconds`
-4. UI transitions to halftime layout
+2. Call `mutations.closeAllOpenPlayTimeRecords(halfLengthSeconds)` — closes every `PlayTimeRecord` this device has locally opened, unconditionally (does not depend on subscription/DB visibility — this is what makes closing correct even for a record created moments earlier while offline)
+3. Call `closeActivePlayTimeRecords(halfLengthSeconds)` as a **cross-device backstop** — catches a record opened on a *different* coach's device, via the `gameId` GSI
+4. Update `Game.status = 'halftime'`, `Game.elapsedSeconds = halfLengthSeconds`
+5. UI transitions to halftime layout
 
 **`handleStartSecondHalf` sequence:**
 1. Set `Game.currentHalf = 2`, `Game.status = 'in-progress'`, `Game.lastStartTime = now`
@@ -101,12 +102,27 @@ Pause does **not** close active `PlayTimeRecord` entries — those remain open a
 
 ### 3.5 End Game
 
-**Automatic end game** triggers when `currentTime >= 7200` (2-hour safety cap). Can also be triggered manually.
+**Automatic end game** triggers when `currentTime >= MAX_GAME_SECONDS` (`src/constants/gameTimer.ts`, currently 7200 — a 2-hour safety cap). Can also be triggered manually. Like auto-halftime, a resume gap that crosses this boundary is silent — never intercepted by the gap-confirmation modal (§3.6).
 
 **`handleEndGame` sequence:**
 1. Set `isRunning = false`
-2. Call `closeActivePlayTimeRecords(endGameTime)`
-3. Update `Game.status = 'completed'`, `Game.elapsedSeconds = endGameTime`
+2. Call `mutations.closeAllOpenPlayTimeRecords(endGameTime)` — primary close path, same as halftime
+3. Call `closeActivePlayTimeRecords(endGameTime)` as the cross-device backstop
+
+### 3.6 Unrecorded Stoppage / Timer Gap Confirmation
+
+A crash, force-quit, or OS-level app eviction wipes all in-memory state (React state, `isRunning`) but not `Game.lastStartTime` in DynamoDB. On the next mount, `useGameSubscriptions`'s `observeQuery` handler sees `status: 'in-progress'` with a stale `lastStartTime` and must decide how much wall-clock time to credit — this is exactly the resume-gap computation in §3.1, and it has no way on its own to tell a genuine crash apart from an entirely normal case: **a second coach opening an already-running game for the first time**, which produces the identical large-gap computation. Naively confirming every large gap would nag every second coach who opens the app mid-half.
+
+**The distinguishing signal is a per-device, per-user localStorage heartbeat** (`buildTimerHeartbeatStorageKey`, `src/constants/gameTimer.ts`), written by `useGameTimer` whenever `isRunning` transitions to `true` on this device. Its *presence* means this exact device (browser/profile) has had this game's timer running before — so a large gap on a subsequent mount means *this device* lost continuity. Its *absence* means this device is seeing the running game for the first time, and the gap must be applied silently, exactly as before this feature existed.
+
+**Decision, computed in the `observeQuery` handler** for a `status: 'in-progress'` event with a set `lastStartTime`:
+1. Compute `additionalSeconds` (the gap) and `proposedElapsed` as in §3.1.
+2. If `additionalSeconds < ANOMALOUS_GAP_THRESHOLD_SECONDS` (600s) → apply silently (not anomalous).
+3. If this device has no heartbeat for this game/user → apply silently (no local continuity to have lost).
+4. If `proposedElapsed` would cross the auto-halftime boundary (half 1 only) or `MAX_GAME_SECONDS` → apply silently (the existing auto-trigger already owns this case — see §3.4/§3.5).
+5. Otherwise → hold the jump. `currentTime`/`isRunning` stay at their prior values (`pendingGapCorrection` state is set instead) and `GameManagement` shows a confirmation dialog ("Was play stopped?", via the existing `useConfirm()` infrastructure — no new modal component): **"Yes, that's right"** applies `proposedElapsed` and resumes, exactly like the silent path would have; **"No, let me adjust"** (or dismissing the dialog) applies nothing — the coach's existing Resume button is the next natural action, re-anchoring from the un-jumped time.
+
+No persisted audit trail — both outcomes fire an analytics event (`TIMER_GAP_ACCEPTED` / `TIMER_GAP_ADJUSTED`) only. A second gap proposal is never raised while one is already pending.
 
 ---
 
@@ -130,7 +146,7 @@ PlayTimeRecord {
 | Second half start | Open records for all starters at `resumeTime` |
 | End game | Close all active records at `endGameTime` |
 
-A two-phase close (with 500ms retry DB scan) handles DynamoDB eventual consistency in `closeActivePlayTimeRecords`.
+Closing is two-tiered: `mutations.closeAllOpenPlayTimeRecords` (the primary path, `src/hooks/useOfflineMutations.ts`) closes every record this device has locally tracked as open, unconditionally — it works even for a record created moments earlier while offline, since it doesn't depend on subscription or DB visibility. `closeActivePlayTimeRecords` (`src/services/substitutionService.ts`) is a cross-device backstop for a record opened on a *different* coach's device, using the `gameId` GSI with a 500ms retry pass for DynamoDB eventual consistency.
 
 ---
 

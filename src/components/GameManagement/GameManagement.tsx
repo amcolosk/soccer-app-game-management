@@ -412,6 +412,8 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     playerAvailabilities,
     queuedSubstitutions,
     manuallyPausedRef,
+    pendingGapCorrection,
+    resolveGapCorrection,
   } = useGameSubscriptions({
     game,
     team,
@@ -419,11 +421,39 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     setCurrentTime,
     setIsRunning,
     notesRefreshKey,
+    userId,
   });
 
   // Use per-game half length override when set; fall back to team default.
   // gameState is live-updated via observeQuery so this recomputes reactively.
   const halfLengthSeconds = (gameState.halfLengthMinutes ?? team.halfLengthMinutes ?? 30) * 60;
+
+  // Timer gap confirmation (Issue B / #stoppage-drift): useGameSubscriptions
+  // sets pendingGapCorrection instead of silently resuming when this device's
+  // timer had continuity (see constants/gameTimer.ts) and the resume gap is
+  // anomalous and won't be silently handled by an auto-trigger. No persisted
+  // audit trail in v1 — analytics events only (see hardening plan Issue B).
+  useEffect(() => {
+    if (!pendingGapCorrection) return;
+    const gapMinutes = Math.round(pendingGapCorrection.gapSeconds / 60);
+    void confirm({
+      title: 'Was play stopped?',
+      message: `The game clock advanced by about ${gapMinutes} minute${gapMinutes === 1 ? '' : 's'} while this device was disconnected. Is that correct?`,
+      confirmText: "Yes, that's right",
+      cancelText: 'No, let me adjust',
+      variant: 'warning',
+    }).then((accepted) => {
+      trackEvent(
+        accepted ? AnalyticsEvents.TIMER_GAP_ACCEPTED.category : AnalyticsEvents.TIMER_GAP_ADJUSTED.category,
+        accepted ? AnalyticsEvents.TIMER_GAP_ACCEPTED.action : AnalyticsEvents.TIMER_GAP_ADJUSTED.action,
+        String(gapMinutes)
+      );
+      resolveGapCorrection(accepted);
+    });
+    // pendingGapCorrection is a fresh object each time a new gap is proposed
+    // (and null once resolved), so this effect fires exactly once per proposal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingGapCorrection]);
 
   // Merged substitution queue: backend records (FIFO) plus optimistic adds, minus optimistic removes
   const substitutionQueue = useMemo<SubQueue[]>(() => {
@@ -1861,6 +1891,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     plannedRotations,
     onHalftime: handleHalftime,
     onEndGame: handleEndGame,
+    userId,
   });
 
   // Reset tab when game status changes.
