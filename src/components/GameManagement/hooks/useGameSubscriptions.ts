@@ -301,17 +301,20 @@ export function useGameSubscriptions({
             const isAnomalousGap = additionalSeconds >= ANOMALOUS_GAP_THRESHOLD_SECONDS;
             const gapNeedsConfirmation = hasLocalContinuity && isAnomalousGap && !willAutoHalftime && !willAutoEnd;
 
-            if (gapNeedsConfirmation) {
-              if (!pendingGapCorrectionRef.current) {
-                // Don't apply the jump yet — leave currentTime/isRunning as they
-                // are (paused-looking locally) until the coach confirms via
-                // GameManagement's confirm() dialog.
-                setPendingGapCorrection({ priorElapsed, proposedElapsed, gapSeconds: additionalSeconds });
-              }
-              // else: a correction is already pending — do nothing and let the
-              // open dialog resolve first. Falling through to the silent-apply
-              // branch below would jump the clock underneath the coach's open
-              // "Was play stopped?" dialog (caught in review).
+            if (pendingGapCorrectionRef.current) {
+              // A correction is already pending — do nothing and let the open
+              // dialog resolve first. This check comes BEFORE gapNeedsConfirmation
+              // is even consulted: a later event's recomputed proposedElapsed
+              // crossing an auto-trigger boundary while the dialog is still open
+              // must not fall through to the silent-apply branch below either —
+              // that would jump the clock underneath the coach's open "Was play
+              // stopped?" dialog just as much as re-proposing would (caught in
+              // review, twice — once for the propose path, once for this one).
+            } else if (gapNeedsConfirmation) {
+              // Don't apply the jump yet — leave currentTime/isRunning as they
+              // are (paused-looking locally) until the coach confirms via
+              // GameManagement's confirm() dialog.
+              setPendingGapCorrection({ priorElapsed, proposedElapsed, gapSeconds: additionalSeconds });
             } else {
               setCurrentTime(proposedElapsed);
               setIsRunning(true);

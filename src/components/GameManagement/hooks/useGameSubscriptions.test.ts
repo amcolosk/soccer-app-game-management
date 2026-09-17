@@ -467,6 +467,49 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
       expect(setCurrentTime).not.toHaveBeenCalled();
     });
 
+    it('does not silently apply the gap underneath the open dialog when a later event\'s recomputed gap newly crosses an auto-trigger boundary', () => {
+      // Regression (caught in a second-round review): the first fix only
+      // guarded the "propose" branch against a pending correction, but the
+      // silent-apply branch had no such guard. If the dialog is still open
+      // and enough real time passes that a later event's proposedElapsed
+      // newly crosses an auto-trigger boundary, gapNeedsConfirmation flips to
+      // false and the code must still stay a no-op — not silently jump the
+      // clock and resume underneath the coach's still-open dialog.
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      // Half 1, elapsedSeconds=1000 + ~700s gap = 1700, under the 1800s boundary.
+      const lastStartTime = new Date(now - 700_000).toISOString();
+
+      const { result } = renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 1, elapsedSeconds: 1000, lastStartTime } as Partial<Game>],
+        });
+      });
+      expect(result.current.pendingGapCorrection).not.toBeNull();
+
+      // 200s more real time passes while the dialog sits open (e.g. a slow
+      // sideline connection re-syncing observeQuery). The same lastStartTime
+      // now computes a gap that crosses the 1800s auto-halftime boundary.
+      act(() => {
+        vi.advanceTimersByTime(200_000);
+      });
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 1, elapsedSeconds: 1000, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(setIsRunning).not.toHaveBeenCalled();
+      expect(setCurrentTime).not.toHaveBeenCalled();
+      expect(result.current.pendingGapCorrection).not.toBeNull();
+    });
+
     it('resolveGapCorrection(true) applies the proposed elapsed time and resumes', () => {
       vi.useFakeTimers();
       localStorage.setItem(HEARTBEAT_KEY, '1');
