@@ -1,12 +1,13 @@
 import { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { FanGameView } from "./components/FanMode/FanGameView";
+import { StatTrackerView } from "./components/FanMode/StatTrackerView";
 
-// Lazy-loaded so the public /watch/:token route (and, in Milestone B2,
-// /track/:token) never pulls in the authenticated app shell's bundle
-// (App.css, Authenticator, LandingPage, the amplify-ui stylesheet, etc. —
-// see AppRoot.tsx). Same pattern already used for Management/UserProfile/
-// SeasonReportRoute in App.tsx.
+// Lazy-loaded so the public /watch/:token and /track/:token routes never
+// pull in the authenticated app shell's bundle (App.css, Authenticator,
+// LandingPage, the amplify-ui stylesheet, etc. — see AppRoot.tsx). Same
+// pattern already used for Management/UserProfile/SeasonReportRoute in
+// App.tsx.
 const AppRootLazy = lazy(() => import("./AppRoot"));
 
 const loadingFallback = (
@@ -25,6 +26,7 @@ export function AppRouter() {
       <Suspense fallback={loadingFallback}>
         <Routes>
           <Route path="/watch/:token" element={<FanGameView />} />
+          <Route path="/track/:token" element={<StatTrackerView />} />
           <Route path="*" element={<AppRootLazy />} />
         </Routes>
       </Suspense>

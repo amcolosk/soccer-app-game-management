@@ -336,4 +336,39 @@ describe("ShotSaveTracker", () => {
       await waitFor(() => expect(mockDeleteSave).toHaveBeenCalledWith("sv1"));
     });
   });
+
+  describe("via helper badge (Milestone B2)", () => {
+    it("shows a 'Logged via helper' badge on a shot with loggedVia: HELPER", () => {
+      renderWithProvider(
+        <ShotSaveTracker
+          {...defaultProps}
+          statView="shots"
+          shots={[{ id: "s-helper", takenByUs: true, onTarget: true, playerId: "p1", gameSeconds: 100, half: 1, loggedVia: "HELPER" } as any]}
+        />
+      );
+      expect(screen.getByText("Logged via helper")).toBeInTheDocument();
+    });
+
+    it("shows a 'Logged via helper' badge on a save with loggedVia: HELPER", () => {
+      renderWithProvider(
+        <ShotSaveTracker
+          {...defaultProps}
+          statView="saves"
+          saves={[{ id: "sv-helper", byUs: true, playerId: "p1", gameSeconds: 100, half: 1, loggedVia: "HELPER" } as any]}
+        />
+      );
+      expect(screen.getByText("Logged via helper")).toBeInTheDocument();
+    });
+
+    it("does not show the badge for a coach-logged shot", () => {
+      renderWithProvider(
+        <ShotSaveTracker
+          {...defaultProps}
+          statView="shots"
+          shots={[{ id: "s-coach", takenByUs: true, onTarget: true, playerId: "p1", gameSeconds: 100, half: 1, loggedVia: "COACH" } as any]}
+        />
+      );
+      expect(screen.queryByText("Logged via helper")).not.toBeInTheDocument();
+    });
+  });
 });

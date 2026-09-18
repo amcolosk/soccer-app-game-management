@@ -22,6 +22,8 @@ import { generateShareLink } from "../functions/generate-share-link/resource";
 import { revokeShareLink } from "../functions/revoke-share-link/resource";
 import { listTeamShareLinks } from "../functions/list-team-share-links/resource";
 import { getFanGameView } from "../functions/get-fan-game-view/resource";
+import { getStatTrackerView } from "../functions/get-stat-tracker-view/resource";
+import { submitStatEvent } from "../functions/submit-stat-event/resource";
 
 /*== Soccer Game Management App Schema ===================================
 This schema defines the data models for a soccer coaching app:
@@ -954,7 +956,102 @@ const schema = a.schema({
     .returns(a.ref('FanGameViewResult'))
     .authorization((allow) => [allow.guest(), allow.authenticated('identityPool')])
     .handler(a.handler.function(getFanGameView)),
-});
+
+  // ── Milestone B2: Sideline Stat Tracker (public write) ─────────────────
+  //
+  // Curated payload for the public /track/:token page -- deliberately NOT
+  // shared with FanGameViewResult (see the "getFanGameView stays FAN-only"
+  // decision in B1): this page needs the full active roster, playerIds
+  // included, for the helper's own player picker, which is exactly the
+  // gratuitous-identifier leak Fan Mode's anonymized payload avoids.
+  StatTrackerPlayer: a.customType({
+    id: a.string().required(),
+    firstName: a.string().required(),
+    lastName: a.string().required(),
+    positionName: a.string(),
+  }),
+
+  StatTrackerViewResult: a.customType({
+    // Same discriminator pattern as FanGameViewResult.state.
+    state: a.string().required(), // 'INVALID_LINK' | 'RATE_LIMITED' | 'NO_GAMES_YET' | 'NO_GAME_RIGHT_NOW' | 'NEXT_GAME' | 'FINISHED' | 'LIVE'
+    teamName: a.string(),
+    opponentName: a.string(), // for the Us/Opponent tap-flow labels
+    status: a.string(),
+    currentHalf: a.integer(),
+    gameId: a.string(), // echoed back by the client as submitStatEvent's
+                         // expectedGameId -- the wrong-game-race guard.
+    roster: a.ref('StatTrackerPlayer').array(),
+  }),
+
+  // Guest + authenticated(identityPool) -- same rationale as getFanGameView:
+  // a coach opening their own freshly-generated Stat Tracker link to
+  // confirm it works is exactly as real a first-touch scenario here.
+  getStatTrackerView: a
+    .query()
+    .arguments({ token: a.string().required() })
+    .returns(a.ref('StatTrackerViewResult'))
+    .authorization((allow) => [allow.guest(), allow.authenticated('identityPool')])
+    .handler(a.handler.function(getStatTrackerView)),
+
+  SubmitStatEventResult: a.customType({
+    ok: a.boolean().required(),
+    // Set when ok === false. A plain a.boolean() return can't distinguish
+    // these, and the UI needs to (rate-limited vs. link-revoked-mid-session
+    // vs. game-ended-while-you-were-mid-tap are three different messages).
+    reason: a.string(), // 'INVALID_LINK' | 'RATE_LIMITED' | 'GAME_NOT_LIVE' | 'GAME_CHANGED' | 'VALIDATION_FAILED'
+  }),
+
+  // The write path -- see amplify/functions/submit-stat-event/handler.ts
+  // for the AppSync-write mechanism (generateClient<Schema>({ authMode:
+  // 'iam' })) this depends on, and this file's own schema-level
+  // `.authorization()` call below for the allow.resource() grant it needs.
+  submitStatEvent: a
+    .mutation()
+    .arguments({
+      token: a.string().required(),
+      eventType: a.string().required(), // 'GOAL' | 'SHOT' | 'SAVE' -- validated
+                                         // against this allowlist explicitly in
+                                         // the handler; the arg type alone
+                                         // doesn't enforce it.
+      playerId: a.string(),       // scorer (GOAL), shooter (SHOT), keeper (SAVE) -- "Us" only
+      assistPlayerId: a.string(), // optional, GOAL + "Us" only
+      forUs: a.boolean().required(), // generic "this event belongs to our side" flag --
+                                      // written to Goal.scoredByUs / Shot.takenByUs /
+                                      // Save.byUs depending on eventType. Required, not
+                                      // optional: a silent default would be a
+                                      // score-corruption path.
+      onTarget: a.boolean(), // SHOT only, both "Us" and "Opponent" -- required
+                              // when eventType === 'SHOT', rejected otherwise.
+      clientEventId: a.string(), // client-generated idempotency key (optional
+                                  // but recommended) -- see the handler's dedup
+                                  // comment.
+      expectedGameId: a.string(), // the gameId the helper's UI last polled as
+                                   // current (StatTrackerViewResult.gameId) --
+                                   // the real guard against the wrong-game race,
+                                   // not the (inert-by-construction) GAME_NOT_LIVE
+                                   // check alone. Optional so a first-ever poll's
+                                   // submission isn't blocked.
+    })
+    .returns(a.ref('SubmitStatEventResult'))
+    .authorization((allow) => [allow.guest(), allow.authenticated('identityPool')])
+    .handler(a.handler.function(submitStatEvent)),
+})
+  // Milestone B2 validation spike (completed, live-verified against a real
+  // deployed sandbox, since torn down) -- `allow.resource(fn).to(['create'])`
+  // on a model's own `.authorization()` array does NOT exist in this
+  // Amplify version: `resource` is only exposed at the SCHEMA level, and
+  // that level's verb vocabulary is `['query', 'mutate', 'listen']` -- no
+  // per-CRUD-verb distinction at all, at any level. This grant is therefore
+  // schema-wide (every model) and verb-wide (mutate = create/update/delete
+  // together) BY CONSTRUCTION, not a wiring oversight -- it cannot be
+  // narrowed to Goal/Shot/Save-only or to create-only. The real narrowing
+  // lives in submit-stat-event's own handler code: its fixed, reviewed
+  // `.create()` call sites on Goal/Shot/Save are the actual security
+  // boundary, not IAM -- the public mutation's arguments never let a caller
+  // choose which underlying model/verb the handler's generateClient call
+  // targets. This grant is IAM-role-scoped to submit-stat-event's own
+  // Lambda execution role, not to guest/public callers directly.
+  .authorization((allow) => [allow.resource(submitStatEvent).to(['mutate'])]);
 
 export type Schema = ClientSchema<typeof schema>;
 

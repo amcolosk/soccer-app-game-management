@@ -262,6 +262,9 @@ export function ShotSaveTracker({
                     ) : (
                       <div className="stat-opponent-label">{gameState.opponent}</div>
                     )}
+                    {item.loggedVia === 'HELPER' && (
+                      <div className="stat-logged-via-helper">Logged via helper</div>
+                    )}
                   </div>
                   <div className="stat-card-actions">
                     <GameActionRow actions={actionDescriptors} headingIdForDeleteSuccessFocus={headingId} />

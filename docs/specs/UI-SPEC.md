@@ -30,6 +30,7 @@
    - [Onboarding](#712-onboarding)
    - [Invitation Flow](#713-invitation-flow)
    - [Fan Mode (public, read-only)](#714-fan-mode-public-read-only)
+   - [Sideline Stat Tracker (public, write)](#715-sideline-stat-tracker-public-write)
 8. [Modal & Overlay Patterns](#8-modal--overlay-patterns)
 9. [Help & Bug Report FAB](#9-help--bug-report-fab)
 10. [z-index Stack](#10-z-index-stack)
@@ -219,6 +220,7 @@ Inline pill badges on game cards:
 - `/invite/:invitationId` — full screen, no bottom nav
 - `/dev` — developer dashboard, full screen, no bottom nav
 - `/watch/:token` — **Fan Mode** (public, read-only live game view; see §7.14). Unlike the two routes above, this one is outside the *auth gate* entirely, not just outside `AppLayout`'s chrome — there is no Cognito session, no `Authenticator.Provider`, and no coach identity at all on this route (see `src/AppRouter.tsx`).
+- `/track/:token` — **Sideline Stat Tracker** (public, write; see §7.15). Same "outside the auth gate entirely" posture as `/watch/:token` above — this is the app's first unauthenticated **write** route.
 
 ---
 
@@ -655,16 +657,16 @@ Three numeric steppers inside the setup card, arranged in two rows:
 **File:** `src/components/InvitationManagement.tsx`
 
 - **Entry:** Sharing tab → per-team list (active teams only) → "Manage Sharing" button → drill-in panel titled "Sharing & Permissions: {team name}".
-- **Four regions** (a fourth added in Milestone B1 — Fan Mode):
+- **Four regions** (a fourth added in Milestone B1 — Fan Mode, completed in Milestone B2 — Sideline Stat Tracker):
   1. Invite-by-email form — email address + role (`Coach (Can edit)` / `Parent (Read-only)`).
   2. "Current Coaches" list — every coach on the team except the current signed-in user, each with a "Remove" button.
   3. "Pending Invitations" list — every `PENDING` `TeamInvitation` for the team, each with a "Cancel" button.
-  4. **"Share Links"** — visually separated from regions 1–3 by a divider/distinguishing heading, since it's a materially different trust boundary (public/unauthenticated) than inviting a coach or parent. Generate/copy/revoke controls for the `FAN` link type (`/watch/:token`, read-only live view — see §7.14); the `STAT_TRACKER` half of this region ships in a later milestone. No active link: a single "Generate Fan Link" button. Active link: the link URL plus "Copy Link", "Replace", and "Revoke" buttons.
-- **Confirmation:** "Remove", "Cancel", "Replace" (region 4, when an active link exists), and "Revoke" (region 4) all route through the standard Confirmation Modal (§5.6) before the underlying call.
+  4. **"Share Links"** — visually separated from regions 1–3 by a divider/distinguishing heading, since it's a materially different trust boundary (public/unauthenticated) than inviting a coach or parent. **Two independent link types**, each with its own generate/copy/revoke controls, stacked in the same region: the `FAN` link (`/watch/:token`, read-only live view — see §7.14) and the `STAT_TRACKER` link (`/track/:token`, write-capable helper stat entry — see §7.15). Each, independently: no active link shows a single "Generate {Fan|Stat Tracker} Link" button; an active link shows the link URL plus "Copy Link", "Replace", and "Revoke" buttons. Both link types can be active simultaneously with no interaction between them.
+- **Confirmation:** "Remove", "Cancel", "Replace" (region 4, for either link type, when an active link of that type exists), and "Revoke" (region 4, for either link type) all route through the standard Confirmation Modal (§5.6) before the underlying call.
   - Remove: title "Revoke Access", message "Are you sure you want to revoke access for this coach?", `variant: 'danger'` — then calls `revokeCoachAccess` (Lambda-backed custom mutation as of issue #162; see `docs/SHARING-PERMISSIONS.md`).
   - Cancel: `variant: 'warning'` — then deletes the invitation directly (`client.models.TeamInvitation.delete`).
-  - Share Link Replace: title "Replace this link?", message "This replaces the current link — anyone still using it will lose access.", `variant: 'warning'` — then calls `generateShareLink`.
-  - Share Link Revoke: title "Revoke this link?", message "Anyone using it will immediately lose access.", `variant: 'danger'` — then calls `revokeShareLink`. An explicit Revoke tap is at least as disruptive as Remove/Cancel above (it immediately cuts off anyone actively viewing/polling), so it gets the same confirmation treatment even though the original draft of this feature only covered Generate.
+  - Share Link Replace (either type): title "Replace this link?", message "This replaces the current link — anyone still using it will lose access.", `variant: 'warning'` — then calls `generateShareLink` with the corresponding `type`.
+  - Share Link Revoke (either type): title "Revoke this link?", message "Anyone using it will immediately lose access.", `variant: 'danger'` — then calls `revokeShareLink`. An explicit Revoke tap is at least as disruptive as Remove/Cancel above (it immediately cuts off anyone actively viewing/polling), so it gets the same confirmation treatment even though the original draft of this feature only covered Generate — more urgent for the `STAT_TRACKER` link specifically, since it's the write-capable one.
 - **Message display:** a single success/error line rendered under the invite form (not per-item) — the same line is reused for invite-send, revoke, and cancel outcomes. Plain `<div>`, not an `aria-live` region (pre-existing, no fix proposed here).
 - **Revoke rejection messages surfaced verbatim through that same message line** (`InvitationManagement.tsx` passes `error.message` straight through unchanged):
   - "Cannot revoke the team's last coach. Invite another coach first." — a team can never be revoked down to zero coaches.
@@ -979,6 +981,50 @@ Matching the backend's 4-branch game-selection algorithm (`amplify/functions/sha
 
 ---
 
+### 7.15 Sideline Stat Tracker (public, write)
+
+**Route:** `/track/:token`
+**File:** `src/components/FanMode/StatTrackerView.tsx`
+**Stylesheet:** `src/components/FanMode/FanMode.css` (extends the same stylesheet §7.14 established — not a new one, not `App.css`, for the same code-splitting reason)
+
+The app's first public/unauthenticated **write** screen — same no-`AppLayout`/no-bottom-nav/no-Help-FAB/no-Cognito-session posture as §7.14, but for a non-coach helper (parent/assistant) tapping Goals/Shots/Saves from the sideline rather than a fan watching passively. Polls `getStatTrackerView` on the same 10–15s/visibility-paused/resume-repoll cadence as Fan Mode; writes via `submitStatEvent`, which — unlike every other write in this app — goes through a real AppSync mutation from inside the Lambda specifically so the coach's own live `GameManagement.tsx` screen reflects a helper's tap in real time (see CLAUDE.md's guest-auth exception paragraph).
+
+#### Layout (live, in-progress state)
+- Header: `<h1>{team} vs {opponent}</h1>` (page-level heading, matching §7.14's fix)
+- Tap grid: three large targets — Goal / Shot / Save — **56×56px minimum with 12px gaps**, deliberately larger than the app's generic 44×44px floor (§4), since this screen's mis-tap cost (no self-serve undo, one-handed, standing) is higher than the app's baseline; precedent: §9.5's bottom-sheet row sizing.
+- Tapping a target opens a bottom sheet, driven by a shared per-tap flow:
+  1. **Us / Opponent** — every tap starts here, labeled with the team's real name and `opponentName` (from `StatTrackerViewResult`, not `FanGameViewResult` — this page never receives the latter), not a generic "Us/Them."
+  2. **Us path** → player picker (scorer for Goal, shooter for Shot, keeper for Save), with an explicit **"Skip / unknown player"** affordance (every event type's `playerId` is optional in the mutation) → for Goal, a second player-picker step for an optional assist ("No assist" advances with none selected) → for Shot, an on-target/off-target step → confirm/submit.
+  3. **Opponent path** → skips the player picker entirely (no opposing roster to attribute to) → for Shot, an on-target/off-target step ("Did it beat our keeper?") → a lighter confirm step for Goal/Save.
+- **Instant-feedback + duplicate-tap guard**: on the final confirm tap, that control disables immediately (borrowing `LineupPanel.tsx`'s `pendingRemovalIds` pattern, PR #172) so a second tap while a submission is in flight is a no-op, not a second write. On success, the sheet closes and a "✅ {Event} logged!" banner appears (`role="status" aria-live="polite"`), auto-dismissing after ~2.5s. On a genuine failure (rate-limited, the game ended mid-tap, a mid-session link revocation, a dropped connection), the sheet stays open with a visible inline error (`role="alert"`) and the confirm control re-enables for a retry — mirroring `LineupPanel.tsx`'s actual restore-on-failure behavior, not just its optimistic half. The "logged!" banner is never shown before a confirmed `ok: true` response, so a genuine failure can never present as a false-positive success.
+- **Explicit "game not in progress" gate**: the tap grid only renders when the server-supplied `state` is `LIVE` **and** `status === 'in-progress'` — `LIVE` alone also covers halftime (see `selectGameForFan`'s branch definition), during which `submitStatEvent` would reject every write with `GAME_NOT_LIVE`. During halftime (or any other non-tappable live sub-state), the page shows "Stat entry is paused — it unlocks again when the game resumes." instead of a tap grid a helper could tap into a guaranteed rejection.
+- **Mid-session revocation**: if the coach regenerates/revokes the `STAT_TRACKER` link while a helper's page is open, the next poll surfaces the `INVALID_LINK` state and closes any tap flow the helper had open mid-tap, rather than leaving it stalled against a link that no longer works.
+- No delete/undo on this page for the helper — mistakes are corrected by the coach afterward via the Milestone A `ShotSaveTracker`/`GoalTracker` edit UI, which marks a helper-submitted row with a "Logged via helper" badge (§13.7).
+
+#### Named states
+
+| State | Trigger | Copy |
+|-------|---------|------|
+| Invalid link | Token missing, garbage, never existed, revoked, wrong `type`, or revoked mid-session | "This link isn't valid" |
+| Rate limited | Either write-dimension rate-limit ceiling rejected the request | "You're tapping a bit too fast — try again in a moment" |
+| Next game | Nearest game is in the future | Team name + "Next game: vs {opponent}" + "Stat entry unlocks once the game starts." |
+| Finished | Most recent game is within the recency window, not live | "This game has ended — stat entry is closed." |
+| No games yet | Team has never had a game | "No games yet — check back once your coach schedules one." |
+| No game right now | Games exist, but none live/recent/upcoming | "No game right now — check back closer to the next one." |
+| Live, in-progress (default/main view) | A game is `in-progress` | Full tap-grid layout described above |
+| Live, not in-progress (halftime) | A game is `halftime` (covered by the `LIVE` branch, but not writable) | "Stat entry is paused — it unlocks again when the game resumes." — tap grid hidden |
+
+#### Accessibility
+- Every state renders exactly one page-level `<h1>` before any `<h2>`s, matching §7.14
+- Tap-flow sheet: `role="dialog" aria-modal="true"`, labeled by its own heading
+- Success confirmation: `role="status" aria-live="polite" aria-atomic="true"`
+- Submit failure: `role="alert"`, so a screen-reader user is interrupted for a genuine failure the same way a sighted user's visible inline error would be
+
+#### Responsive behavior
+Same as §7.14: phone (< 768px) full-width single column; tablet+ (≥ 768px) content max-width `640px`, centered. The tap grid wraps (`flex-wrap: wrap`) rather than overflowing at narrow widths, and the bottom sheet stays full-width up to the same `640px` cap.
+
+---
+
 ## 8. Modal & Overlay Patterns
 
 All modals share:
@@ -1071,6 +1117,7 @@ The FAB sits above the bottom navigation bar and below any modal overlays. It mu
 | Invitation flow (`/invite/:id`) | ❌ No |
 | Dev Dashboard (`/dev`) | ❌ No |
 | Fan Mode (`/watch/:token`) | ❌ No — no coach, no `HelpFabContext` debug data to attach to a session that was never authenticated |
+| Sideline Stat Tracker (`/track/:token`) | ❌ No — same reasoning as Fan Mode above (predicted explicitly in B1's own review round; this is that predicted recurrence, not a new finding) |
 | Any open modal overlay (z-index 1000) | Hidden (FAB is below modal z-index) |
 
 ### 9.5 Interaction: Bottom Sheet Menu
@@ -1229,6 +1276,16 @@ A separate **Help Content Specification** document will define the help content,
   - Note deleted.
 - aria-live assertive announcements:
   - Mapped canonical backend error on save/delete failure.
+
+### 13.7 "Logged via Helper" Indicator (Milestone B2)
+
+Structurally identical to §13.5's Edited Indicator pattern, but for provenance rather than an edit history:
+
+- Shown on a `Goal`, `Shot`, or `Save` card when `loggedVia === 'HELPER'` — i.e. the row was written by a non-coach helper through the public Sideline Stat Tracker (§7.15), not entered directly by the coach.
+- Render pattern: a small `Logged via helper` line, styled the same as §13.5's edited-attribution text (`.note-edited-meta`-equivalent styling — `.stat-logged-via-helper` in `App.css`).
+- Appears on **both** `GoalTracker.tsx` and `ShotSaveTracker.tsx` (neither had any `HELPER` handling before this milestone; Milestone A only ever wrote `loggedVia: 'COACH'`).
+- No indicator at all when `loggedVia` is absent/undefined (every row written before Milestone A) or explicitly `'COACH'` — the badge is additive, not a default state.
+- No separate edit affordance for helper-submitted rows beyond the existing Edit/Delete actions (§13.2/§13.3) already available to the coach — a helper-submitted row is editable/deletable exactly like a coach-submitted one; this badge is informational only, not a permission gate.
 
 **Issue:** Coaches accidentally zoomed in while managing a live game, making the UI unusable.
 

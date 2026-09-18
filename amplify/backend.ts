@@ -29,6 +29,8 @@ import { generateShareLink } from './functions/generate-share-link/resource';
 import { revokeShareLink } from './functions/revoke-share-link/resource';
 import { listTeamShareLinks } from './functions/list-team-share-links/resource';
 import { getFanGameView } from './functions/get-fan-game-view/resource';
+import { getStatTrackerView } from './functions/get-stat-tracker-view/resource';
+import { submitStatEvent } from './functions/submit-stat-event/resource';
 
 const backend = defineBackend({
   auth,
@@ -58,6 +60,8 @@ const backend = defineBackend({
   revokeShareLink,
   listTeamShareLinks,
   getFanGameView,
+  getStatTrackerView,
+  submitStatEvent,
 });
 
 // Add deployment ID to outputs
@@ -595,3 +599,61 @@ backend.archiveTeam.resources.lambda.addToRolePolicy(
   })
 );
 backend.archiveTeam.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+
+// ── Milestone B2: Sideline Stat Tracker (public write) ─────────────────
+
+// get-stat-tracker-view: guest + authenticated(identityPool) -- read
+// ShareLink (token lookup) + Team (curated payload), read/write
+// FanViewRateLimit (read-dimension rate limit), Query Game's teamId index
+// (4-branch selection), Query TeamRoster's gsi-Team.roster index + read
+// Player (active-roster picker payload).
+shareLinkTable.grantReadData(backend.getStatTrackerView.resources.lambda);
+teamTable.grantReadData(backend.getStatTrackerView.resources.lambda);
+fanViewRateLimitTable.grantReadWriteData(backend.getStatTrackerView.resources.lambda);
+playerTable.grantReadData(backend.getStatTrackerView.resources.lambda);
+backend.getStatTrackerView.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [
+      `${gameTable.tableArn}/index/gamesByTeamId`,
+      `${teamRosterTable.tableArn}/index/gsi-Team.roster`,
+    ],
+  })
+);
+backend.getStatTrackerView.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+backend.getStatTrackerView.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.getStatTrackerView.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.getStatTrackerView.addEnvironment('FAN_VIEW_RATE_LIMIT_TABLE', fanViewRateLimitTable.tableName);
+backend.getStatTrackerView.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);
+backend.getStatTrackerView.addEnvironment('PLAYER_TABLE', playerTable.tableName);
+
+// submit-stat-event: guest + authenticated(identityPool) -- read ShareLink
+// (token lookup) + Team (fresh coaches[] + archived-team check via the
+// shared pipeline), read/write FanViewRateLimit (write-dimension rate limit
+// AND the clientEventId dedup marker, which reuses the same table), Query
+// Game's teamId index (4-branch selection/tiebreak) and TeamRoster's
+// gsi-Team.roster index (playerId/assistPlayerId membership validation).
+// The actual Goal/Shot/Save WRITE itself does not need a DynamoDB table
+// grant at all -- it goes through AppSync via the schema-level
+// `allow.resource(submitStatEvent).to(['mutate'])` grant in
+// amplify/data/resource.ts (see that file's comment for why this is
+// schema-wide/mutate-verb-wide by construction, not a narrower per-model
+// grant), which Amplify wires onto this Lambda's own execution role
+// automatically -- confirmed live by this milestone's validation spike.
+shareLinkTable.grantReadData(backend.submitStatEvent.resources.lambda);
+teamTable.grantReadData(backend.submitStatEvent.resources.lambda);
+fanViewRateLimitTable.grantReadWriteData(backend.submitStatEvent.resources.lambda);
+backend.submitStatEvent.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [
+      `${gameTable.tableArn}/index/gamesByTeamId`,
+      `${teamRosterTable.tableArn}/index/gsi-Team.roster`,
+    ],
+  })
+);
+backend.submitStatEvent.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+backend.submitStatEvent.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.submitStatEvent.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.submitStatEvent.addEnvironment('FAN_VIEW_RATE_LIMIT_TABLE', fanViewRateLimitTable.tableName);
+backend.submitStatEvent.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);

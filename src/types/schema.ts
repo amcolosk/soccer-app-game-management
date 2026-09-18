@@ -21,6 +21,9 @@ export type PlayerAvailability = Schema["PlayerAvailability"]["type"];
 export type CalendarSyncResult = NonNullable<Schema["syncTeamCalendar"]["returnType"]>;
 export type ShareLinkSummary = NonNullable<Schema["generateShareLink"]["returnType"]>;
 export type FanGameViewResult = NonNullable<Schema["getFanGameView"]["returnType"]>;
+export type StatTrackerViewResult = NonNullable<Schema["getStatTrackerView"]["returnType"]>;
+export type StatTrackerPlayer = NonNullable<NonNullable<StatTrackerViewResult["roster"]>[number]>;
+export type SubmitStatEventResult = NonNullable<Schema["submitStatEvent"]["returnType"]>;
 
 // Domain interfaces
 export interface PlayerWithRoster extends Player {

@@ -294,4 +294,106 @@ describe('InvitationManagement', () => {
       expect(mockRevokeShareLink).not.toHaveBeenCalled();
     });
   });
+
+  describe('Share Links (Stat Tracker — Milestone B2)', () => {
+    it('shows a Generate button when there is no active Stat Tracker link', async () => {
+      renderComponent();
+      expect(await screen.findByRole('button', { name: 'Generate Stat Tracker Link' })).toBeInTheDocument();
+    });
+
+    it('generates a Stat Tracker link without confirmation when none is currently active', async () => {
+      renderComponent();
+
+      const generateButton = await screen.findByRole('button', { name: 'Generate Stat Tracker Link' });
+      fireEvent.click(generateButton);
+
+      await waitFor(() => {
+        expect(mockGenerateShareLink).toHaveBeenCalledWith({ teamId: 'team-1', type: 'STAT_TRACKER' });
+      });
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(await screen.findByText('Stat Tracker link generated')).toBeInTheDocument();
+    });
+
+    it('shows the active Stat Tracker link with copy/replace/revoke controls once one exists', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'tracker-token', type: 'STAT_TRACKER', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderComponent();
+
+      expect(await screen.findByTestId('stat-tracker-share-link-active')).toBeInTheDocument();
+      expect(screen.getByText(/\/track\/tracker-token/)).toBeInTheDocument();
+    });
+
+    it('copies the Stat Tracker link URL to the clipboard', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'tracker-token', type: 'STAT_TRACKER', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderComponent();
+      await screen.findByTestId('stat-tracker-share-link-active');
+
+      const copyButton = screen.getByRole('button', { name: 'Copy Link' });
+      fireEvent.click(copyButton);
+
+      await waitFor(() => {
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('/track/tracker-token'));
+      });
+      expect(await screen.findByText('Stat Tracker link copied to clipboard')).toBeInTheDocument();
+    });
+
+    it('requires confirmation with warning variant before replacing an active Stat Tracker link', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'tracker-token', type: 'STAT_TRACKER', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderComponent();
+      await screen.findByTestId('stat-tracker-share-link-active');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Replace' }));
+
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
+          title: 'Replace this link?',
+          variant: 'warning',
+        }));
+        expect(mockGenerateShareLink).toHaveBeenCalledWith({ teamId: 'team-1', type: 'STAT_TRACKER' });
+      });
+    });
+
+    it('requires confirmation with danger variant before revoking a Stat Tracker link', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'tracker-token', type: 'STAT_TRACKER', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderComponent();
+      await screen.findByTestId('stat-tracker-share-link-active');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
+          title: 'Revoke this link?',
+          variant: 'danger',
+        }));
+        expect(mockRevokeShareLink).toHaveBeenCalledWith({ token: 'tracker-token' });
+      });
+      expect(await screen.findByText('Stat Tracker link revoked')).toBeInTheDocument();
+    });
+
+    it('shows both Fan and Stat Tracker links simultaneously, each with its own controls', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [
+          { token: 'fan-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null },
+          { token: 'tracker-token', type: 'STAT_TRACKER', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null },
+        ],
+      });
+
+      renderComponent();
+
+      expect(await screen.findByTestId('fan-share-link-active')).toBeInTheDocument();
+      expect(await screen.findByTestId('stat-tracker-share-link-active')).toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: 'Copy Link' })).toHaveLength(2);
+    });
+  });
 });

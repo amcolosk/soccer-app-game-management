@@ -177,3 +177,131 @@
     margin: 0 auto;
   }
 }
+
+/* ── Milestone B2: Sideline Stat Tracker (/track/:token) ─────────────────
+   Extends this same stylesheet (not a new one, not App.css) — see this
+   file's own header comment for why. */
+
+.tracker-confirmation {
+  margin: 0 0 1rem 0;
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  background: var(--light-green);
+  color: var(--primary-green);
+  font-weight: 600;
+  text-align: center;
+}
+
+/* Deliberately larger than the app's generic 44x44px floor (UI-SPEC §4) —
+   this screen's mis-tap cost (no self-serve undo, one-handed, standing) is
+   higher than the app's baseline. Precedent: UI-SPEC §9.5's bottom-sheet
+   row sizing. */
+.tracker-tap-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.tracker-tap-target {
+  min-width: 56px;
+  min-height: 56px;
+  flex: 1 1 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--card-background);
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tracker-tap-target span:first-child {
+  font-size: 1.75rem;
+}
+
+.tracker-tap-target:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tracker-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.tracker-sheet {
+  width: 100%;
+  max-width: 640px;
+  background: var(--card-background);
+  border-radius: 16px 16px 0 0;
+  padding: 1.25rem 1rem calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+}
+
+.tracker-sheet h2 {
+  margin: 0 0 1rem 0;
+}
+
+.tracker-sheet-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.tracker-player-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.tracker-sheet-option {
+  min-height: 56px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--hover-background);
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tracker-sheet-option--primary {
+  background: var(--primary-green);
+  color: white;
+  border-color: var(--primary-green);
+}
+
+.tracker-sheet-option--skip {
+  background: transparent;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.tracker-sheet-option:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tracker-sheet-cancel {
+  margin-top: 1rem;
+  width: 100%;
+  min-height: 44px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  cursor: pointer;
+}

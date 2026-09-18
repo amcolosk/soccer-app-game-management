@@ -16,6 +16,10 @@ vi.mock('./components/FanMode/FanGameView', () => ({
   FanGameView: () => <div>Fan Game View</div>,
 }));
 
+vi.mock('./components/FanMode/StatTrackerView', () => ({
+  StatTrackerView: () => <div>Stat Tracker View</div>,
+}));
+
 describe('AppRouter', () => {
   it('renders the Suspense "Loading..." fallback before the lazy AppRoot chunk resolves, then the real content', async () => {
     render(<AppRouter />);

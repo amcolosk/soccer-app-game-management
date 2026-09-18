@@ -52,6 +52,9 @@ export interface GameRecord {
   ourScore?: number | null;
   opponentScore?: number | null;
   locationName?: string | null;
+  // Added for Milestone B2's corrected live-game tiebreak (see
+  // selectGameForFan below) — not read by B1's own payload shaping.
+  updatedAt?: string | null;
 }
 
 // A same-day-recent completed/live game is preferred over a future one, and
@@ -65,6 +68,16 @@ export const PER_IDENTITY_RATE_LIMIT = 30;
 // Per-token ceiling: a billing circuit-breaker, not a UX throttle — sized so
 // a popular game with dozens of simultaneous viewers never approaches it.
 export const PER_TOKEN_RATE_LIMIT = 600;
+
+// Milestone B2 write-path ceilings — a helper's rapid tapping and their own
+// passive polling get separate budgets from every read-only fan watching the
+// same team (see `dimension` below), tighter than the read ceilings above
+// since a helper's actual tapping rate is much lower than a fan's polling
+// rate.
+export const PER_IDENTITY_WRITE_RATE_LIMIT = 20;
+export const PER_TOKEN_WRITE_RATE_LIMIT = 400;
+
+export type RateLimitDimension = 'read' | 'write';
 
 export type GameSelectionBranch =
   | 'LIVE'
@@ -193,6 +206,16 @@ export async function checkAndIncrementRateLimit(
  * authenticated(identityPool) roles; a caller missing it entirely is
  * treated as failing the per-identity dimension rather than silently
  * skipped.
+ *
+ * `dimension` (Milestone B2) keeps a helper's write-tapping and their own
+ * passive read-polling from cannibalizing the same budget as every other
+ * fan watching the same team. Deliberately asymmetric key-prefixing, not
+ * `${dimension}#identity#...`/`${dimension}#token#...` for both dimensions:
+ * `'read'` (the default, B1's original and only dimension) keeps its
+ * original unprefixed `identity#...`/`token#...` keys so get-fan-game-view's
+ * existing call site AND its existing tests below need zero changes;
+ * `'write'` (new, B2-only) gets its own `write#`-prefixed keys and tighter
+ * ceilings so it never shares a bucket with the read dimension.
  */
 export async function checkRateLimits(
   docClient: DynamoDBDocumentClient,
@@ -200,10 +223,17 @@ export async function checkRateLimits(
   identityId: string | undefined,
   token: string,
   now: Date,
+  dimension: RateLimitDimension = 'read',
 ): Promise<boolean> {
   if (!identityId) {
     return false;
   }
+
+  const isWrite = dimension === 'write';
+  const identityKey = isWrite ? `write#identity#${identityId}` : `identity#${identityId}`;
+  const tokenKey = isWrite ? `write#token#${token}` : `token#${token}`;
+  const identityCeiling = isWrite ? PER_IDENTITY_WRITE_RATE_LIMIT : PER_IDENTITY_RATE_LIMIT;
+  const tokenCeiling = isWrite ? PER_TOKEN_WRITE_RATE_LIMIT : PER_TOKEN_RATE_LIMIT;
 
   // Sequential, not Promise.all: the per-token counter is a billing
   // circuit-breaker shared by every viewer of one link, so it must not keep
@@ -211,14 +241,12 @@ export async function checkRateLimits(
   // check — otherwise a caller who knows they're over their own limit can
   // keep hammering the shared token counter and exhaust the whole team's
   // budget for every legitimate fan, for free.
-  const perIdentityOk = await checkAndIncrementRateLimit(
-    docClient, rateLimitTable, `identity#${identityId}`, PER_IDENTITY_RATE_LIMIT, now,
-  );
+  const perIdentityOk = await checkAndIncrementRateLimit(docClient, rateLimitTable, identityKey, identityCeiling, now);
   if (!perIdentityOk) {
     return false;
   }
 
-  return checkAndIncrementRateLimit(docClient, rateLimitTable, `token#${token}`, PER_TOKEN_RATE_LIMIT, now);
+  return checkAndIncrementRateLimit(docClient, rateLimitTable, tokenKey, tokenCeiling, now);
 }
 
 // Query-by-physical-index-name variant for Game.teamId, following the exact
@@ -274,9 +302,47 @@ export function selectGameForFan(games: GameRecord[], now: Date): GameSelectionR
     return { branch: 'NO_GAMES_YET', game: null };
   }
 
-  const live = games.find((g) => g.status === 'in-progress' || g.status === 'halftime');
-  if (live) {
-    return { branch: 'LIVE', game: live };
+  // Milestone B2 correction: nothing in this app auto-completes a game, so a
+  // team with one long-abandoned/never-completed game AND today's actual
+  // live game can have TWO `in-progress`/`halftime` matches here. The
+  // original `.find()` picked an arbitrary one of them per invocation — a
+  // cosmetic wrong-scoreboard risk for B1's read-only Fan Mode, but a silent
+  // data-corruption risk for B2's stat-tracker writes (a helper's taps could
+  // land on last month's abandoned game with no way for anyone to notice).
+  //
+  // Rank on `updatedAt` alone, descending — NOT `gameDate`, and NOT
+  // `lastStartTime` either (two prior attempts at this fix, both wrong, both
+  // caught by review). `gameDate` is optional and routinely absent on
+  // exactly the abandoned/quickly-created games this needs to disambiguate
+  // (create-game-safe writes it as `null` when left blank). `lastStartTime`
+  // is explicitly nulled by both a pause (`handlePauseTimer`) and the
+  // halftime transition, while `status` stays a live candidate (`in-progress`
+  // paused, or `halftime`) — so ranking "has a lastStartTime" above "doesn't"
+  // puts a stale-but-non-null `lastStartTime` from an old abandoned game
+  // ahead of today's real game the instant it's paused or at halftime, which
+  // is a large fraction of real game time, not an edge case. `updatedAt` is
+  // bumped by ANY write to the game record (start, pause, resume, halftime,
+  // manual edit, periodic elapsedSeconds persistence), so it's the one
+  // signal reliably recent on a game someone is actually interacting with
+  // right now regardless of which live sub-state it's in, and reliably stale
+  // on one nobody's touched in weeks. No secondary tiebreak field — resist
+  // adding one back in "just in case," that's exactly how the previous two
+  // attempts went wrong.
+  const liveCandidates = games.filter((g) => g.status === 'in-progress' || g.status === 'halftime');
+  if (liveCandidates.length > 0) {
+    const rankValue = (iso: string | null | undefined): number | null => {
+      if (!iso) return null;
+      const ms = new Date(iso).getTime();
+      return Number.isNaN(ms) ? null : ms;
+    };
+    const compareDescending = (a: number | null, b: number | null): number => {
+      if (a !== null && b !== null) return b - a;
+      if (a !== null) return -1; // a has a value, b doesn't -- a ranks first
+      if (b !== null) return 1; // b has a value, a doesn't -- b ranks first
+      return 0;
+    };
+    const sorted = [...liveCandidates].sort((a, b) => compareDescending(rankValue(a.updatedAt), rankValue(b.updatedAt)));
+    return { branch: 'LIVE', game: sorted[0] };
   }
 
   const nowMs = now.getTime();
@@ -331,13 +397,14 @@ export async function resolveShareLinkAccess(
   type: ShareLinkType,
   identityId: string | undefined,
   now: Date = new Date(),
+  dimension: RateLimitDimension = 'read',
 ): Promise<ShareLinkAccessOutcome> {
   const validated = await validateShareLinkAndTeam(docClient, tables.shareLink, tables.team, token, type);
   if (!validated.ok) {
     return validated;
   }
 
-  const withinLimits = await checkRateLimits(docClient, tables.rateLimit, identityId, token, now);
+  const withinLimits = await checkRateLimits(docClient, tables.rateLimit, identityId, token, now, dimension);
   if (!withinLimits) {
     return { ok: false, reason: 'RATE_LIMITED' };
   }

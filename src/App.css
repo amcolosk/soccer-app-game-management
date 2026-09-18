@@ -8720,3 +8720,14 @@
 .stat-opponent-label {
   color: var(--text-secondary);
 }
+
+/* ── Milestone B2: "via helper" badge ────────────────────────────────────
+   Shown on Goal/Shot/Save rows where loggedVia === 'HELPER' -- same visual
+   treatment as the existing GameNote "Edited by ..." indicator
+   (.note-edited-meta) for consistency. */
+.stat-logged-via-helper {
+  margin-top: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-style: italic;
+}

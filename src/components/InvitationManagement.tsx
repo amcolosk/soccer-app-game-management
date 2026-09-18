@@ -150,9 +150,18 @@ export function InvitationManagement({
   }
 
   const activeFanLink = shareLinks.find((link) => link.type === 'FAN' && !link.revokedAt);
+  // Milestone B2 — the write-capable Stat Tracker link. Completes the
+  // Share Links UI started in B1: same generate/copy/revoke shape, same
+  // confirmation requirements (more urgent here, since a leaked link isn't
+  // just read access, it's write access).
+  const activeStatTrackerLink = shareLinks.find((link) => link.type === 'STAT_TRACKER' && !link.revokedAt);
 
   function fanLinkUrl(token: string): string {
     return `${window.location.origin}/watch/${token}`;
+  }
+
+  function statTrackerLinkUrl(token: string): string {
+    return `${window.location.origin}/track/${token}`;
   }
 
   async function handleCopyFanLink(token: string) {
@@ -161,6 +170,15 @@ export function InvitationManagement({
       setMessage('Fan link copied to clipboard');
     } catch {
       setMessage(`Fan link: ${fanLinkUrl(token)}`);
+    }
+  }
+
+  async function handleCopyStatTrackerLink(token: string) {
+    try {
+      await navigator.clipboard.writeText(statTrackerLinkUrl(token));
+      setMessage('Stat Tracker link copied to clipboard');
+    } catch {
+      setMessage(`Stat Tracker link: ${statTrackerLinkUrl(token)}`);
     }
   }
 
@@ -190,6 +208,32 @@ export function InvitationManagement({
     }
   }
 
+  async function handleGenerateStatTrackerLink() {
+    if (activeStatTrackerLink) {
+      const confirmed = await confirm({
+        title: 'Replace this link?',
+        message: 'This replaces the current link — anyone still using it will lose access.',
+        confirmText: 'Replace Link',
+        variant: 'warning',
+      });
+      if (!confirmed) return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await client.mutations.generateShareLink({ teamId: resourceId, type: 'STAT_TRACKER' });
+      if (response.errors && response.errors.length > 0) {
+        throw new Error(response.errors[0]?.message || 'Failed to generate share link');
+      }
+      setMessage('Stat Tracker link generated');
+      await refreshShareLinks();
+    } catch (error) {
+      setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to generate share link'}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleRevokeFanLink(token: string) {
     const confirmed = await confirm({
       title: 'Revoke this link?',
@@ -206,6 +250,30 @@ export function InvitationManagement({
         throw new Error(response.errors[0]?.message || 'Failed to revoke share link');
       }
       setMessage('Fan link revoked');
+      await refreshShareLinks();
+    } catch (error) {
+      setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to revoke share link'}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRevokeStatTrackerLink(token: string) {
+    const confirmed = await confirm({
+      title: 'Revoke this link?',
+      message: 'Anyone using it will immediately lose access.',
+      confirmText: 'Revoke',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const response = await client.mutations.revokeShareLink({ token });
+      if (response.errors && response.errors.length > 0) {
+        throw new Error(response.errors[0]?.message || 'Failed to revoke share link');
+      }
+      setMessage('Stat Tracker link revoked');
       await refreshShareLinks();
     } catch (error) {
       setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to revoke share link'}`);
@@ -378,6 +446,58 @@ export function InvitationManagement({
             disabled={loading}
           >
             Generate Fan Link
+          </button>
+        )}
+
+        {/* Milestone B2 — Stat Tracker link (write-capable): a non-coach
+            helper can log Goals/Shots/Saves from the sideline with no
+            account needed. */}
+        <p className="form-hint share-links-stat-tracker-hint">
+          Generate a separate link so a helper (parent/assistant) can log
+          goals, shots, and saves from the sideline — no account needed.
+        </p>
+
+        {activeStatTrackerLink ? (
+          <div className="share-link-item" data-testid="stat-tracker-share-link-active">
+            <div className="share-link-info">
+              <span className="share-link-label">Stat Tracker link (write access)</span>
+              <span className="share-link-url">{statTrackerLinkUrl(activeStatTrackerLink.token)}</span>
+            </div>
+            <div className="share-link-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => handleCopyStatTrackerLink(activeStatTrackerLink.token)}
+                disabled={loading}
+              >
+                Copy Link
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleGenerateStatTrackerLink}
+                disabled={loading}
+              >
+                Replace
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => handleRevokeStatTrackerLink(activeStatTrackerLink.token)}
+                disabled={loading}
+              >
+                Revoke
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={handleGenerateStatTrackerLink}
+            disabled={loading}
+          >
+            Generate Stat Tracker Link
           </button>
         )}
       </div>
