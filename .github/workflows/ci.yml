@@ -426,6 +426,130 @@ jobs:
         if: always()
         run: rm -f amplify_outputs.json
 
+  field-conditions-e2e:
+    name: Field-Conditions E2E
+    # Pre-release lane only — manual workflow_dispatch, never on every push/PR.
+    # Not part of ci-policy-gate's required checks (see docs/plans/
+    # PITCH-RELIABILITY-HARDENING-PLAN.md Issue F): a WebKit/mobile-viewport
+    # failure here is a release-readiness signal, not a merge blocker.
+    needs: [calc-mode, quality]
+    if: >-
+      always() &&
+      needs.quality.result == 'success' &&
+      needs.calc-mode.outputs.is_workflow_dispatch == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      # Single-sandbox lock: prevent smoke/full/field-conditions jobs (including
+      # from other runs) from deleting or mutating each other's test data concurrently.
+      group: e2e-sandbox-lock-${{ vars.AMPLIFY_OUTPUTS_S3_URI || 'default' }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+      AMPLIFY_OUTPUTS_S3_URI: ${{ vars.AMPLIFY_OUTPUTS_S3_URI }}
+      TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+      TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+      TEST_USER_EMAIL_2: ${{ secrets.TEST_USER_EMAIL_2 }}
+      TEST_USER_PASSWORD_2: ${{ secrets.TEST_USER_PASSWORD_2 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Enforce trusted secret-backed contexts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request_target" ]]; then
+            echo 'Secret-backed field-conditions E2E is forbidden in pull_request_target.'
+            exit 1
+          fi
+
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            head_repo="$(jq -r '.pull_request.head.repo.full_name // ""' "$GITHUB_EVENT_PATH")"
+            if [[ "$head_repo" != "$GITHUB_REPOSITORY" ]]; then
+              echo 'Secret-backed field-conditions E2E is forbidden for fork PRs.'
+              exit 1
+            fi
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: ci-field-conditions-e2e-${{ github.run_id }}
+
+      - name: Fetch Amplify outputs from S3
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${AMPLIFY_OUTPUTS_S3_URI}" ]]; then
+            echo 'AMPLIFY_OUTPUTS_S3_URI repo variable is required for field-conditions E2E S3 fetch.'
+            exit 1
+          fi
+
+          aws s3 cp "${AMPLIFY_OUTPUTS_S3_URI}" amplify_outputs.json
+
+      - name: Validate Amplify outputs payload
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          jq -e '
+            .version and
+            .auth and .auth.user_pool_id and .auth.aws_region and
+            .data and .data.url and .data.aws_region and
+            .storage and .storage.bucket_name
+          ' amplify_outputs.json > /dev/null
+
+      - name: Validate E2E test credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_vars=(
+            TEST_USER_EMAIL
+            TEST_USER_PASSWORD
+            TEST_USER_EMAIL_2
+            TEST_USER_PASSWORD_2
+          )
+
+          missing_vars=()
+          for var_name in "${required_vars[@]}"; do
+            if [[ -z "${!var_name:-}" ]]; then
+              missing_vars+=("${var_name}")
+            fi
+          done
+
+          if (( ${#missing_vars[@]} > 0 )); then
+            echo "Missing required E2E credential secret mappings: ${missing_vars[*]}. Set repository secrets TEST_USER_EMAIL, TEST_USER_PASSWORD, TEST_USER_EMAIL_2, and TEST_USER_PASSWORD_2."
+            exit 1
+          fi
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps webkit
+
+      - name: Run field-conditions E2E suite
+        run: npx playwright test --config=playwright.config.ts --project=field-conditions
+
+      - name: Cleanup Amplify outputs
+        if: always()
+        run: rm -f amplify_outputs.json
+
   pipeline-drift:
     name: Pipeline Drift Check
     needs: [calc-mode]

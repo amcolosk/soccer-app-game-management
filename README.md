@@ -102,6 +102,7 @@ npm run build        # Build for production
 npm run test         # Run unit tests (watch mode)
 npm run test:run     # Run unit tests once
 npm run test:e2e     # Run E2E tests (Playwright)
+npm run test:e2e:field-conditions  # WebKit + mobile-viewport E2E (pre-release lane, see e2e/README.md)
 npm run lint         # Lint TypeScript/TSX files
 ```
 

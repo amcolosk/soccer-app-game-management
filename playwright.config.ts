@@ -74,6 +74,22 @@ export default defineConfig({
       ],
       use: { ...devices['Desktop Chrome'], storageState: '.auth/user1.json' },
     },
+    {
+      // Pre-release field-conditions lane (not run on every push — see
+      // .github/workflows/ci.yml). WebKit engine + mobile viewport via
+      // devices['iPhone 13'] catches Safari-engine/touch-layout issues
+      // ordinary Desktop-Chrome CI never exercises. Explicit testMatch
+      // (not full's testIgnore) so this lane only ever runs the specs
+      // that opt into it.
+      name: 'field-conditions',
+      dependencies: ['setup'],
+      testMatch: [
+        '**/offline-game-management.spec.ts',
+        '**/concurrent-coaches.spec.ts',
+        '**/timer-gap-confirmation.spec.ts',
+      ],
+      use: { ...devices['iPhone 13'], storageState: '.auth/user1.json' },
+    },
   ],
 
   /* Run your local dev server before starting the tests */
