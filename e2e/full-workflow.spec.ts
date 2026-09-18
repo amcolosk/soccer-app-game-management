@@ -21,7 +21,11 @@ import { TEST_USERS, TEST_CONFIG } from '../test-config';
  */
 
 // Test data
-const TEST_DATA = {
+// Exported so other game-management specs (e2e/offline-game-management.spec.ts,
+// e2e/concurrent-coaches.spec.ts, e2e/timer-gap-confirmation.spec.ts) can reuse
+// this proven setup/interaction flow instead of duplicating it. Purely additive —
+// does not change this file's own behavior.
+export const TEST_DATA = {
   formation: {
     name: '3-3-1',
     playerCount: '7',
@@ -82,7 +86,7 @@ const TEST_DATA = {
 };
 
 // Helper to create players globally
-async function createPlayers(page: Page) {
+export async function createPlayers(page: Page) {
   console.log('Creating players...');
   
   // Navigate to Players tab in Management
@@ -110,7 +114,7 @@ async function createPlayers(page: Page) {
 }
 
 // Helper to add players to team roster
-async function addPlayersToRoster(page: Page) {
+export async function addPlayersToRoster(page: Page) {
   console.log('Adding players to team roster...');
   
   // Navigate to Teams tab
@@ -171,7 +175,7 @@ async function addPlayersToRoster(page: Page) {
 }
 
 // Helper to create and setup a game
-async function createGame(page: Page, gameData: { opponent: string; date: string; isHome: boolean }) {
+export async function createGame(page: Page, gameData: { opponent: string; date: string; isHome: boolean }) {
   console.log(`Creating game vs ${gameData.opponent}...`);
   
   // Navigate to Home tab
@@ -270,7 +274,7 @@ async function createGame(page: Page, gameData: { opponent: string; date: string
 }
 
 // Helper to setup lineup for the game
-async function setupLineup(page: Page, opponent: string) {
+export async function setupLineup(page: Page, opponent: string) {
   console.log(`Setting up lineup for game vs ${opponent}...`);
   
   // Navigate to Home tab if not already there
@@ -356,7 +360,7 @@ async function setupLineup(page: Page, opponent: string) {
 }
 
 // Helper to create a game plan with rotation (assumes we're already in GameManagement from setupLineup)
-async function createGamePlan(page: Page, opponent: string) {
+export async function createGamePlan(page: Page, opponent: string) {
   console.log(`Game plan step for ${opponent}: rotation plan creation is handled inline in GameManagement.`);
 
   // After setupLineup, we are already on the GameManagement pre-game (scheduled) screen.
@@ -369,7 +373,7 @@ async function createGamePlan(page: Page, opponent: string) {
 }
 
 // Helper to execute a planned rotation during the game
-async function executeRotation(page: Page, rotationMinute: number, playerOut: string, playerIn: string) {
+export async function executeRotation(page: Page, rotationMinute: number, playerOut: string, playerIn: string) {
   console.log(`Executing rotation at ${rotationMinute}': ${playerOut} → ${playerIn}...`);
   
   // Strategy 1: Use the "View Plan" button in the rotation countdown banner
@@ -436,14 +440,14 @@ async function executeRotation(page: Page, rotationMinute: number, playerOut: st
   return false;
 }
 
-async function getDisplayedGameSeconds(page: Page): Promise<number> {
+export async function getDisplayedGameSeconds(page: Page): Promise<number> {
   const timer = page.locator('.command-band__timer');
   await expect(timer).toBeVisible({ timeout: 5000 });
   const timerText = ((await timer.textContent()) ?? '').trim();
   return parseTime(timerText);
 }
 
-async function addTestTimeAndWait(page: Page, minutes: 1 | 5): Promise<number> {
+export async function addTestTimeAndWait(page: Page, minutes: 1 | 5): Promise<number> {
   const timerBefore = await getDisplayedGameSeconds(page);
   const fieldTestingControls = page.locator('#game-tab-panel-field .testing-controls').first();
   const addFiveBtn = fieldTestingControls.getByRole('button', { name: '+5 min' });
@@ -616,7 +620,7 @@ async function addTestTimeAndWait(page: Page, minutes: 1 | 5): Promise<number> {
   return getDisplayedGameSeconds(page);
 }
 
-async function advanceGameClockTo(page: Page, targetMinute: number): Promise<void> {
+export async function advanceGameClockTo(page: Page, targetMinute: number): Promise<void> {
   const targetSeconds = targetMinute * 60;
 
   while (true) {
@@ -632,7 +636,7 @@ async function advanceGameClockTo(page: Page, targetMinute: number): Promise<voi
   }
 }
 
-async function pauseGameClock(page: Page): Promise<void> {
+export async function pauseGameClock(page: Page): Promise<void> {
   const pauseButton = page.locator('.command-band__btn-pause').first();
   if (await pauseButton.isVisible({ timeout: 2000 }).catch(() => false)) {
     await pauseButton.click();
