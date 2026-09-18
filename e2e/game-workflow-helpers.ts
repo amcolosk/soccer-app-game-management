@@ -642,3 +642,23 @@ export async function pauseGameClock(page: Page): Promise<void> {
     await page.waitForTimeout(UI_TIMING.QUICK);
   }
 }
+
+/** Parses a Reports-page play-time cell ("1h 20m" or "40m") into total minutes. */
+export function parseDurationMinutes(value: string): number | null {
+  const text = value.trim();
+  const hourMinuteMatch = text.match(/^(\d+)h\s*(\d+)m$/i);
+  if (hourMinuteMatch) {
+    const hours = Number.parseInt(hourMinuteMatch[1], 10);
+    const minutes = Number.parseInt(hourMinuteMatch[2], 10);
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+    return hours * 60 + minutes;
+  }
+
+  const minuteOnlyMatch = text.match(/^(\d+)m$/i);
+  if (minuteOnlyMatch) {
+    const minutes = Number.parseInt(minuteOnlyMatch[1], 10);
+    return Number.isNaN(minutes) ? null : minutes;
+  }
+
+  return null;
+}

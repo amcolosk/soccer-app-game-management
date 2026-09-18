@@ -20,6 +20,7 @@ import {
   executeRotation,
   advanceGameClockTo,
   pauseGameClock,
+  parseDurationMinutes,
 } from './game-workflow-helpers';
 
 /**
@@ -31,25 +32,6 @@ import {
  * not mocked pieces. Part of the `field-conditions` Playwright project
  * (WebKit + mobile viewport, pre-release only — see playwright.config.ts).
  */
-
-function parseDurationMinutes(value: string): number | null {
-  const text = value.trim();
-  const hourMinuteMatch = text.match(/^(\d+)h\s*(\d+)m$/i);
-  if (hourMinuteMatch) {
-    const hours = Number.parseInt(hourMinuteMatch[1], 10);
-    const minutes = Number.parseInt(hourMinuteMatch[2], 10);
-    if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
-    return hours * 60 + minutes;
-  }
-
-  const minuteOnlyMatch = text.match(/^(\d+)m$/i);
-  if (minuteOnlyMatch) {
-    const minutes = Number.parseInt(minuteOnlyMatch[1], 10);
-    return Number.isNaN(minutes) ? null : minutes;
-  }
-
-  return null;
-}
 
 async function setupTeamAndRoster(page: Page) {
   await loginUser(page, TEST_USERS.user1.email, TEST_USERS.user1.password);

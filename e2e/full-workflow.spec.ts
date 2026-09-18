@@ -23,6 +23,7 @@ import {
   getDisplayedGameSeconds,
   advanceGameClockTo,
   pauseGameClock,
+  parseDurationMinutes,
 } from './game-workflow-helpers';
 
 /**
@@ -381,25 +382,6 @@ async function runGame(page: Page, gameNumber: number = 1) {
 async function verifyTeamTotals(page: Page, gameData: any) {
   console.log('Verifying team totals...');
 
-  const parseDurationMinutes = (value: string): number | null => {
-    const text = value.trim();
-    const hourMinuteMatch = text.match(/^(\d+)h\s*(\d+)m$/i);
-    if (hourMinuteMatch) {
-      const hours = Number.parseInt(hourMinuteMatch[1], 10);
-      const minutes = Number.parseInt(hourMinuteMatch[2], 10);
-      if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
-      return hours * 60 + minutes;
-    }
-
-    const minuteOnlyMatch = text.match(/^(\d+)m$/i);
-    if (minuteOnlyMatch) {
-      const minutes = Number.parseInt(minuteOnlyMatch[1], 10);
-      return Number.isNaN(minutes) ? null : minutes;
-    }
-
-    return null;
-  };
-  
   // Wait for DynamoDB eventual consistency - PlayTimeRecords may take time to fully propagate
   console.log('Waiting for data to settle (DynamoDB eventual consistency)...');
   await page.waitForTimeout(3000);
