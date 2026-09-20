@@ -45,7 +45,21 @@ function buildIcs(veventBlocks: string[], calProps: string[] = []): string {
   ].join('\n');
 }
 
-function newEventIcs(uid: string, summary = 'Rivals FC', dtstart = '20260906T150000Z'): string {
+// Fixed 30-days-from-test-run-time base for "new game" fixtures, computed
+// once at module load so it's always in the future relative to whenever the
+// suite runs (issue #188's past-date skip would otherwise start rejecting
+// these as soon as a hardcoded calendar date rolled into the past).
+const FUTURE_BASE_MS = Date.now() + 30 * 24 * 60 * 60 * 1000;
+
+function futureIso(hoursOffset = 0): string {
+  return new Date(FUTURE_BASE_MS + hoursOffset * 60 * 60 * 1000).toISOString();
+}
+
+function futureIcs(hoursOffset = 0): string {
+  return futureIso(hoursOffset).replace(/[-:]/g, '').split('.')[0] + 'Z';
+}
+
+function newEventIcs(uid: string, summary = 'Rivals FC', dtstart = futureIcs()): string {
   return `UID:${uid}\nSUMMARY:${summary}\nDTSTART:${dtstart}`;
 }
 
@@ -336,16 +350,57 @@ describe('sync-team-calendar handler', () => {
         return {
           Items: [{
             id: 'hand-created-1', teamId: 'team-1', status: 'scheduled',
-            externalUid: null, gameDate: '2026-09-06T20:00:00.000Z', // 5h off — outside the window
+            externalUid: null, gameDate: futureIso(5), // 5h off — outside the window
           }],
         };
       }
       return {};
     });
 
-    const result = await invoke(createEvent({ icsContent: buildIcs([newEventIcs('Game_new_uid', 'Rivals FC', '20260906T150000Z')]) }));
+    const result = await invoke(createEvent({ icsContent: buildIcs([newEventIcs('Game_new_uid', 'Rivals FC', futureIcs())]) }));
     expect(result.adoptedCount).toBe(0);
     expect(result.createdGames).toHaveLength(1);
+  });
+
+  it('does not create a new game for a feed event whose date has already passed (issue #188)', async () => {
+    mockSend.mockImplementation(async (command: { __type: string }) => {
+      if (command.__type === 'GetCommand') return { Item: activeTeam };
+      if (command.__type === 'ScanCommand') return { Items: [] };
+      return {};
+    });
+
+    const pastIcs = 'UID:Game_past_1\nSUMMARY:Rivals FC\nDTSTART:20200101T150000Z';
+    const result = await invoke(createEvent({ icsContent: buildIcs([pastIcs]) }));
+
+    expect(result.createdGames).toHaveLength(0);
+    expect(result.skippedCount).toBe(1);
+    expect(mockSend.mock.calls.some(([c]) => c.__type === 'PutCommand')).toBe(false);
+    expect(result.warnings?.some((w) => /already passed/i.test(w ?? ''))).toBe(true);
+  });
+
+  it('still updates an already-matched game even when its feed date is in the past', async () => {
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      if (command.__type === 'GetCommand') return { Item: activeTeam };
+      if (command.__type === 'ScanCommand') {
+        return {
+          Items: [{
+            id: 'existing-game-1', teamId: 'team-1', status: 'scheduled',
+            externalUid: 'Game_past_existing', externalSource: 'ics', externalContentHash: 'stale-hash',
+            gameDate: '2020-01-01T15:00:00.000Z',
+          }],
+        };
+      }
+      if (command.__type === 'UpdateCommand') {
+        return { Attributes: { id: 'existing-game-1', opponent: 'Rivals FC', updatedAt: 'now' } };
+      }
+      return {};
+    });
+
+    const pastIcs = 'UID:Game_past_existing\nSUMMARY:Rivals FC\nDTSTART:20200101T150000Z';
+    const result = await invoke(createEvent({ icsContent: buildIcs([pastIcs]) }));
+
+    expect(result.updatedGames).toHaveLength(1);
+    expect(result.createdGames).toHaveLength(0);
   });
 
   it('dryRun performs no writes but returns the same predicted counts as a real sync', async () => {

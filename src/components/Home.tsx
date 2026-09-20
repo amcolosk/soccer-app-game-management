@@ -98,12 +98,17 @@ export function Home() {
   const [importTeamId, setImportTeamId] = useState('');
   const [isCheckingImport, setIsCheckingImport] = useState(false);
   const [importPreview, setImportPreview] = useState<CalendarSyncResult | null>(null);
-  const [importPreviewArgs, setImportPreviewArgs] = useState<{ teamId: string; icsContent?: string } | null>(null);
+  const [importPreviewArgs, setImportPreviewArgs] = useState<{ teamId: string; icsContent?: string; feedUrl?: string; saveFeedUrl?: boolean } | null>(null);
   const [isApplyingImport, setIsApplyingImport] = useState(false);
   // Once a feed is saved for a team, that team's slot in the panel offers
   // "Sync now" (re-sync the saved feed) instead of a file picker, with a
   // small fallback toggle back to file upload (Phase 3+ CTA rule).
   const [showFileFallback, setShowFileFallback] = useState(false);
+  // First-time link, entered directly here instead of requiring a trip to
+  // team management's CalendarFeedSettings -- toggled alongside the file
+  // input for a team with no saved feed yet.
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [importUrlInput, setImportUrlInput] = useState('');
 
   const scheduleGameButtonRef = useRef<HTMLButtonElement>(null);
   const { getSwipeProps, getSwipeStyle, close: closeSwipe } = useSwipeDelete({ openWidthPx: 160, maxDistancePx: 180 });
@@ -545,6 +550,8 @@ export function Home() {
     setImportPreview(null);
     setImportPreviewArgs(null);
     setShowFileFallback(false);
+    setShowUrlInput(false);
+    setImportUrlInput('');
   }, []);
 
   const handleImportFileSelected = useCallback(async (file: File) => {
@@ -585,6 +592,45 @@ export function Home() {
       setIsCheckingImport(false);
     }
   }, [importTeamId, resetImportPanel]);
+
+  // First-time link by pasting a feed URL directly here, mirroring
+  // CalendarFeedSettings' commitLink/handleLinkOrReplace flow in team
+  // management — added so setup doesn't require a trip there. saveFeedUrl
+  // is always true: unlike the file-upload path, a URL sync here is meant
+  // to establish the team's ongoing linked feed, not a one-off import.
+  const handleImportUrlSubmit = useCallback(async () => {
+    if (!importTeamId) {
+      showWarning('Select a team first');
+      return;
+    }
+    const url = importUrlInput.trim();
+    if (!url) {
+      showError('Enter a calendar feed URL');
+      return;
+    }
+    setIsCheckingImport(true);
+    try {
+      const result = await syncTeamCalendar({ teamId: importTeamId, feedUrl: url, saveFeedUrl: true, dryRun: true });
+      if (isImportResultNoOp(result)) {
+        // dryRun never persists the URL -- still need one real (non-dryRun)
+        // call to actually save+link it, even when there's nothing to
+        // import yet (e.g. an empty or all-past feed). Mirrors
+        // CalendarFeedSettings.handleLinkOrReplace in team management.
+        const saved = await syncTeamCalendar({ teamId: importTeamId, feedUrl: url, saveFeedUrl: true, dryRun: false });
+        absorbImportResult(saved);
+        showSuccess('Calendar linked — schedule already up to date');
+        resetImportPanel();
+        return;
+      }
+      setImportPreview(result);
+      setImportPreviewArgs({ teamId: importTeamId, feedUrl: url, saveFeedUrl: true });
+    } catch (error) {
+      console.error('Failed to preview calendar feed link', error);
+      showError(error instanceof Error ? error.message : 'Failed to check calendar feed');
+    } finally {
+      setIsCheckingImport(false);
+    }
+  }, [importTeamId, importUrlInput, resetImportPanel]);
 
   // "Sync now" (Phase 3+): re-syncs the team's already-saved feed — no
   // feedUrl/icsContent argument, so the Lambda fetches from the saved
@@ -893,7 +939,11 @@ export function Home() {
         <div className="create-form calendar-import-panel">
           <h3>{selectedTeamHasFeed && !showFileFallback ? 'Sync Calendar' : 'Import from Calendar'}</h3>
           {!selectedTeamHasFeed || showFileFallback ? (
-            <p className="calendar-import-hint">Upload a team schedule .ics file to import games.</p>
+            <p className="calendar-import-hint">
+              {showUrlInput
+                ? 'Paste the team schedule’s calendar feed link to import and link games.'
+                : 'Upload a team schedule .ics file to import games.'}
+            </p>
           ) : (
             <p className="calendar-import-hint">
               Linked to <strong>{selectedImportTeam?.calendarFeedHost}</strong>. Re-sync to pick up changes.
@@ -904,6 +954,10 @@ export function Home() {
             onChange={(e) => {
               setImportTeamId(e.target.value);
               setShowFileFallback(false);
+              // Clear any unsubmitted link text on team switch (issue #189
+              // class of bug) — otherwise it could be submitted under the
+              // newly-selected team instead of the one it was typed for.
+              setImportUrlInput('');
             }}
             disabled={isCheckingImport}
             aria-label="Team to import games for"
@@ -917,17 +971,55 @@ export function Home() {
           </select>
 
           {showFileInput ? (
-            <input
-              type="file"
-              accept=".ics,text/calendar"
-              disabled={!importTeamId || isCheckingImport}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) void handleImportFileSelected(file);
-                e.target.value = '';
-              }}
-              aria-label="Calendar .ics file"
-            />
+            showUrlInput ? (
+              <>
+                <input
+                  type="url"
+                  placeholder="https://calendar.playmetrics.com/..."
+                  value={importUrlInput}
+                  onChange={(e) => setImportUrlInput(e.target.value)}
+                  disabled={!importTeamId || isCheckingImport}
+                  aria-label="Calendar feed URL"
+                />
+                <button
+                  onClick={() => void handleImportUrlSubmit()}
+                  className="btn-primary"
+                  disabled={!importTeamId || isCheckingImport || !importUrlInput.trim()}
+                >
+                  {isCheckingImport ? 'Checking…' : 'Link'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-link calendar-import-file-fallback"
+                  onClick={() => { setShowUrlInput(false); setImportUrlInput(''); }}
+                  disabled={isCheckingImport}
+                >
+                  or upload a file instead
+                </button>
+              </>
+            ) : (
+              <>
+                <input
+                  type="file"
+                  accept=".ics,text/calendar"
+                  disabled={!importTeamId || isCheckingImport}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void handleImportFileSelected(file);
+                    e.target.value = '';
+                  }}
+                  aria-label="Calendar .ics file"
+                />
+                <button
+                  type="button"
+                  className="btn-link calendar-import-file-fallback"
+                  onClick={() => setShowUrlInput(true)}
+                  disabled={isCheckingImport}
+                >
+                  or paste a calendar link instead
+                </button>
+              </>
+            )
           ) : (
             <>
               <button
