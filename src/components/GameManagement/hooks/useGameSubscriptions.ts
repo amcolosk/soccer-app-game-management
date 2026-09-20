@@ -9,6 +9,7 @@ import type {
 } from "../types";
 import { useAmplifyQuery } from "../../../hooks/useAmplifyQuery";
 import { handleApiError } from "../../../utils/errorHandler";
+import { computeCurrentGameSeconds } from "../../../utils/gameClock";
 
 const client = generateClient<Schema>();
 
@@ -82,6 +83,16 @@ export function useGameSubscriptions({
   };
 
   const { data: goals } = useAmplifyQuery('Goal', {
+    filter: { gameId: { eq: game.id } },
+    sort: halfThenSeconds,
+  }, [game.id]);
+
+  const { data: shots } = useAmplifyQuery('Shot', {
+    filter: { gameId: { eq: game.id } },
+    sort: halfThenSeconds,
+  }, [game.id]);
+
+  const { data: saves } = useAmplifyQuery('Save', {
     filter: { gameId: { eq: game.id } },
     sort: halfThenSeconds,
   }, [game.id]);
@@ -232,10 +243,7 @@ export function useGameSubscriptions({
 
           // Auto-resume timer if game was in progress (but not if user manually paused)
           if (updatedGame.status === 'in-progress' && updatedGame.lastStartTime && !manuallyPausedRef.current) {
-            const lastStart = new Date(updatedGame.lastStartTime).getTime();
-            const now = Date.now();
-            const additionalSeconds = Math.floor((now - lastStart) / 1000);
-            setCurrentTime((updatedGame.elapsedSeconds || 0) + additionalSeconds);
+            setCurrentTime(computeCurrentGameSeconds(updatedGame));
             setIsRunning(true);
           } else {
             // Restore elapsed time for halftime or paused states
@@ -438,6 +446,8 @@ export function useGameSubscriptions({
     lineup,
     playTimeRecords,
     goals,
+    shots,
+    saves,
     gameNotes,
     gamePlan,
     plannedRotations,

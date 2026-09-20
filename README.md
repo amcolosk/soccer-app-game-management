@@ -40,7 +40,19 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 - **Substitution Management**: Easy substitution interface with live play time visibility
 - **Halftime Lineup Changes**: Modify the lineup between halves
 - **Score Tracking**: Record goals with scorer, assist, and game time
+- **Shot & Save Tracking**: Log shots (on/off target) and saves for either team from the same Goals tab, via a Goals/Shots/Saves segmented control
 - **Game Notes**: Log events such as gold stars and cards
+
+### Fan Mode (public read-only live game view)
+- **One persistent public link per team**: generate/copy/revoke a `/watch/:token` link from Sharing & Permissions — no account needed to view it
+- **Live score, clock, and lineup**: a fan opens the link and sees the current score, running game clock, half, on-field lineup (first name + last initial only), and a recent-events feed
+- **State-aware**: distinguishes "game finished" (with the date), "next game" (with the scheduled date/time), and "no game right now" from an outright invalid/revoked link
+
+### Sideline Stat Tracking (public helper-submitted stats)
+- **A second, separate, write-capable link**: generate/copy/revoke a `/track/:token` link from Sharing & Permissions — lets a non-coach helper (parent/assistant) log stats from the sideline with no account needed
+- **Goal / Shot / Save tap flow**: every tap starts with an Us/Opponent choice, then (for "Us") an optional player picker with a skip affordance, then (for a Shot, either side) an on-target/off-target step
+- **Real-time**: a logged stat appears live on the coach's own game screen, the same way a coach-entered one would — no refresh needed
+- **Rows the coach logged are marked "Logged via helper"** in the Goals/Shots/Saves lists, and can be corrected or deleted from the coach's own tracker UI (the helper's page has no edit/undo)
 
 ### Play Time Tracking
 - **Automatic Tracking**: Records start/end game seconds for each player in each position
@@ -141,7 +153,10 @@ npm run lint         # Lint TypeScript/TSX files
 - **Substitution**: Records when a player enters/exits a position
 - **PlayTimeRecord**: Granular tracking (player, position, start/end game seconds)
 - **Goal / GameNote**: Scoring and event records
+- **Shot / Save**: Per-shot (on/off target) and per-save stat events, attributable to either team; both carry a `loggedVia` (`COACH`/`HELPER`) flag
 - **TeamInvitation**: Email-based coach invitations with status tracking
+- **ShareLink**: A public, unguessable token granting either `FAN` (read-only) or `STAT_TRACKER` (write) access to a team — Lambda-only, zero direct client grants
+- **FanViewRateLimit**: Rate limiting shared by both public link types, keyed on the viewer's guest identity and the shared token, with a `dimension` prefix (`read` for Fan Mode's `getFanGameView`/Stat Tracker's `getStatTrackerView`, `write` for `submitStatEvent`'s own, tighter ceiling) so a helper's tapping and a fan's polling never share a budget; also doubles as the `submitStatEvent` idempotency marker for a retried `clientEventId`
 
 ## Deploying to AWS
 

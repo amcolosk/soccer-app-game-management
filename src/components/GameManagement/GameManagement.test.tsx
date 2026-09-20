@@ -95,6 +95,7 @@ const mockCaptures: {
   playerNotesPanelProps?: any;
   rotationWidgetProps?: any;
   planTabProps?: any;
+  shotSaveTrackerProps?: any;
 } = {};
 
 vi.mock("./GameTimer", () => ({
@@ -108,7 +109,13 @@ vi.mock("./GameTimer", () => ({
 // Mock all other child components so GameManagement renders without needing
 // real implementations of its dependents.
 vi.mock("./GameHeader",       () => ({ GameHeader:       () => <div /> }));
-vi.mock("./GoalTracker",      () => ({ GoalTracker:      () => <div /> }));
+vi.mock("./GoalTracker",      () => ({ GoalTracker:      () => <div data-testid="goal-tracker" /> }));
+vi.mock("./ShotSaveTracker",  () => ({
+  ShotSaveTracker: vi.fn((props: any) => {
+    mockCaptures.shotSaveTrackerProps = props;
+    return <div data-testid={`shot-save-tracker-${props.statView}`} />;
+  }),
+}));
 vi.mock("./PlayerNotesPanel", () => ({
   PlayerNotesPanel: vi.fn((props: any) => {
     mockCaptures.playerNotesPanelProps = props;
@@ -188,6 +195,12 @@ vi.mock("../../hooks/useOfflineMutations", () => ({
       createGoal:             vi.fn().mockResolvedValue(undefined),
       deleteGoal:             vi.fn().mockResolvedValue(undefined),
       updateGoal:             vi.fn().mockResolvedValue(undefined),
+      createShot:             vi.fn().mockResolvedValue(undefined),
+      deleteShot:             vi.fn().mockResolvedValue(undefined),
+      updateShot:             vi.fn().mockResolvedValue(undefined),
+      createSave:             vi.fn().mockResolvedValue(undefined),
+      deleteSave:             vi.fn().mockResolvedValue(undefined),
+      updateSave:             vi.fn().mockResolvedValue(undefined),
       createGameNote:         (...args: unknown[]) => mockCreateGameNote(...args),
       updateGameNote:         (...args: unknown[]) => mockUpdateGameNote(...args),
       deleteGameNote:         (...args: unknown[]) => mockDeleteGameNote(...args),
@@ -300,6 +313,8 @@ const defaultSubscription = {
   lineup:               makeLineup(),
   playTimeRecords:      [],
   goals:                [],
+  shots:                [],
+  saves:                [],
   gameNotes:            [],
   gamePlan:             null,
   plannedRotations:     [],
@@ -3049,5 +3064,89 @@ describe("GameManagement – archived team banner", () => {
     });
     renderComponent(); // uses the unmodified mockTeam — no `status` field
     expect(screen.queryByText(/Archived Team/)).not.toBeInTheDocument();
+  });
+});
+
+describe("GameManagement – Goals/Shots/Saves segmented control", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+  });
+
+  it("defaults to the Goals sub-view in the scheduled goals tabpanel", async () => {
+    const user = userEvent.setup();
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "scheduled" },
+    });
+    // Scheduled status always resets activeTab to 'plan' on mount (existing
+    // behavior, unrelated to this feature) — navigate to the Goals tab
+    // explicitly rather than relying on the initialTab prop.
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    await user.click(screen.getByRole("tab", { name: "Goals" }));
+
+    expect(screen.getByRole("tablist", { name: "Goals sub-view" })).toBeInTheDocument();
+    expect(screen.getByTestId("goal-tracker")).toBeInTheDocument();
+    expect(screen.queryByTestId(/shot-save-tracker/)).not.toBeInTheDocument();
+  });
+
+  it("switches to the Shots sub-view when the Shots pill is clicked (scheduled)", async () => {
+    const user = userEvent.setup();
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "scheduled" },
+    });
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    await user.click(screen.getByRole("tab", { name: "Goals" }));
+
+    await user.click(screen.getByRole("tab", { name: "Shots" }));
+
+    expect(screen.getByTestId("shot-save-tracker-shots")).toBeInTheDocument();
+    expect(screen.queryByTestId("goal-tracker")).not.toBeInTheDocument();
+  });
+
+  it("switches to the Saves sub-view when the Saves pill is clicked (in-progress)", async () => {
+    const user = userEvent.setup();
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "in-progress" },
+    });
+    renderWithRouter(
+      <GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} initialTab="goals" />
+    );
+
+    expect(screen.getByRole("tablist", { name: "Goals sub-view" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Saves" }));
+
+    expect(screen.getByTestId("shot-save-tracker-saves")).toBeInTheDocument();
+    expect(screen.queryByTestId("goal-tracker")).not.toBeInTheDocument();
+  });
+
+  it("renders the segmented control as a standalone section in the completed layout — the site most likely to be skipped by accident", async () => {
+    const user = userEvent.setup();
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "completed" },
+    });
+    renderComponent();
+
+    expect(screen.getByRole("tablist", { name: "Goals sub-view" })).toBeInTheDocument();
+    expect(screen.getByTestId("goal-tracker")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Shots" }));
+    expect(screen.getByTestId("shot-save-tracker-shots")).toBeInTheDocument();
+  });
+
+  it("does not render the segmented control or ShotSaveTracker during halftime, matching Goal's existing behavior", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "halftime" },
+    });
+    renderComponent();
+
+    expect(screen.queryByRole("tablist", { name: "Goals sub-view" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("goal-tracker")).not.toBeInTheDocument();
+    expect(screen.queryByTestId(/shot-save-tracker/)).not.toBeInTheDocument();
   });
 });

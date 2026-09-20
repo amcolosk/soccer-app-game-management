@@ -7,6 +7,12 @@ import { renderHook, act } from '@testing-library/react';
 const {
   mockGameUpdate,
   mockPlayTimeRecordCreate,
+  mockShotCreate,
+  mockShotUpdate,
+  mockShotDelete,
+  mockSaveCreate,
+  mockSaveUpdate,
+  mockSaveDelete,
   mockCreateSecureGameNote,
   mockUpdateSecureGameNote,
   mockDeleteSecureGameNote,
@@ -25,6 +31,12 @@ const {
 } = vi.hoisted(() => ({
   mockGameUpdate: vi.fn(),
   mockPlayTimeRecordCreate: vi.fn(),
+  mockShotCreate: vi.fn(),
+  mockShotUpdate: vi.fn(),
+  mockShotDelete: vi.fn(),
+  mockSaveCreate: vi.fn(),
+  mockSaveUpdate: vi.fn(),
+  mockSaveDelete: vi.fn(),
   mockCreateSecureGameNote: vi.fn(),
   mockUpdateSecureGameNote: vi.fn(),
   mockDeleteSecureGameNote: vi.fn(),
@@ -57,6 +69,16 @@ vi.mock('aws-amplify/data', () => ({
         update: vi.fn().mockResolvedValue({ data: {} }),
       },
       Goal: { create: vi.fn().mockResolvedValue({ data: {} }) },
+      Shot: {
+        create: mockShotCreate,
+        update: mockShotUpdate,
+        delete: mockShotDelete,
+      },
+      Save: {
+        create: mockSaveCreate,
+        update: mockSaveUpdate,
+        delete: mockSaveDelete,
+      },
       GameNote: {
         delete: vi.fn(),
       },
@@ -142,6 +164,12 @@ describe('useOfflineMutations', () => {
     setupOnline();
     mockGameUpdate.mockResolvedValue({ data: {} });
     mockPlayTimeRecordCreate.mockResolvedValue({ data: {} });
+    mockShotCreate.mockResolvedValue({ data: {} });
+    mockShotUpdate.mockResolvedValue({ data: {} });
+    mockShotDelete.mockResolvedValue({ data: {} });
+    mockSaveCreate.mockResolvedValue({ data: {} });
+    mockSaveUpdate.mockResolvedValue({ data: {} });
+    mockSaveDelete.mockResolvedValue({ data: {} });
     mockCreateSecureGameNote.mockResolvedValue({ data: {} });
     mockUpdateSecureGameNote.mockResolvedValue({ data: {} });
     mockDeleteSecureGameNote.mockResolvedValue({ data: {} });
@@ -266,6 +294,94 @@ describe('useOfflineMutations', () => {
       expect(mockEnqueue).not.toHaveBeenCalled();
     });
 
+    it('createShot calls client.models.Shot.create with correct args, including required loggedVia', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createShot({
+          gameId: 'g1',
+          takenByUs: true,
+          onTarget: true,
+          gameSeconds: 120,
+          half: 1,
+          playerId: 'p1',
+          loggedVia: 'COACH',
+          coaches: ['coach-1'],
+        });
+      });
+
+      expect(mockShotCreate).toHaveBeenCalledWith(expect.objectContaining({
+        gameId: 'g1',
+        takenByUs: true,
+        onTarget: true,
+        loggedVia: 'COACH',
+      }));
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('deleteShot calls client.models.Shot.delete', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.deleteShot('shot-1');
+      });
+
+      expect(mockShotDelete).toHaveBeenCalledWith({ id: 'shot-1' });
+    });
+
+    it('updateShot calls client.models.Shot.update with only allowed fields', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.updateShot('shot-1', { playerId: 'p2', onTarget: false });
+      });
+
+      expect(mockShotUpdate).toHaveBeenCalledWith({ id: 'shot-1', playerId: 'p2', onTarget: false });
+    });
+
+    it('createSave calls client.models.Save.create with correct args, including required loggedVia', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createSave({
+          gameId: 'g1',
+          byUs: true,
+          gameSeconds: 200,
+          half: 1,
+          playerId: 'p3',
+          loggedVia: 'HELPER',
+          coaches: ['coach-1'],
+        });
+      });
+
+      expect(mockSaveCreate).toHaveBeenCalledWith(expect.objectContaining({
+        gameId: 'g1',
+        byUs: true,
+        loggedVia: 'HELPER',
+      }));
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('deleteSave calls client.models.Save.delete', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.deleteSave('save-1');
+      });
+
+      expect(mockSaveDelete).toHaveBeenCalledWith({ id: 'save-1' });
+    });
+
+    it('updateSave calls client.models.Save.update with only allowed fields', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.updateSave('save-1', { playerId: 'p4' });
+      });
+
+      expect(mockSaveUpdate).toHaveBeenCalledWith({ id: 'save-1', playerId: 'p4' });
+    });
+
     it('createGameNote uses the secure custom mutation path without forwarding authorId or coaches', async () => {
       const { result } = renderHook(() => useOfflineMutations());
 
@@ -378,6 +494,47 @@ describe('useOfflineMutations', () => {
       expect(mockEnqueue).toHaveBeenCalledWith(
         expect.objectContaining({ ownerSub: 'user-A' })
       );
+    });
+
+    it('createShot is queued while offline', async () => {
+      setupOffline();
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createShot({
+          gameId: 'g1',
+          takenByUs: true,
+          onTarget: true,
+          gameSeconds: 120,
+          half: 1,
+          loggedVia: 'COACH',
+        });
+      });
+
+      expect(mockEnqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'Shot', operation: 'create' })
+      );
+      expect(mockShotCreate).not.toHaveBeenCalled();
+    });
+
+    it('createSave is queued while offline', async () => {
+      setupOffline();
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createSave({
+          gameId: 'g1',
+          byUs: true,
+          gameSeconds: 200,
+          half: 1,
+          loggedVia: 'HELPER',
+        });
+      });
+
+      expect(mockEnqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'Save', operation: 'create' })
+      );
+      expect(mockSaveCreate).not.toHaveBeenCalled();
     });
 
     it('createPlayerAvailability is queued while offline', async () => {
@@ -527,6 +684,39 @@ describe('useOfflineMutations', () => {
         notes: 'Queued update',
       });
       expect(mockDeleteSecureGameNote).toHaveBeenCalledWith({ id: 'legacy-note-id' });
+    });
+
+    it('replays queued Shot and Save creates via the Amplify client', async () => {
+      mockDequeueAll.mockResolvedValue([
+        {
+          id: 'q1',
+          model: 'Shot',
+          operation: 'create',
+          payload: { gameId: 'g1', takenByUs: true, onTarget: true, gameSeconds: 100, half: 1, loggedVia: 'COACH' },
+          enqueuedAt: 1,
+          retryCount: 0,
+          ownerSub: DEFAULT_SUB,
+        },
+        {
+          id: 'q2',
+          model: 'Save',
+          operation: 'create',
+          payload: { gameId: 'g1', byUs: false, gameSeconds: 150, half: 1, loggedVia: 'COACH' },
+          enqueuedAt: 2,
+          retryCount: 0,
+          ownerSub: DEFAULT_SUB,
+        },
+      ]);
+
+      renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        capturedOnReconnect?.();
+      });
+      await flush();
+
+      expect(mockShotCreate).toHaveBeenCalledWith(expect.objectContaining({ gameId: 'g1', takenByUs: true }));
+      expect(mockSaveCreate).toHaveBeenCalledWith(expect.objectContaining({ gameId: 'g1', byUs: false }));
     });
 
     it('treats queued duplicate deterministic PlayTimeRecord creates as successful replay', async () => {

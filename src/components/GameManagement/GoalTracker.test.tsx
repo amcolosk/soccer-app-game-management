@@ -510,4 +510,36 @@ describe("GoalTracker", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
   });
+
+  describe("via helper badge (Milestone B2)", () => {
+    it("shows a 'Logged via helper' badge on a goal with loggedVia: HELPER", () => {
+      renderWithProvider(
+        <GoalTracker
+          {...defaultProps}
+          goals={[{ id: "g-helper", scoredByUs: true, scorerId: "p1", gameSeconds: 100, half: 1, loggedVia: "HELPER" } as any]}
+        />
+      );
+      expect(screen.getByText("Logged via helper")).toBeInTheDocument();
+    });
+
+    it("does not show the badge for a coach-logged goal", () => {
+      renderWithProvider(
+        <GoalTracker
+          {...defaultProps}
+          goals={[{ id: "g-coach", scoredByUs: true, scorerId: "p1", gameSeconds: 100, half: 1, loggedVia: "COACH" } as any]}
+        />
+      );
+      expect(screen.queryByText("Logged via helper")).not.toBeInTheDocument();
+    });
+
+    it("does not show the badge for a legacy goal with no loggedVia at all", () => {
+      renderWithProvider(
+        <GoalTracker
+          {...defaultProps}
+          goals={[{ id: "g-legacy", scoredByUs: true, scorerId: "p1", gameSeconds: 100, half: 1 } as any]}
+        />
+      );
+      expect(screen.queryByText("Logged via helper")).not.toBeInTheDocument();
+    });
+  });
 });

@@ -3,6 +3,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
   GetCommand,
+  QueryCommand,
   ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
@@ -62,8 +63,12 @@ export const handler: Handler = async (event) => {
   const teamId = event.arguments.teamId;
   const teamTable = process.env.TEAM_TABLE;
   const teamInvitationTable = process.env.TEAM_INVITATION_TABLE;
+  // Milestone B1: revoke any active ShareLinks when a team is archived —
+  // generate-share-link already rejects creating a new link for an
+  // archived team, but nothing revoked an *existing* live one without this.
+  const shareLinkTable = process.env.SHARE_LINK_TABLE;
 
-  if (!teamTable || !teamInvitationTable) {
+  if (!teamTable || !teamInvitationTable || !shareLinkTable) {
     throw new Error('Required environment variables are not set');
   }
 
@@ -161,6 +166,36 @@ export const handler: Handler = async (event) => {
         throw error;
       }
       // Already transitioned out of PENDING (e.g. concurrent acceptance) — ignore.
+    }
+  }));
+
+  // Same "runs on every call, deterministic when repeated" sweep, extended
+  // to ShareLink (Milestone B1) — Query, not Scan, since ShareLink carries
+  // an explicit teamId-hash-key GSI (unlike TeamInvitation's scan above,
+  // which predates this and is left as-is per that section's own comment).
+  const activeShareLinksResponse = await docClient.send(new QueryCommand({
+    TableName: shareLinkTable,
+    IndexName: 'shareLinksByTeamId',
+    KeyConditionExpression: 'teamId = :teamId',
+    ExpressionAttributeValues: { ':teamId': teamId },
+  }));
+  const activeShareLinks = ((activeShareLinksResponse.Items as DbItem[] | undefined) ?? [])
+    .filter((link) => !link.revokedAt);
+
+  await Promise.all(activeShareLinks.map(async (link) => {
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: shareLinkTable,
+        Key: { token: link.token },
+        UpdateExpression: 'SET revokedAt = :revokedAt',
+        ConditionExpression: 'attribute_not_exists(revokedAt) OR revokedAt = :null',
+        ExpressionAttributeValues: { ':revokedAt': nowIso, ':null': null },
+      }));
+    } catch (error) {
+      if (!isConditionalCheckFailed(error)) {
+        throw error;
+      }
+      // Already revoked concurrently — ignore.
     }
   }));
 

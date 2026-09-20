@@ -1,6 +1,5 @@
 import { lazy } from "react";
 import {
-  BrowserRouter,
   Routes,
   Route,
   Navigate,
@@ -28,26 +27,27 @@ const SeasonReportRoute = lazy(() =>
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Invitation flow — full-screen, outside AppLayout */}
-        <Route path="/invite/:invitationId" element={<InvitationRoute />} />
+    <Routes>
+      {/* Invitation flow — full-screen, outside AppLayout */}
+      <Route path="/invite/:invitationId" element={<InvitationRoute />} />
 
-        {/* Main app shell with bottom nav */}
-        <Route element={<AppLayout />}>
-          <Route index element={<HomeOrLegacyRedirect />} />
-          <Route path="game/:gameId" element={<GameManagementRoute />} />
-          <Route path="game/:gameId/plan" element={<GamePlanRedirect />} />
-          <Route path="reports" element={<SeasonReportRoute />} />
-          <Route path="reports/:teamId" element={<SeasonReportRoute />} />
-          <Route path="manage" element={<Management />} />
-          <Route path="profile" element={<UserProfile />} />
-        </Route>
+      {/* Main app shell with bottom nav */}
+      <Route element={<AppLayout />}>
+        <Route index element={<HomeOrLegacyRedirect />} />
+        <Route path="game/:gameId" element={<GameManagementRoute />} />
+        <Route path="game/:gameId/plan" element={<GamePlanRedirect />} />
+        <Route path="reports" element={<SeasonReportRoute />} />
+        <Route path="reports/:teamId" element={<SeasonReportRoute />} />
+        <Route path="manage" element={<Management />} />
+        <Route path="profile" element={<UserProfile />} />
+      </Route>
 
-        {/* Catch-all redirect to home */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+      {/* Catch-all redirect to home. Only ever reached for paths that already
+          fell through AppRouter's own "*" -> AppRootLazy match (which only
+          triggers when /watch/:token didn't match), so this is unaffected by
+          the routing restructure. */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }
 

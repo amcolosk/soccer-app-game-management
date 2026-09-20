@@ -13,6 +13,8 @@ type CleanupClient = {
 const ORPHAN_MODELS = [
   'PlayTimeRecord',
   'Goal',
+  'Shot',
+  'Save',
   'GameNote',
   'Substitution',
   'LineupAssignment',

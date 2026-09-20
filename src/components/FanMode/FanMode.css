@@ -1,0 +1,307 @@
+/*
+ * Fan Mode / Stat Tracker public-page styles.
+ *
+ * Deliberately NOT part of App.css (a documented, narrow exception to this
+ * repo's normal single-stylesheet convention — see CLAUDE.md /
+ * docs/ARCHITECTURE.md). App.css is imported exactly once, by App.tsx,
+ * which the routing restructure (Milestone B1) moves behind the lazy
+ * AppRoot chunk — so /watch/:token never loads it. Importing App.css
+ * directly into FanGameView would pull ~4500+ lines into the public bundle
+ * and defeat the whole code-splitting justification for that restructure.
+ * `index.css` (the CSS custom-property theme tokens) stays available either
+ * way, since main.tsx imports it directly at module scope.
+ */
+
+.fan-mode-page {
+  min-height: 100vh;
+  padding: 1rem;
+  background: var(--background);
+  color: var(--text-primary);
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  box-sizing: border-box;
+}
+
+.fan-mode-page--center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 100vh;
+  gap: 0.5rem;
+}
+
+.fan-mode-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.fan-mode-header__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.fan-mode-header__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.fan-mode-stale-banner {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.fan-mode-score__value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--primary-green);
+}
+
+.fan-mode-score {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--primary-green);
+}
+
+.fan-mode-score__dash {
+  color: var(--text-secondary);
+}
+
+.fan-mode-timer {
+  text-align: right;
+}
+
+.fan-mode-timer__value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.fan-mode-timer__meta {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.fan-mode-lineup,
+.fan-mode-events {
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.fan-mode-lineup h2,
+.fan-mode-events h2 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1rem;
+  color: var(--text-secondary);
+}
+
+.fan-mode-lineup__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.5rem;
+}
+
+.fan-mode-lineup__player {
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem;
+  border-radius: 8px;
+  background: var(--hover-background);
+}
+
+.fan-mode-lineup__name {
+  font-weight: 600;
+}
+
+.fan-mode-lineup__position {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.fan-mode-events__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.fan-mode-events__item {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.fan-mode-events__item:last-child {
+  border-bottom: none;
+}
+
+.fan-mode-events__type {
+  font-weight: 600;
+}
+
+.fan-mode-events__minute {
+  margin-left: auto;
+  color: var(--text-secondary);
+}
+
+.fan-mode-empty {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+@media (min-width: 768px) {
+  .fan-mode-page {
+    max-width: 640px;
+    margin: 0 auto;
+  }
+}
+
+/* ── Milestone B2: Sideline Stat Tracker (/track/:token) ─────────────────
+   Extends this same stylesheet (not a new one, not App.css) — see this
+   file's own header comment for why. */
+
+.tracker-confirmation {
+  margin: 0 0 1rem 0;
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  background: var(--light-green);
+  color: var(--primary-green);
+  font-weight: 600;
+  text-align: center;
+}
+
+/* Deliberately larger than the app's generic 44x44px floor (UI-SPEC §4) —
+   this screen's mis-tap cost (no self-serve undo, one-handed, standing) is
+   higher than the app's baseline. Precedent: UI-SPEC §9.5's bottom-sheet
+   row sizing. */
+.tracker-tap-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.tracker-tap-target {
+  min-width: 56px;
+  min-height: 56px;
+  flex: 1 1 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--card-background);
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tracker-tap-target span:first-child {
+  font-size: 1.75rem;
+}
+
+.tracker-tap-target:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tracker-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.tracker-sheet {
+  width: 100%;
+  max-width: 640px;
+  background: var(--card-background);
+  border-radius: 16px 16px 0 0;
+  padding: 1.25rem 1rem calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+}
+
+.tracker-sheet h2 {
+  margin: 0 0 1rem 0;
+}
+
+.tracker-sheet-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.tracker-player-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.tracker-sheet-option {
+  min-height: 56px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--hover-background);
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tracker-sheet-option--primary {
+  background: var(--primary-green);
+  color: white;
+  border-color: var(--primary-green);
+}
+
+.tracker-sheet-option--skip {
+  background: transparent;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.tracker-sheet-option:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tracker-sheet-cancel {
+  margin-top: 1rem;
+  width: 100%;
+  min-height: 44px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  cursor: pointer;
+}

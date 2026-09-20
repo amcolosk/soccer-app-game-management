@@ -6,6 +6,8 @@ export type {
   LineupAssignment,
   PlayTimeRecord,
   Goal,
+  Shot,
+  Save,
   GameNote,
   GamePlan,
   PlannedRotation,
