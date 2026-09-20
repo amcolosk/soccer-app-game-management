@@ -12,6 +12,9 @@ import '@aws-amplify/ui-react/styles.css';
 import { initGA } from "./utils/analytics.ts";
 import type { Schema } from "../amplify/data/resource";
 import { cleanupAllDataForE2E } from "./utils/e2eCleanup.ts";
+import { installConsoleLogBuffer } from "./utils/consoleLogBuffer.ts";
+
+installConsoleLogBuffer();
 
 Amplify.configure(outputs);
 

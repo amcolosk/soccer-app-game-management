@@ -22,10 +22,11 @@ import userEvent from "@testing-library/user-event";
 // Mocks — use vi.hoisted so variables are available inside vi.mock factories.
 // ---------------------------------------------------------------------------
 
-const { mockCreateGitHubIssue, mockShowWarning, mockHandleApiError } = vi.hoisted(() => ({
+const { mockCreateGitHubIssue, mockShowWarning, mockHandleApiError, mockBuildConsoleLogSnapshot } = vi.hoisted(() => ({
   mockCreateGitHubIssue: vi.fn(),
   mockShowWarning: vi.fn(),
   mockHandleApiError: vi.fn(),
+  mockBuildConsoleLogSnapshot: vi.fn(),
 }));
 
 vi.mock("aws-amplify/data", () => ({
@@ -44,6 +45,10 @@ vi.mock("../utils/toast", () => ({
 
 vi.mock("../utils/errorHandler", () => ({
   handleApiError: (...args: unknown[]) => mockHandleApiError(...args),
+}));
+
+vi.mock("../utils/consoleLogBuffer", () => ({
+  buildConsoleLogSnapshot: () => mockBuildConsoleLogSnapshot(),
 }));
 
 import { BugReport } from "./BugReport";
@@ -508,5 +513,63 @@ describe("BugReport – debugContext", () => {
 
     const arg = mockCreateGitHubIssue.mock.calls[0][0];
     expect(arg.steps).toBeUndefined();
+  });
+});
+
+describe("BugReport – console log snapshot", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCreateGitHubIssue.mockResolvedValue({ data: null });
+  });
+
+  it("appends the console log snapshot to steps when one is available", async () => {
+    mockBuildConsoleLogSnapshot.mockReturnValue(
+      "--- Recent Console Warnings/Errors ---\n[t] WARN: conditional check failed\n-----------------------------------"
+    );
+    const user = userEvent.setup();
+    renderBugReport();
+
+    await user.type(screen.getByRole("textbox", { name: /what went wrong/i }), "Something broke");
+    await user.type(screen.getByRole("textbox", { name: /steps to reproduce/i }), "1. Click save");
+    await user.click(screen.getByRole("button", { name: /submit report/i }));
+
+    await waitFor(() => expect(mockCreateGitHubIssue).toHaveBeenCalled());
+
+    const arg = mockCreateGitHubIssue.mock.calls[0][0];
+    expect(arg.steps).toContain("1. Click save");
+    expect(arg.steps).toContain("Recent Console Warnings/Errors");
+    expect(arg.steps).toContain("conditional check failed");
+  });
+
+  it("sends steps without a console log section when the buffer is empty (null snapshot)", async () => {
+    mockBuildConsoleLogSnapshot.mockReturnValue(null);
+    const user = userEvent.setup();
+    renderBugReport();
+
+    await user.type(screen.getByRole("textbox", { name: /what went wrong/i }), "Something broke");
+    await user.type(screen.getByRole("textbox", { name: /steps to reproduce/i }), "1. Click save");
+    await user.click(screen.getByRole("button", { name: /submit report/i }));
+
+    await waitFor(() => expect(mockCreateGitHubIssue).toHaveBeenCalled());
+
+    const arg = mockCreateGitHubIssue.mock.calls[0][0];
+    expect(arg.steps).toBe("1. Click save");
+  });
+
+  it("combines user steps, debugContext, and the console log snapshot together", async () => {
+    mockBuildConsoleLogSnapshot.mockReturnValue("--- Recent Console Warnings/Errors ---\n[t] ERROR: boom\n-----------------------------------");
+    const user = userEvent.setup();
+    renderBugReport(vi.fn(), { debugContext: mockDebugString });
+
+    await user.type(screen.getByRole("textbox", { name: /what went wrong/i }), "Something broke");
+    await user.type(screen.getByRole("textbox", { name: /steps to reproduce/i }), "1. Click save");
+    await user.click(screen.getByRole("button", { name: /submit report/i }));
+
+    await waitFor(() => expect(mockCreateGitHubIssue).toHaveBeenCalled());
+
+    const arg = mockCreateGitHubIssue.mock.calls[0][0];
+    expect(arg.steps).toContain("1. Click save");
+    expect(arg.steps).toContain("Game Planner Debug Snapshot");
+    expect(arg.steps).toContain("ERROR: boom");
   });
 });
