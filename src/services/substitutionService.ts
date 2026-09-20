@@ -5,6 +5,11 @@ import type { GameMutationInput } from "../hooks/useOfflineMutations";
 
 const client = generateClient<Schema>();
 
+function isMissingRecordError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /not found|does not exist|cannot find/i.test(message);
+}
+
 /**
  * Closes active play time records for specified players or all active records.
  * 
@@ -216,8 +221,22 @@ export async function executeSubstitution(
   }
 
   // 2. Remove old lineup assignment
+  // A caller may pass an oldAssignmentId that's already gone — e.g. a coach
+  // clears a halftime slot (an optimistic, immediate delete) and then taps
+  // that same slot to assign a replacement before the subscription echoes
+  // the delete back into the lineup the substitution flow read from. The
+  // assignment already being gone is exactly the outcome we want here, so
+  // treat it as success and continue seating the new player. Any other
+  // failure (network, auth, etc.) still aborts the substitution.
   console.log(`Removing lineup assignment ${oldAssignmentId}`);
-  await mutations.deleteLineupAssignment(oldAssignmentId);
+  try {
+    await mutations.deleteLineupAssignment(oldAssignmentId);
+  } catch (error) {
+    if (!isMissingRecordError(error)) {
+      throw error;
+    }
+    console.log(`Lineup assignment ${oldAssignmentId} was already removed — continuing`);
+  }
 
   // 3. Create new lineup assignment
   console.log(`Creating new lineup assignment for player ${newPlayerId}`);
