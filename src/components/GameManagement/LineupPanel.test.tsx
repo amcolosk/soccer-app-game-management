@@ -150,8 +150,8 @@ const team: Team = {
   coaches: ['user-1'],
 } as unknown as Team;
 
-const pos1: FormationPosition = { id: 'pos-1', name: 'GK', x: 50, y: 10 } as unknown as FormationPosition;
-const pos2: FormationPosition = { id: 'pos-2', name: 'DEF', x: 30, y: 40 } as unknown as FormationPosition;
+const pos1: FormationPosition = { id: 'pos-1', name: 'GK', positionName: 'Goalkeeper', abbreviation: 'GK', x: 50, y: 10 } as unknown as FormationPosition;
+const pos2: FormationPosition = { id: 'pos-2', name: 'DEF', positionName: 'Defender', abbreviation: 'DEF', x: 30, y: 40 } as unknown as FormationPosition;
 const positions = [pos1, pos2];
 
 const player1: PlayerWithRoster = {
@@ -730,5 +730,123 @@ describe('LineupPanel', () => {
     await waitFor(() => expect(mockDeleteLineupAssignment).toHaveBeenCalledWith({ id: 'la-1' }));
     await waitFor(() => expect(mockDeleteLineupAssignment).toHaveBeenCalledWith({ id: 'la-2' }));
     expect(mockHandleApiError).not.toHaveBeenCalledWith(expect.anything(), 'Failed to clear lineup');
+  });
+
+  // ── Empty position click (halftime) ---------------------------------------
+  // The file header above has long claimed this is covered ("Empty position
+  // click in halftime calls onSubstitute") but no such test actually existed.
+
+  it('clicking an empty position in halftime calls onSubstitute with that position', async () => {
+    const user = userEvent.setup();
+    const onSubstitute = vi.fn();
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[]}
+        onSubstitute={onSubstitute}
+      />,
+    );
+
+    const emptySlots = screen.getAllByText('Empty');
+    await user.click(emptySlots[0]);
+
+    expect(onSubstitute).toHaveBeenCalledWith(pos1);
+  });
+
+  // ── Position picker (available-player click) -------------------------------
+  // Same as above: the header claimed "Position picker: opens on
+  // available-player click, assigns on pick, cancels" with no backing test.
+
+  it('position picker: opens from an available-player click and assigns on pick', async () => {
+    const user = userEvent.setup();
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[]}
+      />,
+    );
+
+    await user.click(screen.getByText('Alice Smith'));
+    expect(screen.getByText(/assign alice smith to position/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /goalkeeper/i }));
+
+    await waitFor(() =>
+      expect(mockCreateLineupAssignment).toHaveBeenCalledWith({
+        gameId: 'game-1',
+        playerId: 'player-1',
+        positionId: 'pos-1',
+        isStarter: true,
+        coaches: team.coaches,
+      }),
+    );
+    // Halftime assignments defer PlayTimeRecord creation to handleStartSecondHalf.
+    expect(defaultProps.mutations.createPlayTimeRecord).not.toHaveBeenCalled();
+    expect(screen.queryByText(/assign alice smith to position/i)).not.toBeInTheDocument();
+  });
+
+  it('position picker: Cancel closes the modal without assigning', async () => {
+    const user = userEvent.setup();
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[]}
+      />,
+    );
+
+    await user.click(screen.getByText('Alice Smith'));
+    expect(screen.getByText(/assign alice smith to position/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+    expect(screen.queryByText(/assign alice smith to position/i)).not.toBeInTheDocument();
+    expect(mockCreateLineupAssignment).not.toHaveBeenCalled();
+  });
+
+  // ── Remove then assign a replacement (halftime) ----------------------------
+  // Covers the coordinator brief's core scenario: removing a starter and
+  // assigning a replacement for the vacated position, and documents that this
+  // manual halftime flow does NOT record a Substitution the way
+  // handleApplyHalftimeSub / executeSubstitution do — worth a product decision,
+  // not asserted here as a bug, just as the current, tested behavior.
+
+  it('halftime: removing a starter then assigning a replacement fills the vacated position without recording a Substitution', async () => {
+    const user = userEvent.setup();
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[lineupAssignment]} // player-1 (Alice) starting at pos-1
+      />,
+    );
+
+    const removeButton = document.querySelector('.btn-remove-small') as HTMLButtonElement;
+    await user.click(removeButton);
+    await waitFor(() => expect(mockDeleteLineupAssignment).toHaveBeenCalledWith({ id: 'la-1' }));
+
+    await user.click(screen.getByText('Bob Jones'));
+    await waitFor(() => expect(screen.getByText(/assign bob jones to position/i)).toBeInTheDocument());
+
+    // pos-1 is free again (its assignment was optimistically hidden), so it's
+    // selectable as the replacement's position.
+    await user.click(screen.getByRole('button', { name: /goalkeeper/i }));
+
+    await waitFor(() =>
+      expect(mockCreateLineupAssignment).toHaveBeenCalledWith({
+        gameId: 'game-1',
+        playerId: 'player-b',
+        positionId: 'pos-1',
+        isStarter: true,
+        coaches: team.coaches,
+      }),
+    );
+    expect(defaultProps.mutations.createSubstitution).not.toHaveBeenCalled();
   });
 });
