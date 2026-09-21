@@ -8,6 +8,8 @@ import {
   queryAllGamesByTeamId,
   resolveShareLinkAccess,
   selectGameForFan,
+  selectUpcomingGames,
+  UPCOMING_GAMES_LIMIT,
   validateShareLinkAndTeam,
   type GameRecord,
   type ShareLinkAccessTables,
@@ -288,6 +290,16 @@ describe('selectGameForFan', () => {
     expect(result.game?.id).toBe('finished');
   });
 
+  it('branch 2: a FINISHED game can coexist with a non-empty selectUpcomingGames result (tournament day)', () => {
+    const justFinished = game({ id: 'finished', status: 'completed', gameDate: '2026-09-13T13:00:00.000Z' }); // 4h ago
+    const laterToday = game({ id: 'later-today', status: 'scheduled', gameDate: '2026-09-13T20:00:00.000Z' }); // 3h from now
+    const games = [justFinished, laterToday];
+    const result = selectGameForFan(games, now);
+    expect(result.branch).toBe('FINISHED');
+    expect(result.game?.id).toBe('finished');
+    expect(selectUpcomingGames(games, now).map((g) => g.id)).toEqual(['later-today']);
+  });
+
   it('branch 2: picks the most recent within the recency window when multiple qualify', () => {
     const older = game({ id: 'older', status: 'completed', gameDate: '2026-09-13T10:00:00.000Z' });
     const newer = game({ id: 'newer', status: 'completed', gameDate: '2026-09-13T15:00:00.000Z' });
@@ -425,6 +437,55 @@ describe('selectGameForFan', () => {
       const result2 = selectGameForFan([firstNowBare, secondNowRich], now);
       expect(result2.game?.id).toBe('first');
     });
+  });
+});
+
+describe('selectUpcomingGames', () => {
+  const now = new Date('2026-09-13T17:00:00.000Z');
+
+  function game(overrides: Partial<GameRecord>): GameRecord {
+    return { id: 'g', teamId: 'team-1', ...overrides };
+  }
+
+  it('returns only future-dated games, soonest first', () => {
+    const past = game({ id: 'past', gameDate: '2026-09-01T16:00:00.000Z' });
+    const soon = game({ id: 'soon', gameDate: '2026-09-15T16:00:00.000Z' });
+    const later = game({ id: 'later', gameDate: '2026-09-20T16:00:00.000Z' });
+    expect(selectUpcomingGames([later, past, soon], now).map((g) => g.id)).toEqual(['soon', 'later']);
+  });
+
+  it('excludes a dateless game', () => {
+    const dateless = game({ id: 'dateless', gameDate: null });
+    expect(selectUpcomingGames([dateless], now)).toEqual([]);
+  });
+
+  it('excludes a game with an unparseable gameDate', () => {
+    const bad = game({ id: 'bad', gameDate: 'not-a-date' });
+    expect(selectUpcomingGames([bad], now)).toEqual([]);
+  });
+
+  it('excludes a game dated exactly now (only strictly-future games count)', () => {
+    const exactlyNow = game({ id: 'now', gameDate: now.toISOString() });
+    expect(selectUpcomingGames([exactlyNow], now)).toEqual([]);
+  });
+
+  it('caps at UPCOMING_GAMES_LIMIT by default', () => {
+    const games = Array.from({ length: UPCOMING_GAMES_LIMIT + 3 }, (_, i) =>
+      game({ id: `g${i}`, gameDate: new Date(now.getTime() + (i + 1) * 24 * 60 * 60 * 1000).toISOString() }));
+    const result = selectUpcomingGames(games, now);
+    expect(result).toHaveLength(UPCOMING_GAMES_LIMIT);
+    expect(result[0].id).toBe('g0');
+    expect(result[result.length - 1].id).toBe(`g${UPCOMING_GAMES_LIMIT - 1}`);
+  });
+
+  it('respects an explicit, smaller limit', () => {
+    const soon = game({ id: 'soon', gameDate: '2026-09-15T16:00:00.000Z' });
+    const later = game({ id: 'later', gameDate: '2026-09-20T16:00:00.000Z' });
+    expect(selectUpcomingGames([later, soon], now, 1)).toEqual([soon]);
+  });
+
+  it('returns [] for an empty games list', () => {
+    expect(selectUpcomingGames([], now)).toEqual([]);
   });
 });
 
