@@ -1,8 +1,9 @@
 import type { AppSyncIdentityIAM } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb';
 import type { Schema } from '../../data/resource';
 import { resolveShareLinkAccess, type GameRecord, type ShareLinkAccessTables } from '../shared/shareLinkAccess';
+import { queryAllByGameIdIndex } from '../shared/dynamo';
 
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
@@ -67,28 +68,6 @@ async function getFieldPositionsByIds(fieldPositionTable: string, ids: string[])
     }
   }));
   return map;
-}
-
-// Query-by-physical-index-name, same pattern as delete-game-safe/handler.ts
-// and shareLinkAccess.ts's queryAllGamesByTeamId — this Lambda has no
-// GraphQL client, so it queries the confirmed physical GSI name directly.
-async function queryAllByGameIdIndex(tableName: string, indexName: string, gameId: string): Promise<Array<Record<string, unknown>>> {
-  const results: Array<Record<string, unknown>> = [];
-  let exclusiveStartKey: Record<string, unknown> | undefined;
-  do {
-    const response = await docClient.send(new QueryCommand({
-      TableName: tableName,
-      IndexName: indexName,
-      KeyConditionExpression: 'gameId = :gameId',
-      ExpressionAttributeValues: { ':gameId': gameId },
-      ExclusiveStartKey: exclusiveStartKey,
-    }));
-    if (response.Items) {
-      results.push(...response.Items);
-    }
-    exclusiveStartKey = response.LastEvaluatedKey as Record<string, unknown> | undefined;
-  } while (exclusiveStartKey);
-  return results;
 }
 
 function emptyResult(state: string, teamName: string | null = null) {
@@ -165,9 +144,9 @@ export const handler: Handler = async (event) => {
   const showEvents = selection.branch === 'LIVE' || selection.branch === 'FINISHED';
 
   const [openPlayTimeRecordsRaw, goalsRaw, substitutionsRaw] = await Promise.all([
-    isLive ? queryAllByGameIdIndex(playTimeRecordTable, 'playTimeRecordsByGameId', game.id) : Promise.resolve([]),
-    showEvents ? queryAllByGameIdIndex(goalTable, 'goalsByGameId', game.id) : Promise.resolve([]),
-    showEvents ? queryAllByGameIdIndex(substitutionTable, 'substitutionsByGameId', game.id) : Promise.resolve([]),
+    isLive ? queryAllByGameIdIndex(docClient, playTimeRecordTable, 'playTimeRecordsByGameId', game.id) : Promise.resolve([]),
+    showEvents ? queryAllByGameIdIndex(docClient, goalTable, 'goalsByGameId', game.id) : Promise.resolve([]),
+    showEvents ? queryAllByGameIdIndex(docClient, substitutionTable, 'substitutionsByGameId', game.id) : Promise.resolve([]),
   ]);
 
   const openRecords = openPlayTimeRecordsRaw.filter((r) => r.endGameSeconds === null || r.endGameSeconds === undefined);

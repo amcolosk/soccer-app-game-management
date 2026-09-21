@@ -72,6 +72,7 @@ const defaultProps = {
   mutations: makeMutations() as any,
   playTimeRecords: [] as any[],
   lineup: [] as any[],
+  positions: [] as any[],
 };
 
 describe("ShotSaveTracker", () => {
@@ -334,6 +335,180 @@ describe("ShotSaveTracker", () => {
       await user.click(screen.getByRole("button", { name: /Delete Us save at 5'/ }));
       await user.click(screen.getByRole("button", { name: /^Delete$/ }));
       await waitFor(() => expect(mockDeleteSave).toHaveBeenCalledWith("sv1"));
+    });
+  });
+
+  describe("Save Auto-Goalkeeper Attribution", () => {
+    const gkPositions = [
+      { id: "gk-pos", role: "GOALKEEPER" },
+      { id: "other-pos", role: "DEFENDER" },
+    ] as any[];
+    const gkPositionsTwoSlots = [
+      { id: "gk-pos-1", role: "GOALKEEPER" },
+      { id: "gk-pos-2", role: "GOALKEEPER" },
+    ] as any[];
+
+    it("entry modal pre-fills the goalkeeper PlayerSelect with the player holding an open PlayTimeRecord at a GOALKEEPER-role position", async () => {
+      const user = userEvent.setup();
+      const playTimeRecords = [
+        { id: "ptr1", playerId: "p1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: null },
+      ] as any[];
+      renderWithProvider(
+        <ShotSaveTracker {...defaultProps} statView="saves" positions={gkPositions} playTimeRecords={playTimeRecords} />
+      );
+      await user.click(screen.getByText(/Save - Us/));
+      expect(screen.getByTestId("savesPlayer")).toHaveValue("p1");
+    });
+
+    it("does not pre-fill when no position has role: 'GOALKEEPER' (falls back to empty/optional)", async () => {
+      const user = userEvent.setup();
+      const playTimeRecords = [
+        { id: "ptr1", playerId: "p1", positionId: "other-pos", startGameSeconds: 0, endGameSeconds: null },
+      ] as any[];
+      renderWithProvider(
+        <ShotSaveTracker {...defaultProps} statView="saves" positions={gkPositions} playTimeRecords={playTimeRecords} />
+      );
+      await user.click(screen.getByText(/Save - Us/));
+      expect(screen.getByTestId("savesPlayer")).toHaveValue("");
+    });
+
+    it("does not pre-fill when two different players simultaneously hold open records at two GOALKEEPER-role positions (ambiguous)", async () => {
+      const user = userEvent.setup();
+      const playTimeRecords = [
+        { id: "ptr1", playerId: "p1", positionId: "gk-pos-1", startGameSeconds: 0, endGameSeconds: null },
+        { id: "ptr2", playerId: "p2", positionId: "gk-pos-2", startGameSeconds: 0, endGameSeconds: null },
+      ] as any[];
+      renderWithProvider(
+        <ShotSaveTracker {...defaultProps} statView="saves" positions={gkPositionsTwoSlots} playTimeRecords={playTimeRecords} />
+      );
+      await user.click(screen.getByText(/Save - Us/));
+      expect(screen.getByTestId("savesPlayer")).toHaveValue("");
+    });
+
+    it("pre-fills when the sole open GOALKEEPER-role record's player also doubles up at a second GOALKEEPER-role position (distinct players, not positions)", async () => {
+      const user = userEvent.setup();
+      const playTimeRecords = [
+        { id: "ptr1", playerId: "p1", positionId: "gk-pos-1", startGameSeconds: 0, endGameSeconds: null },
+        { id: "ptr2", playerId: "p1", positionId: "gk-pos-2", startGameSeconds: 0, endGameSeconds: null },
+      ] as any[];
+      renderWithProvider(
+        <ShotSaveTracker {...defaultProps} statView="saves" positions={gkPositionsTwoSlots} playTimeRecords={playTimeRecords} />
+      );
+      await user.click(screen.getByText(/Save - Us/));
+      expect(screen.getByTestId("savesPlayer")).toHaveValue("p1");
+    });
+
+    it("does not pre-fill Shots even with a resolvable goalkeeper", async () => {
+      const user = userEvent.setup();
+      const playTimeRecords = [
+        { id: "ptr1", playerId: "p1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: null },
+      ] as any[];
+      renderWithProvider(
+        <ShotSaveTracker {...defaultProps} statView="shots" positions={gkPositions} playTimeRecords={playTimeRecords} />
+      );
+      await user.click(screen.getByText(/Shot - Us/));
+      expect(screen.getByTestId("shotsPlayer")).toHaveValue("");
+    });
+
+    it("edit modal pre-fills the derived goalkeeper for a Save with no existing playerId", async () => {
+      const user = userEvent.setup();
+      const playTimeRecords = [
+        { id: "ptr1", playerId: "p2", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: null },
+      ] as any[];
+      const savesData = [
+        { id: "sv1", byUs: true, gameSeconds: 300, half: 1, playerId: null },
+      ] as any[];
+      renderWithProvider(
+        <ShotSaveTracker
+          {...defaultProps}
+          statView="saves"
+          saves={savesData}
+          positions={gkPositions}
+          playTimeRecords={playTimeRecords}
+        />
+      );
+      await user.click(screen.getByRole("button", { name: /Edit Us save at 5'/ }));
+      expect(screen.getByTestId("editsavesPlayer")).toHaveValue("p2");
+    });
+
+    it("edit modal never clobbers an existing playerId, even when a different player currently holds the open GK record", async () => {
+      const user = userEvent.setup();
+      const playTimeRecords = [
+        { id: "ptr1", playerId: "p2", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: null },
+      ] as any[];
+      const savesData = [
+        { id: "sv1", byUs: true, gameSeconds: 300, half: 1, playerId: "p1" },
+      ] as any[];
+      renderWithProvider(
+        <ShotSaveTracker
+          {...defaultProps}
+          statView="saves"
+          saves={savesData}
+          positions={gkPositions}
+          playTimeRecords={playTimeRecords}
+        />
+      );
+      await user.click(screen.getByRole("button", { name: /Edit Us save at 5'/ }));
+      expect(screen.getByTestId("editsavesPlayer")).toHaveValue("p1");
+    });
+
+    it("coach can override the pre-filled goalkeeper and submit that override", async () => {
+      const user = userEvent.setup();
+      const playTimeRecords = [
+        { id: "ptr1", playerId: "p1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: null },
+      ] as any[];
+      renderWithProvider(
+        <ShotSaveTracker {...defaultProps} statView="saves" positions={gkPositions} playTimeRecords={playTimeRecords} />
+      );
+      await user.click(screen.getByText(/Save - Us/));
+      expect(screen.getByTestId("savesPlayer")).toHaveValue("p1");
+      await user.selectOptions(screen.getByTestId("savesPlayer"), "p2");
+      await user.click(screen.getByRole("button", { name: /^Record Save$/ }));
+      await waitFor(() => expect(mockCreateSave).toHaveBeenCalledWith(expect.objectContaining({
+        playerId: "p2",
+      })));
+    });
+
+    it("completed game: opening the entry modal for a Save does not crash and produces no pre-fill", async () => {
+      const user = userEvent.setup();
+      const playTimeRecords = [
+        // handleEndGame closes every open PlayTimeRecord -- a completed game
+        // has no open records, so this is already closed here.
+        { id: "ptr1", playerId: "p1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: 1800 },
+      ] as any[];
+      renderWithProvider(
+        <ShotSaveTracker
+          {...defaultProps}
+          statView="saves"
+          gameState={makeGameState({ status: "completed" }) as any}
+          positions={gkPositions}
+          playTimeRecords={playTimeRecords}
+        />
+      );
+      await user.click(screen.getByText(/Save - Us/));
+      expect(screen.getByTestId("savesPlayer")).toHaveValue("");
+    });
+
+    it("completed game: opening the edit modal for a Save with no existing playerId does not crash and produces no pre-fill", async () => {
+      const user = userEvent.setup();
+      const playTimeRecords = [
+        { id: "ptr1", playerId: "p1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: 1800 },
+      ] as any[];
+      const savesData = [
+        { id: "sv1", byUs: true, gameSeconds: 300, half: 1, playerId: null },
+      ] as any[];
+      renderWithProvider(
+        <ShotSaveTracker
+          {...defaultProps}
+          statView="saves"
+          gameState={makeGameState({ status: "completed" }) as any}
+          saves={savesData}
+          positions={gkPositions}
+          playTimeRecords={playTimeRecords}
+        />
+      );
+      await user.click(screen.getByRole("button", { name: /Edit Us save at 5'/ }));
+      expect(screen.getByTestId("editsavesPlayer")).toHaveValue("");
     });
   });
 

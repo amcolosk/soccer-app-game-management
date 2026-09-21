@@ -203,6 +203,72 @@ export function normalizeCompletedRecords(
   );
 }
 
+interface PositionRoleLookup {
+  id: string;
+  role?: string | null;
+}
+
+/**
+ * Determine the single player currently occupying a GOALKEEPER-role
+ * position, based on currently-open (no endGameSeconds) PlayTimeRecords.
+ *
+ * `positions` must be FormationPosition-shaped (id + role) -- despite
+ * PlayTimeRecord.positionId's schema-level `belongsTo('FieldPosition', ...)`,
+ * every current-era write path (GameManagement.tsx's createPlayTimeRecord
+ * calls, sourced from LineupPanel's FormationPosition-typed `positions` prop)
+ * actually populates positionId with FormationPosition ids -- same precedent
+ * as GameManagement.tsx:981's `positions.find(p => p.role === 'GOALKEEPER')`
+ * and SeasonReport.tsx's dual FieldPosition/FormationPosition position-map
+ * merge (its own comment: "Support both legacy team FieldPosition ids and
+ * formation-scoped FormationPosition ids persisted in lineup/play-time
+ * records"). Do not swap this to FieldPosition without re-verifying that
+ * precedent.
+ *
+ * Mirrors amplify/functions/shared/goalkeeper.ts's computeActiveGoalkeeperId
+ * (Lambda-side pure twin, can't import from src/, so it's a separate
+ * implementation of the same concept, parity-tested in goalkeeper.test.ts)
+ * -- keep both in sync.
+ *
+ * Returns null whenever the goalkeeper is NOT unambiguous: no
+ * GOALKEEPER-role position at all, no open record at one, or more than one
+ * *distinct* player with an open record at a GOALKEEPER-role position
+ * simultaneously. Callers fall back to their existing empty/optional picker
+ * behavior in every one of those cases rather than guessing.
+ *
+ * PRECONDITION: `playTimeRecords` must already be scoped to a single game.
+ * This function does no gameId filtering itself -- it is safe today only
+ * because every current caller (useGameSubscriptions, and this feature's new
+ * ShotSaveTracker call site) already passes single-game-scoped records. Its
+ * Lambda-side twin (computeActiveGoalkeeperId /
+ * amplify/functions/shared/goalkeeper.ts) is game-scoped by construction
+ * (its records come from a per-gameId GSI query) and is not at risk of this;
+ * a future coach-side caller passing multi-game records would silently get
+ * permanent ambiguity/null instead of a crash, so don't relax this
+ * precondition without adding an explicit gameId filter.
+ */
+export function getCurrentGoalkeeperId(
+  playTimeRecords: PlayTimeRecord[],
+  positions: PositionRoleLookup[]
+): string | null {
+  const goalkeeperPositionIds = new Set(
+    positions.filter(p => p.role === 'GOALKEEPER').map(p => p.id)
+  );
+  if (goalkeeperPositionIds.size === 0) return null;
+
+  const openGoalkeeperPlayerIds = new Set(
+    playTimeRecords
+      .filter(r =>
+        (r.endGameSeconds === null || r.endGameSeconds === undefined) &&
+        r.positionId != null &&
+        goalkeeperPositionIds.has(r.positionId)
+      )
+      .map(r => r.playerId)
+  );
+
+  if (openGoalkeeperPlayerIds.size !== 1) return null;
+  return [...openGoalkeeperPlayerIds][0];
+}
+
 function getAttributedPlayTimeRecord(
   playTimeRecords: PlayTimeRecord[],
   playerId: string,

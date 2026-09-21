@@ -606,17 +606,24 @@ backend.archiveTeam.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName)
 // ShareLink (token lookup) + Team (curated payload), read/write
 // FanViewRateLimit (read-dimension rate limit), Query Game's teamId index
 // (4-branch selection), Query TeamRoster's gsi-Team.roster index + read
-// Player (active-roster picker payload).
+// Player (active-roster picker payload). Save Auto-Goalkeeper Attribution
+// adds: Query PlayTimeRecord's playTimeRecordsByGameId GSI + read
+// FormationPosition (plain BatchGetItem on the base table), both only
+// queried when game.status === 'in-progress', to derive
+// activeGoalkeeperId.
 shareLinkTable.grantReadData(backend.getStatTrackerView.resources.lambda);
 teamTable.grantReadData(backend.getStatTrackerView.resources.lambda);
 fanViewRateLimitTable.grantReadWriteData(backend.getStatTrackerView.resources.lambda);
 playerTable.grantReadData(backend.getStatTrackerView.resources.lambda);
+playTimeRecordTable.grantReadData(backend.getStatTrackerView.resources.lambda);
+formationPositionTable.grantReadData(backend.getStatTrackerView.resources.lambda);
 backend.getStatTrackerView.resources.lambda.addToRolePolicy(
   new PolicyStatement({
     actions: ['dynamodb:Query'],
     resources: [
       `${gameTable.tableArn}/index/gamesByTeamId`,
       `${teamRosterTable.tableArn}/index/gsi-Team.roster`,
+      `${playTimeRecordTable.tableArn}/index/playTimeRecordsByGameId`,
     ],
   })
 );
@@ -626,6 +633,8 @@ backend.getStatTrackerView.addEnvironment('GAME_TABLE', gameTable.tableName);
 backend.getStatTrackerView.addEnvironment('FAN_VIEW_RATE_LIMIT_TABLE', fanViewRateLimitTable.tableName);
 backend.getStatTrackerView.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);
 backend.getStatTrackerView.addEnvironment('PLAYER_TABLE', playerTable.tableName);
+backend.getStatTrackerView.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
+backend.getStatTrackerView.addEnvironment('FORMATION_POSITION_TABLE', formationPositionTable.tableName);
 
 // submit-stat-event: guest + authenticated(identityPool) -- read ShareLink
 // (token lookup) + Team (fresh coaches[] + archived-team check via the
