@@ -2,7 +2,7 @@ import type { AppSyncIdentityIAM } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { BatchGetCommand, DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import type { Schema } from '../../data/resource';
-import { resolveShareLinkAccess, type GameRecord, type ShareLinkAccessTables } from '../shared/shareLinkAccess';
+import { resolveShareLinkAccess, selectUpcomingGames, type GameRecord, type ShareLinkAccessTables } from '../shared/shareLinkAccess';
 import { queryAllByGameIdIndex } from '../shared/dynamo';
 import { computeActiveGoalkeeperId, type PlayTimeRecordLike, type PositionRoleLike } from '../shared/goalkeeper';
 
@@ -80,14 +80,21 @@ async function batchGetPlayers(playerTable: string, ids: string[]): Promise<Map<
   return map;
 }
 
-// Chunked BatchGetItem for FormationPosition roles -- same pattern as
-// batchGetPlayers above, projecting only `id, role` since that's all the
-// goalkeeper derivation needs.
-async function batchGetFormationPositionRoles(
+interface FormationPositionRow extends PositionRoleLike {
+  positionName?: string | null;
+}
+
+// Chunked BatchGetItem for FormationPosition rows -- same pattern as
+// batchGetPlayers above. Projects `positionName` alongside `role` now (not
+// just `role`, as the original Save Auto-Goalkeeper Attribution version
+// did) so the same lookup also drives each on-field roster entry's
+// positionName -- one query serves both goalkeeper derivation and the
+// current-lineup display, rather than a second near-duplicate BatchGetItem.
+async function batchGetFormationPositions(
   formationPositionTable: string,
   ids: string[]
-): Promise<Map<string, PositionRoleLike>> {
-  const map = new Map<string, PositionRoleLike>();
+): Promise<Map<string, FormationPositionRow>> {
+  const map = new Map<string, FormationPositionRow>();
   const uniqueIds = Array.from(new Set(ids));
   const chunkSize = 100; // DynamoDB BatchGetItem max 100 items per request
 
@@ -99,12 +106,12 @@ async function batchGetFormationPositionRoles(
         RequestItems: {
           [formationPositionTable]: {
             Keys: unprocessedKeys,
-            ProjectionExpression: 'id, #role',
+            ProjectionExpression: 'id, #role, positionName',
             ExpressionAttributeNames: { '#role': 'role' },
           },
         },
       }));
-      const rows = (response.Responses?.[formationPositionTable] ?? []) as PositionRoleLike[];
+      const rows = (response.Responses?.[formationPositionTable] ?? []) as FormationPositionRow[];
       rows.forEach((row) => map.set(row.id, row));
       unprocessedKeys = (response.UnprocessedKeys?.[formationPositionTable]?.Keys as Array<{ id: string }> | undefined) ?? [];
     } while (unprocessedKeys.length > 0);
@@ -113,24 +120,28 @@ async function batchGetFormationPositionRoles(
   return map;
 }
 
-// Thin I/O wrapper around the pure `computeActiveGoalkeeperId` (see
+// I/O wrapper around the pure `computeActiveGoalkeeperId` (see
 // ../shared/goalkeeper.ts, and its coach-side twin getCurrentGoalkeeperId in
 // src/utils/playTimeCalculations.ts): takes the already-queried open
 // PlayTimeRecords (see the handler's Promise.all with the roster query
-// below), batch-gets the distinct positions' roles from FormationPosition,
-// then delegates the actual derivation to the pure function. Named
-// distinctly from the pure function it calls to avoid a same-name collision
-// at the call site.
-async function fetchActiveGoalkeeperId(
+// below), batch-gets the distinct positions from FormationPosition, then
+// delegates the goalkeeper derivation to the pure function -- and also
+// returns the full positions map so the caller can derive each on-field
+// player's positionName from the same single BatchGetItem (see
+// batchGetFormationPositions above).
+async function fetchActiveGoalkeeperAndPositions(
   formationPositionTable: string,
   openRecords: PlayTimeRecordLike[]
-): Promise<string | null> {
+): Promise<{ activeGoalkeeperId: string | null; positionsMap: Map<string, FormationPositionRow> }> {
   const positionIds = Array.from(new Set(
     openRecords.map((r) => r.positionId).filter((id): id is string => !!id)
   ));
-  const positionsMap = await batchGetFormationPositionRoles(formationPositionTable, positionIds);
+  const positionsMap = await batchGetFormationPositions(formationPositionTable, positionIds);
 
-  return computeActiveGoalkeeperId(openRecords, Array.from(positionsMap.values()));
+  return {
+    activeGoalkeeperId: computeActiveGoalkeeperId(openRecords, Array.from(positionsMap.values())),
+    positionsMap,
+  };
 }
 
 function emptyResult(state: string, teamName: string | null = null) {
@@ -140,9 +151,23 @@ function emptyResult(state: string, teamName: string | null = null) {
     opponentName: null,
     status: null,
     currentHalf: null,
+    elapsedSeconds: null,
+    lastStartTime: null,
+    halfLengthMinutes: null,
+    ourScore: null,
+    opponentScore: null,
     gameId: null,
     roster: [],
     activeGoalkeeperId: null,
+    upcomingGames: [],
+  };
+}
+
+function toUpcomingGame(game: GameRecord) {
+  return {
+    opponentName: game.opponent ?? null,
+    gameDate: game.gameDate ?? null,
+    locationName: game.locationName ?? null,
   };
 }
 
@@ -159,8 +184,9 @@ function emptyResult(state: string, teamName: string | null = null) {
 //
 // Save Auto-Goalkeeper Attribution: also queries PlayTimeRecord's
 // playTimeRecordsByGameId GSI and batch-gets FormationPosition (only when
-// game.status === 'in-progress') to derive activeGoalkeeperId -- see
-// fetchActiveGoalkeeperId above and amplify/functions/shared/goalkeeper.ts.
+// game.status === 'in-progress') to derive activeGoalkeeperId and each
+// on-field player's positionName -- see fetchActiveGoalkeeperAndPositions
+// above and amplify/functions/shared/goalkeeper.ts.
 export const handler: Handler = async (event) => {
   const identity = event.identity as AppSyncIdentityIAM | undefined;
   const identityId = identity?.cognitoIdentityId;
@@ -198,8 +224,16 @@ export const handler: Handler = async (event) => {
     return emptyResult(outcome.reason);
   }
 
-  const { team, selection } = outcome;
+  const { team, selection, games } = outcome;
   const game = selection.game as GameRecord | null;
+
+  // Upcoming-games list: cheap in-memory derivation off the same
+  // already-fetched `games` list resolveShareLinkAccess used for
+  // selection -- no extra query. Populated regardless of branch (a helper
+  // watching a LIVE game is a harmless case to include it for too); the
+  // frontend only renders it on the non-LIVE "nothing to tap right now"
+  // states.
+  const upcomingGames = selectUpcomingGames(games, new Date()).map(toUpcomingGame);
 
   // Gate on the game actually being `in-progress`, NOT the broader `LIVE`
   // branch (which also covers halftime, per selectGameForFan) -- halftime
@@ -225,10 +259,24 @@ export const handler: Handler = async (event) => {
     (r) => r.endGameSeconds === null || r.endGameSeconds === undefined
   ) as unknown as PlayTimeRecordLike[];
 
-  const [playersMap, activeGoalkeeperId] = await Promise.all([
+  const [playersMap, goalkeeperAndPositions] = await Promise.all([
     batchGetPlayers(playerTable, rosterRows.map((r) => r.playerId)),
-    isInProgress ? fetchActiveGoalkeeperId(formationPositionTable, openPlayTimeRecords) : Promise.resolve(null),
+    isInProgress
+      ? fetchActiveGoalkeeperAndPositions(formationPositionTable, openPlayTimeRecords)
+      : Promise.resolve({ activeGoalkeeperId: null, positionsMap: new Map<string, FormationPositionRow>() }),
   ]);
+  const { activeGoalkeeperId, positionsMap } = goalkeeperAndPositions;
+
+  // playerId -> the FormationPosition.positionName of their currently-open
+  // PlayTimeRecord (there's at most one, by construction -- a player can't
+  // hold two open PlayTimeRecords in the same game). Absent from this map
+  // means bench (or the game isn't in-progress, in which case the map is
+  // always empty).
+  const playerIdToPositionName = new Map<string, string | null>();
+  openPlayTimeRecords.forEach((r) => {
+    const positionName = r.positionId ? positionsMap.get(r.positionId)?.positionName ?? null : null;
+    if (positionName) playerIdToPositionName.set(r.playerId, positionName);
+  });
 
   const roster = rosterRows
     .map((row) => {
@@ -238,13 +286,10 @@ export const handler: Handler = async (event) => {
         id: row.playerId,
         firstName: player.firstName ?? '',
         lastName: player.lastName ?? '',
-        // Not derived in this milestone -- the roster fetch is a
-        // Player-only batch fetch (no FormationPosition lookup); left null
-        // rather than guessed at.
-        positionName: null,
+        positionName: playerIdToPositionName.get(row.playerId) ?? null,
       };
     })
-    .filter((p): p is { id: string; firstName: string; lastName: string; positionName: null } => p !== null);
+    .filter((p): p is { id: string; firstName: string; lastName: string; positionName: string | null } => p !== null);
 
   if (!game) {
     // NO_GAMES_YET / NO_GAME_RIGHT_NOW -- team resolved, roster still useful
@@ -255,9 +300,15 @@ export const handler: Handler = async (event) => {
       opponentName: null,
       status: null,
       currentHalf: null,
+      elapsedSeconds: null,
+      lastStartTime: null,
+      halfLengthMinutes: null,
+      ourScore: null,
+      opponentScore: null,
       gameId: null,
       roster,
       activeGoalkeeperId: null,
+      upcomingGames,
     };
   }
 
@@ -267,8 +318,14 @@ export const handler: Handler = async (event) => {
     opponentName: game.opponent ?? null,
     status: game.status ?? null,
     currentHalf: game.currentHalf ?? null,
+    elapsedSeconds: game.elapsedSeconds ?? null,
+    lastStartTime: game.lastStartTime ?? null,
+    halfLengthMinutes: game.halfLengthMinutes ?? null,
+    ourScore: game.ourScore ?? null,
+    opponentScore: game.opponentScore ?? null,
     gameId: game.id,
     roster,
     activeGoalkeeperId,
+    upcomingGames,
   };
 };

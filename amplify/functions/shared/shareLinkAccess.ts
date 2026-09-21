@@ -95,7 +95,20 @@ export type AccessRejectionReason = 'INVALID_LINK' | 'RATE_LIMITED';
 
 export type ShareLinkAccessOutcome =
   | { ok: false; reason: AccessRejectionReason }
-  | { ok: true; shareLink: ShareLinkRecord; team: TeamRecord; selection: GameSelectionResult };
+  | {
+      ok: true;
+      shareLink: ShareLinkRecord;
+      team: TeamRecord;
+      selection: GameSelectionResult;
+      // The full per-team game list `selectGameForFan` chose from --
+      // exposed so a consumer (getStatTrackerView's upcoming-games list) can
+      // derive its own view of the games the selection algorithm didn't
+      // pick, without re-querying gamesByTeamId itself. get-fan-game-view
+      // ignores this field, same additive-and-optional shape as every other
+      // consumer-specific payload this module deliberately stays agnostic
+      // to (see the module doc comment above).
+      games: GameRecord[];
+    };
 
 /** Token lookup — a missing row is indistinguishable from a garbage/never-existed token. */
 export async function getShareLinkByToken(
@@ -375,6 +388,33 @@ export function selectGameForFan(games: GameRecord[], now: Date): GameSelectionR
   return { branch: 'NO_GAME_RIGHT_NOW', game: null };
 }
 
+// Default cap on how many upcoming games getStatTrackerView (and any future
+// consumer) surfaces at once -- a helper opening the link days before a
+// tournament weekend shouldn't be handed the team's entire remaining
+// schedule.
+export const UPCOMING_GAMES_LIMIT = 5;
+
+/**
+ * Every future-dated game for the team, soonest first, capped at `limit` --
+ * the plural generalization of `selectGameForFan`'s own single-soonest
+ * `future[0]` pick (NEXT_GAME branch). Deliberately independent of which
+ * branch `selectGameForFan` chose: a helper opening the link while today's
+ * game is LIVE, or in the NO_GAME_RIGHT_NOW bye-week gap, is equally well
+ * served by "what's coming up," so callers may compute this alongside any
+ * branch rather than only the NEXT_GAME one.
+ */
+export function selectUpcomingGames(games: GameRecord[], now: Date, limit: number = UPCOMING_GAMES_LIMIT): GameRecord[] {
+  const nowMs = now.getTime();
+  return games
+    .filter((g) => {
+      if (!g.gameDate) return false;
+      const gameMs = new Date(g.gameDate).getTime();
+      return !Number.isNaN(gameMs) && gameMs > nowMs;
+    })
+    .sort((a, b) => new Date(a.gameDate as string).getTime() - new Date(b.gameDate as string).getTime())
+    .slice(0, limit);
+}
+
 export interface ShareLinkAccessTables {
   shareLink: string;
   team: string;
@@ -412,5 +452,5 @@ export async function resolveShareLinkAccess(
   const games = await queryAllGamesByTeamId(docClient, tables.game, validated.team.id);
   const selection = selectGameForFan(games, now);
 
-  return { ok: true, shareLink: validated.shareLink, team: validated.team, selection };
+  return { ok: true, shareLink: validated.shareLink, team: validated.team, selection, games };
 }

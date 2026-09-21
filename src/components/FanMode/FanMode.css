@@ -305,3 +305,62 @@
   font-size: 0.95rem;
   cursor: pointer;
 }
+
+.tracker-player-list__group-label {
+  margin: 0.4rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.tracker-player-list__group-label:first-child {
+  margin-top: 0;
+}
+
+.tracker-upcoming-games {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 360px;
+}
+
+.tracker-upcoming-games__item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.tracker-upcoming-games__opponent {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tracker-upcoming-games__date {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.tracker-paused {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.25rem;
+}
+
+.tracker-refresh-button {
+  margin-top: 0.75rem;
+  min-height: 44px;
+  padding: 0 1.25rem;
+  align-self: center;
+}

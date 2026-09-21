@@ -968,7 +968,23 @@ const schema = a.schema({
     id: a.string().required(),
     firstName: a.string().required(),
     lastName: a.string().required(),
+    // Derived from an open PlayTimeRecord's FormationPosition (same
+    // FormationPosition-not-FieldPosition source as activeGoalkeeperId below
+    // -- see CLAUDE.md's "Goalkeeper role is keyed off FormationPosition"
+    // note; get-fan-game-view's own onFieldPlayers lookup still uses the
+    // dead FieldPosition table, a pre-existing drift this handler does NOT
+    // repeat). null for a bench player (no open PlayTimeRecord) or whenever
+    // the game isn't in-progress.
     positionName: a.string(),
+  }),
+
+  // Deliberately its own small type rather than reusing FanGameViewResult's
+  // shape/name (which is a single selected game, not a list) -- see the
+  // "getFanGameView stays FAN-only" decision this file already follows.
+  StatTrackerUpcomingGame: a.customType({
+    opponentName: a.string(),
+    gameDate: a.string(),
+    locationName: a.string(),
   }),
 
   StatTrackerViewResult: a.customType({
@@ -978,6 +994,14 @@ const schema = a.schema({
     opponentName: a.string(), // for the Us/Opponent tap-flow labels
     status: a.string(),
     currentHalf: a.integer(),
+    // Game-clock fields, same shape/semantics as FanGameViewResult's --
+    // src/utils/gameClock.ts's computeCurrentGameSeconds is the one true
+    // conversion, shared by both pages' frontend tick effect.
+    elapsedSeconds: a.integer(),
+    lastStartTime: a.string(),
+    halfLengthMinutes: a.integer(),
+    ourScore: a.integer(),
+    opponentScore: a.integer(),
     gameId: a.string(), // echoed back by the client as submitStatEvent's
                          // expectedGameId -- the wrong-game-race guard.
     roster: a.ref('StatTrackerPlayer').array(),
@@ -989,6 +1013,12 @@ const schema = a.schema({
     // Lambda-side pure twin) -- same concept, two implementations, kept in
     // sync per CLAUDE.md's gameClock.ts precedent (see also goalkeeper.test.ts).
     activeGoalkeeperId: a.string(),
+    // The team's next few scheduled games, soonest first -- populated
+    // whenever there's no LIVE game right now (NEXT_GAME, NO_GAME_RIGHT_NOW,
+    // NO_GAMES_YET) so a helper opening the link early sees what's coming up
+    // instead of just a single next opponent. See shareLinkAccess.ts's
+    // selectUpcomingGames.
+    upcomingGames: a.ref('StatTrackerUpcomingGame').array(),
   }),
 
   // Guest + authenticated(identityPool) -- same rationale as getFanGameView:

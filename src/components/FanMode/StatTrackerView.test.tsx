@@ -454,4 +454,158 @@ describe('StatTrackerView', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
   });
+
+  describe('scoreboard and game clock', () => {
+    it('shows the current score and elapsed time during LIVE in-progress', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ ourScore: 2, opponentScore: 1, elapsedSeconds: 605 })));
+      const { container } = render(<StatTrackerView />);
+      await flush();
+
+      expect(container.querySelector('.fan-mode-score__value')?.textContent).toContain('2');
+      expect(container.querySelector('.fan-mode-score__value')?.textContent).toContain('1');
+      expect(container.querySelector('.fan-mode-timer__value')?.textContent).toBe('10:05');
+    });
+  });
+
+  describe('on-field lineup', () => {
+    it('lists on-field players with their positions while in-progress, and excludes bench players', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({
+        roster: [
+          { id: 'p1', firstName: 'Sam', lastName: 'Jones', positionName: 'Forward' },
+          { id: 'p2', firstName: 'Ana', lastName: 'Cruz', positionName: null },
+        ],
+      })));
+      render(<StatTrackerView />);
+      await flush();
+
+      expect(screen.getByText('On the Field')).toBeInTheDocument();
+      expect(screen.getByText('Sam Jones')).toBeInTheDocument();
+      expect(screen.getByText('Forward')).toBeInTheDocument();
+      expect(screen.queryByText('Ana Cruz')).not.toBeInTheDocument();
+    });
+
+    it('hides the on-field lineup section during halftime', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ status: 'halftime' })));
+      render(<StatTrackerView />);
+      await flush();
+
+      expect(screen.queryByText('On the Field')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('player picker ordering (on-field before bench)', () => {
+    it('shows on-field players before bench players, with group labels when both are present', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({
+        roster: [
+          { id: 'p1', firstName: 'Bench', lastName: 'One', positionName: null },
+          { id: 'p2', firstName: 'Field', lastName: 'Two', positionName: 'Midfielder' },
+        ],
+      })));
+      render(<StatTrackerView />);
+      await flush();
+
+      fireEvent.click(screen.getByRole('button', { name: /Goal/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      await flush();
+
+      expect(screen.getByText('On the field')).toBeInTheDocument();
+      expect(screen.getByText('Bench')).toBeInTheDocument();
+      const names = screen.getAllByRole('button').map((b) => b.textContent);
+      const fieldIndex = names.indexOf('Field Two');
+      const benchIndex = names.indexOf('Bench One');
+      expect(fieldIndex).toBeGreaterThan(-1);
+      expect(benchIndex).toBeGreaterThan(fieldIndex);
+    });
+
+    it('shows no group labels when the roster is entirely bench (e.g. game not in-progress)', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
+      render(<StatTrackerView />);
+      await flush();
+
+      fireEvent.click(screen.getByRole('button', { name: /Goal/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      await flush();
+
+      expect(screen.queryByText('On the field')).not.toBeInTheDocument();
+      expect(screen.queryByText('Bench')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('halftime auto-resync', () => {
+    it('polls faster while the tap UI is paused (halftime) than the normal in-progress cadence', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ status: 'halftime' })));
+      render(<StatTrackerView />);
+      await flush();
+      expect(mockGetStatTrackerView).toHaveBeenCalledTimes(1);
+
+      await act(async () => { vi.advanceTimersByTime(5000); });
+      await flush();
+      expect(mockGetStatTrackerView).toHaveBeenCalledTimes(2);
+    });
+
+    it('offers a manual "Refresh now" button while paused', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ status: 'halftime' })));
+      render(<StatTrackerView />);
+      await flush();
+      expect(mockGetStatTrackerView).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByRole('button', { name: /Refresh now/ }));
+      await flush();
+      expect(mockGetStatTrackerView).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not run the faster paused-poll while the tap UI is unlocked (in-progress)', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
+      render(<StatTrackerView />);
+      await flush();
+      expect(mockGetStatTrackerView).toHaveBeenCalledTimes(1);
+
+      await act(async () => { vi.advanceTimersByTime(5000); });
+      await flush();
+      expect(mockGetStatTrackerView).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('upcoming games', () => {
+    it('shows a list of upcoming games on NO_GAMES_YET when the server provides one', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result({
+        state: 'NO_GAMES_YET',
+        teamName: 'Eagles',
+        upcomingGames: [
+          { opponentName: 'Riverside', gameDate: '2026-10-01T18:00:00.000Z', locationName: 'Home Field' },
+        ],
+      }));
+      render(<StatTrackerView />);
+      await flush();
+
+      expect(screen.getByText(/vs Riverside/)).toBeInTheDocument();
+    });
+
+    it('falls back to the generic message on NO_GAMES_YET when no upcoming games are known', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result({ state: 'NO_GAMES_YET', teamName: 'Eagles', upcomingGames: [] }));
+      render(<StatTrackerView />);
+      await flush();
+
+      expect(screen.getByText(/No games yet/)).toBeInTheDocument();
+    });
+
+    it('shows every upcoming game on NEXT_GAME rather than only the single next opponent', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result({
+        state: 'NEXT_GAME',
+        teamName: 'Eagles',
+        opponentName: 'Lakeside FC',
+        upcomingGames: [
+          { opponentName: 'Lakeside FC', gameDate: '2026-10-01T18:00:00.000Z', locationName: null },
+          { opponentName: 'Riverside', gameDate: '2026-10-08T18:00:00.000Z', locationName: null },
+        ],
+      }));
+      render(<StatTrackerView />);
+      await flush();
+
+      expect(screen.getByText(/vs Lakeside FC/)).toBeInTheDocument();
+      expect(screen.getByText(/vs Riverside/)).toBeInTheDocument();
+    });
+  });
 });
