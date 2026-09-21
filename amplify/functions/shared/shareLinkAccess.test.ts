@@ -290,6 +290,16 @@ describe('selectGameForFan', () => {
     expect(result.game?.id).toBe('finished');
   });
 
+  it('branch 2: a FINISHED game can coexist with a non-empty selectUpcomingGames result (tournament day)', () => {
+    const justFinished = game({ id: 'finished', status: 'completed', gameDate: '2026-09-13T13:00:00.000Z' }); // 4h ago
+    const laterToday = game({ id: 'later-today', status: 'scheduled', gameDate: '2026-09-13T20:00:00.000Z' }); // 3h from now
+    const games = [justFinished, laterToday];
+    const result = selectGameForFan(games, now);
+    expect(result.branch).toBe('FINISHED');
+    expect(result.game?.id).toBe('finished');
+    expect(selectUpcomingGames(games, now).map((g) => g.id)).toEqual(['later-today']);
+  });
+
   it('branch 2: picks the most recent within the recency window when multiple qualify', () => {
     const older = game({ id: 'older', status: 'completed', gameDate: '2026-09-13T10:00:00.000Z' });
     const newer = game({ id: 'newer', status: 'completed', gameDate: '2026-09-13T15:00:00.000Z' });

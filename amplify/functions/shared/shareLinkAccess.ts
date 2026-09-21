@@ -313,15 +313,18 @@ export const UPCOMING_GAMES_LIMIT = 5;
  * filter/sort, not two copies that could silently drift apart on a future
  * edit to either.
  *
- * By construction, a non-empty result here can only coincide with
- * `selectGameForFan` choosing LIVE or NEXT_GAME for the same `games`/`now`:
- * FINISHED and NO_GAME_RIGHT_NOW both require branch 3 (this same future
- * filter) to have been empty, and NO_GAMES_YET requires `games` itself to
- * be empty. A caller wanting "what's coming up" alongside a FINISHED result
- * (the actually useful non-LIVE case -- "the game just ended, what's next")
- * gets it for free from this being computed independently of the branch;
- * NO_GAMES_YET/NO_GAME_RIGHT_NOW will just always get `[]`, correctly,
- * because there genuinely is nothing upcoming to show in either.
+ * This is computed independently of which branch `selectGameForFan` picks
+ * for the same `games`/`now`, so a non-empty result can coincide with LIVE,
+ * NEXT_GAME, *or* FINISHED: FINISHED is chosen by branch 2's recency window,
+ * which runs before branch 3's future-game filter is ever consulted, so a
+ * just-finished game and a later scheduled one can both be true at once (a
+ * tournament day is the common case). A caller wanting "what's coming up"
+ * alongside a FINISHED result (the actually useful non-LIVE case -- "the
+ * game just ended, what's next") gets it for free from this independence.
+ * NO_GAME_RIGHT_NOW requires branch 3 (this same future filter) to have
+ * been empty, and NO_GAMES_YET requires `games` itself to be empty, so both
+ * will always get `[]`, correctly, because there genuinely is nothing
+ * upcoming to show in either.
  */
 export function selectUpcomingGames(games: GameRecord[], now: Date, limit: number = UPCOMING_GAMES_LIMIT): GameRecord[] {
   const nowMs = now.getTime();

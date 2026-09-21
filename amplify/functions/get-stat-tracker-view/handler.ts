@@ -235,12 +235,14 @@ export const handler: Handler = async (event) => {
 
   // Upcoming-games list: cheap in-memory derivation off the same
   // already-fetched `games` list resolveShareLinkAccess used for
-  // selection -- no extra query. Populated regardless of branch, but by
-  // construction (see selectUpcomingGames's doc comment) only ever
-  // non-empty on LIVE or NEXT_GAME -- FINISHED, NO_GAME_RIGHT_NOW, and
-  // NO_GAMES_YET all imply zero future-dated games exist. The frontend
-  // renders it on FINISHED/NEXT_GAME/NO_GAME_RIGHT_NOW/NO_GAMES_YET,
-  // falling back to static copy wherever the list comes back empty.
+  // selection -- no extra query. Computed independently of which branch
+  // selectGameForFan picked, so it can be non-empty on LIVE, NEXT_GAME, or
+  // FINISHED (FINISHED is chosen by the recency window before the
+  // future-game filter runs, so a finished game can coexist with a later
+  // scheduled one). NO_GAME_RIGHT_NOW and NO_GAMES_YET both imply zero
+  // future-dated games exist, so the list is structurally empty there. The
+  // frontend renders it on FINISHED (when non-empty) and NEXT_GAME, falling
+  // back to static copy on the other branches.
   const upcomingGames = selectUpcomingGames(games, outcome.now).map(toUpcomingGame);
 
   // Gate on the game actually being `in-progress`, NOT the broader `LIVE`
