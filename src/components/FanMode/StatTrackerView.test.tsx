@@ -267,6 +267,176 @@ describe('StatTrackerView', () => {
     });
   });
 
+  describe('Save Auto-Goalkeeper Attribution', () => {
+    it('Us Save with a known activeGoalkeeperId lands directly on the confirm-keeper step, and "Yes, log it" submits with that playerId', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'p1' })));
+      render(<StatTrackerView />);
+      await flush();
+
+      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      await flush();
+
+      expect(screen.queryByRole('button', { name: 'Sam Jones' })).not.toBeInTheDocument();
+      expect(screen.getByText('Sam Jones made the save?')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /Yes, log it/ }));
+      await flush();
+
+      expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
+        eventType: 'SAVE', forUs: true, playerId: 'p1',
+      }), { authMode: 'identityPool' });
+    });
+
+    it('"Not right? Pick another keeper" transitions to the full player picker, and choosing a different player submits that id', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'p1' })));
+      render(<StatTrackerView />);
+      await flush();
+
+      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: /Not right\? Pick another keeper/ }));
+      await flush();
+
+      expect(screen.getByText('Which keeper?')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Ana Cruz' }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: /Log Save/ }));
+      await flush();
+
+      expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
+        eventType: 'SAVE', forUs: true, playerId: 'p2',
+      }), { authMode: 'identityPool' });
+    });
+
+    it('activeGoalkeeperId absent/null -> unchanged existing behavior, full picker shown', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
+      render(<StatTrackerView />);
+      await flush();
+
+      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      await flush();
+
+      expect(screen.getByText('Which keeper?')).toBeInTheDocument();
+      expect(screen.queryByText(/made the save\?/)).not.toBeInTheDocument();
+    });
+
+    it('activeGoalkeeperId set to an id not present in roster -> falls back to the full picker', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'not-on-roster' })));
+      render(<StatTrackerView />);
+      await flush();
+
+      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      await flush();
+
+      expect(screen.getByText('Which keeper?')).toBeInTheDocument();
+      expect(screen.queryByText(/made the save\?/)).not.toBeInTheDocument();
+    });
+
+    it('Opponent-side Save flow is unaffected by activeGoalkeeperId being set (still side -> confirm, no player step)', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'p1' })));
+      render(<StatTrackerView />);
+      await flush();
+
+      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Lakeside FC' }));
+      await flush();
+
+      expect(screen.queryByText(/made the save\?/)).not.toBeInTheDocument();
+      expect(screen.queryByText('Which keeper?')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Log Save/ }));
+      await flush();
+
+      expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
+        eventType: 'SAVE', forUs: false, playerId: undefined,
+      }), { authMode: 'identityPool' });
+    });
+
+    it('GOAL and SHOT flows are unaffected by activeGoalkeeperId being set (only SAVE\'s Us path branches on it)', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'p1' })));
+      render(<StatTrackerView />);
+      await flush();
+
+      fireEvent.click(screen.getByRole('button', { name: /Goal/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      await flush();
+      expect(screen.getByText('Who scored?')).toBeInTheDocument();
+      expect(screen.queryByText(/made the save\?/)).not.toBeInTheDocument();
+    });
+
+    it('a mid-step poll that changes the active keeper does not retroactively alter an open confirm-keeper flow (regression)', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'p1' })));
+      render(<StatTrackerView />);
+      await flush();
+
+      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      await flush();
+
+      expect(screen.getByText('Sam Jones made the save?')).toBeInTheDocument();
+
+      // Coach subs the keeper server-side; the next poll (before the helper
+      // taps anything) now reports a different active goalkeeper.
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'p2' })));
+      await act(async () => { vi.advanceTimersByTime(12000); });
+      await flush();
+
+      // The already-open confirm step must keep showing the originally
+      // frozen player, not silently swap to the newly-polled one.
+      expect(screen.getByText('Sam Jones made the save?')).toBeInTheDocument();
+      expect(screen.queryByText('Ana Cruz made the save?')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /Yes, log it/ }));
+      await flush();
+
+      expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
+        eventType: 'SAVE', forUs: true, playerId: 'p1',
+      }), { authMode: 'identityPool' });
+    });
+
+    it('a mid-step poll that makes the active keeper unresolvable does not empty out an open confirm-keeper flow (regression)', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'p1' })));
+      render(<StatTrackerView />);
+      await flush();
+
+      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      await flush();
+
+      expect(screen.getByText('Sam Jones made the save?')).toBeInTheDocument();
+
+      // Next poll clears the active goalkeeper entirely (e.g. sub-out with
+      // no immediate replacement resolved server-side).
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: null })));
+      await act(async () => { vi.advanceTimersByTime(12000); });
+      await flush();
+
+      // The step must not collapse to a dead end (just heading + Cancel) --
+      // it keeps showing the frozen confirm content with both actions.
+      expect(screen.getByText('Sam Jones made the save?')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Yes, log it/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Not right\? Pick another keeper/ })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /Yes, log it/ }));
+      await flush();
+
+      expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
+        eventType: 'SAVE', forUs: true, playerId: 'p1',
+      }), { authMode: 'identityPool' });
+    });
+  });
+
   describe('mid-session revocation', () => {
     it('closes an in-flight tap flow and shows the invalid-link state when a later poll is revoked', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));

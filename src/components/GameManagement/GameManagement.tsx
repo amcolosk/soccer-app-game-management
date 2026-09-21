@@ -2161,6 +2161,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     game,
     team,
     players,
+    positions,
     goals,
     shots,
     saves,

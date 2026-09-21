@@ -36,6 +36,8 @@ function setEnv() {
   process.env.FAN_VIEW_RATE_LIMIT_TABLE = 'FanViewRateLimitTable';
   process.env.TEAM_ROSTER_TABLE = 'TeamRosterTable';
   process.env.PLAYER_TABLE = 'PlayerTable';
+  process.env.PLAY_TIME_RECORD_TABLE = 'PlayTimeRecordTable';
+  process.env.FORMATION_POSITION_TABLE = 'FormationPositionTable';
 }
 
 describe('get-stat-tracker-view handler', () => {
@@ -170,5 +172,143 @@ describe('get-stat-tracker-view handler', () => {
     expect(result.state).toBe('NO_GAMES_YET');
     expect(result.gameId).toBeNull();
     expect(result.roster.length).toBe(1);
+  });
+
+  describe('activeGoalkeeperId (Save Auto-Goalkeeper Attribution)', () => {
+    function baseMockSend(overrides: {
+      gameItems: Array<Record<string, unknown>>;
+      playTimeRecordItems?: Array<Record<string, unknown>>;
+      formationPositionItems?: Array<Record<string, unknown>>;
+    }) {
+      mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+        const table = command.input.TableName as string;
+        if (command.__type === 'GetCommand' && table === 'ShareLinkTable') {
+          return { Item: { token: 'tok-1', teamId: 'team-1', type: 'STAT_TRACKER' } };
+        }
+        if (command.__type === 'GetCommand' && table === 'TeamTable') {
+          return { Item: { id: 'team-1', name: 'Eagles' } };
+        }
+        if (command.__type === 'QueryCommand' && table === 'GameTable') {
+          return { Items: overrides.gameItems };
+        }
+        if (command.__type === 'QueryCommand' && table === 'TeamRosterTable') {
+          return { Items: [{ teamId: 'team-1', playerId: 'p1', isActive: true }] };
+        }
+        if (command.__type === 'QueryCommand' && table === 'PlayTimeRecordTable') {
+          return { Items: overrides.playTimeRecordItems ?? [] };
+        }
+        if (command.__type === 'BatchGetCommand' && (command.input as { RequestItems: Record<string, unknown> }).RequestItems?.PlayerTable) {
+          return { Responses: { PlayerTable: [{ id: 'p1', firstName: 'Sam', lastName: 'Jones' }] } };
+        }
+        if (command.__type === 'BatchGetCommand' && (command.input as { RequestItems: Record<string, unknown> }).RequestItems?.FormationPositionTable) {
+          return { Responses: { FormationPositionTable: overrides.formationPositionItems ?? [] } };
+        }
+        return {};
+      });
+    }
+
+    it('LIVE (in-progress) game, one open PlayTimeRecord at a GOALKEEPER-role FormationPosition -> activeGoalkeeperId equals that playerId', async () => {
+      baseMockSend({
+        gameItems: [{ id: 'game-1', teamId: 'team-1', opponent: 'Lakeside FC', status: 'in-progress', currentHalf: 1 }],
+        playTimeRecordItems: [{ playerId: 'p1', positionId: 'gk-pos', endGameSeconds: null }],
+        formationPositionItems: [{ id: 'gk-pos', role: 'GOALKEEPER' }],
+      });
+      const result = await invoke(createEvent()) as { activeGoalkeeperId: string | null };
+      expect(result.activeGoalkeeperId).toBe('p1');
+    });
+
+    it('LIVE game, no FormationPosition has role: GOALKEEPER -> activeGoalkeeperId: null', async () => {
+      baseMockSend({
+        gameItems: [{ id: 'game-1', teamId: 'team-1', opponent: 'Lakeside FC', status: 'in-progress', currentHalf: 1 }],
+        playTimeRecordItems: [{ playerId: 'p1', positionId: 'def-pos', endGameSeconds: null }],
+        formationPositionItems: [{ id: 'def-pos', role: 'DEFENDER' }],
+      });
+      const result = await invoke(createEvent()) as { activeGoalkeeperId: string | null };
+      expect(result.activeGoalkeeperId).toBeNull();
+    });
+
+    it('LIVE game, two open records at two different GOALKEEPER-role positions with two different players -> activeGoalkeeperId: null (ambiguous)', async () => {
+      baseMockSend({
+        gameItems: [{ id: 'game-1', teamId: 'team-1', opponent: 'Lakeside FC', status: 'in-progress', currentHalf: 1 }],
+        playTimeRecordItems: [
+          { playerId: 'p1', positionId: 'gk-pos-1', endGameSeconds: null },
+          { playerId: 'p2', positionId: 'gk-pos-2', endGameSeconds: null },
+        ],
+        formationPositionItems: [
+          { id: 'gk-pos-1', role: 'GOALKEEPER' },
+          { id: 'gk-pos-2', role: 'GOALKEEPER' },
+        ],
+      });
+      const result = await invoke(createEvent()) as { activeGoalkeeperId: string | null };
+      expect(result.activeGoalkeeperId).toBeNull();
+    });
+
+    it('LIVE game, a closed record (endGameSeconds set) at a GOALKEEPER-role position is excluded -- only open records count', async () => {
+      baseMockSend({
+        gameItems: [{ id: 'game-1', teamId: 'team-1', opponent: 'Lakeside FC', status: 'in-progress', currentHalf: 1 }],
+        playTimeRecordItems: [
+          { playerId: 'p1', positionId: 'gk-pos', endGameSeconds: 1200 },
+          { playerId: 'p2', positionId: 'gk-pos', endGameSeconds: null },
+        ],
+        formationPositionItems: [{ id: 'gk-pos', role: 'GOALKEEPER' }],
+      });
+      const result = await invoke(createEvent()) as { activeGoalkeeperId: string | null };
+      expect(result.activeGoalkeeperId).toBe('p2');
+    });
+
+    it("status: 'halftime' (still branch LIVE) -> activeGoalkeeperId: null and no PlayTimeRecord/FormationPosition query is issued", async () => {
+      baseMockSend({
+        gameItems: [{ id: 'game-1', teamId: 'team-1', opponent: 'Lakeside FC', status: 'halftime', currentHalf: 1 }],
+      });
+      const result = await invoke(createEvent()) as { state: string; activeGoalkeeperId: string | null };
+      expect(result.state).toBe('LIVE');
+      expect(result.activeGoalkeeperId).toBeNull();
+      const queriedTables = mockSend.mock.calls.map((call) => (call[0] as { input: Record<string, unknown> }).input.TableName);
+      expect(queriedTables).not.toContain('PlayTimeRecordTable');
+      expect(queriedTables).not.toContain('FormationPositionTable');
+    });
+
+    it('NEXT_GAME branch -> activeGoalkeeperId: null and no PlayTimeRecord/FormationPosition query is issued', async () => {
+      const future = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
+      baseMockSend({
+        gameItems: [{ id: 'game-1', teamId: 'team-1', opponent: 'Lakeside FC', status: 'scheduled', currentHalf: null, gameDate: future }],
+      });
+      const result = await invoke(createEvent()) as { state: string; activeGoalkeeperId: string | null };
+      expect(result.state).toBe('NEXT_GAME');
+      expect(result.activeGoalkeeperId).toBeNull();
+      const queriedTables = mockSend.mock.calls.map((call) => (call[0] as { input: Record<string, unknown> }).input.TableName);
+      expect(queriedTables).not.toContain('PlayTimeRecordTable');
+      expect(queriedTables).not.toContain('FormationPositionTable');
+    });
+
+    it('FINISHED branch -> activeGoalkeeperId: null and no PlayTimeRecord/FormationPosition query is issued', async () => {
+      const recentPast = new Date(Date.now() - 1000 * 60 * 30).toISOString(); // 30 min ago
+      baseMockSend({
+        gameItems: [{ id: 'game-1', teamId: 'team-1', opponent: 'Lakeside FC', status: 'completed', currentHalf: 2, gameDate: recentPast }],
+      });
+      const result = await invoke(createEvent()) as { state: string; activeGoalkeeperId: string | null };
+      expect(result.state).toBe('FINISHED');
+      expect(result.activeGoalkeeperId).toBeNull();
+      const queriedTables = mockSend.mock.calls.map((call) => (call[0] as { input: Record<string, unknown> }).input.TableName);
+      expect(queriedTables).not.toContain('PlayTimeRecordTable');
+      expect(queriedTables).not.toContain('FormationPositionTable');
+    });
+
+    it('NO_GAMES_YET / NO_GAME_RIGHT_NOW branches -> activeGoalkeeperId: null and no PlayTimeRecord/FormationPosition query is issued', async () => {
+      baseMockSend({ gameItems: [] });
+      const result = await invoke(createEvent()) as { state: string; activeGoalkeeperId: string | null };
+      expect(result.state).toBe('NO_GAMES_YET');
+      expect(result.activeGoalkeeperId).toBeNull();
+      const queriedTables = mockSend.mock.calls.map((call) => (call[0] as { input: Record<string, unknown> }).input.TableName);
+      expect(queriedTables).not.toContain('PlayTimeRecordTable');
+      expect(queriedTables).not.toContain('FormationPositionTable');
+    });
+
+    it('RATE_LIMITED / INVALID_LINK -> unchanged (activeGoalkeeperId: null implicitly via emptyResult())', async () => {
+      mockSend.mockImplementation(async () => ({}));
+      const result = await invoke(createEvent('missing-token')) as { state: string; activeGoalkeeperId: string | null };
+      expect(result.state).toBe('INVALID_LINK');
+      expect(result.activeGoalkeeperId).toBeNull();
+    });
   });
 });

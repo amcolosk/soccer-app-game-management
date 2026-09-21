@@ -981,6 +981,14 @@ const schema = a.schema({
     gameId: a.string(), // echoed back by the client as submitStatEvent's
                          // expectedGameId -- the wrong-game-race guard.
     roster: a.ref('StatTrackerPlayer').array(),
+    // Id of the player currently occupying a GOALKEEPER-role position, per an
+    // open PlayTimeRecord -- null when not in-progress, ambiguous, or the
+    // team has no GOALKEEPER-role FormationPosition. See getCurrentGoalkeeperId
+    // (src/utils/playTimeCalculations.ts, coach-side) and
+    // computeActiveGoalkeeperId (amplify/functions/shared/goalkeeper.ts,
+    // Lambda-side pure twin) -- same concept, two implementations, kept in
+    // sync per CLAUDE.md's gameClock.ts precedent (see also goalkeeper.test.ts).
+    activeGoalkeeperId: a.string(),
   }),
 
   // Guest + authenticated(identityPool) -- same rationale as getFanGameView:

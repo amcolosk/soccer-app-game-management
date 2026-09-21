@@ -28,7 +28,7 @@ type ViewState =
 
 type EventType = 'GOAL' | 'SHOT' | 'SAVE';
 
-type FlowStep = 'closed' | 'side' | 'player' | 'assist' | 'onTarget' | 'confirm';
+type FlowStep = 'closed' | 'side' | 'player' | 'confirmKeeper' | 'assist' | 'onTarget' | 'confirm';
 
 interface FlowState {
   step: FlowStep;
@@ -36,9 +36,23 @@ interface FlowState {
   forUs: boolean | null;
   playerId: string | null;
   clientEventId: string | null;
+  // Save Auto-Goalkeeper Attribution: the display name of the keeper shown
+  // (and submitted) for the `confirmKeeper` step, frozen at the same
+  // tap-time as `playerId` in `chooseSide`. Rendering `confirmKeeper` from
+  // this instead of the live-recomputed `activeGoalkeeperPlayer` keeps what
+  // the helper sees in sync with what actually gets submitted, even if a
+  // poll lands mid-step and changes/clears the live keeper.
+  confirmedKeeperName: string | null;
 }
 
-const CLOSED_FLOW: FlowState = { step: 'closed', eventType: null, forUs: null, playerId: null, clientEventId: null };
+const CLOSED_FLOW: FlowState = {
+  step: 'closed',
+  eventType: null,
+  forUs: null,
+  playerId: null,
+  clientEventId: null,
+  confirmedKeeperName: null,
+};
 
 const EVENT_LABELS: Record<EventType, { verb: string; icon: string }> = {
   GOAL: { verb: 'Goal', icon: '⚽' },
@@ -142,10 +156,23 @@ export function StatTrackerView() {
 
   const roster: RosterPlayer[] = (data?.roster ?? []).filter((p): p is RosterPlayer => !!p);
 
+  // Save Auto-Goalkeeper Attribution: null when the server didn't derive an
+  // unambiguous keeper, OR when it named a player no longer present in this
+  // roster snapshot (stale/mismatched data guard) -- either way, the helper
+  // falls back to the existing full player picker.
+  const activeGoalkeeperPlayer = roster.find((p) => p.id === data?.activeGoalkeeperId) ?? null;
+
   function openFlow(eventType: EventType) {
     if (isSubmitting) return; // duplicate-tap guard: ignore new taps while one is in flight
     setSubmitError(null);
-    setFlow({ step: 'side', eventType, forUs: null, playerId: null, clientEventId: crypto.randomUUID() });
+    setFlow({
+      step: 'side',
+      eventType,
+      forUs: null,
+      playerId: null,
+      clientEventId: crypto.randomUUID(),
+      confirmedKeeperName: null,
+    });
   }
 
   function closeFlow() {
@@ -157,6 +184,19 @@ export function StatTrackerView() {
     if (!flow.eventType) return;
     setSubmitError(null);
     if (forUs) {
+      // Save Auto-Goalkeeper Attribution: a "Us" Save with an unambiguous
+      // current goalkeeper skips the full player picker in favor of a
+      // confirm-with-override step. GOAL and SHOT are unaffected.
+      if (flow.eventType === 'SAVE' && activeGoalkeeperPlayer) {
+        setFlow({
+          ...flow,
+          forUs,
+          playerId: activeGoalkeeperPlayer.id,
+          confirmedKeeperName: `${activeGoalkeeperPlayer.firstName} ${activeGoalkeeperPlayer.lastName}`,
+          step: 'confirmKeeper',
+        });
+        return;
+      }
       setFlow({ ...flow, forUs, step: 'player' });
       return;
     }
@@ -167,6 +207,10 @@ export function StatTrackerView() {
     } else {
       setFlow({ ...flow, forUs, step: 'confirm' });
     }
+  }
+
+  function pickDifferentKeeper() {
+    setFlow({ ...flow, playerId: null, confirmedKeeperName: null, step: 'player' });
   }
 
   function choosePlayer(playerId: string | null) {
@@ -337,6 +381,7 @@ export function StatTrackerView() {
           submitError={submitError}
           onChooseSide={chooseSide}
           onChoosePlayer={choosePlayer}
+          onPickDifferentKeeper={pickDifferentKeeper}
           onSubmit={submit}
           onClose={closeFlow}
         />
@@ -369,6 +414,7 @@ interface StatFlowSheetProps {
   submitError: string | null;
   onChooseSide: (forUs: boolean) => void;
   onChoosePlayer: (playerId: string | null) => void;
+  onPickDifferentKeeper: () => void;
   onSubmit: (payload: { assistPlayerId?: string | null; onTarget?: boolean }) => void;
   onClose: () => void;
 }
@@ -377,9 +423,12 @@ interface StatFlowSheetProps {
 // coach-side ShotSaveTracker/GoalTracker's two-button-per-sub-view shape
 // (Milestone A); this is a different page with a different interaction
 // model (one shared sheet driving every event type) and stays as designed
-// here.
+// here. Save Auto-Goalkeeper Attribution adds a `confirmKeeper` step for a
+// "Us" Save with a known current goalkeeper -- a suggested-default (primary)
+// vs. escape-hatch (de-emphasized) choice, not an equal-weight either/or.
 function StatFlowSheet({
-  flow, eventType, roster, opponentName, isSubmitting, submitError, onChooseSide, onChoosePlayer, onSubmit, onClose,
+  flow, eventType, roster, opponentName, isSubmitting, submitError,
+  onChooseSide, onChoosePlayer, onPickDifferentKeeper, onSubmit, onClose,
 }: StatFlowSheetProps) {
   const label = EVENT_LABELS[eventType];
   const titleId = 'tracker-flow-title';
@@ -407,6 +456,28 @@ function StatFlowSheet({
             isSubmitting={isSubmitting}
             onChoose={onChoosePlayer}
           />
+        )}
+
+        {flow.step === 'confirmKeeper' && flow.confirmedKeeperName && (
+          <div className="tracker-sheet-options">
+            <p>{flow.confirmedKeeperName} made the save?</p>
+            <button
+              type="button"
+              className="tracker-sheet-option tracker-sheet-option--primary"
+              onClick={() => onSubmit({})}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Logging…' : 'Yes, log it'}
+            </button>
+            <button
+              type="button"
+              className="tracker-sheet-option tracker-sheet-option--skip"
+              onClick={onPickDifferentKeeper}
+              disabled={isSubmitting}
+            >
+              Not right? Pick another keeper
+            </button>
+          </div>
         )}
 
         {flow.step === 'assist' && (
