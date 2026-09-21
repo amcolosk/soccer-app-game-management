@@ -217,8 +217,14 @@ export const handler: Handler = async (event) => {
   };
 
   // Read dimension (polling the view), not write -- submitStatEvent is the
-  // only write-dimension caller.
-  const outcome = await resolveShareLinkAccess(docClient, tables, token, 'STAT_TRACKER', identityId, undefined, 'read');
+  // only write-dimension caller. `now` is read once here and threaded
+  // through, rather than left to resolveShareLinkAccess's own internal
+  // default -- selectUpcomingGames below needs the exact same instant
+  // selection was computed against (see ShareLinkAccessOutcome.now's doc
+  // comment), not a second, independently-read `Date` that could disagree
+  // with `selection` at a millisecond boundary.
+  const now = new Date();
+  const outcome = await resolveShareLinkAccess(docClient, tables, token, 'STAT_TRACKER', identityId, now, 'read');
 
   if (!outcome.ok) {
     return emptyResult(outcome.reason);
@@ -229,11 +235,13 @@ export const handler: Handler = async (event) => {
 
   // Upcoming-games list: cheap in-memory derivation off the same
   // already-fetched `games` list resolveShareLinkAccess used for
-  // selection -- no extra query. Populated regardless of branch (a helper
-  // watching a LIVE game is a harmless case to include it for too); the
-  // frontend only renders it on the non-LIVE "nothing to tap right now"
-  // states.
-  const upcomingGames = selectUpcomingGames(games, new Date()).map(toUpcomingGame);
+  // selection -- no extra query. Populated regardless of branch, but by
+  // construction (see selectUpcomingGames's doc comment) only ever
+  // non-empty on LIVE or NEXT_GAME -- FINISHED, NO_GAME_RIGHT_NOW, and
+  // NO_GAMES_YET all imply zero future-dated games exist. The frontend
+  // renders it on FINISHED/NEXT_GAME/NO_GAME_RIGHT_NOW/NO_GAMES_YET,
+  // falling back to static copy wherever the list comes back empty.
+  const upcomingGames = selectUpcomingGames(games, outcome.now).map(toUpcomingGame);
 
   // Gate on the game actually being `in-progress`, NOT the broader `LIVE`
   // branch (which also covers halftime, per selectGameForFan) -- halftime

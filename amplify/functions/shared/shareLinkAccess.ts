@@ -108,6 +108,12 @@ export type ShareLinkAccessOutcome =
       // consumer-specific payload this module deliberately stays agnostic
       // to (see the module doc comment above).
       games: GameRecord[];
+      // The exact `now` this outcome's selection was computed against --
+      // exposed so a consumer deriving anything else time-sensitive from
+      // `games` (e.g. getStatTrackerView's selectUpcomingGames call) uses
+      // the same instant rather than a second, independently-read `Date`
+      // that could disagree with `selection` at a millisecond boundary.
+      now: Date;
     };
 
 /** Token lookup — a missing row is indistinguishable from a garbage/never-existed token. */
@@ -294,6 +300,41 @@ export async function queryAllGamesByTeamId(
   return results;
 }
 
+// Default cap on how many upcoming games getStatTrackerView (and any future
+// consumer) surfaces at once -- a helper opening the link days before a
+// tournament weekend shouldn't be handed the team's entire remaining
+// schedule.
+export const UPCOMING_GAMES_LIMIT = 5;
+
+/**
+ * Every future-dated game for the team, soonest first, capped at `limit`.
+ * `selectGameForFan`'s own NEXT_GAME branch below is defined as this same
+ * list's head (`selectUpcomingGames(games, now, 1)[0]`) -- kept as one
+ * filter/sort, not two copies that could silently drift apart on a future
+ * edit to either.
+ *
+ * By construction, a non-empty result here can only coincide with
+ * `selectGameForFan` choosing LIVE or NEXT_GAME for the same `games`/`now`:
+ * FINISHED and NO_GAME_RIGHT_NOW both require branch 3 (this same future
+ * filter) to have been empty, and NO_GAMES_YET requires `games` itself to
+ * be empty. A caller wanting "what's coming up" alongside a FINISHED result
+ * (the actually useful non-LIVE case -- "the game just ended, what's next")
+ * gets it for free from this being computed independently of the branch;
+ * NO_GAMES_YET/NO_GAME_RIGHT_NOW will just always get `[]`, correctly,
+ * because there genuinely is nothing upcoming to show in either.
+ */
+export function selectUpcomingGames(games: GameRecord[], now: Date, limit: number = UPCOMING_GAMES_LIMIT): GameRecord[] {
+  const nowMs = now.getTime();
+  return games
+    .filter((g) => {
+      if (!g.gameDate) return false;
+      const gameMs = new Date(g.gameDate).getTime();
+      return !Number.isNaN(gameMs) && gameMs > nowMs;
+    })
+    .sort((a, b) => new Date(a.gameDate as string).getTime() - new Date(b.gameDate as string).getTime())
+    .slice(0, limit);
+}
+
 /**
  * The corrected 4-branch game-selection algorithm (plan's own words):
  * 1. Any game `in-progress`/`halftime` (live now).
@@ -373,46 +414,16 @@ export function selectGameForFan(games: GameRecord[], now: Date): GameSelectionR
     return { branch: 'FINISHED', game: recentPast[0] };
   }
 
-  const future = games
-    .filter((g) => {
-      if (!g.gameDate) return false;
-      const gameMs = new Date(g.gameDate).getTime();
-      return !Number.isNaN(gameMs) && gameMs > nowMs;
-    })
-    .sort((a, b) => new Date(a.gameDate as string).getTime() - new Date(b.gameDate as string).getTime());
+  // Same filter+sort as selectUpcomingGames above -- reused (not
+  // reimplemented) so the two can't silently drift apart; NEXT_GAME's own
+  // pick is just that list's soonest entry.
+  const soonestUpcoming = selectUpcomingGames(games, now, 1)[0];
 
-  if (future.length > 0) {
-    return { branch: 'NEXT_GAME', game: future[0] };
+  if (soonestUpcoming) {
+    return { branch: 'NEXT_GAME', game: soonestUpcoming };
   }
 
   return { branch: 'NO_GAME_RIGHT_NOW', game: null };
-}
-
-// Default cap on how many upcoming games getStatTrackerView (and any future
-// consumer) surfaces at once -- a helper opening the link days before a
-// tournament weekend shouldn't be handed the team's entire remaining
-// schedule.
-export const UPCOMING_GAMES_LIMIT = 5;
-
-/**
- * Every future-dated game for the team, soonest first, capped at `limit` --
- * the plural generalization of `selectGameForFan`'s own single-soonest
- * `future[0]` pick (NEXT_GAME branch). Deliberately independent of which
- * branch `selectGameForFan` chose: a helper opening the link while today's
- * game is LIVE, or in the NO_GAME_RIGHT_NOW bye-week gap, is equally well
- * served by "what's coming up," so callers may compute this alongside any
- * branch rather than only the NEXT_GAME one.
- */
-export function selectUpcomingGames(games: GameRecord[], now: Date, limit: number = UPCOMING_GAMES_LIMIT): GameRecord[] {
-  const nowMs = now.getTime();
-  return games
-    .filter((g) => {
-      if (!g.gameDate) return false;
-      const gameMs = new Date(g.gameDate).getTime();
-      return !Number.isNaN(gameMs) && gameMs > nowMs;
-    })
-    .sort((a, b) => new Date(a.gameDate as string).getTime() - new Date(b.gameDate as string).getTime())
-    .slice(0, limit);
 }
 
 export interface ShareLinkAccessTables {
@@ -452,5 +463,5 @@ export async function resolveShareLinkAccess(
   const games = await queryAllGamesByTeamId(docClient, tables.game, validated.team.id);
   const selection = selectGameForFan(games, now);
 
-  return { ok: true, shareLink: validated.shareLink, team: validated.team, selection, games };
+  return { ok: true, shareLink: validated.shareLink, team: validated.team, selection, games, now };
 }

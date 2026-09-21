@@ -12,8 +12,10 @@ import './FanMode.css';
 // established, and writes via `submitStatEvent` (the app's first
 // unauthenticated write path — see amplify/functions/submit-stat-event).
 const POLL_INTERVAL_MS = 12000;
-// Faster cadence while the tap UI is locked (halftime/pregame/paused) --
-// there's nothing to accidentally over-poll (no tapping happening), and a
+// Faster cadence specifically for LIVE-but-locked (i.e. halftime) -- the
+// only reachable case of viewState === 'LIVE' && !tapUiUnlocked; NEXT_GAME
+// (pregame) isn't LIVE at all and uses the normal poll only. There's
+// nothing to accidentally over-poll here (no tapping happening), and a
 // shorter gap gets a helper back to tracking sooner once the coach starts
 // the next half, without requiring a manual page reload.
 const PAUSED_POLL_INTERVAL_MS = 5000;
@@ -81,21 +83,45 @@ export function StatTrackerView() {
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const confirmationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [currentSeconds, setCurrentSeconds] = useState(0);
+  const [isFetching, setIsFetching] = useState(false);
+  const [rateLimitedWhilePolling, setRateLimitedWhilePolling] = useState(false);
+  // In-flight guard: the primary poll, the paused-poll interval, the
+  // 'focus'/'visibilitychange' listeners, and the manual "Refresh now"
+  // button can all independently decide to call fetchView around the same
+  // moment (e.g. a single app-resume fires both 'focus' and
+  // 'visibilitychange'). Without this, that's 2+ concurrent requests for
+  // one real refresh, which eats into the per-identity rate-limit ceiling
+  // for no benefit.
+  const isFetchingRef = useRef(false);
 
   const fetchView = useCallback(async () => {
-    if (!token) return;
+    if (!token || isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    setIsFetching(true);
     try {
       const result = await client.queries.getStatTrackerView({ token }, { authMode: 'identityPool' });
       if (result.errors && result.errors.length > 0) {
         setLoadError(result.errors[0]?.message ?? 'Something went wrong loading this page.');
       } else {
         setLoadError(null);
-        setData((result.data as StatTrackerViewResult) ?? null);
+        const next = (result.data as StatTrackerViewResult) ?? null;
+        // A RATE_LIMITED response is this page's own polling/refresh
+        // cadence tripping a per-minute ceiling, not a real state change --
+        // the next poll a minute later recovers on its own. Unlike
+        // INVALID_LINK (a genuine, permanent revocation the page must
+        // reflect -- see the "Mid-session revocation" behavior below),
+        // treat it as a transient blip: keep showing the last-known-good
+        // view instead of replacing it with the "you're tapping too fast"
+        // full-page state.
+        setRateLimitedWhilePolling(next?.state === 'RATE_LIMITED');
+        setData((prev) => (next?.state === 'RATE_LIMITED' && prev ? prev : next));
       }
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Something went wrong loading this page.');
     } finally {
       setHasLoadedOnce(true);
+      isFetchingRef.current = false;
+      setIsFetching(false);
     }
   }, [token]);
 
@@ -354,56 +380,57 @@ export function StatTrackerView() {
   }
 
   if (viewState === 'NO_GAMES_YET') {
+    // NO_GAMES_YET is only ever reached when the team has zero games at
+    // all (selectGameForFan branch 4a) -- upcomingGames is therefore always
+    // [] here by construction (see selectUpcomingGames's doc comment), so
+    // there's no "coming up" list to show, just the static copy.
     return (
       <div className="fan-mode-page fan-mode-page--center" data-testid="tracker-state-no-games-yet">
         <h1>{data?.teamName ?? 'This team'}</h1>
-        {upcomingGames.length > 0 ? (
-          <>
-            <p>No game right now — here's what's coming up:</p>
-            <UpcomingGamesList games={upcomingGames} />
-          </>
-        ) : (
-          <p>No games yet — check back once your coach schedules one.</p>
-        )}
+        <p>No games yet — check back once your coach schedules one.</p>
       </div>
     );
   }
 
   if (viewState === 'NO_GAME_RIGHT_NOW') {
+    // Same reasoning as NO_GAMES_YET above: this branch is only reached
+    // when no future-dated game exists either, so upcomingGames is always
+    // [] here too.
     return (
       <div className="fan-mode-page fan-mode-page--center" data-testid="tracker-state-no-game-right-now">
         <h1>{data?.teamName ?? 'This team'}</h1>
-        {upcomingGames.length > 0 ? (
-          <>
-            <p>No game right now — here's what's coming up:</p>
-            <UpcomingGamesList games={upcomingGames} />
-          </>
-        ) : (
-          <p>No game right now — check back closer to the next one.</p>
-        )}
+        <p>No game right now — check back closer to the next one.</p>
       </div>
     );
   }
 
   if (viewState === 'NEXT_GAME') {
+    // Unlike the two states above, this branch is defined by "at least one
+    // future-dated game exists," so upcomingGames is always non-empty here.
     return (
       <div className="fan-mode-page fan-mode-page--center" data-testid="tracker-state-next-game">
         <h1>{data?.teamName ?? 'This team'}</h1>
         <p>Stat entry unlocks once the game starts.</p>
-        {upcomingGames.length > 0 ? (
-          <UpcomingGamesList games={upcomingGames} />
-        ) : (
-          <p>Next game: vs {data?.opponentName ?? 'TBD'}</p>
-        )}
+        <UpcomingGamesList games={upcomingGames} />
       </div>
     );
   }
 
   if (viewState === 'FINISHED') {
+    // The one state where "what's coming up" is genuinely useful and
+    // reachable: today's game just ended, and a future game may already be
+    // on the schedule (upcomingGames is independent of which branch
+    // selectGameForFan landed on for the *current* game).
     return (
       <div className="fan-mode-page fan-mode-page--center" data-testid="tracker-state-finished">
         <h1>{data?.teamName ?? 'This team'}</h1>
         <p>This game has ended — stat entry is closed.</p>
+        {upcomingGames.length > 0 && (
+          <>
+            <p>Next up:</p>
+            <UpcomingGamesList games={upcomingGames} />
+          </>
+        )}
       </div>
     );
   }
@@ -421,6 +448,9 @@ export function StatTrackerView() {
         </h1>
         {staleFromError && (
           <p className="fan-mode-stale-banner" role="status">Having trouble refreshing — showing the last update.</p>
+        )}
+        {rateLimitedWhilePolling && (
+          <p className="fan-mode-stale-banner" role="status">Refreshing is temporarily limited — showing the last update.</p>
         )}
         <div className="fan-mode-header__row">
           <div className="fan-mode-score" aria-live="polite" aria-atomic="true">
@@ -467,8 +497,13 @@ export function StatTrackerView() {
           <p className="fan-mode-empty" data-testid="tracker-not-in-progress">
             Stat entry is paused — it unlocks again when the game resumes.
           </p>
-          <button type="button" className="tracker-sheet-option tracker-refresh-button" onClick={() => void fetchView()}>
-            Refresh now
+          <button
+            type="button"
+            className="tracker-sheet-option tracker-refresh-button"
+            onClick={() => void fetchView()}
+            disabled={isFetching}
+          >
+            {isFetching ? 'Refreshing…' : 'Refresh now'}
           </button>
         </div>
       ) : (
