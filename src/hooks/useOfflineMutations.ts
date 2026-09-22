@@ -186,8 +186,15 @@ export interface GameMutationInput {
    * end-game) retries them. This is the primary close path; the DB-scan-based
    * closeActivePlayTimeRecords in substitutionService.ts is a cross-device
    * backstop for records opened on a different coach's device.
+   *
+   * Returns `true` when every open record this device knew about closed
+   * successfully, `false` when one or more failed and remain open (still
+   * tracked for retry on the next call) — callers that gate a retry signal
+   * (e.g. GameManagement's halftimePtrClosePendingRef) on the cross-device
+   * backstop's own throw must also fold this in, or a failure here is
+   * silently missed until the next unconditional call (e.g. end-game).
    */
-  closeAllOpenPlayTimeRecords: (endGameSeconds: number) => Promise<void>;
+  closeAllOpenPlayTimeRecords: (endGameSeconds: number) => Promise<boolean>;
   createSubstitution: (fields: SubstitutionCreateFields) => Promise<void>;
   createLineupAssignment: (fields: LineupAssignmentCreateFields) => Promise<void>;
   deleteLineupAssignment: (id: string) => Promise<void>;
@@ -659,9 +666,9 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
   );
 
   const closeAllOpenPlayTimeRecords = useCallback(
-    async (endGameSeconds: number): Promise<void> => {
+    async (endGameSeconds: number): Promise<boolean> => {
       const ids = Array.from(openPlayTimeRecordsRef.current.keys());
-      if (ids.length === 0) return;
+      if (ids.length === 0) return true;
       const results = await Promise.allSettled(
         ids.map((id) => updatePlayTimeRecord(id, { endGameSeconds }))
       );
@@ -675,7 +682,9 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
           `[closeAllOpenPlayTimeRecords] ${failures.length} of ${ids.length} close(s) failed; will retry on next call.`,
           failures.map((f) => getSafeErrorMessage(f.reason))
         );
+        return false;
       }
+      return true;
     },
     [updatePlayTimeRecord]
   );

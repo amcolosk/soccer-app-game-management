@@ -14,6 +14,7 @@ import {
   ANOMALOUS_GAP_THRESHOLD_SECONDS,
   buildTimerHeartbeatStorageKey,
 } from "../../../constants/gameTimer";
+import { computeAdditionalGameSeconds } from "../../../utils/gameClock";
 
 const client = generateClient<Schema>();
 
@@ -398,9 +399,7 @@ export function useGameSubscriptions({
 
           // Auto-resume timer if game was in progress (but not if user manually paused)
           if (updatedGame.status === 'in-progress' && updatedGame.lastStartTime && !manuallyPausedRef.current) {
-            const lastStart = new Date(updatedGame.lastStartTime).getTime();
-            const now = Date.now();
-            const additionalSeconds = Math.floor((now - lastStart) / 1000);
+            const additionalSeconds = computeAdditionalGameSeconds(updatedGame.lastStartTime);
             const priorElapsed = updatedGame.elapsedSeconds || 0;
 
             const decision = computeGapConfirmationDecision({

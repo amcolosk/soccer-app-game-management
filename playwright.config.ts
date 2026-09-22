@@ -71,6 +71,13 @@ export default defineConfig({
         '**/team-management.spec.ts',
         '**/player-management.spec.ts',
         '**/safe-deletes.spec.ts',
+        // field-conditions-only specs (see that project below) — without this,
+        // a new spec file silently auto-joins this per-commit, merge-gating
+        // lane by default, defeating field-conditions' whole "pre-release
+        // only, not a merge blocker" point.
+        '**/offline-game-management.spec.ts',
+        '**/concurrent-coaches.spec.ts',
+        '**/timer-gap-confirmation.spec.ts',
       ],
       use: { ...devices['Desktop Chrome'], storageState: '.auth/user1.json' },
     },

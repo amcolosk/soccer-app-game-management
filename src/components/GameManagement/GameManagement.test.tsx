@@ -46,7 +46,7 @@ const {
   mockGameUpdate:        vi.fn().mockResolvedValue({ data: {} }),
   mockPlayTimeCreate:    vi.fn().mockResolvedValue({ data: {} }),
   mockPlayTimeList:      vi.fn().mockResolvedValue({ data: [] }),
-  mockCloseAllOpenPlayTimeRecords: vi.fn().mockResolvedValue(undefined),
+  mockCloseAllOpenPlayTimeRecords: vi.fn().mockResolvedValue(true),
   mockCreateGameNote:    vi.fn().mockResolvedValue(undefined),
   mockUpdateGameNote:    vi.fn().mockResolvedValue(undefined),
   mockDeleteGameNote:    vi.fn().mockResolvedValue(undefined),

@@ -480,6 +480,25 @@ describe('useGameTimer', () => {
       expect(localStorage.getItem(HEARTBEAT_KEY)).toBeNull();
     });
 
+    it('writes the heartbeat once userId arrives, even if isRunning was already true when userId was still empty', () => {
+      // userId loads via a separately-timed async call in GameManagement.tsx with
+      // no ordering guarantee against isRunning first flipping true (e.g. via
+      // useGameSubscriptions' auto-resume) — regression test for the case where
+      // isRunning transitions to true BEFORE userId is available.
+      const props = createDefaultProps();
+      props.userId = '';
+      props.isRunning = true;
+
+      const { rerender } = renderHook((p) => useGameTimer(p), { initialProps: props });
+      expect(localStorage.getItem(HEARTBEAT_KEY)).toBeNull();
+
+      // isRunning does NOT transition again — only userId arrives.
+      props.userId = 'user-1';
+      rerender(props);
+
+      expect(localStorage.getItem(HEARTBEAT_KEY)).toBe('1');
+    });
+
     it('does not throw when localStorage.setItem fails', () => {
       const props = createDefaultProps();
       props.isRunning = true;

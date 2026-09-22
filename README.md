@@ -36,6 +36,7 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 ### Game Day Management
 - **Game Timer**: Automatic timer with configurable half lengths
 - **Auto-Pause at Halftime**: Timer pauses when the half ends; resume manually to start the second half
+- **Timer Gap Confirmation**: If a device loses timer continuity (crash, backgrounding, browser close) and comes back to an anomalous elapsed-time gap, the coach is asked to confirm or adjust it before it's applied
 - **Position-Based Lineup**: Assign players to specific positions on the field
 - **Substitution Management**: Easy substitution interface with live play time visibility
 - **Halftime Lineup Changes**: Modify the lineup between halves

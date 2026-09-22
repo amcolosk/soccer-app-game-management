@@ -504,6 +504,33 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     expect(setTimeArg).toBeLessThanOrEqual(1031);
   });
 
+  it('freezes at elapsedSeconds instead of setting NaN when lastStartTime is malformed — lastStartTime is an unvalidated a.string() field (amplify/data/resource.ts), so a bad write must degrade safely rather than propagate NaN into currentTime/PlayTimeRecord', () => {
+    const setIsRunning = vi.fn();
+    const setCurrentTime = vi.fn();
+    const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime });
+
+    renderHook(() => useGameSubscriptions(props));
+
+    expect(capturedGameNext).not.toBeNull();
+
+    act(() => {
+      capturedGameNext!({
+        items: [
+          {
+            id: 'game-1',
+            status: 'in-progress',
+            elapsedSeconds: 1000,
+            lastStartTime: 'not-a-date',
+          } as Partial<Game>,
+        ],
+      });
+    });
+
+    expect(setCurrentTime).toHaveBeenCalledWith(1000);
+    const setTimeArg = setCurrentTime.mock.calls[0][0] as number;
+    expect(Number.isNaN(setTimeArg)).toBe(false);
+  });
+
   describe('timer gap confirmation (Issue B)', () => {
     const HEARTBEAT_KEY = 'teamtrack:timerHeartbeat:user-1:game-1';
 

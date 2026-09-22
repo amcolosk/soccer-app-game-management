@@ -569,16 +569,21 @@ describe('useOfflineMutations', () => {
 
       mockPlayTimeRecordUpdate.mockResolvedValueOnce({ data: null, errors: [{ message: 'transient failure' }] });
       await act(async () => {
+        // Returns false (not a throw) so a caller gating a retry signal on this
+        // (e.g. GameManagement's halftimePtrClosePendingRef) can actually see the
+        // failure instead of only relying on a separate backstop call's throw.
         await expect(
           result.current.mutations.closeAllOpenPlayTimeRecords(600)
-        ).resolves.toBeUndefined();
+        ).resolves.toBe(false);
       });
       expect(mockPlayTimeRecordUpdate).toHaveBeenCalledTimes(1);
 
       // Retry succeeds — the id was never removed from the open map on failure.
       mockPlayTimeRecordUpdate.mockResolvedValueOnce({ data: {} });
       await act(async () => {
-        await result.current.mutations.closeAllOpenPlayTimeRecords(600);
+        await expect(
+          result.current.mutations.closeAllOpenPlayTimeRecords(600)
+        ).resolves.toBe(true);
       });
       expect(mockPlayTimeRecordUpdate).toHaveBeenCalledTimes(2);
     });

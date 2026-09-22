@@ -1649,21 +1649,24 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
 
     // Close play time records after status is safely persisted.
     //
-    // Two mechanisms, in order:
+    // Two mechanisms, in order. Either can leave records open, so
+    // halftimePtrClosePendingRef must reflect BOTH, not just the second one:
     // 1. closeAllOpenPlayTimeRecords closes every record THIS device has locally
     //    opened (game start, subs, direct lineup adds), tracked independent of the
     //    observeQuery subscription. It never throws — offline it enqueues, online
     //    it retries internally — so it reliably queues the close even for a record
     //    created moments earlier while still offline (the record that used to get
     //    silently missed because it existed in neither React state nor DynamoDB yet).
-    // 2. closeActivePlayTimeRecords is now a cross-device backstop only, for a
-    //    record opened on a DIFFERENT coach's device that this device's local map
-    //    can't know about. It still needs connectivity to see those records, so it
-    //    can still legitimately fail — that's what halftimePtrClosePendingRef tracks.
-    await mutations.closeAllOpenPlayTimeRecords(halftimeSeconds);
+    //    It can still leave records open (e.g. a transient online GraphQL error),
+    //    signaled by its `false` return rather than a throw.
+    // 2. closeActivePlayTimeRecords is a cross-device backstop only, for a record
+    //    opened on a DIFFERENT coach's device that this device's local map can't
+    //    know about. It still needs connectivity to see those records, so it can
+    //    still legitimately fail (throw).
+    const primaryFullyClosed = await mutations.closeAllOpenPlayTimeRecords(halftimeSeconds);
     try {
       await closeActivePlayTimeRecords(playTimeRecords, halftimeSeconds, undefined, game.id, mutations);
-      halftimePtrClosePendingRef.current = false;
+      halftimePtrClosePendingRef.current = !primaryFullyClosed;
     } catch (error) {
       halftimePtrClosePendingRef.current = true;
       console.warn('[handleHalftime] Cross-device PTR closing failed; marked pending retry before second half start.', error);
@@ -1710,10 +1713,10 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         // halftime (its ids stay in the map on failure so this naturally retries
         // them). currentTime hasn't moved since halftime (timer is paused), so
         // resumeTime is the same game-clock boundary as halftimeSeconds was.
-        await mutations.closeAllOpenPlayTimeRecords(resumeTime);
+        const primaryFullyClosed = await mutations.closeAllOpenPlayTimeRecords(resumeTime);
         try {
           await closeActivePlayTimeRecords(playTimeRecords, resumeTime, undefined, game.id, mutations);
-          halftimePtrClosePendingRef.current = false;
+          halftimePtrClosePendingRef.current = !primaryFullyClosed;
         } catch (error) {
           handleApiError(error, 'Failed to close halftime play-time records before second half start');
           return;
