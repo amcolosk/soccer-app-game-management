@@ -412,6 +412,40 @@ describe('executeSubstitution', () => {
     expect(mockSubstitutionCreate).toHaveBeenCalledWith(expect.objectContaining({ coaches: multiCoaches }));
   });
 
+  // Reproduces #182: a coach removes a player from a halftime slot (LineupPanel's
+  // own optimistic ✕-remove deletes the assignment immediately), then — before the
+  // subscription round-trips the deletion back into the `lineup` the substitution
+  // flow reads — taps that same, now-visually-empty slot to assign a replacement.
+  // SubstitutionPanel still sees the stale assignment and drives a "substitution"
+  // (not a fresh assign) through executeSubstitution, so oldAssignmentId points at
+  // a record that's already gone. The old assignment being gone is exactly what
+  // the coach wants — the new player should still get seated in that position.
+  it('should still create the new lineup assignment when the old assignment was already removed', async () => {
+    mockLineupAssignmentDelete.mockRejectedValueOnce(new Error('Record not found'));
+
+    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations);
+
+    expect(mockLineupAssignmentCreate).toHaveBeenCalledWith({
+      gameId: 'game-1',
+      playerId: 'new-player',
+      positionId: 'position-1',
+      isStarter: true,
+      coaches,
+    });
+    expect(mockPlayTimeRecordCreate).toHaveBeenCalled();
+    expect(mockSubstitutionCreate).toHaveBeenCalled();
+  });
+
+  it('should still propagate an unexpected (non-missing-record) error deleting the old assignment', async () => {
+    mockLineupAssignmentDelete.mockRejectedValueOnce(new Error('Network error'));
+
+    await expect(
+      executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations),
+    ).rejects.toThrow('Network error');
+
+    expect(mockLineupAssignmentCreate).not.toHaveBeenCalled();
+  });
+
   describe('with stale playTimeRecords and DB fallback', () => {
     beforeEach(() => {
       vi.clearAllMocks();

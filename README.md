@@ -40,7 +40,7 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 - **Substitution Management**: Easy substitution interface with live play time visibility
 - **Halftime Lineup Changes**: Modify the lineup between halves
 - **Score Tracking**: Record goals with scorer, assist, and game time
-- **Shot & Save Tracking**: Log shots (on/off target) and saves for either team from the same Goals tab, via a Goals/Shots/Saves segmented control
+- **Shot & Save Tracking**: Log shots (on/off target) and saves for either team from the same Goals tab, via a Goals/Shots/Saves segmented control — a Save's goalkeeper field is pre-populated with the current on-field goalkeeper when unambiguous, still an overridable/clearable picker
 - **Game Notes**: Log events such as gold stars and cards
 
 ### Fan Mode (public read-only live game view)
@@ -50,7 +50,7 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 
 ### Sideline Stat Tracking (public helper-submitted stats)
 - **A second, separate, write-capable link**: generate/copy/revoke a `/track/:token` link from Sharing & Permissions — lets a non-coach helper (parent/assistant) log stats from the sideline with no account needed
-- **Goal / Shot / Save tap flow**: every tap starts with an Us/Opponent choice, then (for "Us") an optional player picker with a skip affordance, then (for a Shot, either side) an on-target/off-target step
+- **Goal / Shot / Save tap flow**: every tap starts with an Us/Opponent choice, then (for "Us") an optional player picker with a skip affordance, then (for a Shot, either side) an on-target/off-target step — a Save's player picker is skipped in favor of a confirm step when the current goalkeeper is known
 - **Real-time**: a logged stat appears live on the coach's own game screen, the same way a coach-entered one would — no refresh needed
 - **Rows the coach logged are marked "Logged via helper"** in the Goals/Shots/Saves lists, and can be corrected or deleted from the coach's own tracker UI (the helper's page has no edit/undo)
 

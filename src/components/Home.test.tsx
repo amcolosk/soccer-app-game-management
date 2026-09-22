@@ -1005,6 +1005,125 @@ describe('Home — Calendar Feed Import (Phase 2, file-upload path)', () => {
   });
 });
 
+describe('Home — Calendar Feed Import (paste-a-link first-time setup)', () => {
+  beforeEach(resetState);
+
+  function seedOneActiveTeam() {
+    teamQueryResult.data = [{ id: 'team-1', name: 'Eagles', coaches: ['test-user-id'] }];
+    teamQueryResult.isSynced = true;
+  }
+
+  it('offers "paste a calendar link instead" alongside the file input for a team with no saved feed', () => {
+    seedOneActiveTeam();
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /import from calendar/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+
+    expect(screen.getByLabelText(/calendar \.ics file/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /paste a calendar link instead/i }));
+
+    expect(screen.queryByLabelText(/calendar \.ics file/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/calendar feed url/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /or upload a file instead/i })).toBeInTheDocument();
+  });
+
+  it('submits the pasted URL with saveFeedUrl: true and shows the preview modal for a non-empty result', async () => {
+    seedOneActiveTeam();
+    mockSyncTeamCalendar.mockResolvedValue({
+      createdGames: [{ id: 'g1' }], updatedGames: [], skippedCount: 0, cancelledCount: 0,
+      adoptedCount: 0, protectedCount: 0, failedCount: 0, warnings: [],
+    });
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /import from calendar/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+    fireEvent.click(screen.getByRole('button', { name: /paste a calendar link instead/i }));
+    fireEvent.change(screen.getByLabelText(/calendar feed url/i), { target: { value: 'https://calendar.playmetrics.com/eagles.ics' } });
+    fireEvent.click(screen.getByRole('button', { name: /^link$/i }));
+
+    await waitFor(() => {
+      expect(mockSyncTeamCalendar).toHaveBeenCalledWith({
+        teamId: 'team-1', feedUrl: 'https://calendar.playmetrics.com/eagles.ics', saveFeedUrl: true, dryRun: true,
+      });
+    });
+    await waitFor(() => expect(screen.getByText(/import preview/i)).toBeInTheDocument());
+  });
+
+  it('Confirm re-runs the same link mutation without dryRun, persisting the feed', async () => {
+    seedOneActiveTeam();
+    mockSyncTeamCalendar.mockImplementation(async (args: { dryRun?: boolean }) => {
+      if (args.dryRun) {
+        return { createdGames: [{ id: 'g1' }], updatedGames: [], skippedCount: 0, cancelledCount: 0, adoptedCount: 0, protectedCount: 0, failedCount: 0, warnings: [] };
+      }
+      return {
+        createdGames: [{ id: 'g1', teamId: 'team-1', opponent: 'Rivals FC', isHome: true, status: 'scheduled', gameDate: null }],
+        updatedGames: [], skippedCount: 0, cancelledCount: 0, adoptedCount: 0, protectedCount: 0, failedCount: 0, warnings: [],
+      };
+    });
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /import from calendar/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+    fireEvent.click(screen.getByRole('button', { name: /paste a calendar link instead/i }));
+    fireEvent.change(screen.getByLabelText(/calendar feed url/i), { target: { value: 'https://calendar.playmetrics.com/eagles.ics' } });
+    fireEvent.click(screen.getByRole('button', { name: /^link$/i }));
+    await waitFor(() => expect(screen.getByText(/import preview/i)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
+
+    await waitFor(() => {
+      expect(mockSyncTeamCalendar).toHaveBeenLastCalledWith({
+        teamId: 'team-1', feedUrl: 'https://calendar.playmetrics.com/eagles.ics', saveFeedUrl: true, dryRun: false,
+      });
+    });
+    await waitFor(() => expect(screen.queryByText(/import preview/i)).not.toBeInTheDocument());
+  });
+
+  it('a no-op result for a pasted link still saves the feed and skips the modal', async () => {
+    seedOneActiveTeam();
+    mockSyncTeamCalendar.mockResolvedValue({
+      createdGames: [], updatedGames: [], skippedCount: 0, cancelledCount: 0,
+      adoptedCount: 0, protectedCount: 0, failedCount: 0, warnings: [],
+    });
+    const toast = await import('../utils/toast');
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /import from calendar/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+    fireEvent.click(screen.getByRole('button', { name: /paste a calendar link instead/i }));
+    fireEvent.change(screen.getByLabelText(/calendar feed url/i), { target: { value: 'https://calendar.playmetrics.com/eagles.ics' } });
+    fireEvent.click(screen.getByRole('button', { name: /^link$/i }));
+
+    await waitFor(() => {
+      expect(mockSyncTeamCalendar).toHaveBeenCalledTimes(2);
+    });
+    expect(mockSyncTeamCalendar).toHaveBeenNthCalledWith(1, expect.objectContaining({ dryRun: true, feedUrl: 'https://calendar.playmetrics.com/eagles.ics' }));
+    expect(mockSyncTeamCalendar).toHaveBeenNthCalledWith(2, expect.objectContaining({ dryRun: false, feedUrl: 'https://calendar.playmetrics.com/eagles.ics' }));
+    await waitFor(() => {
+      expect(toast.showSuccess).toHaveBeenCalledWith(expect.stringMatching(/up to date/i));
+    });
+    expect(screen.queryByText(/import preview/i)).not.toBeInTheDocument();
+  });
+
+  it('switching the selected team clears an unsubmitted pasted URL (issue #189 class of bug)', () => {
+    teamQueryResult.data = [
+      { id: 'team-1', name: 'Eagles', coaches: ['test-user-id'] },
+      { id: 'team-2', name: 'Hawks', coaches: ['test-user-id'] },
+    ];
+    teamQueryResult.isSynced = true;
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole('button', { name: /import from calendar/i }));
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-1' } });
+    fireEvent.click(screen.getByRole('button', { name: /paste a calendar link instead/i }));
+    fireEvent.change(screen.getByLabelText(/calendar feed url/i), { target: { value: 'https://calendar.playmetrics.com/eagles.ics' } });
+
+    fireEvent.change(screen.getByLabelText(/team to import games for/i), { target: { value: 'team-2' } });
+
+    expect(screen.getByLabelText(/calendar feed url/i)).toHaveValue('');
+  });
+});
+
 describe('Home — Calendar Feed Import (Phase 3, "Sync now" relabeling)', () => {
   beforeEach(resetState);
 

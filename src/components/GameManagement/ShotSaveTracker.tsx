@@ -3,10 +3,10 @@ import { showWarning, showSuccess } from "../../utils/toast";
 import { handleApiError } from "../../utils/errorHandler";
 import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { PlayerSelect } from "../PlayerSelect";
-import { isPlayerCurrentlyPlaying } from "../../utils/playTimeCalculations";
+import { isPlayerCurrentlyPlaying, getCurrentGoalkeeperId } from "../../utils/playTimeCalculations";
 import { isPlayerInLineup } from "../../utils/lineupUtils";
 import type { GameMutationInput, ShotUpdateFields, SaveUpdateFields } from "../../hooks/useOfflineMutations";
-import type { Game, Team, PlayerWithRoster, Shot, Save, PlayTimeRecord, LineupAssignment } from "./types";
+import type { Game, Team, PlayerWithRoster, Shot, Save, PlayTimeRecord, LineupAssignment, FormationPosition } from "./types";
 import type { StatSubView } from "./StatsSubViewTabs";
 import { GameActionRow } from "./actions/GameActionRow";
 import type { GameActionDescriptor } from "./actions/actionContract";
@@ -28,6 +28,7 @@ interface ShotSaveTrackerProps {
   mutations: GameMutationInput;
   playTimeRecords: PlayTimeRecord[];
   lineup: LineupAssignment[];
+  positions: FormationPosition[];
 }
 
 function isUsAttributed(statView: Exclude<StatSubView, "goals">, item: StatItem): boolean {
@@ -51,6 +52,7 @@ export function ShotSaveTracker({
   mutations,
   playTimeRecords,
   lineup,
+  positions,
 }: ShotSaveTrackerProps) {
   const items: StatItem[] = statView === "shots" ? shots : saves;
   const label = LABELS[statView];
@@ -78,7 +80,12 @@ export function ShotSaveTracker({
 
   const handleOpenEntryModal = (isUs: boolean) => {
     setEntryIsUs(isUs);
-    setEntryPlayerId("");
+    // Pre-fill the goalkeeper for a "Us" Save when unambiguous -- see
+    // getCurrentGoalkeeperId's doc comment for exact ambiguity semantics.
+    // Shots are never affected; opponent-attributed entries never prefill.
+    const derivedGoalkeeperId =
+      statView === "saves" && isUs ? getCurrentGoalkeeperId(playTimeRecords, positions) : null;
+    setEntryPlayerId(derivedGoalkeeperId ?? "");
     setEntryOnTarget(true);
     setShowEntryModal(true);
   };
@@ -128,11 +135,18 @@ export function ShotSaveTracker({
 
   const handleOpenEditModal = useCallback((item: StatItem) => {
     setEditItem(item);
-    setEditPlayerId(item.playerId ?? "");
+    // Only prefill a derived goalkeeper when the item has NO existing
+    // playerId -- never clobber an already-recorded attribution. Uses the
+    // *current* goalkeeper (not a point-in-time lookup at the item's
+    // gameSeconds) -- see the plan's Edge Cases section: this is the
+    // mandated, only behavior for the edit modal, not an oversight.
+    const derivedGoalkeeperId =
+      statView === "saves" && !item.playerId ? getCurrentGoalkeeperId(playTimeRecords, positions) : null;
+    setEditPlayerId(item.playerId ?? derivedGoalkeeperId ?? "");
     setEditOnTarget(statView === "shots" ? (item as Shot).onTarget ?? true : true);
     setError("");
     setShowEditModal(true);
-  }, [statView]);
+  }, [statView, playTimeRecords, positions]);
 
   const handleCloseEditModal = useCallback(() => {
     setShowEditModal(false);

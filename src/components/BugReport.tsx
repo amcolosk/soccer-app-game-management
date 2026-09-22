@@ -4,6 +4,7 @@ import type { Schema } from '../../amplify/data/resource';
 import { showWarning } from '../utils/toast';
 import { handleApiError } from '../utils/errorHandler';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
+import { buildConsoleLogSnapshot } from '../utils/consoleLogBuffer';
 
 const client = generateClient<Schema>();
 
@@ -52,7 +53,10 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
       };
 
       // Combine user-entered steps with any available debug context snapshot
-      const combinedSteps = [steps, debugContext].filter(Boolean).join('\n\n') || undefined;
+      // and the recent console.warn/console.error ring buffer.
+      const combinedSteps = [steps, debugContext, buildConsoleLogSnapshot()]
+        .filter(Boolean)
+        .join('\n\n') || undefined;
 
       // Send bug report to GitHub Issues via Lambda
       const result = await client.mutations.createGitHubIssue({

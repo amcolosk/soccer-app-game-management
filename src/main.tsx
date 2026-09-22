@@ -8,6 +8,9 @@ import outputs from "../amplify_outputs.json";
 import { initGA } from "./utils/analytics.ts";
 import type { Schema } from "../amplify/data/resource";
 import { cleanupAllDataForE2E } from "./utils/e2eCleanup.ts";
+import { installConsoleLogBuffer } from "./utils/consoleLogBuffer.ts";
+
+installConsoleLogBuffer();
 
 Amplify.configure(outputs);
 

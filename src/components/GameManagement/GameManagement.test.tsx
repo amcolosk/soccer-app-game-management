@@ -1500,6 +1500,101 @@ describe("GameManagement – starter fallback uses resolved starters", () => {
     expect(mockGameUpdate).not.toHaveBeenCalled();
     expect(mockPlayTimeCreate).not.toHaveBeenCalled();
   });
+
+  it("handleStartSecondHalf uses GamePlan halftimeLineup snapshot to fill starters when local lineup state is behind", async () => {
+    const user = userEvent.setup();
+    const gameState = { ...defaultSubscription.gameState, status: 'halftime' };
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState,
+      // Local `lineup` from the subscription only has 1 of 2 expected starters
+      // (e.g. the observeQuery subscription hasn't caught up yet).
+      lineup: [
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+      ],
+      gamePlan: {
+        id: 'gp-1',
+        halftimeLineup: JSON.stringify([
+          { playerId: 'p1', positionId: 'pos1' },
+          { playerId: 'p2', positionId: 'pos2' },
+        ]),
+        rotationIntervalMinutes: 10,
+      },
+    });
+
+    renderWithRouter(
+      <GameManagement
+        game={{ ...mockGame, status: 'halftime' }}
+        team={{ ...mockTeam, maxPlayersOnField: 2 }}
+        onBack={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /start second half/i }));
+
+    // The GamePlan snapshot (2 starters) covers the gap left by the lagging local
+    // lineup (1 starter), so it's used directly and the DB fallback is never reached.
+    await waitFor(() => {
+      expect(mockPlayTimeCreate).toHaveBeenCalledTimes(2);
+    });
+    expect(mockLineupList).not.toHaveBeenCalled();
+  });
+
+  // Regression coverage for issue #182 ("Unable to remove player"). Root cause:
+  // GameManagement.tsx's handleStartSecondHalf() treats "local starters below
+  // team.maxPlayersOnField" as "local state is stale" and falls back to the
+  // GamePlan's saved halftimeLineup/startingLineup snapshot whenever that
+  // snapshot has *more* entries than the current local lineup (see the
+  // `plannedSecondHalfStarters.length > starters.length` check). That heuristic
+  // can't distinguish "subscription hasn't caught up yet" from "the coach just
+  // removed a starter at halftime and hasn't picked a replacement" — in the
+  // latter case it silently reinstates the just-removed player from the stale
+  // plan snapshot the moment the coach starts the second half, undoing the
+  // removal without any error or confirmation.
+  //
+  // Written with `it.fails` so the suite (and `npm run gate:commit`) stays green
+  // until this is fixed — flip it to `it(...)` once the fallback correctly
+  // respects an intentional halftime removal.
+  it.fails("regression (#182): a player removed at halftime is not silently reinstated from a stale GamePlan snapshot on Start Second Half", async () => {
+    const user = userEvent.setup();
+    const gameState = { ...defaultSubscription.gameState, status: 'halftime' };
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState,
+      // Coach removed p2 from pos2 via the LineupPanel "x" button and has not
+      // yet assigned a replacement — this is the current, authoritative lineup.
+      lineup: [
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+      ],
+      // The GamePlan snapshot predates the removal and still lists p2 in pos2.
+      gamePlan: {
+        id: 'gp-1',
+        halftimeLineup: JSON.stringify([
+          { playerId: 'p1', positionId: 'pos1' },
+          { playerId: 'p2', positionId: 'pos2' },
+        ]),
+        rotationIntervalMinutes: 10,
+      },
+    });
+
+    renderWithRouter(
+      <GameManagement
+        game={{ ...mockGame, status: 'halftime' }}
+        team={{ ...mockTeam, maxPlayersOnField: 2 }}
+        onBack={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /start second half/i }));
+
+    await waitFor(() => {
+      expect(mockPlayTimeCreate).toHaveBeenCalled();
+    });
+    const createdPlayerIds = mockPlayTimeCreate.mock.calls.map(
+      (args: unknown[]) => (args[0] as { playerId: string }).playerId,
+    );
+    expect(createdPlayerIds).not.toContain('p2');
+  });
 });
 
 // ---------------------------------------------------------------------------
