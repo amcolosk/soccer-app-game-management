@@ -1702,20 +1702,15 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         positionId: starter.positionId,
       }));
 
+      // Note: unlike handleStartGame, this deliberately does NOT fall back to the
+      // saved GamePlan halftimeLineup/startingLineup snapshot when local starters
+      // are below expected. That snapshot is captured before halftime and goes
+      // stale the moment a coach removes a starter (or reassigns one) during the
+      // break — falling back to it here silently reinstated players the coach had
+      // just removed, with no error or confirmation (#182, #190). The live lineup
+      // subscription plus a direct DB re-query (below) are the only sources of
+      // truth for what's actually starting the second half.
       if (resolvedLocalStarterCount < expectedStarterCount) {
-        const plannedSecondHalfStarters = parsePersistedStarterLineup(
-          (gamePlan?.halftimeLineup as string | null | undefined)
-          || (gamePlan?.startingLineup as string | null | undefined)
-          || null,
-          getPlayerAvailability,
-        );
-
-        if (plannedSecondHalfStarters.length > starters.length) {
-          starters = plannedSecondHalfStarters;
-        }
-      }
-
-      if (starters.length < expectedStarterCount) {
         const fallbackAssignments = await client.models.LineupAssignment.list({
           filter: {
             gameId: { eq: game.id },
