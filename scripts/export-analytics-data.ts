@@ -116,12 +116,14 @@ function writeCsv(outDir: string, fileName: string, columns: string[], rows: Rec
   for (const row of rows) {
     lines.push(columns.map((column) => csvEscape(row[column])).join(','));
   }
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- outDir/fileName come from this script's own CLI flags and hardcoded call sites, not untrusted input; this is a local admin script, not a served path
   writeFileSync(join(outDir, fileName), lines.join('\n') + '\n', 'utf8');
   console.log(`  wrote ${fileName} (${rows.length} rows)`);
 }
 
 async function main(): Promise<void> {
   const config = parseConfig();
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- outDir comes from this script's own --out-dir flag, not untrusted input
   mkdirSync(config.outDir, { recursive: true });
 
   console.log('Exporting analytics tables', { outDir: config.outDir, teamFilter: config.teamId ?? 'all' });
