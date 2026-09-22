@@ -48,6 +48,28 @@ export function calculateRecord(games: Pick<Game, 'status' | 'ourScore' | 'oppon
 }
 
 /**
+ * Derives the current score from Goal records. This is the single source of
+ * truth for "what is the score right now" while a game is active — Game.ourScore/
+ * opponentScore in the DB is NOT kept live; it's only written at game creation
+ * (0/0) and at game completion (final snapshot, GameManagement.tsx's completed-
+ * state reconciliation effect). Any live-score display (CommandBand, Fan Mode,
+ * Sideline Stat Tracker) must derive from Goal records, not the Game row, while
+ * status is 'in-progress' or 'halftime'.
+ *
+ * Mirrored by amplify/functions/shared/score.ts's Lambda-side twin (a Lambda
+ * can't import from src/) — parity-tested in
+ * amplify/functions/shared/score.test.ts. Keep both in sync on any change,
+ * same convention as gameClock.ts/gameClock.test.ts and
+ * goalkeeper.ts/goalkeeper.test.ts.
+ */
+export function computeScoreFromGoals(goals: Array<{ scoredByUs: boolean }>) {
+  return {
+    ourScore: goals.filter(g => g.scoredByUs).length,
+    opponentScore: goals.filter(g => !g.scoredByUs).length,
+  };
+}
+
+/**
  * Toggles a position ID in a comma-separated preferredPositions string.
  * Returns the updated string, or undefined if empty.
  */

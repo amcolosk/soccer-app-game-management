@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import { StatTrackerView } from './StatTrackerView';
+import { useWakeLock } from '../../hooks/useWakeLock';
 
 const { mockGetStatTrackerView, mockSubmitStatEvent } = vi.hoisted(() => ({
   mockGetStatTrackerView: vi.fn(),
@@ -17,6 +18,8 @@ vi.mock('aws-amplify/data', () => ({
     mutations: { submitStatEvent: mockSubmitStatEvent },
   }),
 }));
+
+vi.mock('../../hooks/useWakeLock', () => ({ useWakeLock: vi.fn() }));
 
 function result(data: Record<string, unknown> | null) {
   return { data, errors: [] };
@@ -705,6 +708,81 @@ describe('StatTrackerView', () => {
 
       expect(screen.getByText(/vs Lakeside FC/)).toBeInTheDocument();
       expect(screen.getByText(/vs Riverside/)).toBeInTheDocument();
+    });
+  });
+
+  describe('useWakeLock', () => {
+    const mockUseWakeLock = vi.mocked(useWakeLock);
+
+    beforeEach(() => {
+      mockUseWakeLock.mockClear();
+    });
+
+    it('is called with true when viewState is LIVE and status is in-progress', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ status: 'in-progress' })));
+      render(<StatTrackerView />);
+      await flush();
+      expect(mockUseWakeLock).toHaveBeenCalledWith(true);
+    });
+
+    it('is called with true when viewState is LIVE and status is halftime', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ status: 'halftime' })));
+      render(<StatTrackerView />);
+      await flush();
+      expect(mockUseWakeLock).toHaveBeenCalledWith(true);
+    });
+
+    it('is called with false on NEXT_GAME', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result({
+        state: 'NEXT_GAME',
+        teamName: 'Eagles',
+        opponentName: 'Lakeside FC',
+        upcomingGames: [],
+      }));
+      render(<StatTrackerView />);
+      await flush();
+      expect(mockUseWakeLock).toHaveBeenCalledWith(false);
+    });
+
+    it('is called with false on FINISHED', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result({ state: 'FINISHED', teamName: 'Eagles', upcomingGames: [] }));
+      render(<StatTrackerView />);
+      await flush();
+      expect(mockUseWakeLock).toHaveBeenCalledWith(false);
+    });
+
+    it('is called with false on NO_GAMES_YET', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result({ state: 'NO_GAMES_YET', teamName: 'Eagles', upcomingGames: [] }));
+      render(<StatTrackerView />);
+      await flush();
+      expect(mockUseWakeLock).toHaveBeenCalledWith(false);
+    });
+
+    it('is called with false on NO_GAME_RIGHT_NOW', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result({ state: 'NO_GAME_RIGHT_NOW', teamName: 'Eagles', upcomingGames: [] }));
+      render(<StatTrackerView />);
+      await flush();
+      expect(mockUseWakeLock).toHaveBeenCalledWith(false);
+    });
+
+    it('is called with false on RATE_LIMITED', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result({ state: 'RATE_LIMITED' }));
+      render(<StatTrackerView />);
+      await flush();
+      expect(mockUseWakeLock).toHaveBeenCalledWith(false);
+    });
+
+    it('is called with false on INVALID_LINK', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result({ state: 'INVALID_LINK' }));
+      render(<StatTrackerView />);
+      await flush();
+      expect(mockUseWakeLock).toHaveBeenCalledWith(false);
+    });
+
+    it('is called with false while LOADING (before the first response resolves)', () => {
+      mockGetStatTrackerView.mockReturnValue(new Promise(() => {})); // never resolves
+      render(<StatTrackerView />);
+      expect(mockUseWakeLock).toHaveBeenCalledWith(false);
     });
   });
 });

@@ -4,6 +4,7 @@ import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../../amplify/data/resource';
 import { computeCurrentGameSeconds } from '../../utils/gameClock';
 import { formatPlayTime } from '../../utils/playTimeCalculations';
+import { useWakeLock } from '../../hooks/useWakeLock';
 import './FanMode.css';
 
 // Public, unauthenticated screen (`/track/:token`) — a non-coach helper's
@@ -214,6 +215,13 @@ export function StatTrackerView() {
   // halftime sub-case rather than letting a helper produce a guaranteed
   // GAME_NOT_LIVE rejection.
   const tapUiUnlocked = viewState === 'LIVE' && data?.status === 'in-progress';
+
+  // Keeps the helper's screen from sleeping mid-game -- covers both
+  // in-progress and halftime (viewState === 'LIVE'), same reuse of
+  // src/hooks/useWakeLock.ts that GameManagement.tsx mounts for the coach's
+  // own live-game screen. No-ops silently on browsers without Wake Lock API
+  // support (handled inside the hook).
+  useWakeLock(viewState === 'LIVE');
 
   // Faster resync while the tap UI is locked but the page is still open on
   // a LIVE game (halftime, most commonly) -- a helper shouldn't need to

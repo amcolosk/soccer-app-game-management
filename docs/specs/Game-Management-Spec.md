@@ -206,7 +206,7 @@ This ensures subscriptions reflect the post-replay state rather than a stale sna
 
 ## 6. Screen Wake Lock
 
-`useWakeLock(isActive)` is mounted in `GameManagement` with `isActive = (status === 'in-progress' || status === 'halftime')`.
+`useWakeLock(isActive)` is mounted in `GameManagement` with `isActive = (status === 'in-progress' || status === 'halftime')`. Also mounted independently in the public Sideline Stat Tracker (`StatTrackerView`, `isActive = viewState === 'LIVE'`) — see `docs/specs/UI-SPEC.md` §7.15.
 
 - Acquires `navigator.wakeLock.request('screen')` to prevent the device from sleeping during active games
 - Re-acquires on `visibilitychange → visible` (e.g., after a phone call or notification)

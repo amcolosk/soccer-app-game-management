@@ -13,6 +13,7 @@ import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, copyGamePlan, type PlannedSubstitution } from "../../services/rotationPlannerService";
 import { calculatePlayerPlayTime } from "../../utils/playTimeCalculations";
 import { getMissingRolePositions } from "../../utils/formationUtils";
+import { computeScoreFromGoals } from "../../utils/gameCalculations";
 import {
   computeRevisionFingerprint,
   computeRotationDiff,
@@ -125,17 +126,6 @@ function parsePersistedStarterLineup(
   } catch {
     return [];
   }
-}
-
-/**
- * Compute final score from Goal records.
- * Used for deriving scores during active game and writing snapshots on completion.
- */
-function computeScoreFromGoals(goals: Array<{ scoredByUs: boolean }>) {
-  return {
-    ourScore: goals.filter(g => g.scoredByUs).length,
-    opponentScore: goals.filter(g => !g.scoredByUs).length,
-  };
 }
 
 /**
