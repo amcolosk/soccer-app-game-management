@@ -17,6 +17,14 @@ import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb';
 // credentials/profile are active in your shell), because there's no
 // Cognito-authenticated "coach" identity available outside the running app.
 //
+// Also exports Formation and LineupAssignment, needed for the
+// formation-win-rate.sql query: LineupAssignment.positionId is populated
+// with FormationPosition ids (same current-era precedent documented on
+// getCurrentGoalkeeperId in playTimeCalculations.ts), so a game's starting
+// formation is derived from its starters' positionId -> FormationPosition
+// .formationId, not from Team.formationId (which is a mutable current
+// pointer, not a historical record of what a given game was played in).
+//
 // Usage:
 //   npx tsx scripts/export-analytics-data.ts [--out-dir=./analytics-export] [--team-id=<id>]
 //
@@ -25,7 +33,8 @@ import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb';
 // branch outputs (CloudFormation stack resources), not in amplify_outputs.json
 // (that file only has the AppSync endpoint, not table names).
 //   TEAM_TABLE GAME_TABLE GOAL_TABLE SHOT_TABLE SAVE_TABLE
-//   PLAY_TIME_RECORD_TABLE FORMATION_POSITION_TABLE PLAYER_TABLE
+//   PLAY_TIME_RECORD_TABLE FORMATION_TABLE FORMATION_POSITION_TABLE
+//   LINEUP_ASSIGNMENT_TABLE PLAYER_TABLE
 
 type ScriptConfig = {
   teamTable: string;
@@ -34,7 +43,9 @@ type ScriptConfig = {
   shotTable: string;
   saveTable: string;
   playTimeRecordTable: string;
+  formationTable: string;
   formationPositionTable: string;
+  lineupAssignmentTable: string;
   playerTable: string;
   outDir: string;
   teamId?: string;
@@ -61,7 +72,9 @@ function parseConfig(): ScriptConfig {
     shotTable: getRequiredValue('shot table', 'SHOT_TABLE', '--shot-table'),
     saveTable: getRequiredValue('save table', 'SAVE_TABLE', '--save-table'),
     playTimeRecordTable: getRequiredValue('play time record table', 'PLAY_TIME_RECORD_TABLE', '--play-time-record-table'),
+    formationTable: getRequiredValue('formation table', 'FORMATION_TABLE', '--formation-table'),
     formationPositionTable: getRequiredValue('formation position table', 'FORMATION_POSITION_TABLE', '--formation-position-table'),
+    lineupAssignmentTable: getRequiredValue('lineup assignment table', 'LINEUP_ASSIGNMENT_TABLE', '--lineup-assignment-table'),
     playerTable: getRequiredValue('player table', 'PLAYER_TABLE', '--player-table'),
     outDir: getArgValue('--out-dir') ?? './analytics-export',
     teamId: getArgValue('--team-id'),
@@ -152,6 +165,16 @@ async function main(): Promise<void> {
   const saves = allSaves.filter((row) => gameIds.has(row.gameId as string));
   const playTimeRecords = allPlayTimeRecords.filter((row) => gameIds.has(row.gameId as string));
 
+  const allLineupAssignments = await scanAll<Record<string, unknown>>(
+    config.lineupAssignmentTable,
+    ['id', 'gameId', 'playerId', 'positionId', 'isStarter'],
+  );
+  const lineupAssignments = allLineupAssignments.filter((row) => gameIds.has(row.gameId as string));
+
+  // FormationPosition ids referenced by either PlayTimeRecord or LineupAssignment --
+  // a team's assigned formation can change over time, so a game's lineup may
+  // reference a formation the team no longer points to (Team.formationId is
+  // a current pointer, not history), and both writers need to resolve here.
   const relevantFormationIds = new Set(
     teams.filter((team) => relevantTeamIds.has(team.id as string)).map((team) => team.formationId as string).filter(Boolean),
   );
@@ -159,9 +182,25 @@ async function main(): Promise<void> {
     config.formationPositionTable,
     ['id', 'formationId', 'positionName', 'abbreviation', 'role'],
   );
-  const formationPositions = allFormationPositions.filter((row) => relevantFormationIds.has(row.formationId as string));
+  const referencedFormationPositionIds = new Set([
+    ...playTimeRecords.map((row) => row.positionId as string),
+    ...lineupAssignments.map((row) => row.positionId as string),
+  ]);
+  const formationPositions = allFormationPositions.filter(
+    (row) => relevantFormationIds.has(row.formationId as string) || referencedFormationPositionIds.has(row.id as string),
+  );
 
-  const relevantPlayerIds = new Set(playTimeRecords.map((row) => row.playerId as string));
+  const relevantAllFormationIds = new Set([
+    ...relevantFormationIds,
+    ...formationPositions.map((row) => row.formationId as string),
+  ]);
+  const allFormations = await scanAll<Record<string, unknown>>(config.formationTable, ['id', 'name']);
+  const formations = allFormations.filter((row) => relevantAllFormationIds.has(row.id as string));
+
+  const relevantPlayerIds = new Set([
+    ...playTimeRecords.map((row) => row.playerId as string),
+    ...lineupAssignments.map((row) => row.playerId as string),
+  ]);
   const allPlayers = await scanAll<Record<string, unknown>>(config.playerTable, ['id', 'firstName', 'lastName']);
   const players = allPlayers.filter((row) => relevantPlayerIds.has(row.id as string));
 
@@ -171,7 +210,9 @@ async function main(): Promise<void> {
   writeCsv(config.outDir, 'shots.csv', ['id', 'gameId', 'playerId', 'takenByUs', 'onTarget', 'gameSeconds', 'half'], shots);
   writeCsv(config.outDir, 'saves.csv', ['id', 'gameId', 'playerId', 'byUs', 'gameSeconds', 'half'], saves);
   writeCsv(config.outDir, 'play_time_records.csv', ['id', 'gameId', 'playerId', 'positionId', 'startGameSeconds', 'endGameSeconds'], playTimeRecords);
+  writeCsv(config.outDir, 'formations.csv', ['id', 'name'], formations);
   writeCsv(config.outDir, 'formation_positions.csv', ['id', 'formationId', 'positionName', 'abbreviation', 'role'], formationPositions);
+  writeCsv(config.outDir, 'lineup_assignments.csv', ['id', 'gameId', 'playerId', 'positionId', 'isStarter'], lineupAssignments);
   writeCsv(config.outDir, 'players.csv', ['id', 'firstName', 'lastName'], players);
 
   console.log('Export complete. Query the CSVs directly with DuckDB, e.g.:');
