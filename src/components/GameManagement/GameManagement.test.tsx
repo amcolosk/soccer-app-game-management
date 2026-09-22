@@ -1304,6 +1304,18 @@ describe("GameManagement – starter fallback uses resolved starters", () => {
     mockUseTeamData.mockReturnValue({ players: [], positions: [] });
   });
 
+  // `defaultSubscription.setGameState` also fires for unrelated reasons on every
+  // render (e.g. score derivation from `goals`), so a bare "not called" assertion
+  // would be a false positive. Apply each recorded updater to `prev` instead, and
+  // check whether any of them would actually flip `status` to 'in-progress'.
+  function wasGameStateFlippedToInProgress(prev: typeof defaultSubscription.gameState): boolean {
+    return defaultSubscription.setGameState.mock.calls.some(([updater]) => {
+      if (typeof updater !== 'function') return false;
+      const next = (updater as (p: typeof prev) => typeof prev)(prev);
+      return next?.status === 'in-progress';
+    });
+  }
+
   it("handleStartGame sends friendly starter message when fallback is still insufficient", async () => {
     const { handleApiError } = await import("../../utils/errorHandler");
     const user = userEvent.setup();
@@ -1499,6 +1511,13 @@ describe("GameManagement – starter fallback uses resolved starters", () => {
     });
     expect(mockGameUpdate).not.toHaveBeenCalled();
     expect(mockPlayTimeCreate).not.toHaveBeenCalled();
+    // Starters are resolved and validated before the in-progress transition, so
+    // an insufficient count must never flip local gameState to in-progress —
+    // that would strand the coach on an in-progress-looking screen with no Game
+    // write behind it and no way back except a reload. (setGameState is also
+    // called for unrelated score-derivation reasons on every render, so assert
+    // on what any call *would* apply rather than call count.)
+    expect(wasGameStateFlippedToInProgress(gameState)).toBe(false);
   });
 
   it("handleStartSecondHalf re-verifies against the DB rather than trusting a stale GamePlan snapshot when local lineup state is behind", async () => {
@@ -1622,6 +1641,7 @@ describe("GameManagement – starter fallback uses resolved starters", () => {
     );
     expect(createdPlayerIds).not.toContain('p2');
     expect(mockGameUpdate).not.toHaveBeenCalled();
+    expect(wasGameStateFlippedToInProgress(gameState)).toBe(false);
   });
 });
 

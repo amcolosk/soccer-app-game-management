@@ -1671,25 +1671,12 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       const startTime = new Date().toISOString();
       const resumeTime = currentTime; // Capture current time to continue from
 
-      if (halftimePtrClosePendingRef.current) {
-        try {
-          await closeActivePlayTimeRecords(playTimeRecords, resumeTime, undefined, game.id, mutations);
-          halftimePtrClosePendingRef.current = false;
-        } catch (error) {
-          handleApiError(error, 'Failed to close halftime play-time records before second half start');
-          return;
-        }
-      }
-      
-      // CRITICAL: Update gameState.currentHalf BEFORE starting the timer.
-      // Without this, the timer hook may see currentHalf===1 and re-trigger
-      // auto-halftime because the DB subscription hasn't propagated yet.
-      setGameState(prev => ({ ...prev, status: 'in-progress', currentHalf: 2 }));
-      
-      // Reset halftime guard so it could theoretically fire again if needed
-      halftimeInProgressRef.current = false;
-      
-      // Create play time records for all players currently in lineup for second half
+      // Resolve and validate starters BEFORE any side effect below (closing
+      // halftime PlayTimeRecords, flipping local gameState to in-progress).
+      // Those side effects aren't backed out on a thrown StarterCountError, and
+      // nothing re-syncs local state afterward (no Game write happens), so doing
+      // them first would strand the coach on an in-progress-looking screen with
+      // no way back except a reload the moment starters are insufficient.
       const resolvedLocalStarters = lineup.filter(
         (l): l is typeof l & { playerId: string; positionId: string } =>
           l.isStarter && !!l.playerId && !!l.positionId
@@ -1710,6 +1697,17 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       // just removed, with no error or confirmation (#182, #190). The live lineup
       // subscription plus a direct DB re-query (below) are the only sources of
       // truth for what's actually starting the second half.
+      //
+      // Residual gap (not closed by this fix): a removal is only visible here
+      // once `lineup` (the subscription prop) reflects the delete. LineupPanel's
+      // own `pendingRemovalIds` hides a just-removed slot optimistically in its
+      // own state, so `resolvedLocalStarterCount` can still read as "full" for a
+      // brief window — or indefinitely while offline, since the delete mutation
+      // is queued rather than applied — in which case neither this DB re-query
+      // nor the check above ever fires, and a still-queued removed player could
+      // still get a second-half PlayTimeRecord. Closing that gap needs the
+      // removal state lifted out of LineupPanel — not fixed here; file a
+      // follow-up issue before acting on it further.
       if (resolvedLocalStarterCount < expectedStarterCount) {
         const fallbackAssignments = await client.models.LineupAssignment.list({
           filter: {
@@ -1733,7 +1731,25 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       if (starters.length < expectedStarterCount) {
         throw new StarterCountError('handleStartSecondHalf', expectedStarterCount, starters.length);
       }
-      
+
+      if (halftimePtrClosePendingRef.current) {
+        try {
+          await closeActivePlayTimeRecords(playTimeRecords, resumeTime, undefined, game.id, mutations);
+          halftimePtrClosePendingRef.current = false;
+        } catch (error) {
+          handleApiError(error, 'Failed to close halftime play-time records before second half start');
+          return;
+        }
+      }
+
+      // CRITICAL: Update gameState.currentHalf BEFORE starting the timer.
+      // Without this, the timer hook may see currentHalf===1 and re-trigger
+      // auto-halftime because the DB subscription hasn't propagated yet.
+      setGameState(prev => ({ ...prev, status: 'in-progress', currentHalf: 2 }));
+
+      // Reset halftime guard so it could theoretically fire again if needed
+      halftimeInProgressRef.current = false;
+
       const starterPromises = starters.map(l => {
         return mutations.createPlayTimeRecord({
           id: buildDeterministicStartPlayTimeRecordId({
