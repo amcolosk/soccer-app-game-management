@@ -5,6 +5,7 @@ import type { Schema } from '../../data/resource';
 import { resolveShareLinkAccess, selectUpcomingGames, type GameRecord, type ShareLinkAccessTables } from '../shared/shareLinkAccess';
 import { queryAllByGameIdIndex } from '../shared/dynamo';
 import { computeActiveGoalkeeperId, type PlayTimeRecordLike, type PositionRoleLike } from '../shared/goalkeeper';
+import { resolveScore } from '../shared/score';
 
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
@@ -187,6 +188,14 @@ function toUpcomingGame(game: GameRecord) {
 // game.status === 'in-progress') to derive activeGoalkeeperId and each
 // on-field player's positionName -- see fetchActiveGoalkeeperAndPositions
 // above and amplify/functions/shared/goalkeeper.ts.
+//
+// Live score fix: also queries Goal's goalsByGameId GSI (only when the
+// broader `isLive` -- in-progress OR halftime, unlike isInProgress above --
+// holds) and derives ourScore/opponentScore from those rows via
+// amplify/functions/shared/score.ts's resolveScore, since Game.ourScore/
+// opponentScore is only ever written at creation (0/0) and completion (final
+// snapshot), never mid-game. See CLAUDE.md's "Game timer is client-side"
+// section for the parity-tested client twin.
 export const handler: Handler = async (event) => {
   const identity = event.identity as AppSyncIdentityIAM | undefined;
   const identityId = identity?.cognitoIdentityId;
@@ -201,10 +210,11 @@ export const handler: Handler = async (event) => {
   const playerTable = process.env.PLAYER_TABLE;
   const playTimeRecordTable = process.env.PLAY_TIME_RECORD_TABLE;
   const formationPositionTable = process.env.FORMATION_POSITION_TABLE;
+  const goalTable = process.env.GOAL_TABLE;
 
   if (
     !shareLinkTable || !teamTable || !gameTable || !rateLimitTable || !teamRosterTable || !playerTable ||
-    !playTimeRecordTable || !formationPositionTable
+    !playTimeRecordTable || !formationPositionTable || !goalTable
   ) {
     throw new Error('Required environment variables are not set');
   }
@@ -254,14 +264,24 @@ export const handler: Handler = async (event) => {
   // `status === 'in-progress'` check).
   const isInProgress = game?.status === 'in-progress';
 
+  // Broader than isInProgress (which gates the PlayTimeRecord/goalkeeper
+  // query and deliberately excludes halftime, since halftime closes all
+  // open PlayTimeRecords). Score must stay live through halftime too --
+  // it should not go stale/reset just because the tap UI is locked.
+  const isLive = game != null && selection.branch === 'LIVE';
+
   // The new PlayTimeRecord GSI query runs concurrently with the existing
   // roster query -- they're independent reads. The FormationPosition
   // batch-get below depends on this query's result (needs its distinct
-  // positionIds first), so it can't join this same Promise.all.
-  const [rosterRows, openPlayTimeRecordsRaw] = await Promise.all([
+  // positionIds first), so it can't join this same Promise.all. The Goal
+  // GSI query (score derivation) is likewise independent of both.
+  const [rosterRows, openPlayTimeRecordsRaw, goalsRaw] = await Promise.all([
     queryActiveRosterByTeamId(teamRosterTable, team.id),
     isInProgress
       ? queryAllByGameIdIndex(docClient, playTimeRecordTable, 'playTimeRecordsByGameId', (game as GameRecord).id)
+      : Promise.resolve([]),
+    isLive
+      ? queryAllByGameIdIndex(docClient, goalTable, 'goalsByGameId', (game as GameRecord).id)
       : Promise.resolve([]),
   ]);
 
@@ -322,6 +342,8 @@ export const handler: Handler = async (event) => {
     };
   }
 
+  const score = resolveScore(isLive, game, goalsRaw as unknown as Array<{ scoredByUs: boolean }>);
+
   return {
     state: selection.branch,
     teamName: team.name ?? null,
@@ -331,8 +353,8 @@ export const handler: Handler = async (event) => {
     elapsedSeconds: game.elapsedSeconds ?? null,
     lastStartTime: game.lastStartTime ?? null,
     halfLengthMinutes: game.halfLengthMinutes ?? null,
-    ourScore: game.ourScore ?? null,
-    opponentScore: game.opponentScore ?? null,
+    ourScore: score.ourScore,
+    opponentScore: score.opponentScore,
     gameId: game.id,
     roster,
     activeGoalkeeperId,

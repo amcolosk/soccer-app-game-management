@@ -7,6 +7,7 @@ import {
   calculatePlayerRedCards,
   calculateRecord,
   togglePreferredPosition,
+  computeScoreFromGoals,
 } from './gameCalculations';
 import type { Goal, GameNote } from '../types/schema';
 
@@ -139,6 +140,38 @@ describe('calculateRecord', () => {
 
   it('should return all zeros for empty array', () => {
     expect(calculateRecord([])).toEqual({ wins: 0, losses: 0, ties: 0 });
+  });
+});
+
+describe('computeScoreFromGoals', () => {
+  it('returns 0-0 for an empty goals array', () => {
+    expect(computeScoreFromGoals([])).toEqual({ ourScore: 0, opponentScore: 0 });
+  });
+
+  it('counts goals scored by us', () => {
+    expect(computeScoreFromGoals([{ scoredByUs: true }, { scoredByUs: true }])).toEqual({
+      ourScore: 2,
+      opponentScore: 0,
+    });
+  });
+
+  it('counts goals scored by the opponent', () => {
+    expect(computeScoreFromGoals([{ scoredByUs: false }, { scoredByUs: false }, { scoredByUs: false }])).toEqual({
+      ourScore: 0,
+      opponentScore: 3,
+    });
+  });
+
+  it('counts a mix of goals for both sides', () => {
+    expect(
+      computeScoreFromGoals([
+        { scoredByUs: true },
+        { scoredByUs: false },
+        { scoredByUs: true },
+        { scoredByUs: false },
+        { scoredByUs: true },
+      ])
+    ).toEqual({ ourScore: 3, opponentScore: 2 });
   });
 });
 
