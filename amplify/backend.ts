@@ -25,6 +25,12 @@ import { createGameSafe } from './functions/create-game-safe/resource';
 import { syncTeamCalendar } from './functions/sync-team-calendar/resource';
 import { unlinkTeamCalendar } from './functions/unlink-team-calendar/resource';
 import { revokeCoachAccess } from './functions/revoke-coach-access/resource';
+import { generateShareLink } from './functions/generate-share-link/resource';
+import { revokeShareLink } from './functions/revoke-share-link/resource';
+import { listTeamShareLinks } from './functions/list-team-share-links/resource';
+import { getFanGameView } from './functions/get-fan-game-view/resource';
+import { getStatTrackerView } from './functions/get-stat-tracker-view/resource';
+import { submitStatEvent } from './functions/submit-stat-event/resource';
 
 const backend = defineBackend({
   auth,
@@ -50,6 +56,12 @@ const backend = defineBackend({
   syncTeamCalendar,
   unlinkTeamCalendar,
   revokeCoachAccess,
+  generateShareLink,
+  revokeShareLink,
+  listTeamShareLinks,
+  getFanGameView,
+  getStatTrackerView,
+  submitStatEvent,
 });
 
 // Add deployment ID to outputs
@@ -107,6 +119,8 @@ const teamRosterTable = backend.data.resources.tables['TeamRoster'];
 const gameTable = backend.data.resources.tables['Game'];
 const playTimeRecordTable = backend.data.resources.tables['PlayTimeRecord'];
 const goalTable = backend.data.resources.tables['Goal'];
+const shotTable = backend.data.resources.tables['Shot'];
+const saveTable = backend.data.resources.tables['Save'];
 const substitutionTable = backend.data.resources.tables['Substitution'];
 const lineupAssignmentTable = backend.data.resources.tables['LineupAssignment'];
 const playerAvailabilityTable = backend.data.resources.tables['PlayerAvailability'];
@@ -259,6 +273,8 @@ gameTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 teamTable.grantReadData(backend.deleteGameSafe.resources.lambda);
 playTimeRecordTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 goalTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+shotTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+saveTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 gameNoteTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 substitutionTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 lineupAssignmentTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
@@ -266,10 +282,29 @@ playerAvailabilityTable.grantReadWriteData(backend.deleteGameSafe.resources.lamb
 gamePlanTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 plannedRotationTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
 queuedSubstitutionTable.grantReadWriteData(backend.deleteGameSafe.resources.lambda);
+// grantReadWriteData above only authorizes the base table ARN, not its GSIs
+// (confirmed against the synthesized IAM policy in .amplify/artifacts/
+// cdk.out — no `/index/*` resource is included), same finding documented
+// at revokeCoachAccess's Query grants below. deleteGameSafe's handler now
+// Queries Goal/Shot/Save by their physical `gameId` GSI names
+// (goalsByGameId/shotsByGameId/savesByGameId) instead of scanning, so it
+// needs an explicit dynamodb:Query grant scoped to those index ARNs.
+backend.deleteGameSafe.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [
+      `${goalTable.tableArn}/index/goalsByGameId`,
+      `${shotTable.tableArn}/index/shotsByGameId`,
+      `${saveTable.tableArn}/index/savesByGameId`,
+    ],
+  })
+);
 backend.deleteGameSafe.addEnvironment('GAME_TABLE', gameTable.tableName);
 backend.deleteGameSafe.addEnvironment('TEAM_TABLE', teamTable.tableName);
 backend.deleteGameSafe.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
 backend.deleteGameSafe.addEnvironment('GOAL_TABLE', goalTable.tableName);
+backend.deleteGameSafe.addEnvironment('SHOT_TABLE', shotTable.tableName);
+backend.deleteGameSafe.addEnvironment('SAVE_TABLE', saveTable.tableName);
 backend.deleteGameSafe.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
 backend.deleteGameSafe.addEnvironment('SUBSTITUTION_TABLE', substitutionTable.tableName);
 backend.deleteGameSafe.addEnvironment('LINEUP_ASSIGNMENT_TABLE', lineupAssignmentTable.tableName);
@@ -285,6 +320,8 @@ teamRosterTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
 teamInvitationTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
 playTimeRecordTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
 goalTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+shotTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+saveTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
 gameNoteTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
 substitutionTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
 lineupAssignmentTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
@@ -297,6 +334,8 @@ backend.deleteTeamSafe.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.table
 backend.deleteTeamSafe.addEnvironment('TEAM_INVITATION_TABLE', teamInvitationTable.tableName);
 backend.deleteTeamSafe.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
 backend.deleteTeamSafe.addEnvironment('GOAL_TABLE', goalTable.tableName);
+backend.deleteTeamSafe.addEnvironment('SHOT_TABLE', shotTable.tableName);
+backend.deleteTeamSafe.addEnvironment('SAVE_TABLE', saveTable.tableName);
 backend.deleteTeamSafe.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
 backend.deleteTeamSafe.addEnvironment('SUBSTITUTION_TABLE', substitutionTable.tableName);
 backend.deleteTeamSafe.addEnvironment('LINEUP_ASSIGNMENT_TABLE', lineupAssignmentTable.tableName);
@@ -311,6 +350,8 @@ teamTable.grantReadData(backend.deletePlayerSafe.resources.lambda);
 teamRosterTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 playTimeRecordTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 goalTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
+shotTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
+saveTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 gameNoteTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 playerAvailabilityTable.grantReadWriteData(backend.deletePlayerSafe.resources.lambda);
 backend.deletePlayerSafe.addEnvironment('PLAYER_TABLE', playerTable.tableName);
@@ -318,6 +359,8 @@ backend.deletePlayerSafe.addEnvironment('TEAM_TABLE', teamTable.tableName);
 backend.deletePlayerSafe.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);
 backend.deletePlayerSafe.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
 backend.deletePlayerSafe.addEnvironment('GOAL_TABLE', goalTable.tableName);
+backend.deletePlayerSafe.addEnvironment('SHOT_TABLE', shotTable.tableName);
+backend.deletePlayerSafe.addEnvironment('SAVE_TABLE', saveTable.tableName);
 backend.deletePlayerSafe.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
 backend.deletePlayerSafe.addEnvironment('PLAYER_AVAILABILITY_TABLE', playerAvailabilityTable.tableName);
 
@@ -469,3 +512,157 @@ backend.revokeCoachAccess.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.ta
 backend.revokeCoachAccess.addEnvironment('FIELD_POSITION_TABLE', fieldPositionTable.tableName);
 backend.revokeCoachAccess.addEnvironment('GAME_TABLE', gameTable.tableName);
 backend.revokeCoachAccess.addEnvironment('TEAM_INVITATION_TABLE', teamInvitationTable.tableName);
+
+// ── Milestone B1: Fan Mode (public read-only) ──────────────────────────
+// Following the CalendarFeed/GameNote least-privilege grant pattern: each
+// Lambda only gets the specific actions its handler actually performs.
+const shareLinkTable = backend.data.resources.tables['ShareLink'];
+const fanViewRateLimitTable = backend.data.resources.tables['FanViewRateLimit'];
+
+// generate-share-link: read Team (membership/archived-team check), read/
+// write ShareLink (create-before-revoke), Query ShareLink's teamId index to
+// find any existing active link of the same type to revoke.
+teamTable.grantReadData(backend.generateShareLink.resources.lambda);
+shareLinkTable.grantReadWriteData(backend.generateShareLink.resources.lambda);
+backend.generateShareLink.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [`${shareLinkTable.tableArn}/index/shareLinksByTeamId`],
+  })
+);
+backend.generateShareLink.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.generateShareLink.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+
+// revoke-share-link: read ShareLink (resolve teamId) + Team (membership
+// check), update ShareLink (set revokedAt).
+teamTable.grantReadData(backend.revokeShareLink.resources.lambda);
+shareLinkTable.grantReadWriteData(backend.revokeShareLink.resources.lambda);
+backend.revokeShareLink.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.revokeShareLink.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+
+// list-team-share-links: read Team (membership check), Query ShareLink's
+// teamId index for the InvitationManagement.tsx display.
+teamTable.grantReadData(backend.listTeamShareLinks.resources.lambda);
+backend.listTeamShareLinks.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [`${shareLinkTable.tableArn}/index/shareLinksByTeamId`],
+  })
+);
+backend.listTeamShareLinks.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.listTeamShareLinks.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+
+// get-fan-game-view: guest + authenticated(identityPool) -- read ShareLink
+// (token lookup) + Team (curated payload), read/write FanViewRateLimit
+// (both rate-limit dimensions), Query Game's teamId index (4-branch
+// selection), Query PlayTimeRecord/Goal/Substitution's gameId indexes
+// (on-field lineup + recent events), read Player/FieldPosition (name/
+// position lookups for the anonymized payload).
+shareLinkTable.grantReadData(backend.getFanGameView.resources.lambda);
+teamTable.grantReadData(backend.getFanGameView.resources.lambda);
+fanViewRateLimitTable.grantReadWriteData(backend.getFanGameView.resources.lambda);
+playerTable.grantReadData(backend.getFanGameView.resources.lambda);
+fieldPositionTable.grantReadData(backend.getFanGameView.resources.lambda);
+backend.getFanGameView.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [
+      `${gameTable.tableArn}/index/gamesByTeamId`,
+      `${playTimeRecordTable.tableArn}/index/playTimeRecordsByGameId`,
+      `${goalTable.tableArn}/index/goalsByGameId`,
+      `${substitutionTable.tableArn}/index/substitutionsByGameId`,
+    ],
+  })
+);
+backend.getFanGameView.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+backend.getFanGameView.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.getFanGameView.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.getFanGameView.addEnvironment('FAN_VIEW_RATE_LIMIT_TABLE', fanViewRateLimitTable.tableName);
+backend.getFanGameView.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
+backend.getFanGameView.addEnvironment('PLAYER_TABLE', playerTable.tableName);
+backend.getFanGameView.addEnvironment('FIELD_POSITION_TABLE', fieldPositionTable.tableName);
+backend.getFanGameView.addEnvironment('GOAL_TABLE', goalTable.tableName);
+backend.getFanGameView.addEnvironment('SUBSTITUTION_TABLE', substitutionTable.tableName);
+
+// delete-team-safe: ShareLink cascade (mirrors its existing TeamInvitation
+// cascade by teamId).
+shareLinkTable.grantReadWriteData(backend.deleteTeamSafe.resources.lambda);
+backend.deleteTeamSafe.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+
+// archive-team: extend its existing TeamInvitation-sweeping behavior to
+// also revoke any active ShareLinks for the team (Query by teamId index +
+// per-item conditional UpdateItem, same shape as the TeamInvitation sweep).
+backend.archiveTeam.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query', 'dynamodb:UpdateItem'],
+    resources: [shareLinkTable.tableArn, `${shareLinkTable.tableArn}/index/shareLinksByTeamId`],
+  })
+);
+backend.archiveTeam.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+
+// ── Milestone B2: Sideline Stat Tracker (public write) ─────────────────
+
+// get-stat-tracker-view: guest + authenticated(identityPool) -- read
+// ShareLink (token lookup) + Team (curated payload), read/write
+// FanViewRateLimit (read-dimension rate limit), Query Game's teamId index
+// (4-branch selection), Query TeamRoster's gsi-Team.roster index + read
+// Player (active-roster picker payload). Save Auto-Goalkeeper Attribution
+// adds: Query PlayTimeRecord's playTimeRecordsByGameId GSI + read
+// FormationPosition (plain BatchGetItem on the base table), both only
+// queried when game.status === 'in-progress', to derive
+// activeGoalkeeperId.
+shareLinkTable.grantReadData(backend.getStatTrackerView.resources.lambda);
+teamTable.grantReadData(backend.getStatTrackerView.resources.lambda);
+fanViewRateLimitTable.grantReadWriteData(backend.getStatTrackerView.resources.lambda);
+playerTable.grantReadData(backend.getStatTrackerView.resources.lambda);
+playTimeRecordTable.grantReadData(backend.getStatTrackerView.resources.lambda);
+formationPositionTable.grantReadData(backend.getStatTrackerView.resources.lambda);
+backend.getStatTrackerView.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [
+      `${gameTable.tableArn}/index/gamesByTeamId`,
+      `${teamRosterTable.tableArn}/index/gsi-Team.roster`,
+      `${playTimeRecordTable.tableArn}/index/playTimeRecordsByGameId`,
+    ],
+  })
+);
+backend.getStatTrackerView.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+backend.getStatTrackerView.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.getStatTrackerView.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.getStatTrackerView.addEnvironment('FAN_VIEW_RATE_LIMIT_TABLE', fanViewRateLimitTable.tableName);
+backend.getStatTrackerView.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);
+backend.getStatTrackerView.addEnvironment('PLAYER_TABLE', playerTable.tableName);
+backend.getStatTrackerView.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
+backend.getStatTrackerView.addEnvironment('FORMATION_POSITION_TABLE', formationPositionTable.tableName);
+
+// submit-stat-event: guest + authenticated(identityPool) -- read ShareLink
+// (token lookup) + Team (fresh coaches[] + archived-team check via the
+// shared pipeline), read/write FanViewRateLimit (write-dimension rate limit
+// AND the clientEventId dedup marker, which reuses the same table), Query
+// Game's teamId index (4-branch selection/tiebreak) and TeamRoster's
+// gsi-Team.roster index (playerId/assistPlayerId membership validation).
+// The actual Goal/Shot/Save WRITE itself does not need a DynamoDB table
+// grant at all -- it goes through AppSync via the schema-level
+// `allow.resource(submitStatEvent).to(['mutate'])` grant in
+// amplify/data/resource.ts (see that file's comment for why this is
+// schema-wide/mutate-verb-wide by construction, not a narrower per-model
+// grant), which Amplify wires onto this Lambda's own execution role
+// automatically -- confirmed live by this milestone's validation spike.
+shareLinkTable.grantReadData(backend.submitStatEvent.resources.lambda);
+teamTable.grantReadData(backend.submitStatEvent.resources.lambda);
+fanViewRateLimitTable.grantReadWriteData(backend.submitStatEvent.resources.lambda);
+backend.submitStatEvent.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Query'],
+    resources: [
+      `${gameTable.tableArn}/index/gamesByTeamId`,
+      `${teamRosterTable.tableArn}/index/gsi-Team.roster`,
+    ],
+  })
+);
+backend.submitStatEvent.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName);
+backend.submitStatEvent.addEnvironment('TEAM_TABLE', teamTable.tableName);
+backend.submitStatEvent.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.submitStatEvent.addEnvironment('FAN_VIEW_RATE_LIMIT_TABLE', fanViewRateLimitTable.tableName);
+backend.submitStatEvent.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);

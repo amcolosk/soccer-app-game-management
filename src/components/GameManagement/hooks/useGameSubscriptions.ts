@@ -264,6 +264,16 @@ export function useGameSubscriptions({
     sort: halfThenSeconds,
   }, [game.id]);
 
+  const { data: shots } = useAmplifyQuery('Shot', {
+    filter: { gameId: { eq: game.id } },
+    sort: halfThenSeconds,
+  }, [game.id]);
+
+  const { data: saves } = useAmplifyQuery('Save', {
+    filter: { gameId: { eq: game.id } },
+    sort: halfThenSeconds,
+  }, [game.id]);
+
   const { data: gameNotes } = useAmplifyQuery('GameNote', {
     filter: { gameId: { eq: game.id } },
     sort: nullSafeGameNotesSort,
@@ -647,6 +657,8 @@ export function useGameSubscriptions({
     lineup,
     playTimeRecords,
     goals,
+    shots,
+    saves,
     gameNotes,
     gamePlan,
     plannedRotations,

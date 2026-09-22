@@ -81,6 +81,7 @@ export function GoalTracker({
         assistId: goalScoredByUs && goalAssistId ? goalAssistId : undefined,
         notes: goalNotes || undefined,
         timestamp: new Date().toISOString(),
+        loggedVia: 'COACH',
         coaches: team.coaches,
       });
 
@@ -240,6 +241,9 @@ export function GoalTracker({
                       <div className="goal-opponent-label">{gameState.opponent}</div>
                     )}
                     {goal.notes && <div className="goal-notes">{goal.notes}</div>}
+                    {goal.loggedVia === 'HELPER' && (
+                      <div className="stat-logged-via-helper">Logged via helper</div>
+                    )}
                   </div>
                   <div className="goal-card-actions">
                     <GameActionRow actions={actionDescriptors} headingIdForDeleteSuccessFocus="goals-heading" />

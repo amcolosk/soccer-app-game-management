@@ -1182,6 +1182,14 @@ export function Management() {
 
           {teamForm.editing && (
             <CalendarFeedSettings
+              // Keyed by team id (issue #189): clicking Edit on a different
+              // team's card while this panel is still open swaps
+              // teamForm.editing without unmounting this component, so an
+              // unsubmitted URL typed for the previous team stayed in
+              // feedUrlInput and got saved under the newly-selected team's
+              // id instead. The key forces a remount (and fresh local
+              // state) on every team switch.
+              key={teamForm.editing.id}
               team={teamForm.editing}
               onTeamDataChanged={() => setTeamRefreshKey((k) => k + 1)}
             />

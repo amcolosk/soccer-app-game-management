@@ -14,6 +14,7 @@ vi.mock('@aws-sdk/lib-dynamodb', () => ({
   },
   GetCommand: vi.fn(function (input) { return { __type: 'GetCommand', input }; }),
   ScanCommand: vi.fn(function (input) { return { __type: 'ScanCommand', input }; }),
+  QueryCommand: vi.fn(function (input) { return { __type: 'QueryCommand', input }; }),
   DeleteCommand: vi.fn(function (input) { return { __type: 'DeleteCommand', input }; }),
   PutCommand: vi.fn(function (input) { return { __type: 'PutCommand', input }; }),
 }));
@@ -43,6 +44,8 @@ describe('delete-game-safe handler', () => {
     process.env.TEAM_TABLE = 'TeamTable';
     process.env.PLAY_TIME_RECORD_TABLE = 'PlayTimeRecordTable';
     process.env.GOAL_TABLE = 'GoalTable';
+    process.env.SHOT_TABLE = 'ShotTable';
+    process.env.SAVE_TABLE = 'SaveTable';
     process.env.GAME_NOTE_TABLE = 'GameNoteTable';
     process.env.SUBSTITUTION_TABLE = 'SubstitutionTable';
     process.env.LINEUP_ASSIGNMENT_TABLE = 'LineupAssignmentTable';
@@ -70,6 +73,20 @@ describe('delete-game-safe handler', () => {
         }
         if (table === 'PlayTimeRecordTable') {
           return { Items: [{ id: 'ptr-1', gameId: 'game-1' }] };
+        }
+        return { Items: [] };
+      }
+
+      if (command.__type === 'QueryCommand') {
+        const table = command.input.TableName as string;
+        if (table === 'GoalTable') {
+          return { Items: [{ id: 'goal-1', gameId: 'game-1' }] };
+        }
+        if (table === 'ShotTable') {
+          return { Items: [{ id: 'shot-1', gameId: 'game-1' }] };
+        }
+        if (table === 'SaveTable') {
+          return { Items: [{ id: 'save-1', gameId: 'game-1' }] };
         }
         return { Items: [] };
       }
@@ -103,6 +120,29 @@ describe('delete-game-safe handler', () => {
 
     expect(deleteTables[0]).toBe('PlannedRotationTable');
     expect(deleteTables[deleteTables.length - 1]).toBe('GameTable');
+  });
+
+  it('queries Goal/Shot/Save by their physical gameId GSI names and cascades their deletion', async () => {
+    const result = await invoke(createEvent());
+
+    expect(result).toEqual(expect.objectContaining({
+      success: true,
+      deletedCounts: expect.objectContaining({ goals: 1, shots: 1, saves: 1 }),
+    }));
+
+    const queryCalls = mockSend.mock.calls.filter(([cmd]) => cmd.__type === 'QueryCommand');
+    const queryIndexByTable = Object.fromEntries(
+      queryCalls.map(([cmd]) => [(cmd.input as { TableName: string }).TableName, (cmd.input as { IndexName: string }).IndexName]),
+    );
+    expect(queryIndexByTable).toEqual({
+      GoalTable: 'goalsByGameId',
+      ShotTable: 'shotsByGameId',
+      SaveTable: 'savesByGameId',
+    });
+
+    const deleteCalls = mockSend.mock.calls.filter(([cmd]) => cmd.__type === 'DeleteCommand');
+    const deleteTables = deleteCalls.map(([cmd]) => (cmd.input as { TableName: string }).TableName);
+    expect(deleteTables).toEqual(expect.arrayContaining(['GoalTable', 'ShotTable', 'SaveTable']));
   });
 
   it('rolls back deleted children when a later delete fails', async () => {

@@ -203,6 +203,20 @@ export const handler: Handler = async (event) => {
       const match = keyMatch ?? findAdoptionCandidate(record);
 
       if (!match) {
+        // Never create a new game for a feed event that's already in the
+        // past (issue #188) -- a coach's first link (or a re-sync of a feed
+        // with a rolling multi-week window) otherwise pulls in every
+        // already-played game as a fresh "scheduled" one. Only gates
+        // creation of a genuinely new row; a past-dated event that matches
+        // an existing game (by key or adoption) still updates/cancels it
+        // normally -- that's real state for a game the coach already knows
+        // about, not import noise.
+        if (record.gameDate && new Date(record.gameDate).getTime() < Date.now()) {
+          counters.skippedCount += 1;
+          warnings.push(`Skipped "${record.opponent}" — the game date has already passed.`);
+          continue;
+        }
+
         // Genuinely new game (Reconciliation rules, row 1).
         const id = deriveDeterministicGameId(teamId, record.externalSource, record.externalUid);
         const item: DbItem = {

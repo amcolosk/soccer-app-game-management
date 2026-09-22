@@ -30,6 +30,8 @@ import { TabNav, type GameTab } from "./TabNav";
 import { BenchTab } from "./BenchTab";
 import { GameTimer } from "./GameTimer";
 import { GoalTracker } from "./GoalTracker";
+import { ShotSaveTracker } from "./ShotSaveTracker";
+import { StatsSubViewTabs, type StatSubView } from "./StatsSubViewTabs";
 import { PlayerNotesPanel, type OpenLiveNoteIntent } from "./PlayerNotesPanel";
 import { PreGameNotesPanel } from "./PreGameNotesPanel";
 import { CreateEditNoteModal } from "./CreateEditNoteModal";
@@ -338,6 +340,10 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
 
   // Mobile tab navigation (in-progress state only)
   const [activeTab, setActiveTab] = useState<GameTab>(initialTab ?? "field");
+  // Active sub-view (Goals/Shots/Saves) inside the Goals tab / completed-layout
+  // section — lives here (not per-render-site local state) so it stays in
+  // sync across the three GoalTracker/ShotSaveTracker mount sites.
+  const [statSubView, setStatSubView] = useState<StatSubView>("goals");
   const [lineupViewMode, setLineupViewMode] = useState<LineupViewMode>("list");
   // Controlled state for rotation modal (opened from CommandBand)
   const [rotationModalOpen, setRotationModalOpen] = useState(false);
@@ -406,6 +412,8 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     lineup,
     playTimeRecords,
     goals,
+    shots,
+    saves,
     gameNotes,
     gamePlan,
     plannedRotations,
@@ -2194,7 +2202,10 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     game,
     team,
     players,
+    positions,
     goals,
+    shots,
+    saves,
     currentTime,
     playTimeRecords,
     lineup,
@@ -2443,7 +2454,21 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                 aria-labelledby="game-tab-panel-tab-goals"
                 tabIndex={0}
               >
-                <GoalTracker {...sharedGoalTrackerProps} />
+                <StatsSubViewTabs
+                  activeSubView={statSubView}
+                  onChange={setStatSubView}
+                  idPrefix="game-tab-panel-goals-scheduled"
+                />
+                <div
+                  role="tabpanel"
+                  id={`game-tab-panel-goals-scheduled-subview-panel-${statSubView}`}
+                  aria-labelledby={`game-tab-panel-goals-scheduled-subview-tab-${statSubView}`}
+                >
+                  {statSubView === 'goals' && <GoalTracker {...sharedGoalTrackerProps} />}
+                  {statSubView !== 'goals' && (
+                    <ShotSaveTracker {...sharedGoalTrackerProps} statView={statSubView} />
+                  )}
+                </div>
               </div>
             )}
 
@@ -2600,7 +2625,21 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                 aria-labelledby="game-tab-panel-tab-goals"
                 tabIndex={0}
               >
-                <GoalTracker {...sharedGoalTrackerProps} />
+                <StatsSubViewTabs
+                  activeSubView={statSubView}
+                  onChange={setStatSubView}
+                  idPrefix="game-tab-panel-goals-in-progress"
+                />
+                <div
+                  role="tabpanel"
+                  id={`game-tab-panel-goals-in-progress-subview-panel-${statSubView}`}
+                  aria-labelledby={`game-tab-panel-goals-in-progress-subview-tab-${statSubView}`}
+                >
+                  {statSubView === 'goals' && <GoalTracker {...sharedGoalTrackerProps} />}
+                  {statSubView !== 'goals' && (
+                    <ShotSaveTracker {...sharedGoalTrackerProps} statView={statSubView} />
+                  )}
+                </div>
               </div>
             )}
 
@@ -2690,7 +2729,21 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
               gameEndSeconds={gameState.elapsedSeconds ?? 0}
               halfLengthSeconds={halfLengthSeconds}
             />
-            <GoalTracker {...sharedGoalTrackerProps} />
+            <StatsSubViewTabs
+              activeSubView={statSubView}
+              onChange={setStatSubView}
+              idPrefix="game-tab-panel-goals-completed"
+            />
+            <div
+              role="tabpanel"
+              id={`game-tab-panel-goals-completed-subview-panel-${statSubView}`}
+              aria-labelledby={`game-tab-panel-goals-completed-subview-tab-${statSubView}`}
+            >
+              {statSubView === 'goals' && <GoalTracker {...sharedGoalTrackerProps} />}
+              {statSubView !== 'goals' && (
+                <ShotSaveTracker {...sharedGoalTrackerProps} statView={statSubView} />
+              )}
+            </div>
             <PreGameNotesPanel
               gameStatus={gameState.status}
               notes={preGameNotes}

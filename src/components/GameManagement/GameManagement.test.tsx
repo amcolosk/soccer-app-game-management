@@ -101,6 +101,7 @@ const mockCaptures: {
   playerNotesPanelProps?: any;
   rotationWidgetProps?: any;
   planTabProps?: any;
+  shotSaveTrackerProps?: any;
 } = {};
 
 vi.mock("./GameTimer", () => ({
@@ -114,7 +115,13 @@ vi.mock("./GameTimer", () => ({
 // Mock all other child components so GameManagement renders without needing
 // real implementations of its dependents.
 vi.mock("./GameHeader",       () => ({ GameHeader:       () => <div /> }));
-vi.mock("./GoalTracker",      () => ({ GoalTracker:      () => <div /> }));
+vi.mock("./GoalTracker",      () => ({ GoalTracker:      () => <div data-testid="goal-tracker" /> }));
+vi.mock("./ShotSaveTracker",  () => ({
+  ShotSaveTracker: vi.fn((props: any) => {
+    mockCaptures.shotSaveTrackerProps = props;
+    return <div data-testid={`shot-save-tracker-${props.statView}`} />;
+  }),
+}));
 vi.mock("./PlayerNotesPanel", () => ({
   PlayerNotesPanel: vi.fn((props: any) => {
     mockCaptures.playerNotesPanelProps = props;
@@ -195,6 +202,12 @@ vi.mock("../../hooks/useOfflineMutations", () => ({
       createGoal:             vi.fn().mockResolvedValue(undefined),
       deleteGoal:             vi.fn().mockResolvedValue(undefined),
       updateGoal:             vi.fn().mockResolvedValue(undefined),
+      createShot:             vi.fn().mockResolvedValue(undefined),
+      deleteShot:             vi.fn().mockResolvedValue(undefined),
+      updateShot:             vi.fn().mockResolvedValue(undefined),
+      createSave:             vi.fn().mockResolvedValue(undefined),
+      deleteSave:             vi.fn().mockResolvedValue(undefined),
+      updateSave:             vi.fn().mockResolvedValue(undefined),
       createGameNote:         (...args: unknown[]) => mockCreateGameNote(...args),
       updateGameNote:         (...args: unknown[]) => mockUpdateGameNote(...args),
       deleteGameNote:         (...args: unknown[]) => mockDeleteGameNote(...args),
@@ -309,6 +322,8 @@ const defaultSubscription = {
   lineup:               makeLineup(),
   playTimeRecords:      [],
   goals:                [],
+  shots:                [],
+  saves:                [],
   gameNotes:            [],
   gamePlan:             null,
   plannedRotations:     [],
@@ -1495,6 +1510,101 @@ describe("GameManagement – starter fallback uses resolved starters", () => {
     });
     expect(mockGameUpdate).not.toHaveBeenCalled();
     expect(mockPlayTimeCreate).not.toHaveBeenCalled();
+  });
+
+  it("handleStartSecondHalf uses GamePlan halftimeLineup snapshot to fill starters when local lineup state is behind", async () => {
+    const user = userEvent.setup();
+    const gameState = { ...defaultSubscription.gameState, status: 'halftime' };
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState,
+      // Local `lineup` from the subscription only has 1 of 2 expected starters
+      // (e.g. the observeQuery subscription hasn't caught up yet).
+      lineup: [
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+      ],
+      gamePlan: {
+        id: 'gp-1',
+        halftimeLineup: JSON.stringify([
+          { playerId: 'p1', positionId: 'pos1' },
+          { playerId: 'p2', positionId: 'pos2' },
+        ]),
+        rotationIntervalMinutes: 10,
+      },
+    });
+
+    renderWithRouter(
+      <GameManagement
+        game={{ ...mockGame, status: 'halftime' }}
+        team={{ ...mockTeam, maxPlayersOnField: 2 }}
+        onBack={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /start second half/i }));
+
+    // The GamePlan snapshot (2 starters) covers the gap left by the lagging local
+    // lineup (1 starter), so it's used directly and the DB fallback is never reached.
+    await waitFor(() => {
+      expect(mockPlayTimeCreate).toHaveBeenCalledTimes(2);
+    });
+    expect(mockLineupList).not.toHaveBeenCalled();
+  });
+
+  // Regression coverage for issue #182 ("Unable to remove player"). Root cause:
+  // GameManagement.tsx's handleStartSecondHalf() treats "local starters below
+  // team.maxPlayersOnField" as "local state is stale" and falls back to the
+  // GamePlan's saved halftimeLineup/startingLineup snapshot whenever that
+  // snapshot has *more* entries than the current local lineup (see the
+  // `plannedSecondHalfStarters.length > starters.length` check). That heuristic
+  // can't distinguish "subscription hasn't caught up yet" from "the coach just
+  // removed a starter at halftime and hasn't picked a replacement" — in the
+  // latter case it silently reinstates the just-removed player from the stale
+  // plan snapshot the moment the coach starts the second half, undoing the
+  // removal without any error or confirmation.
+  //
+  // Written with `it.fails` so the suite (and `npm run gate:commit`) stays green
+  // until this is fixed — flip it to `it(...)` once the fallback correctly
+  // respects an intentional halftime removal.
+  it.fails("regression (#182): a player removed at halftime is not silently reinstated from a stale GamePlan snapshot on Start Second Half", async () => {
+    const user = userEvent.setup();
+    const gameState = { ...defaultSubscription.gameState, status: 'halftime' };
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState,
+      // Coach removed p2 from pos2 via the LineupPanel "x" button and has not
+      // yet assigned a replacement — this is the current, authoritative lineup.
+      lineup: [
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+      ],
+      // The GamePlan snapshot predates the removal and still lists p2 in pos2.
+      gamePlan: {
+        id: 'gp-1',
+        halftimeLineup: JSON.stringify([
+          { playerId: 'p1', positionId: 'pos1' },
+          { playerId: 'p2', positionId: 'pos2' },
+        ]),
+        rotationIntervalMinutes: 10,
+      },
+    });
+
+    renderWithRouter(
+      <GameManagement
+        game={{ ...mockGame, status: 'halftime' }}
+        team={{ ...mockTeam, maxPlayersOnField: 2 }}
+        onBack={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /start second half/i }));
+
+    await waitFor(() => {
+      expect(mockPlayTimeCreate).toHaveBeenCalled();
+    });
+    const createdPlayerIds = mockPlayTimeCreate.mock.calls.map(
+      (args: unknown[]) => (args[0] as { playerId: string }).playerId,
+    );
+    expect(createdPlayerIds).not.toContain('p2');
   });
 });
 
@@ -3025,5 +3135,89 @@ describe("GameManagement – timer gap confirmation wiring (Issue B)", () => {
 
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(mockConfirm).not.toHaveBeenCalled();
+  });
+});
+
+describe("GameManagement – Goals/Shots/Saves segmented control", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+  });
+
+  it("defaults to the Goals sub-view in the scheduled goals tabpanel", async () => {
+    const user = userEvent.setup();
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "scheduled" },
+    });
+    // Scheduled status always resets activeTab to 'plan' on mount (existing
+    // behavior, unrelated to this feature) — navigate to the Goals tab
+    // explicitly rather than relying on the initialTab prop.
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    await user.click(screen.getByRole("tab", { name: "Goals" }));
+
+    expect(screen.getByRole("tablist", { name: "Goals sub-view" })).toBeInTheDocument();
+    expect(screen.getByTestId("goal-tracker")).toBeInTheDocument();
+    expect(screen.queryByTestId(/shot-save-tracker/)).not.toBeInTheDocument();
+  });
+
+  it("switches to the Shots sub-view when the Shots pill is clicked (scheduled)", async () => {
+    const user = userEvent.setup();
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "scheduled" },
+    });
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    await user.click(screen.getByRole("tab", { name: "Goals" }));
+
+    await user.click(screen.getByRole("tab", { name: "Shots" }));
+
+    expect(screen.getByTestId("shot-save-tracker-shots")).toBeInTheDocument();
+    expect(screen.queryByTestId("goal-tracker")).not.toBeInTheDocument();
+  });
+
+  it("switches to the Saves sub-view when the Saves pill is clicked (in-progress)", async () => {
+    const user = userEvent.setup();
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "in-progress" },
+    });
+    renderWithRouter(
+      <GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} initialTab="goals" />
+    );
+
+    expect(screen.getByRole("tablist", { name: "Goals sub-view" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Saves" }));
+
+    expect(screen.getByTestId("shot-save-tracker-saves")).toBeInTheDocument();
+    expect(screen.queryByTestId("goal-tracker")).not.toBeInTheDocument();
+  });
+
+  it("renders the segmented control as a standalone section in the completed layout — the site most likely to be skipped by accident", async () => {
+    const user = userEvent.setup();
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "completed" },
+    });
+    renderComponent();
+
+    expect(screen.getByRole("tablist", { name: "Goals sub-view" })).toBeInTheDocument();
+    expect(screen.getByTestId("goal-tracker")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Shots" }));
+    expect(screen.getByTestId("shot-save-tracker-shots")).toBeInTheDocument();
+  });
+
+  it("does not render the segmented control or ShotSaveTracker during halftime, matching Goal's existing behavior", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "halftime" },
+    });
+    renderComponent();
+
+    expect(screen.queryByRole("tablist", { name: "Goals sub-view" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("goal-tracker")).not.toBeInTheDocument();
+    expect(screen.queryByTestId(/shot-save-tracker/)).not.toBeInTheDocument();
   });
 });

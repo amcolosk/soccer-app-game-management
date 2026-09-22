@@ -5,10 +5,18 @@ import '../test/mockAmplifyClient';
 import { Management } from './Management';
 import { renderWithProviders } from '../test/renderWithProviders';
 import { managementUiMocks } from '../test/mockAmplifyClient';
+import { teamFixture } from '../test/fixtures/managementFixtures';
+
+const mockSyncTeamCalendar = vi.hoisted(() => vi.fn());
+vi.mock('../services/calendarSyncService', () => ({
+  syncTeamCalendar: mockSyncTeamCalendar,
+  unlinkTeamCalendar: vi.fn(),
+}));
 
 describe('Management', () => {
   beforeEach(() => {
     managementUiMocks.helpFab.setHelpContext.mockClear();
+    mockSyncTeamCalendar.mockReset();
   });
 
   afterEach(() => {
@@ -60,5 +68,43 @@ describe('Management', () => {
     await user.click(screen.getByRole('button', { name: /app/i }));
 
     expect(screen.getByText('1.0.0')).toBeInTheDocument();
+  });
+
+  it('regression (#189): switching Edit to a different team clears an unsubmitted calendar feed URL instead of saving it under the new team', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Management />, {
+      queryData: {
+        Team: [
+          teamFixture({ id: 'team-10u', name: '10U Sharks' }),
+          teamFixture({ id: 'team-13u', name: '13U Sharks' }),
+        ],
+      },
+    });
+    mockSyncTeamCalendar.mockResolvedValue({
+      createdGames: [], updatedGames: [], skippedCount: 0, cancelledCount: 0,
+      adoptedCount: 0, protectedCount: 0, failedCount: 0, warnings: [],
+    });
+
+    // Start editing the 13U team and type a feed URL, but never submit it.
+    const editButtons = screen.getAllByRole('button', { name: /edit team/i });
+    await user.click(editButtons[1]); // 13U Sharks card
+    const urlInput = screen.getByLabelText(/calendar feed url/i);
+    await user.type(urlInput, 'https://calendar.playmetrics.com/13u.ics');
+    expect(urlInput).toHaveValue('https://calendar.playmetrics.com/13u.ics');
+
+    // Switch to editing the 10U team without closing the panel or clicking Link.
+    await user.click(screen.getAllByRole('button', { name: /edit team/i })[0]); // 10U Sharks card
+
+    // The URL field must reset — not carry the 13U team's unsaved text into
+    // whatever gets submitted for 10U.
+    const urlInputAfterSwitch = screen.getByLabelText(/calendar feed url/i);
+    expect(urlInputAfterSwitch).toHaveValue('');
+
+    await user.type(urlInputAfterSwitch, 'https://calendar.playmetrics.com/10u.ics');
+    await user.click(screen.getByRole('button', { name: /^link$/i }));
+
+    expect(mockSyncTeamCalendar).toHaveBeenCalledWith(
+      expect.objectContaining({ teamId: 'team-10u', feedUrl: 'https://calendar.playmetrics.com/10u.ics' })
+    );
   });
 });

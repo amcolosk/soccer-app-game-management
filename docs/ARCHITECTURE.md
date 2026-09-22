@@ -40,6 +40,12 @@ await client.models.Team.create({
 });
 ```
 
+**Guest-auth exception (Milestones B1/B2 — Fan Mode + Sideline Stat Tracker).** `getFanGameView` was the first genuinely public/unauthenticated operation in the app: it's reachable from a `/watch/:token` link with no Cognito session at all, and carries `allow.guest()` **and** `allow.authenticated('identityPool')` instead of `allow.ownersDefinedIn('coaches')`. Milestone B2 added two more operations with the identical dual-role grant: `getStatTrackerView` (reachable from a `/track/:token` link) and `submitStatEvent` — the app's first unauthenticated **write**. `allow.authenticated('identityPool')` refers to the Amplify **Identity Pool's** IAM "authenticated" role — a different thing from the Cognito user-pool `allow.authenticated()` used everywhere else in this schema; both grants are needed because a signed-in coach opening their own link still resolves to the Identity Pool's authenticated role via `fetchAuthSession()`, not the guest/unauthenticated one. `ShareLink` and `FanViewRateLimit` (the models backing all three operations) stay fully closed (`allow.authenticated().to([])`, the same `CalendarFeed`-style pattern below) — no client of any kind reads/writes them directly, only the three Lambdas do, via `amplify/functions/shared/shareLinkAccess.ts`.
+
+**`submitStatEvent`'s write mechanism and its IAM grant.** Every other Lambda in this repo writes via the raw DynamoDB SDK — correct for those, since none of them need a live subscriber to see the write instantly. `submitStatEvent` does: the coach's `GameManagement.tsx` screen is subscribed to `Goal`/`Shot`/`Save` via `observeQuery`, and a raw DynamoDB write does **not** fire that subscription (the same hazard already documented at `src/components/Home.tsx:135-145`). So `submitStatEvent`'s handler configures Amplify with `getAmplifyDataClientConfig()` (from `@aws-amplify/backend/function/runtime`) and calls `generateClient<Schema>({ authMode: 'iam' })`, routing the write through AppSync's real resolver pipeline — confirmed live against a real deployed sandbox before this milestone was built (the mechanism had zero in-repo precedent and was previously evaluated and rejected for exactly that reason, in `docs/plans/TEAM-ARCHIVE-STEP11-GAME-CREATE-CONVERSION-PART1.md`'s "Decision 0"; B2 is the case where the tradeoff flips). This requires a schema-level grant — `a.schema({...}).authorization((allow) => [allow.resource(submitStatEvent).to(['mutate'])])` in `amplify/data/resource.ts` — which is **schema-wide and mutate-verb-wide by construction**: this Amplify version's `allow.resource()` has no per-model or per-CRUD-verb scoping at any level (`resource` is only exposed at the schema level, and that level's verb vocabulary is `['query', 'mutate', 'listen']`, no create/update/delete distinction). The grant therefore covers every model and every mutate verb for this one Lambda's execution role, not just `Goal`/`Shot`/`Save`-create. The real narrowing lives in the handler's own fixed, reviewed code: its `.create()` call sites on `Goal`/`Shot`/`Save` are hardcoded, and nothing in `submitStatEvent`'s public arguments (`token`/`eventType`/`playerId`/etc.) lets a caller choose which underlying model or verb the handler's `generateClient` call targets — so IAM is coarser than the real access-control boundary here, the same class of accepted tradeoff already documented for `getFanGameView`'s privacy design (worst case from a handler bug is a write to an unintended model from this one Lambda's role, never an externally-triggerable arbitrary mutation).
+
+Every other model/operation is untouched by this exception.
+
 ## Data Architecture
 
 ### Entity Relationship Model
@@ -57,8 +63,11 @@ Formation <────── Team
                                  ├──< Substitution >──── Player (in/out), FieldPosition
                                  ├──< PlayTimeRecord >──── Player, FieldPosition
                                  ├──< Goal >──── Player (scorer, assist)
+                                 ├──< Shot >──── Player (shooter, "Us" only)
+                                 ├──< Save >──── Player (goalkeeper, "Us" only)
                                  └──< GameNote >──── Player
                   Team ──────< TeamInvitation
+                  Team ──────< ShareLink            (public link, Lambda-only)
 ```
 
 ### Data Models
@@ -107,7 +116,7 @@ Global player pool — players are not scoped to a team, they're shared via `Tea
 - `birthYear`: Int — optional (used for age-group filtering on roster)
 - `coaches`: String[]
 
-**Relationships**: Has many `TeamRoster`, `LineupAssignment`, `Substitution` (in/out), `PlayTimeRecord`, `Goal` (scorer/assist), `GameNote`, `PlayerAvailability`
+**Relationships**: Has many `TeamRoster`, `LineupAssignment`, `Substitution` (in/out), `PlayTimeRecord`, `Goal` (scorer/assist), `Shot`, `Save`, `GameNote`, `PlayerAvailability`
 
 ---
 
@@ -224,7 +233,39 @@ A goal scored during a game.
 - `scorerId`, `assistId`: ID (FKs to Player, both optional)
 - `notes`: String
 - `timestamp`: DateTime
+- `loggedVia`: Enum (`COACH | HELPER`, optional) — absent/undefined on a historical row is treated as `COACH`
 - `coaches`: String[]
+
+**Note**: `Goal` also carries an explicit `gameId`-hash-key secondary index (`listGoalsByGameId`) so `delete-game-safe` can `Query` its rows by physical GSI name instead of scanning the table — see `Shot`/`Save` below, which carry the same index for the same reason.
+
+---
+
+#### **Shot**
+A shot taken during a game (on goal, either team), independent of whether it resulted in a goal.
+- `gameId`: ID (FK)
+- `playerId`: ID (FK to Player, optional — only set when `takenByUs` is true, and required by the client-side validation in that case)
+- `takenByUs`: Boolean — true = our team took the shot, false = opponent (named `takenByUs`, not `scoredByUs`, since a shot isn't "scored")
+- `onTarget`: Boolean — whether the shot was on target
+- `gameSeconds`, `half`: Int
+- `timestamp`: DateTime
+- `loggedVia`: Enum (`COACH | HELPER`, optional)
+- `coaches`: String[]
+
+**Relationships**: Belongs to `Game` and (optionally) `Player`. Secondary index `listShotsByGameId`.
+
+---
+
+#### **Save**
+A save made during a game, either by our goalkeeper or the opponent's.
+- `gameId`: ID (FK)
+- `playerId`: ID (FK to Player, optional — the goalkeeper, when known; stays optional even when `byUs` is true, since a save can be logged before anyone identifies the keeper)
+- `byUs`: Boolean — true = our keeper made the save, false = the opponent's keeper did (symmetric with `Shot.takenByUs`)
+- `gameSeconds`, `half`: Int
+- `timestamp`: DateTime
+- `loggedVia`: Enum (`COACH | HELPER`, optional)
+- `coaches`: String[]
+
+**Relationships**: Belongs to `Game` and (optionally) `Player`. Secondary index `listSavesByGameId`.
 
 ---
 
@@ -261,34 +302,74 @@ In-app bug/feature request tracking. `IssueCounter` is Lambda-only (no client ac
 
 ---
 
+#### **ShareLink**
+A public, unguessable token granting read-only (`FAN`) or write (`STAT_TRACKER`) access to a team, with no Cognito account required by the viewer/helper. Fully closed model — same rationale as `CalendarFeed` — no client (coach or guest) ever reads/writes it directly; every access goes through a Lambda.
+- `token`: String — primary key (`identifier`), `crypto.randomBytes(18).toString('base64url')`, not nanoid (not a project dependency)
+- `teamId`: ID (FK)
+- `type`: Enum — `FAN | STAT_TRACKER`
+- `createdBy`: String — coach Cognito sub
+- `issuedAt`: DateTime
+- `revokedAt`: DateTime — null = active
+
+Secondary index: `teamId` → `listShareLinksByTeamId` (physical name `shareLinksByTeamId`, used by `delete-team-safe`'s cascade and `archive-team`'s revoke sweep).
+
+One active link per team per `type` — `generate-share-link` creates the replacement before revoking the old one, so a mid-process failure never leaves zero active links.
+
+---
+
+#### **FanViewRateLimit**
+Rate limiting shared by every guest-reachable operation (`getFanGameView`/`getStatTrackerView`/`submitStatEvent`), keyed on **two independent dimensions** per request rather than one shared bucket — a single `[token, minuteBucket]` key would throttle out most of a live game's actual audience within the first two minutes of normal polling.
+- `limiterKey`: String — `identity#<cognitoIdentityId>` (per-viewer, ~30/min read ceiling) or `token#<token>` (per-team billing circuit-breaker, ~600/min read ceiling); Milestone B2's write dimension prefixes both with `write#` (`write#identity#...`, ~20/min; `write#token#...`, ~400/min) so a helper's tapping and a fan's polling of the same team never share a budget. `dimension` defaults to `'read'` in `shareLinkAccess.ts`, so `getFanGameView`'s original call site is unprefixed/unchanged; only `submitStatEvent` passes `'write'` explicitly. Also doubles as `submitStatEvent`'s `clientEventId` idempotency marker (`dedup#<clientEventId>`, ceiling of 1) — a retried submission with the same id is a no-op rather than a second write, reusing this table instead of a new one.
+- `minuteBucket`: String — e.g. `"2026-09-06T18:32"`
+- `count`: Int
+- `ttl`: Int — DynamoDB TTL, ~10 min
+
+`identifier`: `[limiterKey, minuteBucket]`. Both dimensions are checked independently by the shared `amplify/functions/shared/shareLinkAccess.ts` module.
+
+---
+
+#### **StatTrackerPlayer** / **StatTrackerViewResult** / **SubmitStatEventResult** (custom types, not models)
+Milestone B2's curated payloads — not `a.model()`s, since they back operations reachable by an untrusted public client and follow the same `CalendarSyncResult`-style custom-type precedent `FanGameViewResult` already established. `StatTrackerViewResult` (returned by `getStatTrackerView`) deliberately carries the **full active roster with `playerId`s** — a materially different payload from `FanGameViewResult`'s anonymized on-field-only lineup, since the Stat Tracker's player picker needs real ids and `FanGameViewResult`'s privacy design explicitly avoids leaking them (see the "getFanGameView stays FAN-only" decision — these stay two separate operations composing the same `shareLinkAccess.ts` pipeline, not one type-gated one). `SubmitStatEventResult` is a structured `{ ok, reason }` (not a plain boolean) so the UI can distinguish `INVALID_LINK` / `RATE_LIMITED` / `GAME_NOT_LIVE` / `GAME_CHANGED` / `VALIDATION_FAILED` rejections with different copy. `StatTrackerViewResult` also carries `activeGoalkeeperId` (Save Auto-Goalkeeper Attribution) — the id of the player currently occupying a GOALKEEPER-role position, per an open `PlayTimeRecord`, or `null` when not in-progress, ambiguous, or the team has no GOALKEEPER-role `FormationPosition`; see `getCurrentGoalkeeperId` (`src/utils/playTimeCalculations.ts`) and its Lambda-side pure twin `computeActiveGoalkeeperId` (`amplify/functions/shared/goalkeeper.ts`).
+
+---
+
 ## Frontend Architecture
 
 ### Navigation Structure
 
-Tab-based navigation with four top-level tabs:
+**`App.tsx` is no longer the sole router owner (Milestone B1).** `main.tsx` now hoists the single app-wide `<BrowserRouter>` and adds two public routes that sit *outside* the authenticated shell entirely — no Cognito session, no `Authenticator.Provider` — ahead of a catch-all that falls through to the lazy-loaded `AppRoot` (`Authenticator.Provider` + `Root`'s configuring/landing/authenticator/app branches, moved out of `main.tsx` into `src/AppRoot.tsx` and `React.lazy`-loaded so the public routes' bundle never pulls in `App.css`/the amplify-ui stylesheet/`Authenticator`). `App.tsx` itself now renders only `<Routes>` (no router) for the authenticated shell:
+
 ```
-App.tsx
-└── Authenticator (AWS Cognito)
-    └── Main Application
-        ├── Games Tab (default)
-        │   ├── Team selector
-        │   ├── Game list (upcoming + completed)
-        │   ├── Schedule new game
-        │   └── [Click game] → GameManagement
-        │
-        ├── Reports Tab
-        │   └── SeasonReport
-        │
-        ├── Manage Tab
-        │   └── Management
-        │       ├── Teams (expandable: roster, sharing)
-        │       ├── Formations
-        │       └── Players
-        │
-        └── Profile Tab
-            ├── User settings
-            └── Pending invitations
+main.tsx
+└── <BrowserRouter> + <Suspense fallback="Loading...">
+    ├── /watch/:token  → FanGameView (public, unauthenticated, no AppLayout, no App.css)
+    ├── /track/:token  → StatTrackerView (public, unauthenticated, no AppLayout, no App.css — Milestone B2)
+    └── *              → AppRoot (lazy-loaded chunk)
+                           └── Authenticator.Provider
+                               └── App.tsx
+                                   └── Authenticator (AWS Cognito)
+                                       └── Main Application
+                                           ├── Games Tab (default)
+                                           │   ├── Team selector
+                                           │   ├── Game list (upcoming + completed)
+                                           │   ├── Schedule new game
+                                           │   └── [Click game] → GameManagement
+                                           │
+                                           ├── Reports Tab
+                                           │   └── SeasonReport
+                                           │
+                                           ├── Manage Tab
+                                           │   └── Management
+                                           │       ├── Teams (expandable: roster, sharing)
+                                           │       ├── Formations
+                                           │       └── Players
+                                           │
+                                           └── Profile Tab
+                                               ├── User settings
+                                               └── Pending invitations
 ```
+
+`FanGameView` (`src/components/FanMode/FanGameView.tsx`) imports its own dedicated `src/components/FanMode/FanMode.css`, not `App.css` — a deliberate, narrow exception to this repo's single-stylesheet convention (see "Styling and types" in CLAUDE.md): `App.css` is imported exactly once, by `App.tsx`, which now sits behind the lazy `AppRoot` chunk, so importing it from `FanGameView` would pull ~4500+ lines into the public, unauthenticated bundle and defeat the code-splitting this restructure exists to provide. `index.css` (the CSS custom-property theme tokens) stays available either way, since `main.tsx` imports it directly at module scope.
 
 Active game state is persisted to `localStorage` so a page refresh returns to the open game.
 
@@ -356,6 +437,12 @@ Infrastructure as code defined in the `amplify/` directory.
 | `update-issue-status` | Custom GraphQL mutation | Updates issue status (accessible to both authenticated users and public API key) |
 | `sync-team-calendar` | Custom GraphQL mutation | Parses an uploaded `.ics` file or fetches+parses an SSRF-hardened feed URL, reconciles events against existing `Game` rows, and writes creates/updates via the DynamoDB SDK (see "Calendar Feed Import" below) |
 | `unlink-team-calendar` | Custom GraphQL mutation | Deletes the team's `CalendarFeed` row and clears `Team` status fields; leaves already-imported `Game.external*` fields untouched |
+| `generate-share-link` | Custom GraphQL mutation (coach-authenticated) | Verifies caller ∈ `team.coaches`, rejects archived teams, validates `type`, writes a new `ShareLink` (random token) then revokes any existing active link of that type (create-before-revoke ordering) |
+| `revoke-share-link` | Custom GraphQL mutation (coach-authenticated) | Looks up `ShareLink` by token → resolves team → verifies caller membership → sets `revokedAt` |
+| `list-team-share-links` | Custom GraphQL query (coach-authenticated) | Verifies caller membership, returns every `ShareLink` for the team as curated `ShareLinkSummary` records (Sharing & Permissions UI) |
+| `get-fan-game-view` | Custom GraphQL query (**guest + authenticated identityPool**) | Composes `amplify/functions/shared/shareLinkAccess.ts`: token→team validation, dual-dimension rate limiting, the 4-branch game-selection algorithm, then assembles the anonymized `FanGameViewResult` payload |
+| `get-stat-tracker-view` | Custom GraphQL query (**guest + authenticated identityPool**, Milestone B2) | Composes the same `shareLinkAccess.ts` pipeline (as `type: 'STAT_TRACKER'`), then batch-fetches the team's active roster (`TeamRoster.isActive`, via the `gsi-Team.roster` physical index + chunked `BatchGetItem` on `Player`) into a curated `StatTrackerViewResult` — full roster with `playerId`s, unlike `FanGameViewResult`'s anonymized payload. Save Auto-Goalkeeper Attribution: when `game.status === 'in-progress'`, also queries `PlayTimeRecord`'s `playTimeRecordsByGameId` GSI and batch-gets `FormationPosition` to derive `activeGoalkeeperId` (two new env vars/IAM grants — see `amplify/backend.ts`) |
+| `submit-stat-event` | Custom GraphQL mutation (**guest + authenticated identityPool**, Milestone B2) | The app's first unauthenticated write: validates the token/rate-limit/game-liveness/`expectedGameId` echo (the wrong-game-race guard) and the event's own rules (roster-membership, assist≠scorer, `onTarget` required for `SHOT`), derives `gameSeconds`/`half` server-side via the Lambda-side `gameClock.ts` mirror, then writes the `Goal`/`Shot`/`Save` row through a real AppSync mutation (`generateClient<Schema>({ authMode: 'iam' })`, not the DynamoDB SDK) so the coach's live subscription fires |
 
 ### GraphQL Operations
 
@@ -366,6 +453,12 @@ Standard CRUDL auto-generated by Amplify (`list`, `get`, `create`, `update`, `de
 - `updateIssueStatus` mutation — updates issue status
 - `syncTeamCalendar` mutation — imports/re-syncs a team's schedule from an `.ics` file or feed URL
 - `unlinkTeamCalendar` mutation — removes a team's saved calendar feed
+- `generateShareLink` mutation — creates (and rotates) a team's public share link for a given `type` (`FAN` or `STAT_TRACKER`)
+- `revokeShareLink` mutation — revokes a share link by token
+- `listTeamShareLinks` query — lists a team's share links (active and revoked) for the Sharing & Permissions UI
+- `getFanGameView` query — the public, guest-reachable Fan Mode read
+- `getStatTrackerView` query — the public, guest-reachable Stat Tracker read (roster + current-game state for the tap UI; Milestone B2)
+- `submitStatEvent` mutation — the public, guest-reachable Stat Tracker write (Milestone B2); together with the two queries above, these are the only three operations in the schema carrying `allow.guest()`
 
 ### Calendar Feed Import
 
@@ -444,6 +537,8 @@ The game timer runs client-side and syncs to DynamoDB periodically:
 - `lastStartTime` (ISO string) + `elapsedSeconds` = current game time when running
 - `lastStartTime = null` = timer paused; `elapsedSeconds` is the ground truth
 - Auto-pauses when `elapsedSeconds` reaches `halfLengthMinutes * 60`
+- The conversion formula itself lives in `src/utils/gameClock.ts` (`computeCurrentGameSeconds`) — extracted from `useGameSubscriptions.ts` in Milestone B1 so the public `FanGameView` page (which runs the same formula locally on a 1-second tick, seeded from each poll) can't silently diverge from the authenticated app's timer logic
+- Milestone B2 adds a **Lambda-side mirror** at `amplify/functions/shared/gameClock.ts` — a Lambda can't import from `src/`, so `submitStatEvent` derives a helper-submitted event's `gameSeconds`/`half` server-side from this parity-tested duplicate (never trusted from the untrusted public client); `gameClock.test.ts` in that same directory asserts both copies produce identical output for the same inputs
 
 ### 4a. Game-state race guards (`useGameSubscriptions.ts` / `useGameTimer.ts` / `GameManagement.tsx`)
 

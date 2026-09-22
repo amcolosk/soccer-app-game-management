@@ -5,6 +5,7 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
+  QueryCommand,
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { Schema } from '../../data/resource';
@@ -28,6 +29,49 @@ async function scanAll(tableName: string, filterExpression: string, expressionAt
       TableName: tableName,
       FilterExpression: filterExpression,
       ExpressionAttributeValues: expressionAttributeValues,
+      ExclusiveStartKey: exclusiveStartKey,
+    }));
+
+    if (response.Items) {
+      results.push(...(response.Items as DbItem[]));
+    }
+
+    exclusiveStartKey = response.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (exclusiveStartKey);
+
+  return results;
+}
+
+// Query-by-physical-index-name variant of scanAll, used for Goal/Shot/Save.
+// These three tables now carry an explicit `gameId`-hash-key GSI
+// (queryFields listGoalsByGameId/listShotsByGameId/listSavesByGameId), whose
+// synthesized *physical* index names are `goalsByGameId`/`shotsByGameId`/
+// `savesByGameId` -- derived from @aws-amplify/graphql-index-transformer's
+// `${pluralize(modelName)}By${Upper(fieldName)}` naming rule (verified
+// against the transformer source, and cross-checked against the sibling
+// PlayTimeRecord index, which synthesizes to `playTimeRecordsByGameId` for
+// queryField `listPlayTimeRecordsByGameId` -- same pattern). The local
+// `.amplify/artifacts/cdk.out` snapshot in this working tree predates this
+// schema change and doesn't contain these tables, so re-confirm these names
+// against a fresh `cdk synth`/sandbox deploy (same evidence standard
+// coachArraySync.ts documents) before this ships. This handler has no
+// GraphQL client, so it must use
+// QueryCommand against that physical name rather than the GraphQL
+// queryField. Accepted tradeoff (stated explicitly, per plan): a GSI read
+// has higher propagation lag than a table scan, so a game deleted within
+// seconds of a goal/shot/save being logged could theoretically miss a very
+// recent row where the old scan wouldn't -- a one-time, narrow migration
+// tradeoff, not a permanent behavior change.
+async function queryAllByGameIdIndex(tableName: string, indexName: string, gameId: string): Promise<DbItem[]> {
+  const results: DbItem[] = [];
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+
+  do {
+    const response = await docClient.send(new QueryCommand({
+      TableName: tableName,
+      IndexName: indexName,
+      KeyConditionExpression: 'gameId = :gameId',
+      ExpressionAttributeValues: { ':gameId': gameId },
       ExclusiveStartKey: exclusiveStartKey,
     }));
 
@@ -82,6 +126,8 @@ export const handler: Handler = async (event) => {
   const teamTable = process.env.TEAM_TABLE;
   const playTimeRecordTable = process.env.PLAY_TIME_RECORD_TABLE;
   const goalTable = process.env.GOAL_TABLE;
+  const shotTable = process.env.SHOT_TABLE;
+  const saveTable = process.env.SAVE_TABLE;
   const gameNoteTable = process.env.GAME_NOTE_TABLE;
   const substitutionTable = process.env.SUBSTITUTION_TABLE;
   const lineupAssignmentTable = process.env.LINEUP_ASSIGNMENT_TABLE;
@@ -90,7 +136,7 @@ export const handler: Handler = async (event) => {
   const plannedRotationTable = process.env.PLANNED_ROTATION_TABLE;
   const queuedSubstitutionTable = process.env.QUEUED_SUBSTITUTION_TABLE;
 
-  if (!gameTable || !teamTable || !playTimeRecordTable || !goalTable || !gameNoteTable || !substitutionTable || !lineupAssignmentTable || !playerAvailabilityTable || !gamePlanTable || !plannedRotationTable || !queuedSubstitutionTable) {
+  if (!gameTable || !teamTable || !playTimeRecordTable || !goalTable || !shotTable || !saveTable || !gameNoteTable || !substitutionTable || !lineupAssignmentTable || !playerAvailabilityTable || !gamePlanTable || !plannedRotationTable || !queuedSubstitutionTable) {
     throw new Error('Required environment variables are not set');
   }
 
@@ -137,9 +183,11 @@ export const handler: Handler = async (event) => {
   const rollbackStack: SnapshotRecord[] = [];
 
   try {
-    const [playTimeRecords, goals, gameNotes, substitutions, lineupAssignments, playerAvailabilities, gamePlans, queuedSubstitutions] = await Promise.all([
+    const [playTimeRecords, goals, shots, saves, gameNotes, substitutions, lineupAssignments, playerAvailabilities, gamePlans, queuedSubstitutions] = await Promise.all([
       scanAll(playTimeRecordTable, 'gameId = :gameId', { ':gameId': gameId }),
-      scanAll(goalTable, 'gameId = :gameId', { ':gameId': gameId }),
+      queryAllByGameIdIndex(goalTable, 'goalsByGameId', gameId),
+      queryAllByGameIdIndex(shotTable, 'shotsByGameId', gameId),
+      queryAllByGameIdIndex(saveTable, 'savesByGameId', gameId),
       scanAll(gameNoteTable, 'gameId = :gameId', { ':gameId': gameId }),
       scanAll(substitutionTable, 'gameId = :gameId', { ':gameId': gameId }),
       scanAll(lineupAssignmentTable, 'gameId = :gameId', { ':gameId': gameId }),
@@ -166,6 +214,12 @@ export const handler: Handler = async (event) => {
     for (const item of goals) {
       await deleteWithSnapshot(goalTable, item, rollbackStack);
     }
+    for (const item of shots) {
+      await deleteWithSnapshot(shotTable, item, rollbackStack);
+    }
+    for (const item of saves) {
+      await deleteWithSnapshot(saveTable, item, rollbackStack);
+    }
     for (const item of gameNotes) {
       await deleteWithSnapshot(gameNoteTable, item, rollbackStack);
     }
@@ -191,6 +245,8 @@ export const handler: Handler = async (event) => {
         queuedSubstitutions: queuedSubstitutions.length,
         playTimeRecords: playTimeRecords.length,
         goals: goals.length,
+        shots: shots.length,
+        saves: saves.length,
         gameNotes: gameNotes.length,
         substitutions: substitutions.length,
         lineupAssignments: lineupAssignments.length,

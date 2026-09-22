@@ -12,11 +12,18 @@ export type FieldPosition = Schema["FieldPosition"]["type"];
 export type LineupAssignment = Schema["LineupAssignment"]["type"];
 export type PlayTimeRecord = Schema["PlayTimeRecord"]["type"];
 export type Goal = Schema["Goal"]["type"];
+export type Shot = Schema["Shot"]["type"];
+export type Save = Schema["Save"]["type"];
 export type GameNote = Schema["GameNote"]["type"];
 export type GamePlan = Schema["GamePlan"]["type"];
 export type PlannedRotation = Schema["PlannedRotation"]["type"];
 export type PlayerAvailability = Schema["PlayerAvailability"]["type"];
 export type CalendarSyncResult = NonNullable<Schema["syncTeamCalendar"]["returnType"]>;
+export type ShareLinkSummary = NonNullable<Schema["generateShareLink"]["returnType"]>;
+export type FanGameViewResult = NonNullable<Schema["getFanGameView"]["returnType"]>;
+export type StatTrackerViewResult = NonNullable<Schema["getStatTrackerView"]["returnType"]>;
+export type StatTrackerPlayer = NonNullable<NonNullable<StatTrackerViewResult["roster"]>[number]>;
+export type SubmitStatEventResult = NonNullable<Schema["submitStatEvent"]["returnType"]>;
 
 // Domain interfaces
 export interface PlayerWithRoster extends Player {

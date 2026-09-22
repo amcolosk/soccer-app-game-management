@@ -11,6 +11,9 @@ const {
   mockRevokeCoachAccess,
   mockConfirm,
   mockUseAmplifyQuery,
+  mockListTeamShareLinks,
+  mockGenerateShareLink,
+  mockRevokeShareLink,
 } = vi.hoisted(() => ({
   mockTeamGet: vi.fn(),
   mockTeamInvitationDelete: vi.fn(),
@@ -20,6 +23,9 @@ const {
   mockRevokeCoachAccess: vi.fn(),
   mockConfirm: vi.fn(),
   mockUseAmplifyQuery: vi.fn(),
+  mockListTeamShareLinks: vi.fn(),
+  mockGenerateShareLink: vi.fn(),
+  mockRevokeShareLink: vi.fn(),
 }));
 
 vi.mock('aws-amplify/data', () => ({
@@ -27,6 +33,13 @@ vi.mock('aws-amplify/data', () => ({
     models: {
       Team: { get: (...args: unknown[]) => mockTeamGet(...args) },
       TeamInvitation: { delete: (...args: unknown[]) => mockTeamInvitationDelete(...args) },
+    },
+    queries: {
+      listTeamShareLinks: (...args: unknown[]) => mockListTeamShareLinks(...args),
+    },
+    mutations: {
+      generateShareLink: (...args: unknown[]) => mockGenerateShareLink(...args),
+      revokeShareLink: (...args: unknown[]) => mockRevokeShareLink(...args),
     },
   })),
 }));
@@ -65,6 +78,13 @@ describe('InvitationManagement', () => {
     mockSendTeamInvitation.mockResolvedValue({});
     mockRevokeCoachAccess.mockResolvedValue({});
     mockConfirm.mockResolvedValue(true);
+    mockListTeamShareLinks.mockResolvedValue({ data: [] });
+    mockGenerateShareLink.mockResolvedValue({ data: { token: 'new-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null } });
+    mockRevokeShareLink.mockResolvedValue({ data: true });
+
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
 
     mockUseAmplifyQuery.mockReturnValue({
       data: [
@@ -154,5 +174,226 @@ describe('InvitationManagement', () => {
     });
 
     expect(await screen.findByText('Invitation cancelled')).toBeInTheDocument();
+  });
+
+  describe('Share Links (Fan Mode)', () => {
+    it('shows a Generate button when there is no active fan link', async () => {
+      renderComponent();
+      expect(await screen.findByRole('button', { name: 'Generate Fan Link' })).toBeInTheDocument();
+    });
+
+    it('generates a fan link without confirmation when none is currently active', async () => {
+      renderComponent();
+
+      const generateButton = await screen.findByRole('button', { name: 'Generate Fan Link' });
+      fireEvent.click(generateButton);
+
+      await waitFor(() => {
+        expect(mockGenerateShareLink).toHaveBeenCalledWith({ teamId: 'team-1', type: 'FAN' });
+      });
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(await screen.findByText('Fan link generated')).toBeInTheDocument();
+    });
+
+    it('shows the active link with copy/replace/revoke controls once one exists', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'active-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderComponent();
+
+      expect(await screen.findByTestId('fan-share-link-active')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Copy Link' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Replace' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Revoke' })).toBeInTheDocument();
+      expect(screen.getByText(/\/watch\/active-token/)).toBeInTheDocument();
+    });
+
+    it('copies the fan link URL to the clipboard', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'active-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderComponent();
+
+      const copyButton = await screen.findByRole('button', { name: 'Copy Link' });
+      fireEvent.click(copyButton);
+
+      await waitFor(() => {
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('/watch/active-token'));
+      });
+      expect(await screen.findByText('Fan link copied to clipboard')).toBeInTheDocument();
+    });
+
+    it('requires confirmation with warning variant before replacing an active link', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'active-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderComponent();
+
+      const replaceButton = await screen.findByRole('button', { name: 'Replace' });
+      fireEvent.click(replaceButton);
+
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
+          title: 'Replace this link?',
+          variant: 'warning',
+        }));
+        expect(mockGenerateShareLink).toHaveBeenCalledWith({ teamId: 'team-1', type: 'FAN' });
+      });
+    });
+
+    it('does not replace the link when the replace confirmation is declined', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'active-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+      mockConfirm.mockResolvedValue(false);
+
+      renderComponent();
+
+      const replaceButton = await screen.findByRole('button', { name: 'Replace' });
+      fireEvent.click(replaceButton);
+
+      await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+      expect(mockGenerateShareLink).not.toHaveBeenCalled();
+    });
+
+    it('requires confirmation with danger variant before revoking a link', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'active-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderComponent();
+
+      const revokeButton = await screen.findByRole('button', { name: 'Revoke' });
+      fireEvent.click(revokeButton);
+
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
+          title: 'Revoke this link?',
+          variant: 'danger',
+        }));
+        expect(mockRevokeShareLink).toHaveBeenCalledWith({ token: 'active-token' });
+      });
+      expect(await screen.findByText('Fan link revoked')).toBeInTheDocument();
+    });
+
+    it('does not revoke the link when the revoke confirmation is declined', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'active-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+      mockConfirm.mockResolvedValue(false);
+
+      renderComponent();
+
+      const revokeButton = await screen.findByRole('button', { name: 'Revoke' });
+      fireEvent.click(revokeButton);
+
+      await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+      expect(mockRevokeShareLink).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Share Links (Stat Tracker — Milestone B2)', () => {
+    it('shows a Generate button when there is no active Stat Tracker link', async () => {
+      renderComponent();
+      expect(await screen.findByRole('button', { name: 'Generate Stat Tracker Link' })).toBeInTheDocument();
+    });
+
+    it('generates a Stat Tracker link without confirmation when none is currently active', async () => {
+      renderComponent();
+
+      const generateButton = await screen.findByRole('button', { name: 'Generate Stat Tracker Link' });
+      fireEvent.click(generateButton);
+
+      await waitFor(() => {
+        expect(mockGenerateShareLink).toHaveBeenCalledWith({ teamId: 'team-1', type: 'STAT_TRACKER' });
+      });
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(await screen.findByText('Stat Tracker link generated')).toBeInTheDocument();
+    });
+
+    it('shows the active Stat Tracker link with copy/replace/revoke controls once one exists', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'tracker-token', type: 'STAT_TRACKER', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderComponent();
+
+      expect(await screen.findByTestId('stat-tracker-share-link-active')).toBeInTheDocument();
+      expect(screen.getByText(/\/track\/tracker-token/)).toBeInTheDocument();
+    });
+
+    it('copies the Stat Tracker link URL to the clipboard', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'tracker-token', type: 'STAT_TRACKER', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderComponent();
+      await screen.findByTestId('stat-tracker-share-link-active');
+
+      const copyButton = screen.getByRole('button', { name: 'Copy Link' });
+      fireEvent.click(copyButton);
+
+      await waitFor(() => {
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('/track/tracker-token'));
+      });
+      expect(await screen.findByText('Stat Tracker link copied to clipboard')).toBeInTheDocument();
+    });
+
+    it('requires confirmation with warning variant before replacing an active Stat Tracker link', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'tracker-token', type: 'STAT_TRACKER', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderComponent();
+      await screen.findByTestId('stat-tracker-share-link-active');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Replace' }));
+
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
+          title: 'Replace this link?',
+          variant: 'warning',
+        }));
+        expect(mockGenerateShareLink).toHaveBeenCalledWith({ teamId: 'team-1', type: 'STAT_TRACKER' });
+      });
+    });
+
+    it('requires confirmation with danger variant before revoking a Stat Tracker link', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'tracker-token', type: 'STAT_TRACKER', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderComponent();
+      await screen.findByTestId('stat-tracker-share-link-active');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
+          title: 'Revoke this link?',
+          variant: 'danger',
+        }));
+        expect(mockRevokeShareLink).toHaveBeenCalledWith({ token: 'tracker-token' });
+      });
+      expect(await screen.findByText('Stat Tracker link revoked')).toBeInTheDocument();
+    });
+
+    it('shows both Fan and Stat Tracker links simultaneously, each with its own controls', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [
+          { token: 'fan-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null },
+          { token: 'tracker-token', type: 'STAT_TRACKER', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null },
+        ],
+      });
+
+      renderComponent();
+
+      expect(await screen.findByTestId('fan-share-link-active')).toBeInTheDocument();
+      expect(await screen.findByTestId('stat-tracker-share-link-active')).toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: 'Copy Link' })).toHaveLength(2);
+    });
   });
 });
