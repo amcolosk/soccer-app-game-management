@@ -964,6 +964,22 @@ const schema = a.schema({
   // decision in B1): this page needs the full active roster, playerIds
   // included, for the helper's own player picker, which is exactly the
   // gratuitous-identifier leak Fan Mode's anonymized payload avoids.
+  // Field-layout visualization (Sideline Stat Tracker pitch view): the
+  // resolved FormationPosition backing an on-field StatTrackerPlayer's
+  // current open PlayTimeRecord. Plain-string `role` (NOT the
+  // FormationPosition enum ref) -- mirrors the Lambda-side
+  // `PositionRoleLike.role: string | null` pattern already used in
+  // amplify/functions/shared/goalkeeper.ts.
+  StatTrackerPosition: a.customType({
+    id: a.string().required(),
+    positionName: a.string(),
+    abbreviation: a.string(),
+    role: a.string(),
+    sortOrder: a.integer(),
+    xPct: a.integer(),
+    yPct: a.integer(),
+  }),
+
   StatTrackerPlayer: a.customType({
     id: a.string().required(),
     firstName: a.string().required(),
@@ -976,6 +992,18 @@ const schema = a.schema({
     // repeat). null for a bench player (no open PlayTimeRecord) or whenever
     // the game isn't in-progress.
     positionName: a.string(),
+    // TeamRoster.playerNumber, echoed through for the field-layout pitch
+    // view's jersey-number-forward display and the player-picker sheet.
+    // Nullable at the GraphQL level as a defensive measure even though
+    // TeamRoster.playerNumber is `.required()` in the DB.
+    playerNumber: a.integer(),
+    // The full resolved FormationPosition for this player's currently-open
+    // PlayTimeRecord, for the pitch layout to place/label this player with
+    // (lane inference, abbreviation, persisted xPct/yPct). INVARIANT:
+    // non-null if-and-only-if `positionName` above is non-null -- both are
+    // populated under the exact same "has an open PlayTimeRecord" condition
+    // in get-stat-tracker-view/handler.ts. Do not let them diverge.
+    position: a.ref('StatTrackerPosition'),
   }),
 
   // Deliberately its own small type rather than reusing FanGameViewResult's

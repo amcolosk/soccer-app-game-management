@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { render, screen, act, fireEvent, within } from '@testing-library/react';
 import { StatTrackerView } from './StatTrackerView';
 import { useWakeLock } from '../../hooks/useWakeLock';
 
@@ -34,8 +34,8 @@ function baseLiveData(overrides: Record<string, unknown> = {}) {
     currentHalf: 1,
     gameId: 'game-1',
     roster: [
-      { id: 'p1', firstName: 'Sam', lastName: 'Jones', positionName: null },
-      { id: 'p2', firstName: 'Ana', lastName: 'Cruz', positionName: null },
+      { id: 'p1', firstName: 'Sam', lastName: 'Jones', positionName: null, playerNumber: 7, position: null },
+      { id: 'p2', firstName: 'Ana', lastName: 'Cruz', positionName: null, playerNumber: 23, position: null },
     ],
     ...overrides,
   };
@@ -140,7 +140,7 @@ describe('StatTrackerView', () => {
       await flush();
       fireEvent.click(screen.getByRole('button', { name: 'Us' }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Sam Jones' }));
+      fireEvent.click(screen.getByRole('button', { name: '#7 Sam Jones' }));
       await flush();
       fireEvent.click(screen.getByRole('button', { name: 'No assist' }));
       await flush();
@@ -164,7 +164,7 @@ describe('StatTrackerView', () => {
       await flush();
       fireEvent.click(screen.getByRole('button', { name: 'Lakeside FC' }));
       await flush();
-      expect(screen.queryByRole('button', { name: 'Sam Jones' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '#7 Sam Jones' })).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: /Log Goal/ }));
       await flush();
 
@@ -218,7 +218,7 @@ describe('StatTrackerView', () => {
       await flush();
       fireEvent.click(screen.getByRole('button', { name: 'Us' }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Sam Jones' }));
+      fireEvent.click(screen.getByRole('button', { name: '#7 Sam Jones' }));
       await flush();
       fireEvent.click(screen.getByRole('button', { name: /Log Save/ }));
       await flush();
@@ -281,7 +281,7 @@ describe('StatTrackerView', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Us' }));
       await flush();
 
-      expect(screen.queryByRole('button', { name: 'Sam Jones' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '#7 Sam Jones' })).not.toBeInTheDocument();
       expect(screen.getByText('Sam Jones made the save?')).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: /Yes, log it/ }));
@@ -305,7 +305,7 @@ describe('StatTrackerView', () => {
       await flush();
 
       expect(screen.getByText('Which keeper?')).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: 'Ana Cruz' }));
+      fireEvent.click(screen.getByRole('button', { name: '#23 Ana Cruz' }));
       await flush();
       fireEvent.click(screen.getByRole('button', { name: /Log Save/ }));
       await flush();
@@ -471,20 +471,23 @@ describe('StatTrackerView', () => {
   });
 
   describe('on-field lineup', () => {
-    it('lists on-field players with their positions while in-progress, and excludes bench players', async () => {
+    const onFieldPosition = { id: 'pos-fwd', positionName: 'Forward', abbreviation: 'FWD', role: 'FORWARD', sortOrder: 1, xPct: null, yPct: null };
+
+    it('shows the on-field player\'s jersey number on the field, and never shows a player with position: null there', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({
         roster: [
-          { id: 'p1', firstName: 'Sam', lastName: 'Jones', positionName: 'Forward' },
-          { id: 'p2', firstName: 'Ana', lastName: 'Cruz', positionName: null },
+          { id: 'p1', firstName: 'Sam', lastName: 'Jones', positionName: 'Forward', playerNumber: 9, position: onFieldPosition },
+          { id: 'p2', firstName: 'Ana', lastName: 'Cruz', positionName: null, playerNumber: 23, position: null },
         ],
       })));
       render(<StatTrackerView />);
       await flush();
 
-      expect(screen.getByText('On the Field')).toBeInTheDocument();
-      expect(screen.getByText('Sam Jones')).toBeInTheDocument();
-      expect(screen.getByText('Forward')).toBeInTheDocument();
-      expect(screen.queryByText('Ana Cruz')).not.toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 2, name: 'On the Field' })).toBeInTheDocument();
+      expect(screen.getByText('#9')).toBeInTheDocument();
+      expect(screen.getByRole('group', { name: /Sam J, Forward/ })).toBeInTheDocument();
+      // Ana Cruz has position: null (bench) -- must never appear in the field view.
+      expect(screen.queryByText('#23')).not.toBeInTheDocument();
     });
 
     it('hides the on-field lineup section during halftime', async () => {
@@ -496,12 +499,70 @@ describe('StatTrackerView', () => {
     });
   });
 
+  describe('Bench section', () => {
+    const onFieldPosition = { id: 'pos-fwd', positionName: 'Forward', abbreviation: 'FWD', role: 'FORWARD' };
+
+    it('renders a top-level Bench <h2> section (a sibling of On the Field, not nested under it) with bench players\' jersey numbers', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({
+        roster: [
+          { id: 'p1', firstName: 'Sam', lastName: 'Jones', positionName: 'Forward', playerNumber: 9, position: onFieldPosition },
+          { id: 'p2', firstName: 'Ana', lastName: 'Cruz', positionName: null, playerNumber: 23, position: null },
+        ],
+      })));
+      render(<StatTrackerView />);
+      await flush();
+
+      const benchHeading = screen.getByRole('heading', { level: 2, name: 'Bench' });
+      const onFieldHeading = screen.getByRole('heading', { level: 2, name: 'On the Field' });
+      const benchSection = benchHeading.closest('section');
+      expect(benchSection).not.toBeNull();
+      expect(benchSection).not.toBe(onFieldHeading.closest('section'));
+      expect(within(benchSection as HTMLElement).getByText('#23 Ana Cruz')).toBeInTheDocument();
+    });
+
+    it('hides the Bench section during halftime (same tapUiUnlocked gate as On the Field)', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ status: 'halftime' })));
+      render(<StatTrackerView />);
+      await flush();
+
+      expect(screen.queryByRole('heading', { level: 2, name: 'Bench' })).not.toBeInTheDocument();
+    });
+
+    it('does not render a Bench section when there are no bench players', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({
+        roster: [
+          { id: 'p1', firstName: 'Sam', lastName: 'Jones', positionName: 'Forward', playerNumber: 9, position: onFieldPosition },
+        ],
+      })));
+      render(<StatTrackerView />);
+      await flush();
+
+      expect(screen.queryByRole('heading', { level: 2, name: 'Bench' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('player picker jersey numbers', () => {
+    it('shows jersey numbers on the player picker buttons', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
+      render(<StatTrackerView />);
+      await flush();
+
+      fireEvent.click(screen.getByRole('button', { name: /Goal/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      await flush();
+
+      expect(screen.getByRole('button', { name: '#7 Sam Jones' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '#23 Ana Cruz' })).toBeInTheDocument();
+    });
+  });
+
   describe('player picker ordering (on-field before bench)', () => {
     it('shows on-field players before bench players, with group labels when both are present', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({
         roster: [
-          { id: 'p1', firstName: 'Bench', lastName: 'One', positionName: null },
-          { id: 'p2', firstName: 'Field', lastName: 'Two', positionName: 'Midfielder' },
+          { id: 'p1', firstName: 'Bench', lastName: 'One', positionName: null, playerNumber: 5 },
+          { id: 'p2', firstName: 'Field', lastName: 'Two', positionName: 'Midfielder', playerNumber: 11 },
         ],
       })));
       render(<StatTrackerView />);
@@ -512,11 +573,16 @@ describe('StatTrackerView', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Us' }));
       await flush();
 
-      expect(screen.getByText('On the field')).toBeInTheDocument();
-      expect(screen.getByText('Bench')).toBeInTheDocument();
+      // Scoped to the tap-flow sheet (role="dialog") -- the player-picker's
+      // own "Bench" group label is distinct from the page-level Bench <h2>
+      // section (see the 'Bench section' describe block above), and both can
+      // legitimately coexist on screen at once.
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByText('On the field')).toBeInTheDocument();
+      expect(within(dialog).getByText('Bench')).toBeInTheDocument();
       const names = screen.getAllByRole('button').map((b) => b.textContent);
-      const fieldIndex = names.indexOf('Field Two');
-      const benchIndex = names.indexOf('Bench One');
+      const fieldIndex = names.indexOf('#11 Field Two');
+      const benchIndex = names.indexOf('#5 Bench One');
       expect(fieldIndex).toBeGreaterThan(-1);
       expect(benchIndex).toBeGreaterThan(fieldIndex);
     });
@@ -531,8 +597,13 @@ describe('StatTrackerView', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Us' }));
       await flush();
 
-      expect(screen.queryByText('On the field')).not.toBeInTheDocument();
-      expect(screen.queryByText('Bench')).not.toBeInTheDocument();
+      // No group labels inside the picker sheet itself -- a fully-bench
+      // roster gets no "On the field"/"Bench" sub-grouping. The page-level
+      // Bench <h2> section (a fully separate concern) is intentionally not
+      // asserted against here -- see the 'Bench section' describe block.
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).queryByText('On the field')).not.toBeInTheDocument();
+      expect(within(dialog).queryByText('Bench')).not.toBeInTheDocument();
     });
   });
 
