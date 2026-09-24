@@ -4,6 +4,7 @@ import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb';
 import type { Schema } from '../../data/resource';
 import { resolveShareLinkAccess, type GameRecord, type ShareLinkAccessTables } from '../shared/shareLinkAccess';
 import { queryAllByGameIdIndex } from '../shared/dynamo';
+import { resolveScore } from '../shared/score';
 
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
@@ -199,6 +200,8 @@ export const handler: Handler = async (event) => {
     })
     .slice(0, 5);
 
+  const score = resolveScore(isLive, game, goals as Array<{ scoredByUs: boolean }>);
+
   return {
     state: selection.branch,
     teamName: team.name ?? null,
@@ -209,8 +212,8 @@ export const handler: Handler = async (event) => {
     elapsedSeconds: game.elapsedSeconds ?? null,
     lastStartTime: game.lastStartTime ?? null,
     halfLengthMinutes: game.halfLengthMinutes ?? null,
-    ourScore: game.ourScore ?? null,
-    opponentScore: game.opponentScore ?? null,
+    ourScore: score.ourScore,
+    opponentScore: score.opponentScore,
     gameDate: game.gameDate ?? null,
     onFieldPlayers: isLive ? onFieldPlayers : [],
     recentEvents: showEvents ? recentEvents : [],
