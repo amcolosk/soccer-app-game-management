@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { calculatePlayerPlayTime, formatPlayTime } from "../../../utils/playTimeCalculations";
+import { formatPlayerShortLabel } from "../../../utils/playerNameFormat";
 import { showError, showSuccess } from "../../../utils/toast";
 import type {
   FormationPosition,
@@ -67,52 +68,6 @@ interface QuickReplaceTarget {
 function getPlayerName(player: PlayerWithRoster | undefined): string {
   if (!player) return "Unknown player";
   return `${player.firstName} ${player.lastName}`.trim();
-}
-
-function normalizeNamePart(value: string | null | undefined): string {
-  if (!value) {
-    return "";
-  }
-
-  return value.trim().replace(/\s+/g, " ");
-}
-
-function getInitialFromLastName(lastName: string): string | null {
-  const alphaMatch = lastName.match(/\p{L}/u);
-  if (alphaMatch?.[0]) {
-    return alphaMatch[0].toLocaleUpperCase();
-  }
-
-  const alnumMatch = lastName.match(/[\p{L}\p{N}]/u);
-  if (alnumMatch?.[0]) {
-    return alnumMatch[0].toLocaleUpperCase();
-  }
-
-  return null;
-}
-
-function formatPlayerShortLabel(player: PlayerWithRoster | undefined): string {
-  if (!player) {
-    return "Unknown player";
-  }
-
-  const firstName = normalizeNamePart(player.firstName);
-  const lastName = normalizeNamePart(player.lastName);
-  const lastInitial = lastName ? getInitialFromLastName(lastName) : null;
-
-  if (firstName && lastName) {
-    return lastInitial ? `${firstName} ${lastInitial}` : "Unknown player";
-  }
-
-  if (firstName) {
-    return firstName;
-  }
-
-  if (lastName) {
-    return lastInitial ?? "Unknown player";
-  }
-
-  return "Unknown player";
 }
 
 export function LineupShapeView({

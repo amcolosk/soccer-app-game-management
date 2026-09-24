@@ -5,6 +5,7 @@ import type { Schema } from '../../../amplify/data/resource';
 import { computeCurrentGameSeconds } from '../../utils/gameClock';
 import { formatPlayTime } from '../../utils/playTimeCalculations';
 import { useWakeLock } from '../../hooks/useWakeLock';
+import { TrackerFieldLineup } from './TrackerFieldLineup';
 import './FanMode.css';
 
 // Public, unauthenticated screen (`/track/:token`) — a non-coach helper's
@@ -486,17 +487,23 @@ export function StatTrackerView() {
         <section aria-label="On-field lineup" className="fan-mode-lineup">
           <h2>On the Field</h2>
           {onFieldRoster.length > 0 ? (
-            <ul className="fan-mode-lineup__grid">
-              {onFieldRoster.map((player) => (
-                <li key={player.id} className="fan-mode-lineup__player">
-                  <span className="fan-mode-lineup__name">{player.firstName} {player.lastName}</span>
-                  {player.positionName && <span className="fan-mode-lineup__position">{player.positionName}</span>}
-                </li>
-              ))}
-            </ul>
+            <TrackerFieldLineup players={onFieldRoster} />
           ) : (
             <p className="fan-mode-empty">No lineup data yet.</p>
           )}
+        </section>
+      )}
+
+      {tapUiUnlocked && benchRoster.length > 0 && (
+        <section aria-label="Bench" className="fan-mode-lineup">
+          <h2>Bench</h2>
+          <ul className="fan-mode-lineup__grid">
+            {benchRoster.map((player) => (
+              <li key={player.id} className="fan-mode-lineup__player">
+                <span className="fan-mode-lineup__name">#{player.playerNumber ?? '?'} {player.firstName} {player.lastName}</span>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
@@ -726,7 +733,7 @@ function PlayerPickerStep({
         onClick={() => onChoose(player.id)}
         disabled={isSubmitting}
       >
-        {player.firstName} {player.lastName}
+        #{player.playerNumber ?? '?'} {player.firstName} {player.lastName}
       </button>
     );
   }
