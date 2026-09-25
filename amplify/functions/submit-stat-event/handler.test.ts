@@ -638,6 +638,59 @@ describe('submit-stat-event handler', () => {
       expect(mockShotCreate).toHaveBeenCalledTimes(1);
     });
 
+    it('performFirstAttemptWrite: if persistWriteContext itself throws before any write, the dedup row is released rather than left stuck at pending', async () => {
+      mockHappyPathSend();
+      const baseImpl = mockSend.getMockImplementation()!;
+      mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+        const table = command.input.TableName as string;
+        if (command.__type === 'UpdateCommand' && table === 'FanViewRateLimitTable') {
+          const input = command.input as { UpdateExpression?: string };
+          if (input.UpdateExpression === 'SET writeContext = :writeContext') {
+            throw new Error('DynamoDB unavailable');
+          }
+        }
+        return baseImpl(command);
+      });
+
+      await expect(
+        invoke(createEvent({ outcome: 'GOAL', forUs: true, playerId: 'p1', clientEventId: 'evt-1' })),
+      ).rejects.toThrow('DynamoDB unavailable');
+
+      // No progress was made at all (not even the Shot write) -- the row
+      // must be released, not left stranded at 'pending' until TTL.
+      expect(dedupStore.size).toBe(0);
+      expect(mockShotCreate).not.toHaveBeenCalled();
+    });
+
+    it('performResumeWrite: if the fresh TeamTable re-read (A4) throws, the row reverts to shot-written rather than being stranded at resuming', async () => {
+      mockHappyPathSend();
+      mockGoalCreate.mockRejectedValueOnce(new Error('first failure'));
+      await invoke(createEvent({ outcome: 'GOAL', forUs: true, playerId: 'p1', clientEventId: 'evt-1' }));
+
+      const key = JSON.stringify({ limiterKey: 'dedup#evt-1', minuteBucket: 'dedup' });
+      expect(dedupStore.get(key)?.status).toBe('shot-written');
+
+      // Make the resume path's fresh TeamTable re-read fail. The resume
+      // path (claim.kind === 'resume') never re-runs validateAndDerive, so
+      // this is the ONLY TeamTable GetCommand this second invocation issues.
+      const baseImpl = mockSend.getMockImplementation()!;
+      mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+        const table = command.input.TableName as string;
+        if (command.__type === 'GetCommand' && table === 'TeamTable') {
+          throw new Error('DynamoDB unavailable');
+        }
+        return baseImpl(command);
+      });
+
+      const result = await invoke(createEvent({ outcome: 'GOAL', forUs: true, playerId: 'p1', clientEventId: 'evt-1' }));
+      expect(result).toEqual({ ok: false, reason: 'PARTIAL_WRITE' });
+
+      // Reverted to 'shot-written', not stranded at 'resuming' forever --
+      // a later resume can still retry it.
+      expect(dedupStore.get(key)?.status).toBe('shot-written');
+      expect(mockGoalCreate).toHaveBeenCalledTimes(1);
+    });
+
     it('A2: a resume attempt against a row already mid-resume (status "resuming") gets concurrent-duplicate, never a duplicate write', async () => {
       mockHappyPathSend();
       mockGoalCreate.mockRejectedValueOnce(new Error('AppSync error'));

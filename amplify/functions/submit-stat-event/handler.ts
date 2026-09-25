@@ -434,10 +434,6 @@ async function performFirstAttemptWrite(
   rateLimitTable: string | undefined,
   clientEventId: string | undefined,
 ): Promise<SubmitStatEventResult> {
-  if (clientEventId && rateLimitTable) {
-    await persistWriteContext(rateLimitTable, clientEventId, writeContext);
-  }
-
   const derived = deriveShotOutcomeWrites(writeContext);
   const dataClient = await getDataClient();
   const commonWriteFields = buildCommonWriteFields(writeContext, coaches);
@@ -445,8 +441,17 @@ async function performFirstAttemptWrite(
   // A1: progress is tracked locally and drives the ONLY release decision
   // left in this invocation -- once the Shot write below succeeds, nothing
   // in this function (or its caller) may ever delete the dedup row again,
-  // regardless of what happens next.
+  // regardless of what happens next. `persistWriteContext` is inside this
+  // same guarded block: it runs before any write, so a failure there is
+  // exactly as "no progress made" as a failed Shot.create and must release
+  // the row the same way -- otherwise the row is left stranded at 'pending'
+  // until TTL, incorrectly rejecting a retry as a concurrent-duplicate for
+  // an event that was never actually recorded.
   try {
+    if (clientEventId && rateLimitTable) {
+      await persistWriteContext(rateLimitTable, clientEventId, writeContext);
+    }
+
     const shotResponse = await dataClient.models.Shot.create({
       ...commonWriteFields,
       ...derived.shot,
@@ -514,19 +519,24 @@ async function performResumeWrite(
   rateLimitTable: string,
   clientEventId: string,
 ): Promise<SubmitStatEventResult> {
-  // A4: never reuse a cached `coaches` array -- re-read the team fresh via
-  // `teamId` so a coach who accepted an invitation between the original
-  // partial failure and this resume ends up in the resumed write's
-  // `coaches`, exactly as CLAUDE.md's standing rule requires.
-  const teamResponse = await docClient.send(new GetCommand({ TableName: teamTable, Key: { id: writeContext.teamId } }));
-  const team = teamResponse.Item as { coaches?: string[] } | undefined;
-  const coaches = team?.coaches ?? [];
-
   const derived = deriveShotOutcomeWrites(writeContext);
   const dataClient = await getDataClient();
-  const commonWriteFields = buildCommonWriteFields(writeContext, coaches);
 
   try {
+    // A4: never reuse a cached `coaches` array -- re-read the team fresh via
+    // `teamId` so a coach who accepted an invitation between the original
+    // partial failure and this resume ends up in the resumed write's
+    // `coaches`, exactly as CLAUDE.md's standing rule requires. This read is
+    // inside the same guarded block as the Goal/Save write below: by the
+    // time we reach `performResumeWrite`, the row has already been claimed
+    // into 'resuming' (progress was made), so a failure here must revert to
+    // 'shot-written' exactly like a failed Goal/Save write -- never leave
+    // the row stranded at 'resuming' forever.
+    const teamResponse = await docClient.send(new GetCommand({ TableName: teamTable, Key: { id: writeContext.teamId } }));
+    const team = teamResponse.Item as { coaches?: string[] } | undefined;
+    const coaches = team?.coaches ?? [];
+    const commonWriteFields = buildCommonWriteFields(writeContext, coaches);
+
     const response = derived.goal
       ? await dataClient.models.Goal.create({ ...commonWriteFields, ...derived.goal })
       : await dataClient.models.Save.create({ ...commonWriteFields, ...derived.save! });

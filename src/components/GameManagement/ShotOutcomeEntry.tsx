@@ -312,10 +312,10 @@ export function ShotOutcomeEntry({
       {gameState.status !== 'scheduled' && (
         <div className="stat-buttons">
           <button onClick={openUs} className="btn-stat btn-stat-us">
-            🎯 Log Shot – Us
+            <span aria-hidden="true">🎯</span> Log Shot – Us
           </button>
           <button onClick={openThem} className="btn-stat btn-stat-opponent">
-            🎯 Log Shot – {opponentName}
+            <span aria-hidden="true">🎯</span> Log Shot – {opponentName}
           </button>
         </div>
       )}

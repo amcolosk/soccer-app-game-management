@@ -8800,8 +8800,9 @@
 }
 
 /* Color-coded outcome badge on a Shots-list row (Q2/UI review) -- reuses
-   the existing .status-badge pill shape/sizing (UI-SPEC §5.7) with its own
-   color coding: green=GOAL, blue=SAVED, gray=BLOCKED/WIDE. */
+   .status-badge's pill shape and color-coding convention (UI-SPEC §5.7),
+   with its own smaller padding/font-size and its own colors: green=GOAL,
+   blue=SAVED, gray=BLOCKED/WIDE. */
 .shot-outcome-badge {
   padding: 0.2em 0.6em;
   border-radius: 6px;
