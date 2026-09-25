@@ -662,6 +662,90 @@ describe('submit-stat-event handler', () => {
       expect(mockShotCreate).not.toHaveBeenCalled();
     });
 
+    it('reconciliation fix: a throw from the roster QueryCommand during validateAndDerive releases the dedup row, and a retry with the same clientEventId then succeeds', async () => {
+      mockHappyPathSend();
+      const baseImpl = mockSend.getMockImplementation()!;
+      let failRosterQuery = true;
+      mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+        const table = command.input.TableName as string;
+        if (failRosterQuery && command.__type === 'QueryCommand' && table === 'TeamRosterTable') {
+          throw new Error('DynamoDB unavailable (roster query)');
+        }
+        return baseImpl(command);
+      });
+
+      await expect(
+        invoke(createEvent({ outcome: 'GOAL', forUs: true, playerId: 'p1', clientEventId: 'evt-roster-throw' })),
+      ).rejects.toThrow('DynamoDB unavailable (roster query)');
+
+      // validateAndDerive threw before any write was attempted -- no
+      // progress was made, so the row must be released, not left stuck at
+      // 'pending' where every retry would be told RATE_LIMITED
+      // (concurrent-duplicate) until TTL expiry.
+      const key = JSON.stringify({ limiterKey: 'dedup#evt-roster-throw', minuteBucket: 'dedup' });
+      expect(dedupStore.has(key)).toBe(false);
+      expect(mockShotCreate).not.toHaveBeenCalled();
+
+      failRosterQuery = false;
+      const retry = await invoke(createEvent({ outcome: 'GOAL', forUs: true, playerId: 'p1', clientEventId: 'evt-roster-throw' }));
+      expect(retry).toEqual({ ok: true, reason: null });
+      expect(mockShotCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it('reconciliation fix: a rejection from getDataClient() in the first-attempt path releases the dedup row', async () => {
+      mockHappyPathSend();
+      vi.resetModules();
+      vi.doMock('@aws-amplify/backend/function/runtime', () => ({
+        getAmplifyDataClientConfig: vi.fn(async () => {
+          throw new Error('cold start config fetch failed');
+        }),
+      }));
+      try {
+        const { handler: freshHandler } = await import('./handler');
+        const freshInvoke = (event: HandlerEvent) => freshHandler(event, {} as HandlerContext, (() => {}) as HandlerCallback);
+
+        await expect(
+          freshInvoke(createEvent({ outcome: 'GOAL', forUs: true, playerId: 'p1', clientEventId: 'evt-cold-start' })),
+        ).rejects.toThrow('cold start config fetch failed');
+
+        const key = JSON.stringify({ limiterKey: 'dedup#evt-cold-start', minuteBucket: 'dedup' });
+        expect(dedupStore.has(key)).toBe(false);
+        expect(mockShotCreate).not.toHaveBeenCalled();
+      } finally {
+        vi.doUnmock('@aws-amplify/backend/function/runtime');
+        vi.resetModules();
+      }
+    });
+
+    it('reconciliation fix: a rejection from getDataClient() in the resume path reverts the row to shot-written, not stranded at resuming', async () => {
+      mockHappyPathSend();
+      mockGoalCreate.mockRejectedValueOnce(new Error('first failure'));
+      await invoke(createEvent({ outcome: 'GOAL', forUs: true, playerId: 'p1', clientEventId: 'evt-resume-cold-start' }));
+
+      const key = JSON.stringify({ limiterKey: 'dedup#evt-resume-cold-start', minuteBucket: 'dedup' });
+      expect(dedupStore.get(key)?.status).toBe('shot-written');
+
+      vi.resetModules();
+      vi.doMock('@aws-amplify/backend/function/runtime', () => ({
+        getAmplifyDataClientConfig: vi.fn(async () => {
+          throw new Error('cold start config fetch failed (resume)');
+        }),
+      }));
+      try {
+        const { handler: freshHandler } = await import('./handler');
+        const freshInvoke = (event: HandlerEvent) => freshHandler(event, {} as HandlerContext, (() => {}) as HandlerCallback);
+
+        const result = await freshInvoke(createEvent({ outcome: 'GOAL', forUs: true, playerId: 'p1', clientEventId: 'evt-resume-cold-start' }));
+        expect(result).toEqual({ ok: false, reason: 'PARTIAL_WRITE' });
+
+        // Reverted to 'shot-written', not stranded at 'resuming' forever.
+        expect(dedupStore.get(key)?.status).toBe('shot-written');
+      } finally {
+        vi.doUnmock('@aws-amplify/backend/function/runtime');
+        vi.resetModules();
+      }
+    });
+
     it('performResumeWrite: if the fresh TeamTable re-read (A4) throws, the row reverts to shot-written rather than being stranded at resuming', async () => {
       mockHappyPathSend();
       mockGoalCreate.mockRejectedValueOnce(new Error('first failure'));

@@ -228,15 +228,14 @@ describe("ShotSaveTracker", () => {
       expect(mockUpdateShot.mock.calls[0][1]).not.toHaveProperty("outcome");
     });
 
-    it("requires a shooter when editing an Us shot", async () => {
+    it("m7: allows clearing the shooter when editing an Us shot (shooter-less Us shot is a legitimate state)", async () => {
       const user = userEvent.setup();
       const shotsData = [{ id: "s1", takenByUs: true, outcome: "BLOCKED", gameSeconds: 600, half: 1, playerId: "p1" }] as any[];
       renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
       await user.click(screen.getByRole("button", { name: /Edit Us shot at 10'/ }));
       await user.selectOptions(screen.getByTestId("editshotsPlayer"), "");
       await user.click(screen.getByText("Save Changes"));
-      expect(screen.getByText("A shooter is required for our shots.")).toBeInTheDocument();
-      expect(mockUpdateShot).not.toHaveBeenCalled();
+      await waitFor(() => expect(mockUpdateShot).toHaveBeenCalledWith("s1", { playerId: undefined }));
     });
 
     it("editing a 'Them' shot with outcome BLOCKED shows no shooter field, and title reflects the opponent", async () => {

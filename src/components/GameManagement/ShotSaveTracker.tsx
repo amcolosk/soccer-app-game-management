@@ -133,10 +133,10 @@ export function ShotSaveTracker({
 
   const handleSaveEdit = useCallback(async () => {
     if (!editItem) return;
-    if (statView === "shots" && (editItem as Shot).takenByUs && !editPlayerId) {
-      setError("A shooter is required for our shots.");
-      return;
-    }
+    // m7: a shooter-less "Us" shot is a legitimate state on both surfaces --
+    // the M1 editable-outcome control must be able to correct e.g. a
+    // shooterless "Us" BLOCKED shot to WIDE without inventing a shooter, so
+    // this no longer hard-requires a shooter on "Us" shots.
     setIsSavingEdit(true);
     try {
       if (statView === "shots") {

@@ -424,30 +424,48 @@ function assertNoWriteErrors(response: { errors?: ReadonlyArray<{ message: strin
   }
 }
 
-// The first-attempt write path: persist writeContext, write Shot (always),
-// then conditionally write Goal/Save. Owns the dedup row's entire lifecycle
-// for this invocation -- release-on-no-progress before the Shot write,
-// never-release once the Shot write has succeeded (A1).
+// The first-attempt path: validate/derive, then persist writeContext, write
+// Shot (always), then conditionally write Goal/Save. Owns the dedup row's
+// entire lifecycle for this invocation.
+//
+// A1 (general rule, not just two hand-picked call sites): `progressMade`
+// tracks, locally, whether any model write has actually succeeded THIS
+// invocation. EVERYTHING from right after the dedup claim through the end of
+// this first-attempt path -- validateAndDerive (which can throw from
+// resolveShareLinkAccess's ShareLink/Team/Game reads, the roster query, or
+// the rate-limit UpdateCommand), getDataClient() (a memoized module-level
+// promise that can keep rejecting on a given container instance after a
+// cold-start config-fetch failure), persistWriteContext, and the Shot write
+// itself -- is wrapped in ONE try/catch keyed off that flag: release the
+// dedup row in the catch if and only if `clientEventId && !progressMade`.
+// Once the Shot write succeeds, `progressMade` flips to true and nothing
+// past that point may ever release the row again, regardless of what
+// happens next (only TTL expiry or an explicit revert-to-'shot-written' may
+// move it on from there).
 async function performFirstAttemptWrite(
-  writeContext: WriteContext,
-  coaches: string[],
+  args: CoreArgs,
   rateLimitTable: string | undefined,
   clientEventId: string | undefined,
 ): Promise<SubmitStatEventResult> {
-  const derived = deriveShotOutcomeWrites(writeContext);
-  const dataClient = await getDataClient();
-  const commonWriteFields = buildCommonWriteFields(writeContext, coaches);
+  let progressMade = false;
 
-  // A1: progress is tracked locally and drives the ONLY release decision
-  // left in this invocation -- once the Shot write below succeeds, nothing
-  // in this function (or its caller) may ever delete the dedup row again,
-  // regardless of what happens next. `persistWriteContext` is inside this
-  // same guarded block: it runs before any write, so a failure there is
-  // exactly as "no progress made" as a failed Shot.create and must release
-  // the row the same way -- otherwise the row is left stranded at 'pending'
-  // until TTL, incorrectly rejecting a retry as a concurrent-duplicate for
-  // an event that was never actually recorded.
   try {
+    const validated = await validateAndDerive(args);
+    if (!validated.ok) {
+      // Nothing was ever written -- always safe to release (this is a
+      // rejected(...) return, not a throw, so it doesn't go through the
+      // catch below, but the same "no progress" logic applies).
+      if (clientEventId && rateLimitTable) {
+        await releaseDedupRow(rateLimitTable, clientEventId);
+      }
+      return validated.result;
+    }
+
+    const { writeContext, coaches } = validated;
+    const derived = deriveShotOutcomeWrites(writeContext);
+    const dataClient = await getDataClient();
+    const commonWriteFields = buildCommonWriteFields(writeContext, coaches);
+
     if (clientEventId && rateLimitTable) {
       await persistWriteContext(rateLimitTable, clientEventId, writeContext);
     }
@@ -457,55 +475,58 @@ async function performFirstAttemptWrite(
       ...derived.shot,
     });
     assertNoWriteErrors(shotResponse, 'Failed to record shot');
-  } catch (error) {
-    // No progress made yet -- safe to release so a retry gets a clean slate.
-    if (clientEventId && rateLimitTable) {
-      await releaseDedupRow(rateLimitTable, clientEventId);
-    }
-    throw error;
-  }
+    progressMade = true;
 
-  if (!derived.goal && !derived.save) {
-    // BLOCKED/WIDE -- nothing more to write, identical shape to a
-    // single-write submission.
+    if (!derived.goal && !derived.save) {
+      // BLOCKED/WIDE -- nothing more to write, identical shape to a
+      // single-write submission.
+      if (clientEventId && rateLimitTable) {
+        await setDedupStatus(rateLimitTable, clientEventId, 'succeeded');
+      }
+      return { ok: true, reason: null };
+    }
+
+    // GOAL/SAVED -- the Shot succeeded; from this point on the row must
+    // never be released on any subsequent error, only ever advanced or left
+    // as 'shot-written' for a later resume.
+    if (clientEventId && rateLimitTable) {
+      // A1(a): if THIS update itself throws, `progressMade` is already
+      // true, so the outer catch below deliberately does NOT release --
+      // the row stays at 'pending' with `writeContext` already persisted,
+      // which a resume attempt cannot pick up (resume requires
+      // 'shot-written'), so it simply expires via TTL. This is a narrow,
+      // accepted gap (an unresumable orphaned Shot) rather than a
+      // duplicate-write risk -- the invariant that matters (never release
+      // once Shot has succeeded) still holds.
+      await setDedupStatus(rateLimitTable, clientEventId, 'shot-written');
+    }
+
+    try {
+      const secondResponse = derived.goal
+        ? await dataClient.models.Goal.create({ ...commonWriteFields, ...derived.goal })
+        : await dataClient.models.Save.create({ ...commonWriteFields, ...derived.save! });
+      assertNoWriteErrors(secondResponse, 'Failed to record goal/save');
+    } catch {
+      // m4: return a rejected(...)-shaped result, not a thrown error -- this
+      // is retry-steerable (PARTIAL_WRITE), unlike a genuine unrecoverable
+      // failure. Never release the row here (A1) -- it stays at
+      // 'shot-written', resumable until TTL. This inner try/catch converts
+      // the failure to a return value specifically so it does NOT propagate
+      // to the outer catch (which is keyed on `!progressMade` and would be a
+      // no-op here anyway since `progressMade` is already true).
+      return { ok: false, reason: 'PARTIAL_WRITE' };
+    }
+
     if (clientEventId && rateLimitTable) {
       await setDedupStatus(rateLimitTable, clientEventId, 'succeeded');
     }
     return { ok: true, reason: null };
+  } catch (error) {
+    if (clientEventId && rateLimitTable && !progressMade) {
+      await releaseDedupRow(rateLimitTable, clientEventId);
+    }
+    throw error;
   }
-
-  // GOAL/SAVED -- the Shot succeeded; from this point on the row must never
-  // be released on any subsequent error, only ever advanced or left as
-  // 'shot-written' for a later resume.
-  if (clientEventId && rateLimitTable) {
-    // A1(a): if THIS update itself throws, the row is still not released --
-    // it stays at 'pending' with `writeContext` already persisted, which a
-    // resume attempt cannot pick up (resume requires 'shot-written'), so it
-    // simply expires via TTL. This is a narrow, accepted gap (an
-    // unresumable orphaned Shot) rather than a duplicate-write risk -- the
-    // invariant that matters (never release once Shot has succeeded) still
-    // holds, since this throw is deliberately NOT caught into a releasing
-    // catch anywhere in this call chain.
-    await setDedupStatus(rateLimitTable, clientEventId, 'shot-written');
-  }
-
-  try {
-    const secondResponse = derived.goal
-      ? await dataClient.models.Goal.create({ ...commonWriteFields, ...derived.goal })
-      : await dataClient.models.Save.create({ ...commonWriteFields, ...derived.save! });
-    assertNoWriteErrors(secondResponse, 'Failed to record goal/save');
-  } catch {
-    // m4: return a rejected(...)-shaped result, not a thrown error -- this
-    // is retry-steerable (PARTIAL_WRITE), unlike a genuine unrecoverable
-    // failure. Never release the row here (A1) -- it stays at
-    // 'shot-written', resumable until TTL.
-    return { ok: false, reason: 'PARTIAL_WRITE' };
-  }
-
-  if (clientEventId && rateLimitTable) {
-    await setDedupStatus(rateLimitTable, clientEventId, 'succeeded');
-  }
-  return { ok: true, reason: null };
 }
 
 // The resume path (A2/A3/A4): reconstructs the Goal/Save write from ONLY
@@ -520,18 +541,21 @@ async function performResumeWrite(
   clientEventId: string,
 ): Promise<SubmitStatEventResult> {
   const derived = deriveShotOutcomeWrites(writeContext);
-  const dataClient = await getDataClient();
 
   try {
+    // getDataClient() is inside this same guarded block (not hoisted above
+    // the try) for the same reason as the fresh-`coaches` read just below:
+    // by the time we reach `performResumeWrite`, the row has already been
+    // claimed into 'resuming' (progress was made), so a failure here --
+    // including a rejected cold-start config fetch -- must revert to
+    // 'shot-written' exactly like a failed Goal/Save write, never leave the
+    // row stranded at 'resuming' forever.
+    const dataClient = await getDataClient();
+
     // A4: never reuse a cached `coaches` array -- re-read the team fresh via
     // `teamId` so a coach who accepted an invitation between the original
     // partial failure and this resume ends up in the resumed write's
-    // `coaches`, exactly as CLAUDE.md's standing rule requires. This read is
-    // inside the same guarded block as the Goal/Save write below: by the
-    // time we reach `performResumeWrite`, the row has already been claimed
-    // into 'resuming' (progress was made), so a failure here must revert to
-    // 'shot-written' exactly like a failed Goal/Save write -- never leave
-    // the row stranded at 'resuming' forever.
+    // `coaches`, exactly as CLAUDE.md's standing rule requires.
     const teamResponse = await docClient.send(new GetCommand({ TableName: teamTable, Key: { id: writeContext.teamId } }));
     const team = teamResponse.Item as { coaches?: string[] } | undefined;
     const coaches = team?.coaches ?? [];
@@ -612,22 +636,15 @@ export const handler: Handler = async (event) => {
   }
 
   // ── First attempt (or no clientEventId at all) ────────────────────────
-  const validated = await validateAndDerive({
-    token, outcome, playerId, assistPlayerId, forUs, keeperPlayerId, expectedGameId,
-    identityId, tables, teamRosterTable,
-  });
-
-  if (!validated.ok) {
-    // Nothing was ever written -- always safe to release.
-    if (clientEventId) {
-      await releaseDedupRow(rateLimitTable, clientEventId);
-    }
-    return validated.result;
-  }
-
+  // validateAndDerive is called INSIDE performFirstAttemptWrite (not here)
+  // so that a throw from it is covered by that function's single
+  // release-if-no-progress try/catch (A1) rather than being an unguarded
+  // throw site between the dedup claim and the write path.
   return performFirstAttemptWrite(
-    validated.writeContext,
-    validated.coaches,
+    {
+      token, outcome, playerId, assistPlayerId, forUs, keeperPlayerId, expectedGameId,
+      identityId, tables, teamRosterTable,
+    },
     rateLimitTable,
     clientEventId ?? undefined,
   );
