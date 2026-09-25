@@ -10,15 +10,6 @@ function renderWithProvider(ui: React.ReactElement) {
   return render(<ConfirmProvider>{ui}</ConfirmProvider>);
 }
 
-vi.mock("aws-amplify/data", () => ({
-  generateClient: () => ({
-    models: {
-      Goal: { create: vi.fn().mockResolvedValue({ data: {} }) },
-      Game: { update: vi.fn().mockResolvedValue({ data: {} }) },
-    },
-  }),
-}));
-
 vi.mock("../../utils/toast", () => ({
   showWarning: vi.fn(),
   showSuccess: vi.fn(),
@@ -53,155 +44,34 @@ const players = [
   { id: "p2", playerNumber: 7, firstName: "Bob", lastName: "Jones" },
 ] as any[];
 
-const mockCreateGoal = vi.fn().mockResolvedValue(undefined);
 const mockUpdateGame = vi.fn().mockResolvedValue(undefined);
 const mockDeleteGoal = vi.fn().mockResolvedValue(undefined);
 const mockUpdateGoal = vi.fn().mockResolvedValue(undefined);
 
 const makeMutations = (overrides: Record<string, any> = {}) => ({
   updateGame: mockUpdateGame,
-  createGoal: mockCreateGoal,
   deleteGoal: mockDeleteGoal,
   updateGoal: mockUpdateGoal,
-  createPlayTimeRecord: vi.fn().mockResolvedValue(undefined),
-  updatePlayTimeRecord: vi.fn().mockResolvedValue(undefined),
-  createSubstitution: vi.fn().mockResolvedValue(undefined),
-  createLineupAssignment: vi.fn().mockResolvedValue(undefined),
-  deleteLineupAssignment: vi.fn().mockResolvedValue(undefined),
-  updateLineupAssignment: vi.fn().mockResolvedValue(undefined),
-  createGameNote: vi.fn().mockResolvedValue(undefined),
-  updateGameNote: vi.fn().mockResolvedValue(undefined),
-  deleteGameNote: vi.fn().mockResolvedValue(undefined),
-  createPlayerAvailability: vi.fn().mockResolvedValue(undefined),
-  updatePlayerAvailability: vi.fn().mockResolvedValue(undefined),
   ...overrides,
 });
 
+// GoalTracker now only needs gameState/players/goals/mutations -- creation
+// moved to ShotOutcomeEntry.tsx. GameManagement.tsx still spreads the larger
+// sharedGoalTrackerProps object onto it at runtime; the extra fields aren't
+// required here.
 const defaultProps = {
   gameState: makeGameState() as any,
-  game: { id: "game-1" } as any,
-  team: { coaches: ["coach-1"] } as any,
   players,
   goals: [] as any[],
-  currentTime: 600,
   mutations: makeMutations() as any,
-  playTimeRecords: [] as any[],
-  lineup: [] as any[],
 };
 
 describe("GoalTracker", () => {
   beforeEach(() => {
-    mockCreateGoal.mockReset().mockResolvedValue(undefined);
     mockUpdateGame.mockReset().mockResolvedValue(undefined);
     mockDeleteGoal.mockReset().mockResolvedValue(undefined);
     mockUpdateGoal.mockReset().mockResolvedValue(undefined);
     vi.mocked(showSuccess).mockClear();
-  });
-  describe("goal buttons visibility", () => {
-    it("shows goal buttons when in-progress", () => {
-      renderWithProvider(<GoalTracker {...defaultProps} />);
-      expect(screen.getByText(/Goal - Us/)).toBeInTheDocument();
-      expect(screen.getByText(/Goal - Eagles/)).toBeInTheDocument();
-    });
-
-    it("shows goal buttons when at halftime", () => {
-      renderWithProvider(
-        <GoalTracker
-          {...defaultProps}
-          gameState={makeGameState({ status: "halftime" }) as any}
-        />
-      );
-      expect(screen.getByText(/Goal - Us/)).toBeInTheDocument();
-    });
-
-    it("hides goal buttons when scheduled", () => {
-      renderWithProvider(
-        <GoalTracker
-          {...defaultProps}
-          gameState={makeGameState({ status: "scheduled" }) as any}
-        />
-      );
-      expect(screen.queryByText(/Goal - Us/)).not.toBeInTheDocument();
-    });
-
-    it("shows goal buttons when completed", () => {
-      renderWithProvider(
-        <GoalTracker
-          {...defaultProps}
-          gameState={makeGameState({ status: "completed" }) as any}
-        />
-      );
-      expect(screen.getByText(/Goal - Us/)).toBeInTheDocument();
-      expect(screen.getByText(/Goal - Eagles/)).toBeInTheDocument();
-    });
-
-    it("shows opponent name on opponent goal button", () => {
-      renderWithProvider(
-        <GoalTracker
-          {...defaultProps}
-          gameState={makeGameState({ opponent: "Sharks" }) as any}
-        />
-      );
-      expect(screen.getByText(/Goal - Sharks/)).toBeInTheDocument();
-    });
-  });
-
-  describe("goal modal", () => {
-    it("opens modal with Our Goal when us-button clicked", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<GoalTracker {...defaultProps} />);
-      await user.click(screen.getByText(/Goal - Us/));
-      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Record Goal");
-      expect(screen.getByText(/Our Goal/)).toBeInTheDocument();
-    });
-
-    it("opens modal with opponent name when opponent-button clicked", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<GoalTracker {...defaultProps} />);
-      await user.click(screen.getByText(/Goal - Eagles/));
-      expect(screen.getByText(/Eagles Goal/)).toBeInTheDocument();
-    });
-
-    it("shows scorer select for our goal", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<GoalTracker {...defaultProps} />);
-      await user.click(screen.getByText(/Goal - Us/));
-      expect(screen.getByText("Who Scored? *")).toBeInTheDocument();
-      expect(screen.getByTestId("goalScorer")).toBeInTheDocument();
-    });
-
-    it("shows assist select for our goal", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<GoalTracker {...defaultProps} />);
-      await user.click(screen.getByText(/Goal - Us/));
-      expect(screen.getByText(/Assisted By/)).toBeInTheDocument();
-      expect(screen.getByTestId("goalAssist")).toBeInTheDocument();
-    });
-
-    it("hides scorer and assist for opponent goal", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<GoalTracker {...defaultProps} />);
-      await user.click(screen.getByText(/Goal - Eagles/));
-      expect(screen.queryByText("Who Scored? *")).not.toBeInTheDocument();
-      expect(screen.queryByTestId("goalScorer")).not.toBeInTheDocument();
-    });
-
-    it("closes modal when Cancel clicked", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<GoalTracker {...defaultProps} />);
-      await user.click(screen.getByText(/Goal - Us/));
-      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Record Goal");
-      await user.click(screen.getByText("Cancel"));
-      expect(screen.queryByRole("heading", { level: 2 })).not.toBeInTheDocument();
-    });
-
-    it("has correct aria-labelledby on record goal modal", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<GoalTracker {...defaultProps} />);
-      await user.click(screen.getByText(/Goal - Us/));
-      const modal = screen.getByRole("dialog", { hidden: true });
-      expect(modal).toHaveAttribute("aria-labelledby", "record-goal-modal-title");
-    });
   });
 
   describe("goals list", () => {
@@ -258,7 +128,7 @@ describe("GoalTracker", () => {
       expect(screen.queryByText("Goals")).not.toBeInTheDocument();
     });
 
-    it("shows empty state in completed when no goals", () => {
+    it("shows the reworded empty state in completed when no goals, pointing at the two-button flow (m6/UI review)", () => {
       renderWithProvider(
         <GoalTracker
           {...defaultProps}
@@ -266,7 +136,7 @@ describe("GoalTracker", () => {
           goals={[]}
         />
       );
-      expect(screen.getByText(/No goals recorded yet/)).toBeInTheDocument();
+      expect(screen.getByText(/To correct the final score, tap Log Shot – Us or Log Shot – Them, then choose Goal\./)).toBeInTheDocument();
     });
   });
 
@@ -313,58 +183,15 @@ describe("GoalTracker", () => {
     });
   });
 
-  describe("goal record", () => {
-    it("calls createGoal and does NOT call updateGame in active states", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<GoalTracker {...defaultProps} />);
-      await user.click(screen.getByText(/Goal - Us/));
-      await user.selectOptions(screen.getByTestId("goalScorer"), "p1");
-      await user.click(screen.getByRole("button", { name: /^Record Goal$/ }));
-      await waitFor(() => expect(mockCreateGoal).toHaveBeenCalledWith(expect.objectContaining({
-        gameId: "game-1",
-        scoredByUs: true,
-      })));
-      // Critical: updateGame should NOT be called for active-state goal records
-      expect(mockUpdateGame).not.toHaveBeenCalled();
-    });
-
-    it("shows success toast with final score when completed", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(
-        <GoalTracker
-          {...defaultProps}
-          gameState={makeGameState({ status: "completed", ourScore: 1, opponentScore: 0 }) as any}
-        />
-      );
-      await user.click(screen.getByText(/Goal - Us/));
-      await user.selectOptions(screen.getByTestId("goalScorer"), "p1");
-      await user.click(screen.getByRole("button", { name: /^Record Goal$/ }));
-      await waitFor(() => expect(showSuccess).toHaveBeenCalledWith(
-        expect.stringContaining("Goal added")
-      ));
-      // updateGame NOT called - GameManagement will auto-reconcile
-      expect(mockUpdateGame).not.toHaveBeenCalled();
-    });
-
-    it("requires scorer when recording our goal", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<GoalTracker {...defaultProps} />);
-      await user.click(screen.getByText(/Goal - Us/));
-      // Don't select a scorer
-      await user.click(screen.getByRole("button", { name: /^Record Goal$/ }));
-      expect(mockCreateGoal).not.toHaveBeenCalled();
-    });
-  });
-
   describe("goal delete", () => {
-    it("uses goal-specific delete confirmation copy without note author reminder", async () => {
+    it("uses goal-specific delete confirmation copy, including the sibling-drift note (i4)", async () => {
       const user = userEvent.setup();
       renderWithProvider(<GoalTracker {...defaultProps} goals={goalsForEditDelete} />);
 
       await user.click(screen.getByRole("button", { name: /Delete Us goal at 10'/ }));
 
       expect(screen.getByRole("heading", { name: "Delete goal?" })).toBeInTheDocument();
-      expect(screen.getByText("This permanently removes this goal event from the game timeline.")).toBeInTheDocument();
+      expect(screen.getByText("This permanently removes this goal event from the game timeline. The matching shot stays in the Shots list.")).toBeInTheDocument();
       expect(screen.queryByText("Only the original author can confirm this delete.")).not.toBeInTheDocument();
     });
 

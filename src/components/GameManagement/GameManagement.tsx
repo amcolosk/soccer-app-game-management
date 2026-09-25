@@ -31,6 +31,7 @@ import { BenchTab } from "./BenchTab";
 import { GameTimer } from "./GameTimer";
 import { GoalTracker } from "./GoalTracker";
 import { ShotSaveTracker } from "./ShotSaveTracker";
+import { ShotOutcomeEntry } from "./ShotOutcomeEntry";
 import { StatsSubViewTabs, type StatSubView } from "./StatsSubViewTabs";
 import { PlayerNotesPanel, type OpenLiveNoteIntent } from "./PlayerNotesPanel";
 import { PreGameNotesPanel } from "./PreGameNotesPanel";
@@ -2403,6 +2404,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                 aria-labelledby="game-tab-panel-tab-goals"
                 tabIndex={0}
               >
+                <ShotOutcomeEntry {...sharedGoalTrackerProps} />
                 <StatsSubViewTabs
                   activeSubView={statSubView}
                   onChange={setStatSubView}
@@ -2574,6 +2576,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                 aria-labelledby="game-tab-panel-tab-goals"
                 tabIndex={0}
               >
+                <ShotOutcomeEntry {...sharedGoalTrackerProps} />
                 <StatsSubViewTabs
                   activeSubView={statSubView}
                   onChange={setStatSubView}
@@ -2678,6 +2681,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
               gameEndSeconds={gameState.elapsedSeconds ?? 0}
               halfLengthSeconds={halfLengthSeconds}
             />
+            <ShotOutcomeEntry {...sharedGoalTrackerProps} />
             <StatsSubViewTabs
               activeSubView={statSubView}
               onChange={setStatSubView}

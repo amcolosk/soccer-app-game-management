@@ -44,191 +44,45 @@ const players = [
   { id: "p2", playerNumber: 7, firstName: "Bob", lastName: "Jones" },
 ] as any[];
 
-const mockCreateShot = vi.fn().mockResolvedValue(undefined);
 const mockDeleteShot = vi.fn().mockResolvedValue(undefined);
 const mockUpdateShot = vi.fn().mockResolvedValue(undefined);
-const mockCreateSave = vi.fn().mockResolvedValue(undefined);
 const mockDeleteSave = vi.fn().mockResolvedValue(undefined);
 const mockUpdateSave = vi.fn().mockResolvedValue(undefined);
 
 const makeMutations = (overrides: Record<string, any> = {}) => ({
-  createShot: mockCreateShot,
   deleteShot: mockDeleteShot,
   updateShot: mockUpdateShot,
-  createSave: mockCreateSave,
   deleteSave: mockDeleteSave,
   updateSave: mockUpdateSave,
   ...overrides,
 });
 
+// ShotSaveTracker now only needs gameState/players/shots/saves/statView/
+// mutations/playTimeRecords/positions -- creation moved to
+// ShotOutcomeEntry.tsx.
 const defaultProps = {
   gameState: makeGameState() as any,
-  game: { id: "game-1" } as any,
-  team: { coaches: ["coach-1"] } as any,
   players,
   shots: [] as any[],
   saves: [] as any[],
-  currentTime: 600,
   mutations: makeMutations() as any,
   playTimeRecords: [] as any[],
-  lineup: [] as any[],
   positions: [] as any[],
 };
 
 describe("ShotSaveTracker", () => {
   beforeEach(() => {
-    mockCreateShot.mockReset().mockResolvedValue(undefined);
     mockDeleteShot.mockReset().mockResolvedValue(undefined);
     mockUpdateShot.mockReset().mockResolvedValue(undefined);
-    mockCreateSave.mockReset().mockResolvedValue(undefined);
     mockDeleteSave.mockReset().mockResolvedValue(undefined);
     mockUpdateSave.mockReset().mockResolvedValue(undefined);
     vi.mocked(showSuccess).mockClear();
   });
 
-  describe("entry buttons visibility (Shots)", () => {
-    it("shows entry buttons when in-progress", () => {
-      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" />);
-      expect(screen.getByText(/Shot - Us/)).toBeInTheDocument();
-      expect(screen.getByText(/Shot - Eagles/)).toBeInTheDocument();
-    });
-
-    it("hides entry buttons when scheduled (mirrors GoalTracker's no-op guard)", () => {
-      renderWithProvider(
-        <ShotSaveTracker
-          {...defaultProps}
-          statView="shots"
-          gameState={makeGameState({ status: "scheduled" }) as any}
-        />
-      );
-      expect(screen.queryByText(/Shot - Us/)).not.toBeInTheDocument();
-    });
-
-    it("shows entry buttons when completed", () => {
-      renderWithProvider(
-        <ShotSaveTracker
-          {...defaultProps}
-          statView="shots"
-          gameState={makeGameState({ status: "completed" }) as any}
-        />
-      );
-      expect(screen.getByText(/Shot - Us/)).toBeInTheDocument();
-    });
-  });
-
-  describe("entry buttons visibility (Saves)", () => {
-    it("shows Save entry buttons", () => {
-      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="saves" />);
-      expect(screen.getByText(/Save - Us/)).toBeInTheDocument();
-      expect(screen.getByText(/Save - Eagles/)).toBeInTheDocument();
-    });
-
-    it("hides Save entry buttons when scheduled", () => {
-      renderWithProvider(
-        <ShotSaveTracker
-          {...defaultProps}
-          statView="saves"
-          gameState={makeGameState({ status: "scheduled" }) as any}
-        />
-      );
-      expect(screen.queryByText(/Save - Us/)).not.toBeInTheDocument();
-    });
-  });
-
-  describe("Shot entry — Us/Opponent two-button flow", () => {
-    it("opens modal for Us shot with a required player select and on-target toggle", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" />);
-      await user.click(screen.getByText(/Shot - Us/));
-      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Record Shot");
-      expect(screen.getByText("Who Took the Shot? *")).toBeInTheDocument();
-      expect(screen.getByTestId("shotsPlayer")).toBeInTheDocument();
-      expect(screen.getByLabelText("On Target?")).toBeInTheDocument();
-    });
-
-    it("opens modal for opponent shot without a player select, but keeps the on-target toggle", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" />);
-      await user.click(screen.getByText(/Shot - Eagles/));
-      expect(screen.queryByTestId("shotsPlayer")).not.toBeInTheDocument();
-      expect(screen.getByLabelText("On Target?")).toBeInTheDocument();
-    });
-
-    it("requires a shooter for an Us shot", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" />);
-      await user.click(screen.getByText(/Shot - Us/));
-      await user.click(screen.getByRole("button", { name: /^Record Shot$/ }));
-      expect(mockCreateShot).not.toHaveBeenCalled();
-    });
-
-    it("creates an Us shot with takenByUs, onTarget, and loggedVia: COACH", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" />);
-      await user.click(screen.getByText(/Shot - Us/));
-      await user.selectOptions(screen.getByTestId("shotsPlayer"), "p1");
-      await user.click(screen.getByRole("button", { name: /^Record Shot$/ }));
-      await waitFor(() => expect(mockCreateShot).toHaveBeenCalledWith(expect.objectContaining({
-        gameId: "game-1",
-        takenByUs: true,
-        onTarget: true,
-        playerId: "p1",
-        loggedVia: "COACH",
-        coaches: ["coach-1"],
-      })));
-    });
-
-    it("creates an opponent shot with no playerId", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" />);
-      await user.click(screen.getByText(/Shot - Eagles/));
-      await user.click(screen.getByRole("button", { name: /^Record Shot$/ }));
-      await waitFor(() => expect(mockCreateShot).toHaveBeenCalledWith(expect.objectContaining({
-        takenByUs: false,
-        playerId: undefined,
-        loggedVia: "COACH",
-      })));
-    });
-  });
-
-  describe("Save entry — Us/Opponent two-button flow", () => {
-    it("Us save's player select is optional (goalkeeper may be unknown)", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="saves" />);
-      await user.click(screen.getByText(/Save - Us/));
-      expect(screen.getByText("Goalkeeper (optional)")).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: /^Record Save$/ }));
-      await waitFor(() => expect(mockCreateSave).toHaveBeenCalledWith(expect.objectContaining({
-        byUs: true,
-        playerId: undefined,
-        loggedVia: "COACH",
-      })));
-    });
-
-    it("opens modal for opponent save without a player select", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="saves" />);
-      await user.click(screen.getByText(/Save - Eagles/));
-      expect(screen.queryByTestId("savesPlayer")).not.toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: /^Record Save$/ }));
-      await waitFor(() => expect(mockCreateSave).toHaveBeenCalledWith(expect.objectContaining({
-        byUs: false,
-        playerId: undefined,
-      })));
-    });
-
-    it("saves do not show an on-target toggle", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="saves" />);
-      await user.click(screen.getByText(/Save - Us/));
-      expect(screen.queryByLabelText("On Target?")).not.toBeInTheDocument();
-    });
-  });
-
-  describe("stats list — Us vs opponent edit suppression", () => {
+  describe("stats list — outcome badge and edit-visibility gate", () => {
     const shotsData = [
-      { id: "s1", takenByUs: true, onTarget: true, gameSeconds: 600, half: 1, playerId: "p1" },
-      { id: "s2", takenByUs: false, onTarget: false, gameSeconds: 1200, half: 1, playerId: null },
+      { id: "s1", takenByUs: true, outcome: "GOAL", gameSeconds: 600, half: 1, playerId: "p1" },
+      { id: "s2", takenByUs: false, outcome: "BLOCKED", gameSeconds: 1200, half: 1, playerId: null },
     ] as any[];
 
     it("renders stat cards with minute and half", () => {
@@ -237,16 +91,16 @@ describe("ShotSaveTracker", () => {
       expect(screen.getByText("20'")).toBeInTheDocument();
     });
 
+    it("renders a color-coded outcome badge per shot (Q2/UI review)", () => {
+      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
+      expect(screen.getByText("Goal")).toHaveClass("shot-outcome-badge--goal");
+      expect(screen.getByText("Blocked")).toHaveClass("shot-outcome-badge--neutral");
+    });
+
     it("shows Edit and Delete for an Us-attributed row", () => {
       renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
       expect(screen.getByRole("button", { name: /Edit Us shot at 10'/ })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Delete Us shot at 10'/ })).toBeInTheDocument();
-    });
-
-    it("suppresses Edit but keeps Delete for an opponent-attributed row", () => {
-      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
-      expect(screen.queryByRole("button", { name: /Edit Eagles shot at 20'/ })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Delete Eagles shot at 20'/ })).toBeInTheDocument();
     });
 
     it("does not render the stats section when empty", () => {
@@ -266,34 +120,117 @@ describe("ShotSaveTracker", () => {
       expect(screen.getByText(/No shots recorded yet/)).toBeInTheDocument();
     });
 
+    describe("Edit-visibility gate (UI review Major) — Shot vs. Save now diverge", () => {
+      it("a 'Them' Shot with outcome BLOCKED shows the Edit action", () => {
+        const them = [{ id: "s-blocked", takenByUs: false, outcome: "BLOCKED", gameSeconds: 60, half: 1, playerId: null }] as any[];
+        renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={them} />);
+        expect(screen.getByRole("button", { name: /Edit Eagles shot at 1'/ })).toBeInTheDocument();
+      });
+
+      it("a 'Them' Shot with outcome WIDE shows the Edit action", () => {
+        const them = [{ id: "s-wide", takenByUs: false, outcome: "WIDE", gameSeconds: 60, half: 1, playerId: null }] as any[];
+        renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={them} />);
+        expect(screen.getByRole("button", { name: /Edit Eagles shot at 1'/ })).toBeInTheDocument();
+      });
+
+      it.each(["GOAL", "SAVED", null])("a 'Them' Shot with outcome %s shows no Edit action", (outcome) => {
+        const them = [{ id: "s-x", takenByUs: false, outcome, gameSeconds: 60, half: 1, playerId: null }] as any[];
+        renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={them} />);
+        expect(screen.queryByRole("button", { name: /Edit Eagles shot at 1'/ })).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /Delete Eagles shot at 1'/ })).toBeInTheDocument();
+      });
+
+      it("a 'Them' Save (any state) shows no Edit action -- gate unchanged for Save", () => {
+        const them = [{ id: "sv-x", byUs: false, gameSeconds: 60, half: 1, playerId: null }] as any[];
+        renderWithProvider(<ShotSaveTracker {...defaultProps} statView="saves" saves={them} />);
+        expect(screen.queryByRole("button", { name: /Edit Eagles save at 1'/ })).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /Delete Eagles save at 1'/ })).toBeInTheDocument();
+      });
+    });
   });
 
-  describe("edit modal (Us rows only)", () => {
-    const shotsData = [
-      { id: "s1", takenByUs: true, onTarget: true, gameSeconds: 600, half: 1, playerId: "p1" },
-    ] as any[];
-
-    it("opens pre-populated with the shot's player and on-target value", async () => {
+  describe("edit modal — M1 outcome guardrail", () => {
+    it("shows an editable outcome dropdown only for a BLOCKED-outcome shot", async () => {
       const user = userEvent.setup();
+      const shotsData = [{ id: "s1", takenByUs: true, outcome: "BLOCKED", gameSeconds: 600, half: 1, playerId: "p1" }] as any[];
       renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
       await user.click(screen.getByRole("button", { name: /Edit Us shot at 10'/ }));
-      expect(screen.getByRole("heading", { name: /Edit Our Shot/ })).toBeInTheDocument();
-      expect(screen.getByTestId("editshotsPlayer")).toHaveValue("p1");
+      expect(screen.getByLabelText("Outcome")).toBeInTheDocument();
+      expect(screen.getByLabelText("Outcome").tagName).toBe("SELECT");
     });
 
-    it("calls updateShot with the edited fields", async () => {
+    it("shows an editable outcome dropdown for a WIDE-outcome shot", async () => {
       const user = userEvent.setup();
+      const shotsData = [{ id: "s1", takenByUs: true, outcome: "WIDE", gameSeconds: 600, half: 1, playerId: "p1" }] as any[];
+      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
+      await user.click(screen.getByRole("button", { name: /Edit Us shot at 10'/ }));
+      expect(screen.getByLabelText("Outcome").tagName).toBe("SELECT");
+    });
+
+    it("shows a read-only label (no editable dropdown) for a GOAL-outcome shot", async () => {
+      const user = userEvent.setup();
+      const shotsData = [{ id: "s1", takenByUs: true, outcome: "GOAL", gameSeconds: 600, half: 1, playerId: "p1" }] as any[];
+      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
+      await user.click(screen.getByRole("button", { name: /Edit Us shot at 10'/ }));
+      expect(screen.queryByRole("combobox", { name: "Outcome" })).not.toBeInTheDocument();
+      expect(screen.getByText(/Goal — delete and re-log to change the outcome/)).toBeInTheDocument();
+    });
+
+    it("shows a read-only label for a SAVED-outcome shot", async () => {
+      const user = userEvent.setup();
+      const shotsData = [{ id: "s1", takenByUs: true, outcome: "SAVED", gameSeconds: 600, half: 1, playerId: "p1" }] as any[];
+      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
+      await user.click(screen.getByRole("button", { name: /Edit Us shot at 10'/ }));
+      expect(screen.getByText(/Saved — delete and re-log to change the outcome/)).toBeInTheDocument();
+    });
+
+    it("M1: editing the shooter on a GOAL-outcome shot keeps outcome GOAL -- updateShot is called WITHOUT an outcome key", async () => {
+      const user = userEvent.setup();
+      const shotsData = [{ id: "s1", takenByUs: true, outcome: "GOAL", gameSeconds: 600, half: 1, playerId: "p1" }] as any[];
+      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
+      await user.click(screen.getByRole("button", { name: /Edit Us shot at 10'/ }));
+      await user.selectOptions(screen.getByTestId("editshotsPlayer"), "p2");
+      await user.click(screen.getByText("Save Changes"));
+      await waitFor(() => expect(mockUpdateShot).toHaveBeenCalled());
+      const call = mockUpdateShot.mock.calls[0];
+      expect(call[0]).toBe("s1");
+      expect(call[1]).not.toHaveProperty("outcome");
+      expect(call[1]).toEqual({ playerId: "p2" });
+    });
+
+    it("companion case: editing the shooter on a SAVED-outcome shot keeps outcome unchanged", async () => {
+      const user = userEvent.setup();
+      const shotsData = [{ id: "s1", takenByUs: true, outcome: "SAVED", gameSeconds: 600, half: 1, playerId: "p1" }] as any[];
+      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
+      await user.click(screen.getByRole("button", { name: /Edit Us shot at 10'/ }));
+      await user.selectOptions(screen.getByTestId("editshotsPlayer"), "p2");
+      await user.click(screen.getByText("Save Changes"));
+      await waitFor(() => expect(mockUpdateShot).toHaveBeenCalledWith("s1", { playerId: "p2" }));
+    });
+
+    it("changing the outcome dropdown on a BLOCKED shot to WIDE sends the new outcome", async () => {
+      const user = userEvent.setup();
+      const shotsData = [{ id: "s1", takenByUs: true, outcome: "BLOCKED", gameSeconds: 600, half: 1, playerId: "p1" }] as any[];
+      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
+      await user.click(screen.getByRole("button", { name: /Edit Us shot at 10'/ }));
+      await user.selectOptions(screen.getByLabelText("Outcome"), "WIDE");
+      await user.click(screen.getByText("Save Changes"));
+      await waitFor(() => expect(mockUpdateShot).toHaveBeenCalledWith("s1", expect.objectContaining({ outcome: "WIDE" })));
+    });
+
+    it("leaving the outcome dropdown unchanged on a BLOCKED shot omits outcome from the payload", async () => {
+      const user = userEvent.setup();
+      const shotsData = [{ id: "s1", takenByUs: true, outcome: "BLOCKED", gameSeconds: 600, half: 1, playerId: "p1" }] as any[];
       renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
       await user.click(screen.getByRole("button", { name: /Edit Us shot at 10'/ }));
       await user.click(screen.getByText("Save Changes"));
-      await waitFor(() => expect(mockUpdateShot).toHaveBeenCalledWith("s1", {
-        playerId: "p1",
-        onTarget: true,
-      }));
+      await waitFor(() => expect(mockUpdateShot).toHaveBeenCalled());
+      expect(mockUpdateShot.mock.calls[0][1]).not.toHaveProperty("outcome");
     });
 
     it("requires a shooter when editing an Us shot", async () => {
       const user = userEvent.setup();
+      const shotsData = [{ id: "s1", takenByUs: true, outcome: "BLOCKED", gameSeconds: 600, half: 1, playerId: "p1" }] as any[];
       renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
       await user.click(screen.getByRole("button", { name: /Edit Us shot at 10'/ }));
       await user.selectOptions(screen.getByTestId("editshotsPlayer"), "");
@@ -301,18 +238,48 @@ describe("ShotSaveTracker", () => {
       expect(screen.getByText("A shooter is required for our shots.")).toBeInTheDocument();
       expect(mockUpdateShot).not.toHaveBeenCalled();
     });
+
+    it("editing a 'Them' shot with outcome BLOCKED shows no shooter field, and title reflects the opponent", async () => {
+      const user = userEvent.setup();
+      const shotsData = [{ id: "s1", takenByUs: false, outcome: "BLOCKED", gameSeconds: 600, half: 1, playerId: null }] as any[];
+      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
+      await user.click(screen.getByRole("button", { name: /Edit Eagles shot at 10'/ }));
+      expect(screen.getByRole("heading", { name: /Edit Eagles Shot/ })).toBeInTheDocument();
+      expect(screen.queryByTestId("editshotsPlayer")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("save's edit modal — unchanged (no outcome control)", () => {
+    it("does not render an outcome control on the Save edit modal", async () => {
+      const user = userEvent.setup();
+      const savesData = [{ id: "sv1", byUs: true, gameSeconds: 300, half: 1, playerId: "p1" }] as any[];
+      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="saves" saves={savesData} />);
+      await user.click(screen.getByRole("button", { name: /Edit Us save at 5'/ }));
+      expect(screen.queryByLabelText("Outcome")).not.toBeInTheDocument();
+    });
+
+    it("calls updateSave with the edited player only", async () => {
+      const user = userEvent.setup();
+      const savesData = [{ id: "sv1", byUs: true, gameSeconds: 300, half: 1, playerId: "p1" }] as any[];
+      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="saves" saves={savesData} />);
+      await user.click(screen.getByRole("button", { name: /Edit Us save at 5'/ }));
+      await user.selectOptions(screen.getByTestId("editsavesPlayer"), "p2");
+      await user.click(screen.getByText("Save Changes"));
+      await waitFor(() => expect(mockUpdateSave).toHaveBeenCalledWith("sv1", { playerId: "p2" }));
+    });
   });
 
   describe("delete", () => {
     const shotsData = [
-      { id: "s1", takenByUs: true, onTarget: true, gameSeconds: 600, half: 1, playerId: "p1" },
+      { id: "s1", takenByUs: true, outcome: "GOAL", gameSeconds: 600, half: 1, playerId: "p1" },
     ] as any[];
 
-    it("uses shot-specific delete confirmation copy", async () => {
+    it("uses shot-specific delete confirmation copy, including the sibling-drift note (i4)", async () => {
       const user = userEvent.setup();
       renderWithProvider(<ShotSaveTracker {...defaultProps} statView="shots" shots={shotsData} />);
       await user.click(screen.getByRole("button", { name: /Delete Us shot at 10'/ }));
       expect(screen.getByRole("heading", { name: "Delete shot?" })).toBeInTheDocument();
+      expect(screen.getByText(/Any matching goal or save stays in its own list\./)).toBeInTheDocument();
     });
 
     it("calls deleteShot", async () => {
@@ -329,6 +296,13 @@ describe("ShotSaveTracker", () => {
       { id: "sv1", byUs: true, gameSeconds: 300, half: 1, playerId: "p2" },
     ] as any[];
 
+    it("uses save-specific delete confirmation copy, including the sibling-drift note (i4)", async () => {
+      const user = userEvent.setup();
+      renderWithProvider(<ShotSaveTracker {...defaultProps} statView="saves" saves={savesData} />);
+      await user.click(screen.getByRole("button", { name: /Delete Us save at 5'/ }));
+      expect(screen.getByText(/The matching shot stays in the Shots list\./)).toBeInTheDocument();
+    });
+
     it("calls deleteSave for a save row", async () => {
       const user = userEvent.setup();
       renderWithProvider(<ShotSaveTracker {...defaultProps} statView="saves" saves={savesData} />);
@@ -338,7 +312,7 @@ describe("ShotSaveTracker", () => {
     });
   });
 
-  describe("Save Auto-Goalkeeper Attribution", () => {
+  describe("Save Auto-Goalkeeper Attribution (edit modal prefill)", () => {
     const gkPositions = [
       { id: "gk-pos", role: "GOALKEEPER" },
       { id: "other-pos", role: "DEFENDER" },
@@ -347,68 +321,6 @@ describe("ShotSaveTracker", () => {
       { id: "gk-pos-1", role: "GOALKEEPER" },
       { id: "gk-pos-2", role: "GOALKEEPER" },
     ] as any[];
-
-    it("entry modal pre-fills the goalkeeper PlayerSelect with the player holding an open PlayTimeRecord at a GOALKEEPER-role position", async () => {
-      const user = userEvent.setup();
-      const playTimeRecords = [
-        { id: "ptr1", playerId: "p1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: null },
-      ] as any[];
-      renderWithProvider(
-        <ShotSaveTracker {...defaultProps} statView="saves" positions={gkPositions} playTimeRecords={playTimeRecords} />
-      );
-      await user.click(screen.getByText(/Save - Us/));
-      expect(screen.getByTestId("savesPlayer")).toHaveValue("p1");
-    });
-
-    it("does not pre-fill when no position has role: 'GOALKEEPER' (falls back to empty/optional)", async () => {
-      const user = userEvent.setup();
-      const playTimeRecords = [
-        { id: "ptr1", playerId: "p1", positionId: "other-pos", startGameSeconds: 0, endGameSeconds: null },
-      ] as any[];
-      renderWithProvider(
-        <ShotSaveTracker {...defaultProps} statView="saves" positions={gkPositions} playTimeRecords={playTimeRecords} />
-      );
-      await user.click(screen.getByText(/Save - Us/));
-      expect(screen.getByTestId("savesPlayer")).toHaveValue("");
-    });
-
-    it("does not pre-fill when two different players simultaneously hold open records at two GOALKEEPER-role positions (ambiguous)", async () => {
-      const user = userEvent.setup();
-      const playTimeRecords = [
-        { id: "ptr1", playerId: "p1", positionId: "gk-pos-1", startGameSeconds: 0, endGameSeconds: null },
-        { id: "ptr2", playerId: "p2", positionId: "gk-pos-2", startGameSeconds: 0, endGameSeconds: null },
-      ] as any[];
-      renderWithProvider(
-        <ShotSaveTracker {...defaultProps} statView="saves" positions={gkPositionsTwoSlots} playTimeRecords={playTimeRecords} />
-      );
-      await user.click(screen.getByText(/Save - Us/));
-      expect(screen.getByTestId("savesPlayer")).toHaveValue("");
-    });
-
-    it("pre-fills when the sole open GOALKEEPER-role record's player also doubles up at a second GOALKEEPER-role position (distinct players, not positions)", async () => {
-      const user = userEvent.setup();
-      const playTimeRecords = [
-        { id: "ptr1", playerId: "p1", positionId: "gk-pos-1", startGameSeconds: 0, endGameSeconds: null },
-        { id: "ptr2", playerId: "p1", positionId: "gk-pos-2", startGameSeconds: 0, endGameSeconds: null },
-      ] as any[];
-      renderWithProvider(
-        <ShotSaveTracker {...defaultProps} statView="saves" positions={gkPositionsTwoSlots} playTimeRecords={playTimeRecords} />
-      );
-      await user.click(screen.getByText(/Save - Us/));
-      expect(screen.getByTestId("savesPlayer")).toHaveValue("p1");
-    });
-
-    it("does not pre-fill Shots even with a resolvable goalkeeper", async () => {
-      const user = userEvent.setup();
-      const playTimeRecords = [
-        { id: "ptr1", playerId: "p1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: null },
-      ] as any[];
-      renderWithProvider(
-        <ShotSaveTracker {...defaultProps} statView="shots" positions={gkPositions} playTimeRecords={playTimeRecords} />
-      );
-      await user.click(screen.getByText(/Shot - Us/));
-      expect(screen.getByTestId("shotsPlayer")).toHaveValue("");
-    });
 
     it("edit modal pre-fills the derived goalkeeper for a Save with no existing playerId", async () => {
       const user = userEvent.setup();
@@ -431,6 +343,33 @@ describe("ShotSaveTracker", () => {
       expect(screen.getByTestId("editsavesPlayer")).toHaveValue("p2");
     });
 
+    it("does not pre-fill when no position has role: 'GOALKEEPER'", async () => {
+      const user = userEvent.setup();
+      const playTimeRecords = [
+        { id: "ptr1", playerId: "p1", positionId: "other-pos", startGameSeconds: 0, endGameSeconds: null },
+      ] as any[];
+      const savesData = [{ id: "sv1", byUs: true, gameSeconds: 300, half: 1, playerId: null }] as any[];
+      renderWithProvider(
+        <ShotSaveTracker {...defaultProps} statView="saves" saves={savesData} positions={gkPositions} playTimeRecords={playTimeRecords} />
+      );
+      await user.click(screen.getByRole("button", { name: /Edit Us save at 5'/ }));
+      expect(screen.getByTestId("editsavesPlayer")).toHaveValue("");
+    });
+
+    it("does not pre-fill when two different players simultaneously hold open records at two GOALKEEPER-role positions (ambiguous)", async () => {
+      const user = userEvent.setup();
+      const playTimeRecords = [
+        { id: "ptr1", playerId: "p1", positionId: "gk-pos-1", startGameSeconds: 0, endGameSeconds: null },
+        { id: "ptr2", playerId: "p2", positionId: "gk-pos-2", startGameSeconds: 0, endGameSeconds: null },
+      ] as any[];
+      const savesData = [{ id: "sv1", byUs: true, gameSeconds: 300, half: 1, playerId: null }] as any[];
+      renderWithProvider(
+        <ShotSaveTracker {...defaultProps} statView="saves" saves={savesData} positions={gkPositionsTwoSlots} playTimeRecords={playTimeRecords} />
+      );
+      await user.click(screen.getByRole("button", { name: /Edit Us save at 5'/ }));
+      expect(screen.getByTestId("editsavesPlayer")).toHaveValue("");
+    });
+
     it("edit modal never clobbers an existing playerId, even when a different player currently holds the open GK record", async () => {
       const user = userEvent.setup();
       const playTimeRecords = [
@@ -450,43 +389,6 @@ describe("ShotSaveTracker", () => {
       );
       await user.click(screen.getByRole("button", { name: /Edit Us save at 5'/ }));
       expect(screen.getByTestId("editsavesPlayer")).toHaveValue("p1");
-    });
-
-    it("coach can override the pre-filled goalkeeper and submit that override", async () => {
-      const user = userEvent.setup();
-      const playTimeRecords = [
-        { id: "ptr1", playerId: "p1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: null },
-      ] as any[];
-      renderWithProvider(
-        <ShotSaveTracker {...defaultProps} statView="saves" positions={gkPositions} playTimeRecords={playTimeRecords} />
-      );
-      await user.click(screen.getByText(/Save - Us/));
-      expect(screen.getByTestId("savesPlayer")).toHaveValue("p1");
-      await user.selectOptions(screen.getByTestId("savesPlayer"), "p2");
-      await user.click(screen.getByRole("button", { name: /^Record Save$/ }));
-      await waitFor(() => expect(mockCreateSave).toHaveBeenCalledWith(expect.objectContaining({
-        playerId: "p2",
-      })));
-    });
-
-    it("completed game: opening the entry modal for a Save does not crash and produces no pre-fill", async () => {
-      const user = userEvent.setup();
-      const playTimeRecords = [
-        // handleEndGame closes every open PlayTimeRecord -- a completed game
-        // has no open records, so this is already closed here.
-        { id: "ptr1", playerId: "p1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: 1800 },
-      ] as any[];
-      renderWithProvider(
-        <ShotSaveTracker
-          {...defaultProps}
-          statView="saves"
-          gameState={makeGameState({ status: "completed" }) as any}
-          positions={gkPositions}
-          playTimeRecords={playTimeRecords}
-        />
-      );
-      await user.click(screen.getByText(/Save - Us/));
-      expect(screen.getByTestId("savesPlayer")).toHaveValue("");
     });
 
     it("completed game: opening the edit modal for a Save with no existing playerId does not crash and produces no pre-fill", async () => {
@@ -518,7 +420,7 @@ describe("ShotSaveTracker", () => {
         <ShotSaveTracker
           {...defaultProps}
           statView="shots"
-          shots={[{ id: "s-helper", takenByUs: true, onTarget: true, playerId: "p1", gameSeconds: 100, half: 1, loggedVia: "HELPER" } as any]}
+          shots={[{ id: "s-helper", takenByUs: true, outcome: "GOAL", playerId: "p1", gameSeconds: 100, half: 1, loggedVia: "HELPER" } as any]}
         />
       );
       expect(screen.getByText("Logged via helper")).toBeInTheDocument();
@@ -540,7 +442,7 @@ describe("ShotSaveTracker", () => {
         <ShotSaveTracker
           {...defaultProps}
           statView="shots"
-          shots={[{ id: "s-coach", takenByUs: true, onTarget: true, playerId: "p1", gameSeconds: 100, half: 1, loggedVia: "COACH" } as any]}
+          shots={[{ id: "s-coach", takenByUs: true, outcome: "GOAL", playerId: "p1", gameSeconds: 100, half: 1, loggedVia: "COACH" } as any]}
         />
       );
       expect(screen.queryByText("Logged via helper")).not.toBeInTheDocument();

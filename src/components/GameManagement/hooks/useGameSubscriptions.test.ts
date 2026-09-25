@@ -866,7 +866,7 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
   it('exposes shots and saves from their own Amplify query subscriptions', () => {
     mockUseAmplifyQuery.mockImplementation((model: string) => {
       if (model === 'Shot') {
-        return { data: [{ id: 'shot-1', gameId: 'game-1', takenByUs: true, onTarget: true, gameSeconds: 60, half: 1 }], isSynced: true };
+        return { data: [{ id: 'shot-1', gameId: 'game-1', takenByUs: true, outcome: 'GOAL', gameSeconds: 60, half: 1 }], isSynced: true };
       }
       if (model === 'Save') {
         return { data: [{ id: 'save-1', gameId: 'game-1', byUs: false, gameSeconds: 90, half: 1 }], isSynced: true };
@@ -878,7 +878,7 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     const { result } = renderHook(() => useGameSubscriptions(props));
 
     expect(result.current.shots).toEqual([
-      { id: 'shot-1', gameId: 'game-1', takenByUs: true, onTarget: true, gameSeconds: 60, half: 1 },
+      { id: 'shot-1', gameId: 'game-1', takenByUs: true, outcome: 'GOAL', gameSeconds: 60, half: 1 },
     ]);
     expect(result.current.saves).toEqual([
       { id: 'save-1', gameId: 'game-1', byUs: false, gameSeconds: 90, half: 1 },

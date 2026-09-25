@@ -40,7 +40,7 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 - **Substitution Management**: Easy substitution interface with live play time visibility
 - **Halftime Lineup Changes**: Modify the lineup between halves
 - **Score Tracking**: Record goals with scorer, assist, and game time
-- **Shot & Save Tracking**: Log shots (on/off target) and saves for either team from the same Goals tab, via a Goals/Shots/Saves segmented control — a Save's goalkeeper field is pre-populated with the current on-field goalkeeper when unambiguous, still an overridable/clearable picker
+- **Unified Shot Outcome Tracking**: Log a shot for either team via a single "Log Shot – Us"/"Log Shot – Them" entry point, then pick what happened — Goal, Saved, Blocked, or Wide — which drives one Shot record plus (for Goal/Saved) a linked Goal or Save record; a Saved-by-us keeper field is pre-populated with the current on-field goalkeeper when unambiguous, still an overridable/clearable picker. The Goals and Shots/Saves lists remain separate, read-only-entry tabs (list/edit/delete only) fed by this one flow
 - **Game Notes**: Log events such as gold stars and cards
 
 ### Fan Mode (public read-only live game view)
@@ -50,7 +50,7 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 
 ### Sideline Stat Tracking (public helper-submitted stats)
 - **A second, separate, write-capable link**: generate/copy/revoke a `/track/:token` link from Sharing & Permissions — lets a non-coach helper (parent/assistant) log stats from the sideline with no account needed
-- **Goal / Shot / Save tap flow**: every tap starts with an Us/Opponent choice, then (for "Us") an optional player picker with a skip affordance, then (for a Shot, either side) an on-target/off-target step — a Save's player picker is skipped in favor of a confirm step when the current goalkeeper is known
+- **Unified shot-outcome tap flow**: tap "Log Shot – Us" or "Log Shot – Them", optionally pick the shooter (Us only, skippable), then pick the outcome — Goal, Saved, Blocked, or Wide. Blocked/Wide log immediately; Goal and Saved always route through an explicit confirm step first (with an assist step for an "Us" Goal). A "Them" Saved pre-populates the keeper field with the current on-field goalkeeper when unambiguous, still overridable via a full player picker
 - **Real-time**: a logged stat appears live on the coach's own game screen, the same way a coach-entered one would — no refresh needed
 - **Rows the coach logged are marked "Logged via helper"** in the Goals/Shots/Saves lists, and can be corrected or deleted from the coach's own tracker UI (the helper's page has no edit/undo)
 
@@ -153,10 +153,10 @@ npm run lint         # Lint TypeScript/TSX files
 - **Substitution**: Records when a player enters/exits a position
 - **PlayTimeRecord**: Granular tracking (player, position, start/end game seconds)
 - **Goal / GameNote**: Scoring and event records
-- **Shot / Save**: Per-shot (on/off target) and per-save stat events, attributable to either team; both carry a `loggedVia` (`COACH`/`HELPER`) flag
+- **Shot / Save**: Per-shot stat events (`outcome`: `GOAL`/`SAVED`/`BLOCKED`/`WIDE`) attributable to either team, plus per-save records linked only by shared `gameId`/`gameSeconds` (no foreign key) for an `outcome: SAVED` shot; both carry a `loggedVia` (`COACH`/`HELPER`) flag
 - **TeamInvitation**: Email-based coach invitations with status tracking
 - **ShareLink**: A public, unguessable token granting either `FAN` (read-only) or `STAT_TRACKER` (write) access to a team — Lambda-only, zero direct client grants
-- **FanViewRateLimit**: Rate limiting shared by both public link types, keyed on the viewer's guest identity and the shared token, with a `dimension` prefix (`read` for Fan Mode's `getFanGameView`/Stat Tracker's `getStatTrackerView`, `write` for `submitStatEvent`'s own, tighter ceiling) so a helper's tapping and a fan's polling never share a budget; also doubles as the `submitStatEvent` idempotency marker for a retried `clientEventId`
+- **FanViewRateLimit**: Rate limiting shared by both public link types, keyed on the viewer's guest identity and the shared token, with a `dimension` prefix (`read` for Fan Mode's `getFanGameView`/Stat Tracker's `getStatTrackerView`, `write` for `submitStatEvent`'s own, tighter ceiling) so a helper's tapping and a fan's polling never share a budget; also doubles as `submitStatEvent`'s resumable idempotency row for a retried `clientEventId` (`pending` → `shot-written` → `succeeded`, released only once the whole write has made no progress, never mid-write)
 
 ## Deploying to AWS
 

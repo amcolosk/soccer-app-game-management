@@ -99,7 +99,7 @@ export interface GoalUpdateFields {
 export interface ShotCreateFields {
   gameId: string;
   takenByUs: boolean;
-  onTarget: boolean;
+  outcome: 'GOAL' | 'SAVED' | 'BLOCKED' | 'WIDE';
   gameSeconds: number;
   half?: number | null;
   playerId?: string | null;
@@ -108,9 +108,14 @@ export interface ShotCreateFields {
   coaches?: string[] | null;
 }
 
+// `outcome` stays optional here (unlike the required TS field on create) --
+// the M1 read-only-vs-editable restriction (an editable outcome control only
+// when the current outcome is BLOCKED/WIDE, omitted from the update payload
+// otherwise) is a UI-layer concern (ShotSaveTracker.tsx's edit modal), not a
+// type-layer one; this hook stays agnostic to it.
 export interface ShotUpdateFields {
   playerId?: string | null;
-  onTarget?: boolean;
+  outcome?: 'GOAL' | 'SAVED' | 'BLOCKED' | 'WIDE';
 }
 
 export interface SaveCreateFields {
@@ -746,8 +751,14 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
 
   const updateShot = useCallback(
     async (id: string, fields: ShotUpdateFields): Promise<void> => {
-      const { playerId, onTarget } = fields;
-      const safeFields = { playerId, onTarget };
+      // `outcome` is omitted from the payload ENTIRELY when the caller
+      // didn't supply it (M1's edit-modal guardrail: the editable outcome
+      // control only appears for BLOCKED/WIDE shots, and a read-only label
+      // otherwise) -- sending an unconditional key here, even `undefined`,
+      // would risk silently overwriting a GOAL/SAVED outcome the coach never
+      // had the ability to meaningfully edit.
+      const { playerId, outcome } = fields;
+      const safeFields = outcome !== undefined ? { playerId, outcome } : { playerId };
       await enqueueOrRun(
         'Shot', 'update',
         { id, ...safeFields } as Record<string, unknown>,

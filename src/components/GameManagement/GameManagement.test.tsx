@@ -96,6 +96,7 @@ const mockCaptures: {
   rotationWidgetProps?: any;
   planTabProps?: any;
   shotSaveTrackerProps?: any;
+  shotOutcomeEntryProps?: any;
 } = {};
 
 vi.mock("./GameTimer", () => ({
@@ -114,6 +115,12 @@ vi.mock("./ShotSaveTracker",  () => ({
   ShotSaveTracker: vi.fn((props: any) => {
     mockCaptures.shotSaveTrackerProps = props;
     return <div data-testid={`shot-save-tracker-${props.statView}`} />;
+  }),
+}));
+vi.mock("./ShotOutcomeEntry", () => ({
+  ShotOutcomeEntry: vi.fn((props: any) => {
+    mockCaptures.shotOutcomeEntryProps = props;
+    return <div data-testid="shot-outcome-entry" />;
   }),
 }));
 vi.mock("./PlayerNotesPanel", () => ({
