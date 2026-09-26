@@ -22,6 +22,7 @@ interface TeamRosterRow {
   teamId: string;
   playerId: string;
   isActive?: boolean | null;
+  playerNumber?: number | null;
 }
 
 interface PlayerRow {
@@ -83,6 +84,10 @@ async function batchGetPlayers(playerTable: string, ids: string[]): Promise<Map<
 
 interface FormationPositionRow extends PositionRoleLike {
   positionName?: string | null;
+  abbreviation?: string | null;
+  sortOrder?: number | null;
+  xPct?: number | null;
+  yPct?: number | null;
 }
 
 // Chunked BatchGetItem for FormationPosition rows -- same pattern as
@@ -107,7 +112,7 @@ async function batchGetFormationPositions(
         RequestItems: {
           [formationPositionTable]: {
             Keys: unprocessedKeys,
-            ProjectionExpression: 'id, #role, positionName',
+            ProjectionExpression: 'id, #role, positionName, abbreviation, sortOrder, xPct, yPct',
             ExpressionAttributeNames: { '#role': 'role' },
           },
         },
@@ -303,23 +308,63 @@ export const handler: Handler = async (event) => {
   // means bench (or the game isn't in-progress, in which case the map is
   // always empty).
   const playerIdToPositionName = new Map<string, string | null>();
+  // Same open-PlayTimeRecord condition as playerIdToPositionName above --
+  // populated in the same forEach loop, under the same `if (positionName)`
+  // guard, so the two maps can never diverge (see the position/positionName
+  // invariant documented on StatTrackerPlayer.position in
+  // amplify/data/resource.ts).
+  const playerIdToPosition = new Map<string, FormationPositionRow>();
   openPlayTimeRecords.forEach((r) => {
-    const positionName = r.positionId ? positionsMap.get(r.positionId)?.positionName ?? null : null;
-    if (positionName) playerIdToPositionName.set(r.playerId, positionName);
+    const position = r.positionId ? positionsMap.get(r.positionId) ?? null : null;
+    const positionName = position?.positionName ?? null;
+    if (positionName) {
+      playerIdToPositionName.set(r.playerId, positionName);
+      playerIdToPosition.set(r.playerId, position as FormationPositionRow);
+    }
   });
 
   const roster = rosterRows
     .map((row) => {
       const player = playersMap.get(row.playerId);
       if (!player) return null;
+      const resolvedPosition = playerIdToPosition.get(row.playerId);
       return {
         id: row.playerId,
         firstName: player.firstName ?? '',
         lastName: player.lastName ?? '',
         positionName: playerIdToPositionName.get(row.playerId) ?? null,
+        playerNumber: row.playerNumber ?? null,
+        // Shaped explicitly (not spread) so no internal-only FormationPosition
+        // field ever leaks into this public payload.
+        position: resolvedPosition
+          ? {
+              id: resolvedPosition.id,
+              positionName: resolvedPosition.positionName ?? null,
+              abbreviation: resolvedPosition.abbreviation ?? null,
+              role: resolvedPosition.role ?? null,
+              sortOrder: resolvedPosition.sortOrder ?? null,
+              xPct: resolvedPosition.xPct ?? null,
+              yPct: resolvedPosition.yPct ?? null,
+            }
+          : null,
       };
     })
-    .filter((p): p is { id: string; firstName: string; lastName: string; positionName: string | null } => p !== null);
+    .filter((p): p is {
+      id: string;
+      firstName: string;
+      lastName: string;
+      positionName: string | null;
+      playerNumber: number | null;
+      position: {
+        id: string;
+        positionName: string | null;
+        abbreviation: string | null;
+        role: string | null;
+        sortOrder: number | null;
+        xPct: number | null;
+        yPct: number | null;
+      } | null;
+    } => p !== null);
 
   if (!game) {
     // NO_GAMES_YET / NO_GAME_RIGHT_NOW -- team resolved, roster still useful

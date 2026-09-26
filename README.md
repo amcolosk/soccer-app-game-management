@@ -53,6 +53,7 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 - **Unified shot-outcome tap flow**: tap "Log Shot – Us" or "Log Shot – Them", optionally pick the shooter (Us only, skippable), then pick the outcome — Goal, Saved, Blocked, or Wide. Blocked/Wide log immediately; Goal and Saved always route through an explicit confirm step first (with an assist step for an "Us" Goal). A "Them" Saved pre-populates the keeper field with the current on-field goalkeeper when unambiguous, still overridable via a full player picker
 - **Real-time**: a logged stat appears live on the coach's own game screen, the same way a coach-entered one would — no refresh needed
 - **Rows the coach logged are marked "Logged via helper"** in the Goals/Shots/Saves lists, and can be corrected or deleted from the coach's own tracker UI (the helper's page has no edit/undo)
+- **Field-layout "On the Field" view**: on-field players render on a visual soccer pitch (reusing the coach app's lineup-shape layout), each shown as a jersey-number-forward node (e.g. "#8") with name and position abbreviation secondary — plus a separate **Bench** section for off-field players, and jersey numbers on the Goal/Shot/Save player-picker buttons too, so a helper can match a called-out number to a name at every step
 
 ### Play Time Tracking
 - **Automatic Tracking**: Records start/end game seconds for each player in each position

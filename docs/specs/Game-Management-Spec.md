@@ -95,9 +95,10 @@ Pause does **not** close active `PlayTimeRecord` entries — those remain open a
 4. UI transitions to halftime layout
 
 **`handleStartSecondHalf` sequence:**
-1. Set `Game.currentHalf = 2`, `Game.status = 'in-progress'`, `Game.lastStartTime = now`
-2. Create new `PlayTimeRecord` entries for all current starters at `resumeTime`
-3. Set `isRunning = true`; timer formula re-anchors to new `lastStartTime`
+1. Resolve starters from the live lineup subscription; if short of `team.maxPlayersOnField`, re-query `LineupAssignment` directly against the DB. This never falls back to the saved GamePlan halftime/starting-lineup snapshot — that snapshot predates halftime and can't reflect a removal the coach just made. If starters are still short, show "Assign N starters before starting the second half" and stop here — no state below has changed yet.
+2. Set `Game.currentHalf = 2`, `Game.status = 'in-progress'`, `Game.lastStartTime = now`
+3. Create new `PlayTimeRecord` entries for all resolved starters at `resumeTime`
+4. Set `isRunning = true`; timer formula re-anchors to new `lastStartTime`
 
 ### 3.5 End Game
 
