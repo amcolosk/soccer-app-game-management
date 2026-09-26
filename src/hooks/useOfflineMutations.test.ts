@@ -301,7 +301,7 @@ describe('useOfflineMutations', () => {
         await result.current.mutations.createShot({
           gameId: 'g1',
           takenByUs: true,
-          onTarget: true,
+          outcome: 'GOAL',
           gameSeconds: 120,
           half: 1,
           playerId: 'p1',
@@ -313,7 +313,7 @@ describe('useOfflineMutations', () => {
       expect(mockShotCreate).toHaveBeenCalledWith(expect.objectContaining({
         gameId: 'g1',
         takenByUs: true,
-        onTarget: true,
+        outcome: 'GOAL',
         loggedVia: 'COACH',
       }));
       expect(mockEnqueue).not.toHaveBeenCalled();
@@ -333,10 +333,22 @@ describe('useOfflineMutations', () => {
       const { result } = renderHook(() => useOfflineMutations());
 
       await act(async () => {
-        await result.current.mutations.updateShot('shot-1', { playerId: 'p2', onTarget: false });
+        await result.current.mutations.updateShot('shot-1', { playerId: 'p2', outcome: 'BLOCKED' });
       });
 
-      expect(mockShotUpdate).toHaveBeenCalledWith({ id: 'shot-1', playerId: 'p2', onTarget: false });
+      expect(mockShotUpdate).toHaveBeenCalledWith({ id: 'shot-1', playerId: 'p2', outcome: 'BLOCKED' });
+    });
+
+    it('updateShot omits the outcome key entirely when the caller does not supply it (M1 guardrail)', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.updateShot('shot-1', { playerId: 'p2' });
+      });
+
+      const callArg = mockShotUpdate.mock.calls[0]?.[0];
+      expect(callArg).toEqual({ id: 'shot-1', playerId: 'p2' });
+      expect(callArg).not.toHaveProperty('outcome');
     });
 
     it('createSave calls client.models.Save.create with correct args, including required loggedVia', async () => {
@@ -504,7 +516,7 @@ describe('useOfflineMutations', () => {
         await result.current.mutations.createShot({
           gameId: 'g1',
           takenByUs: true,
-          onTarget: true,
+          outcome: 'GOAL',
           gameSeconds: 120,
           half: 1,
           loggedVia: 'COACH',
@@ -692,7 +704,7 @@ describe('useOfflineMutations', () => {
           id: 'q1',
           model: 'Shot',
           operation: 'create',
-          payload: { gameId: 'g1', takenByUs: true, onTarget: true, gameSeconds: 100, half: 1, loggedVia: 'COACH' },
+          payload: { gameId: 'g1', takenByUs: true, outcome: 'GOAL', gameSeconds: 100, half: 1, loggedVia: 'COACH' },
           enqueuedAt: 1,
           retryCount: 0,
           ownerSub: DEFAULT_SUB,

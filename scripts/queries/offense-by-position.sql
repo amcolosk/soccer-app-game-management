@@ -4,6 +4,11 @@
 -- whichever position the player was actually playing at that moment, the
 -- same recency-tie-break lookup as goals-against-by-position.sql).
 --
+-- "On target" is derived from the unified Shot.outcome enum
+-- (GOAL/SAVED/BLOCKED/WIDE) rather than a separate onTarget boolean: a shot
+-- that produced a GOAL or forced a SAVE reached the frame, so outcome IN
+-- ('GOAL', 'SAVED') is the on-target set; BLOCKED/WIDE are off-target.
+--
 -- Run after exporting, from the repo root:
 --   duckdb -c ".read scripts/queries/offense-by-position.sql"
 --
@@ -76,7 +81,7 @@ ORDER BY assists DESC;
 WITH shots_on_target AS (
     SELECT id AS shot_id, "gameId" AS game_id, "gameSeconds" AS game_seconds, "playerId" AS player_id
     FROM read_csv_auto('analytics-export/shots.csv')
-    WHERE "takenByUs" = true AND "onTarget" = true
+    WHERE "takenByUs" = true AND "outcome" IN ('GOAL', 'SAVED')
 ),
 shooter_position AS (
     SELECT

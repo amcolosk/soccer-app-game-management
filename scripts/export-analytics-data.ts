@@ -155,7 +155,7 @@ async function main(): Promise<void> {
 
   const [allGoals, allShots, allSaves, allPlayTimeRecords] = await Promise.all([
     scanAll<Record<string, unknown>>(config.goalTable, ['id', 'gameId', 'scoredByUs', 'gameSeconds', 'half', 'scorerId', 'assistId']),
-    scanAll<Record<string, unknown>>(config.shotTable, ['id', 'gameId', 'playerId', 'takenByUs', 'onTarget', 'gameSeconds', 'half']),
+    scanAll<Record<string, unknown>>(config.shotTable, ['id', 'gameId', 'playerId', 'takenByUs', 'outcome', 'gameSeconds', 'half']),
     scanAll<Record<string, unknown>>(config.saveTable, ['id', 'gameId', 'playerId', 'byUs', 'gameSeconds', 'half']),
     scanAll<Record<string, unknown>>(config.playTimeRecordTable, ['id', 'gameId', 'playerId', 'positionId', 'startGameSeconds', 'endGameSeconds']),
   ]);
@@ -207,7 +207,7 @@ async function main(): Promise<void> {
   writeCsv(config.outDir, 'teams.csv', ['id', 'name', 'formationId'], teams.filter((t) => relevantTeamIds.has(t.id as string)));
   writeCsv(config.outDir, 'games.csv', ['id', 'teamId', 'opponent', 'isHome', 'gameDate', 'status', 'ourScore', 'opponentScore'], games);
   writeCsv(config.outDir, 'goals.csv', ['id', 'gameId', 'scoredByUs', 'gameSeconds', 'half', 'scorerId', 'assistId'], goals);
-  writeCsv(config.outDir, 'shots.csv', ['id', 'gameId', 'playerId', 'takenByUs', 'onTarget', 'gameSeconds', 'half'], shots);
+  writeCsv(config.outDir, 'shots.csv', ['id', 'gameId', 'playerId', 'takenByUs', 'outcome', 'gameSeconds', 'half'], shots);
   writeCsv(config.outDir, 'saves.csv', ['id', 'gameId', 'playerId', 'byUs', 'gameSeconds', 'half'], saves);
   writeCsv(config.outDir, 'play_time_records.csv', ['id', 'gameId', 'playerId', 'positionId', 'startGameSeconds', 'endGameSeconds'], playTimeRecords);
   writeCsv(config.outDir, 'formations.csv', ['id', 'name'], formations);

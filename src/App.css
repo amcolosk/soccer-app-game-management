@@ -8731,3 +8731,105 @@
   font-size: 0.85rem;
   font-style: italic;
 }
+
+/* ── Unified Shot Outcome Tracking ────────────────────────────────────────
+   ShotOutcomeEntry.tsx's outcome-picker step (2x2 grid: Goal/Saved/Blocked/
+   Wide) and its retry-pending state. The entry buttons themselves
+   ("Log Shot – Us"/"Log Shot – {opponent}") reuse the pre-existing
+   .stat-buttons/.btn-stat(-us|-opponent) pair above unchanged. */
+.shot-outcome-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.shot-outcome-btn {
+  padding: 1rem;
+  border: none;
+  border-radius: 10px;
+  font-size: 1em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: white;
+  min-height: 56px;
+}
+
+.shot-outcome-btn:hover {
+  transform: translateY(-2px);
+}
+
+.shot-outcome-btn--goal {
+  background: var(--primary-green);
+}
+
+.shot-outcome-btn--goal:hover {
+  background: #155f2e;
+  box-shadow: 0 4px 12px rgba(26, 71, 42, 0.3);
+}
+
+.shot-outcome-btn--saved {
+  background: #2196f3;
+}
+
+.shot-outcome-btn--saved:hover {
+  background: #1769aa;
+  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+}
+
+.shot-outcome-btn--blocked,
+.shot-outcome-btn--wide {
+  background: #6c6c6c;
+}
+
+.shot-outcome-btn--blocked:hover,
+.shot-outcome-btn--wide:hover {
+  background: #575757;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* m5: the "Shot already saved, retry the linked Goal/Save" state -- kept
+   visually distinct (its own stacked layout) from the ordinary form-group
+   steps above it, since it's showing an error plus a single narrow retry
+   action rather than a picker/select. */
+.shot-outcome-retry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Color-coded outcome badge on a Shots-list row (Q2/UI review) -- reuses
+   .status-badge's pill shape and color-coding convention (UI-SPEC §5.7),
+   with its own smaller padding/font-size and its own colors: green=GOAL,
+   blue=SAVED, gray=BLOCKED/WIDE. */
+.shot-outcome-badge {
+  padding: 0.2em 0.6em;
+  border-radius: 6px;
+  font-size: 0.8em;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.shot-outcome-badge--goal {
+  background: rgba(76, 175, 80, 0.1);
+  color: var(--accent-green);
+}
+
+.shot-outcome-badge--saved {
+  background: rgba(33, 150, 243, 0.1);
+  color: #2196f3;
+}
+
+.shot-outcome-badge--neutral {
+  background: rgba(158, 158, 158, 0.1);
+  color: var(--text-secondary);
+}
+
+/* M1: read-only outcome label in the Shot edit modal, shown instead of the
+   editable Blocked/Wide <select> whenever the shot's current outcome is
+   GOAL or SAVED -- same visual convention as .halftime-editor__readonly. */
+.shot-outcome-readonly {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}

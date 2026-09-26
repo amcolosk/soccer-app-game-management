@@ -393,7 +393,15 @@ const schema = a.schema({
       playerId: a.id(),
       player: a.belongsTo('Player', 'playerId'),
       takenByUs: a.boolean().required(),
-      onTarget: a.boolean().required(),
+      // Replaces onTarget: a.boolean().required(). No production Shot rows
+      // exist (confirmed), so no back-compat/migration path is needed --
+      // unlike loggedVia, there is no "absent means X" fallback to write
+      // anywhere for this field. a.enum() can't be .required() at the schema
+      // level (same DynamoDB-side constraint as Goal.loggedVia) -- enforced
+      // instead via ShotCreateFields's required TS field, same established
+      // pattern. "On target" is now `outcome IN ('GOAL', 'SAVED')` rather than
+      // a raw boolean -- see scripts/queries/offense-by-position.sql.
+      outcome: a.enum(['GOAL', 'SAVED', 'BLOCKED', 'WIDE']),
       gameSeconds: a.integer().required(),
       half: a.integer().required(),
       timestamp: a.datetime().required(),
@@ -1064,30 +1072,51 @@ const schema = a.schema({
     // Set when ok === false. A plain a.boolean() return can't distinguish
     // these, and the UI needs to (rate-limited vs. link-revoked-mid-session
     // vs. game-ended-while-you-were-mid-tap are three different messages).
-    reason: a.string(), // 'INVALID_LINK' | 'RATE_LIMITED' | 'GAME_NOT_LIVE' | 'GAME_CHANGED' | 'VALIDATION_FAILED'
+    reason: a.string(), // 'INVALID_LINK' | 'RATE_LIMITED' | 'GAME_NOT_LIVE' | 'GAME_CHANGED' | 'VALIDATION_FAILED' | 'PARTIAL_WRITE'
+                         // PARTIAL_WRITE: the Shot write succeeded but the
+                         // follow-on Goal/Save write threw -- distinct from
+                         // every other rejection since it's retry-steerable:
+                         // a later submission with the SAME clientEventId
+                         // resumes and completes just the missing write
+                         // rather than starting over (see the resumable
+                         // dedup-state design in
+                         // amplify/functions/submit-stat-event/handler.ts).
   }),
 
   // The write path -- see amplify/functions/submit-stat-event/handler.ts
   // for the AppSync-write mechanism (generateClient<Schema>({ authMode:
   // 'iam' })) this depends on, and this file's own schema-level
   // `.authorization()` call below for the allow.resource() grant it needs.
+  //
+  // Unified shot-outcome tracking: every submission always writes a Shot,
+  // and conditionally a Goal (outcome GOAL) or a Save (outcome SAVED) --
+  // see src/utils/shotOutcomeMapping.ts / amplify/functions/shared/
+  // shotOutcome.ts for the outcome -> records mapping both this handler and
+  // the coach-side entry component share.
   submitStatEvent: a
     .mutation()
     .arguments({
       token: a.string().required(),
-      eventType: a.string().required(), // 'GOAL' | 'SHOT' | 'SAVE' -- validated
-                                         // against this allowlist explicitly in
-                                         // the handler; the arg type alone
-                                         // doesn't enforce it.
-      playerId: a.string(),       // scorer (GOAL), shooter (SHOT), keeper (SAVE) -- "Us" only
+      outcome: a.string().required(), // 'GOAL' | 'SAVED' | 'BLOCKED' | 'WIDE' --
+                                       // validated against this allowlist
+                                       // explicitly in the handler; the arg
+                                       // type alone doesn't enforce it.
+      playerId: a.string(),       // shooter/scorer -- "Us" only. Becomes
+                                   // Goal.scorerId too when outcome is GOAL.
       assistPlayerId: a.string(), // optional, GOAL + "Us" only
-      forUs: a.boolean().required(), // generic "this event belongs to our side" flag --
-                                      // written to Goal.scoredByUs / Shot.takenByUs /
-                                      // Save.byUs depending on eventType. Required, not
-                                      // optional: a silent default would be a
+      forUs: a.boolean().required(), // generic "this shot belongs to our side"
+                                      // flag -- written to Shot.takenByUs
+                                      // always, and to Goal.scoredByUs /
+                                      // Save.byUs when those records are also
+                                      // written. Required, not optional: a
+                                      // silent default would be a
                                       // score-corruption path.
-      onTarget: a.boolean(), // SHOT only, both "Us" and "Opponent" -- required
-                              // when eventType === 'SHOT', rejected otherwise.
+      keeperPlayerId: a.string(), // our keeper attribution -- "Them" +
+                                   // outcome SAVED only (our keeper made the
+                                   // save on an opponent shot). Kept separate
+                                   // from playerId, which stays reserved for
+                                   // shooter/scorer attribution on the "Us"
+                                   // side, so the two are never conflated.
       clientEventId: a.string(), // client-generated idempotency key (optional
                                   // but recommended) -- see the handler's dedup
                                   // comment.

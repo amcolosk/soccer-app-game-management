@@ -82,13 +82,12 @@ describe('StatTrackerView', () => {
     expect(heading).toHaveTextContent('Lakeside FC');
   });
 
-  it('shows the tap UI when status is in-progress', async () => {
+  it('shows the 2-target tap UI (Us / Them) when status is in-progress', async () => {
     mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
     render(<StatTrackerView />);
     await flush();
-    expect(screen.getByRole('button', { name: /Goal/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Shot/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Save/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Log Shot – Us/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Log Shot – Lakeside FC/ })).toBeInTheDocument();
   });
 
   it('hides the tap UI (game-not-in-progress gate) during halftime, even though state is LIVE', async () => {
@@ -96,7 +95,7 @@ describe('StatTrackerView', () => {
     render(<StatTrackerView />);
     await flush();
     expect(screen.getByTestId('tracker-not-in-progress')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Goal/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Log Shot/ })).not.toBeInTheDocument();
   });
 
   it('calls getStatTrackerView with identityPool auth', async () => {
@@ -131,23 +130,25 @@ describe('StatTrackerView', () => {
   });
 
   describe('tap-to-submit flow', () => {
-    it('Us Goal: side -> player -> assist -> submit, with expectedGameId echoed', async () => {
+    it('Us Goal: player -> outcome -> assist -> confirm -> submit, with expectedGameId echoed', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Goal/ }));
-      await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Us/ }));
       await flush();
       fireEvent.click(screen.getByRole('button', { name: '#7 Sam Jones' }));
       await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Goal' }));
+      await flush();
       fireEvent.click(screen.getByRole('button', { name: 'No assist' }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: /Log Goal/ }));
       await flush();
 
       expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
         token: 'tok-1',
-        eventType: 'GOAL',
+        outcome: 'GOAL',
         forUs: true,
         playerId: 'p1',
         assistPlayerId: undefined,
@@ -155,75 +156,77 @@ describe('StatTrackerView', () => {
       }), { authMode: 'identityPool' });
     });
 
-    it('Opponent Goal: side -> confirm submit, no player picker', async () => {
+    it('Opponent Goal: outcome -> confirm submit, no player/assist picker', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Goal/ }));
-      await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Lakeside FC' }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Lakeside FC/ }));
       await flush();
       expect(screen.queryByRole('button', { name: '#7 Sam Jones' })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Goal' }));
+      await flush();
       fireEvent.click(screen.getByRole('button', { name: /Log Goal/ }));
       await flush();
 
       expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
-        eventType: 'GOAL', forUs: false, playerId: undefined, assistPlayerId: undefined,
+        outcome: 'GOAL', forUs: false, playerId: undefined, assistPlayerId: undefined,
       }), { authMode: 'identityPool' });
     });
 
-    it('Us Shot with no player selected (skip affordance) still requires an on-target step', async () => {
+    it('Us Blocked shot: outcome tap submits immediately, no confirm step, skipped-player affordance honored', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Shot/ }));
-      await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Us/ }));
       await flush();
       fireEvent.click(screen.getByRole('button', { name: /Skip \/ unknown player/ }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'On target' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Blocked' }));
       await flush();
 
       expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
-        eventType: 'SHOT', forUs: true, playerId: undefined, onTarget: true,
+        outcome: 'BLOCKED', forUs: true, playerId: undefined,
       }), { authMode: 'identityPool' });
     });
 
-    it('Opponent Shot: on-target step directly, no player picker', async () => {
+    it('Opponent Wide shot: outcome step directly, immediate submit, no player picker', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Shot/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Lakeside FC/ }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Lakeside FC' }));
-      await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Off target' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Wide' }));
       await flush();
 
       expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
-        eventType: 'SHOT', forUs: false, onTarget: false,
+        outcome: 'WIDE', forUs: false,
       }), { authMode: 'identityPool' });
     });
 
-    it('shows a "logged!" confirmation on success', async () => {
+    it('Us Saved: outcome -> confirm directly (no keeper attribution on our own side)', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
-      await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Us/ }));
       await flush();
       fireEvent.click(screen.getByRole('button', { name: '#7 Sam Jones' }));
       await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Saved' }));
+      await flush();
+
+      expect(screen.queryByText(/made the save\?/)).not.toBeInTheDocument();
+      expect(screen.queryByText('Which keeper?')).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: /Log Save/ }));
       await flush();
 
       expect(screen.getByRole('status')).toHaveTextContent(/logged/i);
+      expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
+        outcome: 'SAVED', forUs: true, playerId: 'p1', keeperPlayerId: undefined,
+      }), { authMode: 'identityPool' });
     });
   });
 
@@ -236,9 +239,11 @@ describe('StatTrackerView', () => {
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Lakeside FC/ }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Lakeside FC' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Saved' }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: '#7 Sam Jones' })); // keeper picker (no auto-prefill)
       await flush();
       const confirmButton = screen.getByRole('button', { name: /Log Save/ });
       fireEvent.click(confirmButton);
@@ -256,9 +261,11 @@ describe('StatTrackerView', () => {
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Lakeside FC/ }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Lakeside FC' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Saved' }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: '#7 Sam Jones' }));
       await flush();
       fireEvent.click(screen.getByRole('button', { name: /Log Save/ }));
       await flush();
@@ -268,38 +275,69 @@ describe('StatTrackerView', () => {
       // Target re-enabled -- can retry.
       expect(screen.getByRole('button', { name: /Log Save/ })).not.toBeDisabled();
     });
+
+    it('on a PARTIAL_WRITE result, shows retry-steering copy and keeps the SAME clientEventId across the retry tap', async () => {
+      mockSubmitStatEvent.mockResolvedValueOnce(result({ ok: false, reason: 'PARTIAL_WRITE' }));
+      mockSubmitStatEvent.mockResolvedValueOnce(result({ ok: true, reason: null }));
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
+      render(<StatTrackerView />);
+      await flush();
+
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Lakeside FC/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Saved' }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: '#7 Sam Jones' }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: /Log Save/ }));
+      await flush();
+
+      expect(screen.getByRole('alert')).toHaveTextContent(/almost done/i);
+      // Sheet stays open at the same confirm step for a retry tap.
+      const retryButton = screen.getByRole('button', { name: /Log Save/ });
+      expect(retryButton).toBeInTheDocument();
+
+      fireEvent.click(retryButton);
+      await flush();
+
+      expect(mockSubmitStatEvent).toHaveBeenCalledTimes(2);
+      const [firstCallArgs] = mockSubmitStatEvent.mock.calls[0];
+      const [secondCallArgs] = mockSubmitStatEvent.mock.calls[1];
+      expect(secondCallArgs.clientEventId).toBe(firstCallArgs.clientEventId);
+      expect(screen.getByRole('status')).toHaveTextContent(/logged/i);
+    });
   });
 
   describe('Save Auto-Goalkeeper Attribution', () => {
-    it('Us Save with a known activeGoalkeeperId lands directly on the confirm-keeper step, and "Yes, log it" submits with that playerId', async () => {
+    it('Them Saved with a known activeGoalkeeperId lands directly on the confirm-keeper step, and "Log Save" submits with that keeperPlayerId', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'p1' })));
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Lakeside FC/ }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Saved' }));
       await flush();
 
       expect(screen.queryByRole('button', { name: '#7 Sam Jones' })).not.toBeInTheDocument();
       expect(screen.getByText('Sam Jones made the save?')).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('button', { name: /Yes, log it/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Save/ }));
       await flush();
 
       expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
-        eventType: 'SAVE', forUs: true, playerId: 'p1',
+        outcome: 'SAVED', forUs: false, keeperPlayerId: 'p1',
       }), { authMode: 'identityPool' });
     });
 
-    it('"Not right? Pick another keeper" transitions to the full player picker, and choosing a different player submits that id', async () => {
+    it('"Not right? Pick another keeper" transitions to the full player picker, then a confirm step, and submits the chosen id', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'p1' })));
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Lakeside FC/ }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Saved' }));
       await flush();
       fireEvent.click(screen.getByRole('button', { name: /Not right\? Pick another keeper/ }));
       await flush();
@@ -311,7 +349,7 @@ describe('StatTrackerView', () => {
       await flush();
 
       expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
-        eventType: 'SAVE', forUs: true, playerId: 'p2',
+        outcome: 'SAVED', forUs: false, keeperPlayerId: 'p2',
       }), { authMode: 'identityPool' });
     });
 
@@ -320,9 +358,9 @@ describe('StatTrackerView', () => {
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Lakeside FC/ }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Saved' }));
       await flush();
 
       expect(screen.getByText('Which keeper?')).toBeInTheDocument();
@@ -334,23 +372,25 @@ describe('StatTrackerView', () => {
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Lakeside FC/ }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Saved' }));
       await flush();
 
       expect(screen.getByText('Which keeper?')).toBeInTheDocument();
       expect(screen.queryByText(/made the save\?/)).not.toBeInTheDocument();
     });
 
-    it('Opponent-side Save flow is unaffected by activeGoalkeeperId being set (still side -> confirm, no player step)', async () => {
+    it('Us-side Saved flow is unaffected by activeGoalkeeperId being set (still outcome -> confirm, no keeper step)', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'p1' })));
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Us/ }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Lakeside FC' }));
+      fireEvent.click(screen.getByRole('button', { name: /Skip \/ unknown player/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Saved' }));
       await flush();
 
       expect(screen.queryByText(/made the save\?/)).not.toBeInTheDocument();
@@ -359,20 +399,18 @@ describe('StatTrackerView', () => {
       await flush();
 
       expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
-        eventType: 'SAVE', forUs: false, playerId: undefined,
+        outcome: 'SAVED', forUs: true, keeperPlayerId: undefined,
       }), { authMode: 'identityPool' });
     });
 
-    it('GOAL and SHOT flows are unaffected by activeGoalkeeperId being set (only SAVE\'s Us path branches on it)', async () => {
+    it('GOAL flow is unaffected by activeGoalkeeperId being set (only "Them"+Saved branches on it)', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'p1' })));
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Goal/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Us/ }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
-      await flush();
-      expect(screen.getByText('Who scored?')).toBeInTheDocument();
+      expect(screen.getByText('Who took the shot?')).toBeInTheDocument();
       expect(screen.queryByText(/made the save\?/)).not.toBeInTheDocument();
     });
 
@@ -381,9 +419,9 @@ describe('StatTrackerView', () => {
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Lakeside FC/ }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Saved' }));
       await flush();
 
       expect(screen.getByText('Sam Jones made the save?')).toBeInTheDocument();
@@ -399,11 +437,11 @@ describe('StatTrackerView', () => {
       expect(screen.getByText('Sam Jones made the save?')).toBeInTheDocument();
       expect(screen.queryByText('Ana Cruz made the save?')).not.toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('button', { name: /Yes, log it/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Save/ }));
       await flush();
 
       expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
-        eventType: 'SAVE', forUs: true, playerId: 'p1',
+        outcome: 'SAVED', forUs: false, keeperPlayerId: 'p1',
       }), { authMode: 'identityPool' });
     });
 
@@ -412,9 +450,9 @@ describe('StatTrackerView', () => {
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Lakeside FC/ }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Saved' }));
       await flush();
 
       expect(screen.getByText('Sam Jones made the save?')).toBeInTheDocument();
@@ -428,14 +466,14 @@ describe('StatTrackerView', () => {
       // The step must not collapse to a dead end (just heading + Cancel) --
       // it keeps showing the frozen confirm content with both actions.
       expect(screen.getByText('Sam Jones made the save?')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Yes, log it/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Log Save/ })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Not right\? Pick another keeper/ })).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('button', { name: /Yes, log it/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Save/ }));
       await flush();
 
       expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
-        eventType: 'SAVE', forUs: true, playerId: 'p1',
+        outcome: 'SAVED', forUs: false, keeperPlayerId: 'p1',
       }), { authMode: 'identityPool' });
     });
   });
@@ -446,7 +484,7 @@ describe('StatTrackerView', () => {
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Goal/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Us/ }));
       expect(screen.getByRole('dialog')).toBeInTheDocument();
 
       mockGetStatTrackerView.mockResolvedValue(result({ state: 'INVALID_LINK' }));
@@ -547,9 +585,7 @@ describe('StatTrackerView', () => {
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Goal/ }));
-      await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Us/ }));
       await flush();
 
       expect(screen.getByRole('button', { name: '#7 Sam Jones' })).toBeInTheDocument();
@@ -568,9 +604,7 @@ describe('StatTrackerView', () => {
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Goal/ }));
-      await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Us/ }));
       await flush();
 
       // Scoped to the tap-flow sheet (role="dialog") -- the player-picker's
@@ -592,9 +626,7 @@ describe('StatTrackerView', () => {
       render(<StatTrackerView />);
       await flush();
 
-      fireEvent.click(screen.getByRole('button', { name: /Goal/ }));
-      await flush();
-      fireEvent.click(screen.getByRole('button', { name: 'Us' }));
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Us/ }));
       await flush();
 
       // No group labels inside the picker sheet itself -- a fully-bench
@@ -690,13 +722,13 @@ describe('StatTrackerView', () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
       render(<StatTrackerView />);
       await flush();
-      expect(screen.getByRole('button', { name: /Goal/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Log Shot – Us/ })).toBeInTheDocument();
 
       mockGetStatTrackerView.mockResolvedValue(result({ state: 'RATE_LIMITED' }));
       await act(async () => { vi.advanceTimersByTime(12000); });
       await flush();
 
-      expect(screen.getByRole('button', { name: /Goal/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Log Shot – Us/ })).toBeInTheDocument();
       expect(screen.queryByTestId('tracker-state-rate-limited')).not.toBeInTheDocument();
       expect(screen.getByText(/temporarily limited/i)).toBeInTheDocument();
     });

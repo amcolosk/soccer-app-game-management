@@ -1,45 +1,33 @@
 import { useState, useCallback } from "react";
-import { showWarning, showSuccess } from "../../utils/toast";
-import { trackEvent, AnalyticsEvents } from "../../utils/analytics";
+import { showSuccess } from "../../utils/toast";
 import { handleApiError } from "../../utils/errorHandler";
-import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { PlayerSelect } from "../PlayerSelect";
-import { isPlayerCurrentlyPlaying } from "../../utils/playTimeCalculations";
-import { isPlayerInLineup } from "../../utils/lineupUtils";
 import type { GameMutationInput, GoalUpdateFields } from "../../hooks/useOfflineMutations";
-import type { Game, Team, PlayerWithRoster, Goal, PlayTimeRecord, LineupAssignment } from "./types";
+import type { Game, PlayerWithRoster, Goal } from "./types";
 import { GameActionRow } from "./actions/GameActionRow";
 import type { GameActionDescriptor } from "./actions/actionContract";
 
 interface GoalTrackerProps {
   gameState: Game;
-  game: Game;
-  team: Team;
   players: PlayerWithRoster[];
   goals: Goal[];
-  currentTime: number;
   mutations: GameMutationInput;
-  playTimeRecords: PlayTimeRecord[];
-  lineup: LineupAssignment[];
 }
 
+// Goal CREATION now happens exclusively through the unified
+// ShotOutcomeEntry.tsx flow ("Log Shot – Us"/"Log Shot – Them" -> outcome
+// GOAL, see the Unified Shot-Outcome Tracking plan) -- this component keeps
+// only the Goals list, edit modal, and delete flow. GameManagement.tsx still
+// passes it the larger `sharedGoalTrackerProps` object (game/team/
+// currentTime/playTimeRecords/lineup included) via JSX spread; those extra
+// fields are simply unused here now, not a type error, since JSX spread
+// isn't subject to excess-property checks.
 export function GoalTracker({
   gameState,
-  game,
-  team,
   players,
   goals,
-  currentTime,
   mutations,
-  playTimeRecords,
-  lineup,
 }: GoalTrackerProps) {
-  const [showGoalModal, setShowGoalModal] = useState(false);
-  const [goalScoredByUs, setGoalScoredByUs] = useState(true);
-  const [goalScorerId, setGoalScorerId] = useState("");
-  const [goalAssistId, setGoalAssistId] = useState("");
-  const [goalNotes, setGoalNotes] = useState("");
-
   const [showEditGoalModal, setShowEditGoalModal] = useState(false);
   const [editGoal, setEditGoal] = useState<Goal | null>(null);
   const [editScorerId, setEditScorerId] = useState('');
@@ -47,58 +35,6 @@ export function GoalTracker({
   const [editNotes, setEditNotes] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [error, setError] = useState('');
-
-  const onFieldPlayerIds = players
-    .filter(p =>
-      isPlayerCurrentlyPlaying(p.id, playTimeRecords) ||
-      isPlayerInLineup(p.id, lineup)
-    )
-    .map(p => p.id);
-
-  const getCurrentGameTime = () => currentTime;
-
-  const handleOpenGoalModal = (scoredByUs: boolean) => {
-    setGoalScoredByUs(scoredByUs);
-    setGoalScorerId("");
-    setGoalAssistId("");
-    setGoalNotes("");
-    setShowGoalModal(true);
-  };
-
-  const handleRecordGoal = async () => {
-    if (goalScoredByUs && !goalScorerId) {
-      showWarning("Please select who scored the goal");
-      return;
-    }
-
-    try {
-      await mutations.createGoal({
-        gameId: game.id,
-        scoredByUs: goalScoredByUs,
-        gameSeconds: getCurrentGameTime(),
-        half: gameState.currentHalf || 1,
-        scorerId: goalScoredByUs && goalScorerId ? goalScorerId : undefined,
-        assistId: goalScoredByUs && goalAssistId ? goalAssistId : undefined,
-        notes: goalNotes || undefined,
-        timestamp: new Date().toISOString(),
-        loggedVia: 'COACH',
-        coaches: team.coaches,
-      });
-
-      // In completed state, GameManagement will auto-reconcile score from goals.
-      // In active states, score is derived from goals array (no manual write).
-      if (gameState.status === 'completed') {
-        const newOurScore = goalScoredByUs ? (gameState.ourScore || 0) + 1 : (gameState.ourScore || 0);
-        const newOpponentScore = !goalScoredByUs ? (gameState.opponentScore || 0) + 1 : (gameState.opponentScore || 0);
-        showSuccess(`Goal added. Final score updated to ${newOurScore}–${newOpponentScore}.`);
-      }
-
-      setShowGoalModal(false);
-      trackEvent(AnalyticsEvents.GOAL_RECORDED.category, AnalyticsEvents.GOAL_RECORDED.action, goalScoredByUs ? 'own' : 'opponent');
-    } catch (error) {
-      handleApiError(error, 'Failed to record goal');
-    }
-  };
 
   const handleOpenEditGoalModal = useCallback((goal: Goal) => {
     setEditGoal(goal);
@@ -127,9 +63,9 @@ export function GoalTracker({
         assistId: editAssistId || undefined,
         notes: editNotes || undefined,
       } as GoalUpdateFields);
-      
+
       showSuccess('Goal updated.');
-      
+
       handleCloseEditGoalModal();
     } catch (err) {
       handleApiError(err, 'Failed to save goal');
@@ -141,7 +77,7 @@ export function GoalTracker({
   const handleDeleteGoal = useCallback(async (goal: Goal) => {
     try {
       await mutations.deleteGoal(goal.id);
-      
+
       // In completed state, GameManagement will auto-reconcile score from remaining goals.
       // In active states, score is derived from goals array (no manual write).
       if (gameState.status === 'completed') {
@@ -161,22 +97,12 @@ export function GoalTracker({
 
   return (
     <>
-      {/* Goal Buttons */}
-      {gameState.status !== 'scheduled' && (
-        <div className="goal-buttons">
-          <button onClick={() => handleOpenGoalModal(true)} className="btn-goal btn-goal-us">
-            ⚽ Goal - Us
-          </button>
-          <button onClick={() => handleOpenGoalModal(false)} className="btn-goal btn-goal-opponent">
-            ⚽ Goal - {gameState.opponent}
-          </button>
-        </div>
-      )}
-
-      {/* Empty State for Completed */}
+      {/* Empty State for Completed -- reworded (m6/UI review) since the
+          dedicated Goal-only entry button this copy used to reference no
+          longer exists; points at the new two-button unified flow instead. */}
       {gameState.status === 'completed' && goals.length === 0 && (
         <div className="goals-empty-state">
-          <p>No goals recorded yet. Add a goal to correct the final score.</p>
+          <p>No goals recorded yet. To correct the final score, tap Log Shot – Us or Log Shot – Them, then choose Goal.</p>
         </div>
       )}
 
@@ -207,7 +133,11 @@ export function GoalTracker({
                   ariaLabel: `Delete ${teamLabel} goal at ${minute}'`,
                   confirmDialog: {
                     title: 'Delete goal?',
-                    body: 'This permanently removes this goal event from the game timeline.',
+                    // i4: the matching Shot row (if any) is a separate,
+                    // unlinked-by-design record -- deleting this Goal never
+                    // touches it, so say so explicitly rather than leaving
+                    // an apparently-orphaned Shot row as a surprise.
+                    body: 'This permanently removes this goal event from the game timeline. The matching shot stays in the Shots list.',
                     confirmText: 'Delete',
                     cancelText: 'Cancel',
                   },
@@ -251,86 +181,6 @@ export function GoalTracker({
                 </div>
               );
             })}
-          </div>
-        </div>
-      )}
-
-      {/* Goal Recording Modal */}
-      {showGoalModal && (
-        <div className="modal-overlay" onClick={() => setShowGoalModal(false)} role="dialog" aria-modal="true" aria-labelledby="record-goal-modal-title">
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2 id="record-goal-modal-title">Record Goal</h2>
-            <p className="modal-subtitle">
-              {goalScoredByUs ? 'Our Goal' : `${gameState.opponent} Goal`} - {formatGameTimeDisplay(getCurrentGameTime(), gameState.currentHalf || 1)}
-            </p>
-
-            {goalScoredByUs && (
-              <>
-                <div className="form-group">
-                  <label htmlFor="goalScorer">Who Scored? *</label>
-                  <PlayerSelect
-                    id="goalScorer"
-                    players={players}
-                    value={goalScorerId}
-                    onChange={setGoalScorerId}
-                    placeholder="Select player..."
-                    className="w-full"
-                    onFieldPlayerIds={onFieldPlayerIds}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="goalAssist">Assisted By (optional)</label>
-                  <PlayerSelect
-                    id="goalAssist"
-                    players={players}
-                    value={goalAssistId}
-                    onChange={setGoalAssistId}
-                    excludeId={goalScorerId}
-                    placeholder="No assist / Select player..."
-                    className="w-full"
-                    onFieldPlayerIds={onFieldPlayerIds}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="goalNotes">Notes (optional)</label>
-                  <textarea
-                    id="goalNotes"
-                    value={goalNotes}
-                    onChange={(e) => setGoalNotes(e.target.value)}
-                    placeholder="e.g., header, penalty, great shot..."
-                    rows={3}
-                    maxLength={500}
-                    style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', resize: 'vertical' }}
-                  />
-                </div>
-              </>
-            )}
-
-            {!goalScoredByUs && (
-              <div className="form-group">
-                <label htmlFor="goalNotes">Notes (optional)</label>
-                <textarea
-                  id="goalNotes"
-                  value={goalNotes}
-                  onChange={(e) => setGoalNotes(e.target.value)}
-                  placeholder="Any notes about the goal..."
-                  rows={3}
-                  maxLength={500}
-                  style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', resize: 'vertical' }}
-                />
-              </div>
-            )}
-
-            <div className="form-actions">
-              <button onClick={handleRecordGoal} className="btn-primary">
-                Record Goal
-              </button>
-              <button onClick={() => setShowGoalModal(false)} className="btn-secondary">
-                Cancel
-              </button>
-            </div>
           </div>
         </div>
       )}
