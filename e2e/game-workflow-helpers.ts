@@ -1,4 +1,4 @@
-import { expect, Page } from '@playwright/test';
+import { expect, Locator, Page } from '@playwright/test';
 import {
   waitForPageLoad,
   fillInput,
@@ -488,6 +488,16 @@ export async function addTestTimeAndWait(page: Page, minutes: 1 | 5): Promise<nu
     await page.waitForTimeout(UI_TIMING.QUICK);
   };
 
+  // Fire the button's own click after centering it. The sticky bottom nav / End Game bar can
+  // sit on top of the (dev-only) testing controls, so a coordinate-based click -- even with
+  // force: true -- may land on the nav instead of the button and silently not add time.
+  const clickTestTimeButton = async (button: Locator): Promise<void> => {
+    await button.evaluate((el) => {
+      el.scrollIntoView({ block: 'center' });
+      (el as HTMLElement).click();
+    });
+  };
+
   // Ensure test-time controls are visible; if not, recover by returning to Field tab.
   const preferredVisible = await preferredBtn.isVisible({ timeout: 1500 }).catch(() => false);
   if (!preferredVisible) {
@@ -502,8 +512,7 @@ export async function addTestTimeAndWait(page: Page, minutes: 1 | 5): Promise<nu
     const addFiveVisible = await addFiveBtn.isVisible({ timeout: 1500 }).catch(() => false);
 
     if (addFiveVisible) {
-      await addFiveBtn.scrollIntoViewIfNeeded();
-      await addFiveBtn.click({ force: true });
+      await clickTestTimeButton(addFiveBtn);
       actualMinutesAdded = 5;
     } else {
       const addOneVisible = await expect
@@ -520,8 +529,7 @@ export async function addTestTimeAndWait(page: Page, minutes: 1 | 5): Promise<nu
         const fallbackVisibleAfterRecovery = await addOneBtn.isVisible({ timeout: 1500 }).catch(() => false);
         if (fallbackVisibleAfterRecovery) {
           for (let i = 0; i < 5; i++) {
-            await addOneBtn.scrollIntoViewIfNeeded();
-            await addOneBtn.click({ force: true });
+            await clickTestTimeButton(addOneBtn);
             await page.waitForTimeout(UI_TIMING.QUICK);
           }
           actualMinutesAdded = 5;
@@ -533,8 +541,7 @@ export async function addTestTimeAndWait(page: Page, minutes: 1 | 5): Promise<nu
         }
       } else {
         for (let i = 0; i < 5; i++) {
-          await addOneBtn.scrollIntoViewIfNeeded();
-          await addOneBtn.click({ force: true });
+          await clickTestTimeButton(addOneBtn);
           await page.waitForTimeout(UI_TIMING.QUICK);
         }
         actualMinutesAdded = 5;
@@ -561,8 +568,7 @@ export async function addTestTimeAndWait(page: Page, minutes: 1 | 5): Promise<nu
       }
     }
 
-    await addOneBtn.scrollIntoViewIfNeeded();
-  await addOneBtn.click({ force: true });
+    await clickTestTimeButton(addOneBtn);
     actualMinutesAdded = 1;
   }
 
@@ -591,18 +597,15 @@ export async function addTestTimeAndWait(page: Page, minutes: 1 | 5): Promise<nu
     if (actualMinutesAdded === 5) {
       const addFiveVisible = await addFiveBtn.isVisible({ timeout: 1500 }).catch(() => false);
       if (addFiveVisible) {
-        await addFiveBtn.scrollIntoViewIfNeeded();
-        await addFiveBtn.click({ force: true });
+        await clickTestTimeButton(addFiveBtn);
       } else {
         for (let i = 0; i < 5; i++) {
-          await addOneBtn.scrollIntoViewIfNeeded();
-          await addOneBtn.click({ force: true });
+          await clickTestTimeButton(addOneBtn);
           await page.waitForTimeout(UI_TIMING.QUICK);
         }
       }
     } else {
-      await addOneBtn.scrollIntoViewIfNeeded();
-      await addOneBtn.click({ force: true });
+      await clickTestTimeButton(addOneBtn);
     }
 
     await expect

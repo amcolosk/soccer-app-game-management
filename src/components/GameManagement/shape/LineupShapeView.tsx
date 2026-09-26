@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
 import { calculatePlayerPlayTime, formatPlayTime } from "../../../utils/playTimeCalculations";
 import { showError, showSuccess } from "../../../utils/toast";
 import type {
@@ -497,7 +497,7 @@ export function LineupShapeView({
             <div
               key={node.positionId}
               className={`lineup-shape-node ${assignment ? "lineup-shape-node--assigned" : "lineup-shape-node--empty"} ${selectedPositionId === node.positionId ? "lineup-shape-node--selected" : ""}`}
-              style={{ left: `${node.xPct}%`, top: `${node.yPct}%` }}
+              style={{ "--lineup-shape-node-x": `${node.xPct}%`, top: `${node.yPct}%` } as CSSProperties}
             >
               <button
                 type="button"

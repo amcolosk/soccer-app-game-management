@@ -7,11 +7,11 @@ import {
   navigateToManagement,
   clickManagementTab,
   handleConfirmDialog,
-  clickButton,
   clickButtonByText,
   fillInput,
   waitForPageLoad,
   UI_TIMING,
+  openInviteAsUser,
 } from './helpers';
 import { TEST_USERS, TEST_CONFIG } from '../test-config';
 import {
@@ -80,33 +80,7 @@ async function sendInvitation(page: Page, inviteeEmail: string): Promise<string>
 }
 
 async function acceptInvitation(page: Page, invitationId: string, email: string, password: string): Promise<void> {
-  await page.goto(`/invite/${invitationId}`);
-  await page.waitForTimeout(UI_TIMING.STANDARD);
-
-  const loginButton = page.getByRole('banner').getByRole('button', { name: 'Log In' });
-  if (await loginButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await loginButton.click();
-    await waitForPageLoad(page);
-  }
-
-  const invitePageLoginInput = page.locator('input[name="username"], input[type="email"]');
-  if (await invitePageLoginInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-    await fillInput(page, 'input[name="username"], input[type="email"]', email);
-    await fillInput(page, 'input[name="password"], input[type="password"]', password);
-    await clickButton(page, 'Sign in');
-
-    try {
-      await page.waitForSelector('button:has-text("Skip")', { timeout: 2000 });
-      await clickButton(page, 'Skip');
-    } catch {
-      // Skip (verification) button may not appear.
-    }
-
-    await waitForPageLoad(page);
-    // Amplify auth redirects to '/' after sign-in; navigate back to the invite URL.
-    await page.goto(`/invite/${invitationId}`);
-    await waitForPageLoad(page);
-  }
+  await openInviteAsUser(page, invitationId, email, password);
 
   const acceptButton = page.getByRole('button', { name: /accept/i });
   await expect(acceptButton).toBeVisible({ timeout: 10000 });

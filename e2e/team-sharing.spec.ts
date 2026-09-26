@@ -5,6 +5,8 @@ import {
   clickButton,
   clickButtonByText,
   loginUser,
+  logout,
+  openInviteAsUser,
   navigateToManagement,
   clickManagementTab,
   cleanupTestData,
@@ -27,21 +29,6 @@ const GAME_OPPONENT = 'Lions FC';
 const GAME_OPPONENT_PRE_INVITE = 'Tigers FC';
 let gameCreatedInTest2 = false;
 let preInviteGameCreated = false;
-
-// Helper to logout
-async function logout(page: Page) {
-  const profileTab = page.getByRole('link', { name: /profile/i });
-  if (await profileTab.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await profileTab.click();
-    await page.waitForTimeout(500);
-  }
-  
-  const signOutButton = page.getByRole('button', { name: /sign out/i });
-  if (await signOutButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await signOutButton.click();
-    await waitForPageLoad(page);
-  }
-}
 
 async function openSharedGame(page: Page): Promise<string | null> {
   await page.goto('/');
@@ -336,7 +323,9 @@ test.describe.serial('Team Sharing and Collaboration', () => {
   let syncedScoreAfterCollab: string | null = null;
   
   test('User 1 creates team, adds data, and sends invitation to User 2', async ({ page }) => {
-    test.setTimeout(TEST_CONFIG.timeout.medium);
+    // Long budget: cleanupTestData() below has to clear whatever earlier specs left behind
+    // (players, formations, archived teams), which alone can exceed the medium timeout.
+    test.setTimeout(TEST_CONFIG.timeout.long);
     preInviteGameCreated = false;
     
     console.log('\n=== User 1: Creating Team and Sending Invitation ===');
@@ -642,39 +631,8 @@ test.describe.serial('Team Sharing and Collaboration', () => {
       await logout(page);
       console.log('✓ User 2 logged out from cleanup session');
       
-      // Navigate directly to invitation acceptance page
-      await page.goto(`/invite/${invitationId}`);
-      await page.waitForTimeout(UI_TIMING.STANDARD);
-      
-      // Handle Landing Page if present — scope to header to avoid ambiguity with hero CTA
-      const loginButton = page.getByRole('banner').getByRole('button', { name: 'Log In' });
-      if (await loginButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-        console.log('On Landing Page, clicking Log In...');
-        await loginButton.click();
-        await waitForPageLoad(page);
-      }
-
-      // Login as User 2 if not already logged in
-      const invitePageLoginInput = page.locator('input[name="username"], input[type="email"]');
-      if (await invitePageLoginInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await fillInput(page, 'input[name="username"], input[type="email"]', TEST_USERS.user2.email);
-        await fillInput(page, 'input[name="password"], input[type="password"]', TEST_USERS.user2.password);
-        await clickButton(page, 'Sign in');
-        
-        // Skip verification if prompted
-        try {
-          await page.waitForSelector('button:has-text("Skip")', { timeout: 2000 });
-          await clickButton(page, 'Skip');
-        } catch {
-          // Skip button may not appear
-        }
-        
-        await waitForPageLoad(page);
-
-        // Amplify auth redirects to '/' after sign-in; navigate back to the invite URL
-        await page.goto(`/invite/${invitationId}`);
-        await waitForPageLoad(page);
-      }
+      // Open the invitation link, signing in as User 2 if needed
+      await openInviteAsUser(page, invitationId, TEST_USERS.user2.email, TEST_USERS.user2.password);
       
       console.log('✓ User 2 logged in');
       

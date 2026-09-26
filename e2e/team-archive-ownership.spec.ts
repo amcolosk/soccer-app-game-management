@@ -6,6 +6,7 @@ import {
   clickManagementTab,
   fillInput,
   logout, // shared helper (e2e/helpers.ts)
+  openInviteAsUser,
   loginUser,
   navigateToManagement,
   waitForPageLoad,
@@ -82,22 +83,7 @@ test.describe.serial('Team archive ownership edge cases', () => {
     await logout(page);
 
     // --- Coach B: accept ---
-    await page.goto(`/invite/${invitationId}`);
-    await waitForPageLoad(page);
-    const loginButton = page.getByRole('banner').getByRole('button', { name: 'Log In' });
-    if (await loginButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await loginButton.click();
-      await waitForPageLoad(page);
-    }
-    const emailInput = page.locator('input[name="username"], input[type="email"]');
-    if (await emailInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await fillInput(page, 'input[name="username"], input[type="email"]', TEST_USERS.user2.email);
-      await fillInput(page, 'input[name="password"], input[type="password"]', TEST_USERS.user2.password);
-      await clickButton(page, 'Sign in');
-      await waitForPageLoad(page);
-      await page.goto(`/invite/${invitationId}`);
-      await waitForPageLoad(page);
-    }
+    await openInviteAsUser(page, invitationId, TEST_USERS.user2.email, TEST_USERS.user2.password);
     await page.getByRole('button', { name: /accept/i }).click();
     await expect(page.getByText(/Successfully joined/i)).toBeVisible({ timeout: 10000 });
     await page.waitForTimeout(3000);
@@ -154,7 +140,12 @@ test.describe.serial('Team archive ownership edge cases', () => {
     // Lambdas, never triggers an AppSync subscription (satisfied here via
     // remount instead of a page reload).
     await clickManagementTab(page, 'Sharing');
-    await expect(page.locator('.invitations-list')).not.toContainText(THROWAWAY_INVITE_EMAIL, { timeout: 10000 });
+    // .invitations-list is only rendered while at least one invitation is PENDING, so once
+    // the archive expires the throwaway invite the element is gone entirely --
+    // not.toContainText would fail with "element(s) not found". Wait for the panel itself
+    // to have loaded, then assert no invitation row remains for that email.
+    await expect(page.getByRole('button', { name: /send invitation/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.invitation-item').filter({ hasText: THROWAWAY_INVITE_EMAIL })).toHaveCount(0, { timeout: 10000 });
 
     // --- Coach B, re-entering after a full logout/login (no live subscription
     // for lifecycle Lambdas): sees the archived state correctly, cannot

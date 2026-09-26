@@ -159,9 +159,21 @@ export async function loginUser(page: Page, email: string, password: string) {
 
   const authEmailInput = page.locator('input[name="username"], input[type="email"]').first();
 
-  // Check if already logged in (bottom nav visible)
+  // AppRoot is lazy-loaded and restores the Cognito session asynchronously, so right after
+  // navigation none of the three possible screens (signed-in app, landing page, auth form)
+  // may have rendered yet -- on a cold dev server (first test of a run) or a slow session
+  // restore. `isVisible()` is a point-in-time check that does not wait, so wait for one of
+  // them before deciding which state we're in.
   const bottomNav = page.locator('.bottom-nav');
-  if (await bottomNav.isVisible({ timeout: 2000 }).catch(() => false)) {
+  await bottomNav
+    .or(authEmailInput)
+    .or(page.getByRole('button', { name: /Log In|Get Started/i }).first())
+    .first()
+    .waitFor({ state: 'visible', timeout: 60000 })
+    .catch(() => undefined);
+
+  // Check if already logged in (bottom nav visible)
+  if (await bottomNav.isVisible().catch(() => false)) {
     console.log('User already logged in, signing out...');
     // Navigate to profile and sign out
     await page.getByRole('link', { name: 'Profile' }).click();
@@ -253,14 +265,80 @@ export async function loginUser(page: Page, email: string, password: string) {
  * (e.g., navigating to an unauthenticated `/invite/:id` link).
  */
 export async function logout(page: Page) {
-  const profileTab = page.getByRole('link', { name: /profile/i });
-  if (await profileTab.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await profileTab.click();
-    await page.waitForTimeout(500);
+  // Wait (not just peek) for the signed-in shell: right after navigation the session may
+  // still be restoring. If it never appears we are already signed out.
+  const bottomNav = page.locator('.bottom-nav');
+  const signedIn = await bottomNav
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!signedIn) {
+    return;
   }
-  const signOutButton = page.getByRole('button', { name: /sign out/i });
-  if (await signOutButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await signOutButton.click();
+
+  const clickSignOut = async () => {
+    await page.getByRole('link', { name: /profile/i }).click();
+    await page.getByRole('button', { name: /sign out/i }).click();
+  };
+
+  await clickSignOut();
+  const signedOut = await bottomNav
+    .waitFor({ state: 'hidden', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (!signedOut) {
+    // Known app quirk: right after signing in through the login form, the Profile page's
+    // Sign Out button is a no-op (no Cognito request fires, tokens stay) until the page is
+    // reloaded. Reload and retry so callers can rely on being signed out.
+    console.log('Sign Out had no effect in the session that just signed in; reloading and retrying...');
+    await page.reload();
+    await bottomNav.waitFor({ state: 'visible', timeout: 30000 });
+    await clickSignOut();
+  }
+
+  // Confirm the session actually ended (a skipped/failed sign-out would otherwise leave the
+  // previous user's session active for whatever the caller does next).
+  await expect(bottomNav).toBeHidden({ timeout: 15000 });
+  await waitForPageLoad(page);
+}
+
+/**
+ * Open an /invite/:id link as `email` and leave the page on the invitation screen, signed in.
+ *
+ * Handles every state the link can land in -- signed out (landing page, then auth form) or
+ * already signed in as the invitee. Waits for the lazy-loaded app to render before deciding
+ * which state it is in: peeking with `isVisible({ timeout })` does not wait, and skipping the
+ * sign-in silently leaves the previous coach's session active (the invite is then "not found").
+ */
+export async function openInviteAsUser(page: Page, invitationId: string, email: string, password: string) {
+  const invitePath = `/invite/${invitationId}`;
+  await page.goto(invitePath);
+  await waitForPageLoad(page);
+
+  const headerLogin = page.getByRole('banner').getByRole('button', { name: 'Log In' });
+  const authEmailInput = page.locator('input[name="username"], input[type="email"]').first();
+  const acceptButton = page.getByRole('button', { name: /accept/i });
+  await headerLogin.or(authEmailInput).or(acceptButton).first().waitFor({ state: 'visible', timeout: 30000 });
+
+  if (await headerLogin.isVisible().catch(() => false)) {
+    await headerLogin.click();
+    await waitForPageLoad(page);
+  }
+
+  if (await authEmailInput.isVisible().catch(() => false)) {
+    await fillInput(page, 'input[name="username"], input[type="email"]', email);
+    await fillInput(page, 'input[name="password"], input[type="password"]', password);
+    await clickButton(page, 'Sign in');
+
+    const skipButton = page.locator('button:has-text("Skip")');
+    await skipButton.waitFor({ state: 'visible', timeout: 2000 }).then(() => skipButton.click()).catch(() => undefined);
+
+    // The invite screen has no bottom nav, so "signed in" is the auth form going away.
+    await expect(authEmailInput).toBeHidden({ timeout: 30000 });
+    await waitForPageLoad(page);
+    // Amplify auth redirects to '/' after sign-in; navigate back to the invite URL.
+    await page.goto(invitePath);
     await waitForPageLoad(page);
   }
 }
