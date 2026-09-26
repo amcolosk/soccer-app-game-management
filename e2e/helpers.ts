@@ -276,26 +276,8 @@ export async function logout(page: Page) {
     return;
   }
 
-  const clickSignOut = async () => {
-    await page.getByRole('link', { name: /profile/i }).click();
-    await page.getByRole('button', { name: /sign out/i }).click();
-  };
-
-  await clickSignOut();
-  const signedOut = await bottomNav
-    .waitFor({ state: 'hidden', timeout: 5000 })
-    .then(() => true)
-    .catch(() => false);
-
-  if (!signedOut) {
-    // Known app quirk: right after signing in through the login form, the Profile page's
-    // Sign Out button is a no-op (no Cognito request fires, tokens stay) until the page is
-    // reloaded. Reload and retry so callers can rely on being signed out.
-    console.log('Sign Out had no effect in the session that just signed in; reloading and retrying...');
-    await page.reload();
-    await bottomNav.waitFor({ state: 'visible', timeout: 30000 });
-    await clickSignOut();
-  }
+  await page.getByRole('link', { name: /profile/i }).click();
+  await page.getByRole('button', { name: /sign out/i }).click();
 
   // Confirm the session actually ended (a skipped/failed sign-out would otherwise leave the
   // previous user's session active for whatever the caller does next).
