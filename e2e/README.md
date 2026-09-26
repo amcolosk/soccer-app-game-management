@@ -16,6 +16,9 @@ End-to-end tests for TeamTrack using Playwright.
 | `data-isolation.spec.ts` | Verify users can only see their own teams/data |
 | `profile.spec.ts` | Profile page, pending invitations |
 | `issue-tracking.spec.ts` | Bug report submission |
+| `offline-game-management.spec.ts` | Offline substitution/halftime + reconnect drain (field-conditions lane) |
+| `concurrent-coaches.spec.ts` | Two-coach concurrent same-team actions (field-conditions lane) |
+| `timer-gap-confirmation.spec.ts` | Backgrounding/clock-gap detection and confirmation modal (field-conditions lane) |
 
 ## Prerequisites
 
@@ -49,6 +52,9 @@ npm run test:e2e:smoke
 # Run full E2E lane (all browser regression specs)
 npm run test:e2e:full
 
+# Run field-conditions lane (WebKit + mobile viewport, pre-release only)
+npm run test:e2e:field-conditions
+
 # Legacy full E2E alias
 npm run test:e2e
 
@@ -70,6 +76,7 @@ npx playwright test e2e/team-management.spec.ts
 - `npm run test:fast`: local fast lane, Vitest-only integration/unit feedback.
 - `npm run test:e2e:smoke`: local smoke lane aligned to CI smoke intent.
 - `npm run test:e2e:full`: local full lane aligned to CI full regression intent.
+- `npm run test:e2e:field-conditions`: local field-conditions lane (WebKit + mobile viewport) aligned to CI's manual-dispatch-only `field-conditions-e2e` job. Not run on every push — see "CI Cadence" below.
 - `npm run gate:commit`: local commit gate (lint -> test:run -> build), unchanged.
 
 Increment 1 keeps CI workflow ownership unchanged. The script mapping above is for local lane parity.
@@ -98,7 +105,7 @@ Use this matrix to decide where a test belongs:
 
 ## Test Configuration
 
-- **Browser**: Chromium (default)
+- **Browser**: Chromium (default; `field-conditions` project uses WebKit + mobile viewport via `devices['iPhone 13']`)
 - **Base URL**: `http://localhost:5173`
 - **Timeout**: 90 seconds per test (CI) / 120 seconds locally
 - **Retries**: 2 on CI, 0 locally
@@ -180,18 +187,19 @@ test.use({ storageState: { cookies: [], origins: [] } });
 
 ## CI Cadence
 
-| Trigger | Smoke E2E | Full E2E |
-|---|---|---|
-| Trusted PR (risk paths changed) | ✓ | — |
-| Trusted PR with `run-smoke-e2e` label | ✓ | — |
-| Trusted PR with `run-full-e2e` label | ✓ | ✓ |
-| Push to `main` | — | ✓ |
-| Merge group | — | ✓ |
-| `workflow_dispatch` | — | ✓ |
-| Nightly schedule (3 AM UTC) | — | ✓ |
+| Trigger | Smoke E2E | Full E2E | Field-Conditions E2E |
+|---|---|---|---|
+| Trusted PR (risk paths changed) | ✓ | — | — |
+| Trusted PR with `run-smoke-e2e` label | ✓ | — | — |
+| Trusted PR with `run-full-e2e` label | ✓ | ✓ | — |
+| Push to `main` | — | ✓ | — |
+| Merge group | — | ✓ | — |
+| `workflow_dispatch` | — | ✓ | ✓ |
+| Nightly schedule (3 AM UTC) | — | ✓ | — |
 
 **Smoke lane** (`--project=smoke`): runs the `testMatch` list from `playwright.config.ts` — management specs, data-isolation, safe-deletes, game-planner, mobile-note.
 **Full lane** (`--project=full`): runs everything except `auth.setup.ts` and the two specs owned by the smoke-only lane.
+**Field-conditions lane** (`--project=field-conditions`): WebKit + mobile-viewport run of the offline/reconnect, concurrent-coaches, and timer-gap-confirmation specs only. Manual `workflow_dispatch` only (see `field-conditions-e2e` job in `.github/workflows/ci.yml`) — a pre-release check, not a merge gate, and intentionally excluded from `ci-policy-gate`'s required checks.
 
 ## CI/CD
 

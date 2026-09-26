@@ -55,6 +55,8 @@ export const AnalyticsEvents = {
   GOAL_RECORDED: { category: 'GameDay', action: 'Goal Recorded' },
   PLAYER_MARKED_INJURED: { category: 'GameDay', action: 'Player Marked Injured' },
   PLAYER_RECOVERED_FROM_INJURY: { category: 'GameDay', action: 'Player Recovered From Injury' },
+  TIMER_GAP_ACCEPTED: { category: 'GameDay', action: 'Timer Gap Accepted' },
+  TIMER_GAP_ADJUSTED: { category: 'GameDay', action: 'Timer Gap Adjusted' },
 
   // Game planner
   PLAN_SAVED: { category: 'GamePlanner', action: 'Plan Saved' },

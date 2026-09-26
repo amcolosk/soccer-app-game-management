@@ -12,6 +12,7 @@ import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, copyGamePlan, type PlannedSubstitution } from "../../services/rotationPlannerService";
 import { calculatePlayerPlayTime } from "../../utils/playTimeCalculations";
+import { buildDeterministicStartPlayTimeRecordId } from "../../utils/playTimeRecordId";
 import { getMissingRolePositions } from "../../utils/formationUtils";
 import { computeScoreFromGoals } from "../../utils/gameCalculations";
 import {
@@ -89,16 +90,6 @@ class StarterCountError extends Error {
 
 function isStarterCountError(error: unknown): error is StarterCountError {
   return error instanceof StarterCountError;
-}
-
-function buildDeterministicStartPlayTimeRecordId(params: {
-  gameId: string;
-  playerId: string;
-  half: 1 | 2;
-  startGameSeconds: number;
-}): string {
-  const { gameId, playerId, half, startGameSeconds } = params;
-  return `ptr:${gameId}:${playerId}:h${half}:t${startGameSeconds}`;
 }
 
 type StarterSelection = {
@@ -420,6 +411,8 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     playerAvailabilities,
     queuedSubstitutions,
     manuallyPausedRef,
+    pendingGapCorrection,
+    resolveGapCorrection,
   } = useGameSubscriptions({
     game,
     team,
@@ -427,11 +420,39 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     setCurrentTime,
     setIsRunning,
     notesRefreshKey,
+    userId,
   });
 
   // Use per-game half length override when set; fall back to team default.
   // gameState is live-updated via observeQuery so this recomputes reactively.
   const halfLengthSeconds = (gameState.halfLengthMinutes ?? team.halfLengthMinutes ?? 30) * 60;
+
+  // Timer gap confirmation (Issue B / #stoppage-drift): useGameSubscriptions
+  // sets pendingGapCorrection instead of silently resuming when this device's
+  // timer had continuity (see constants/gameTimer.ts) and the resume gap is
+  // anomalous and won't be silently handled by an auto-trigger. No persisted
+  // audit trail in v1 — analytics events only (see hardening plan Issue B).
+  useEffect(() => {
+    if (!pendingGapCorrection) return;
+    const gapMinutes = Math.round(pendingGapCorrection.gapSeconds / 60);
+    void confirm({
+      title: 'Was play stopped?',
+      message: `The game clock advanced by about ${gapMinutes} minute${gapMinutes === 1 ? '' : 's'} while this device was disconnected. Is that correct?`,
+      confirmText: "Yes, that's right",
+      cancelText: 'No, let me adjust',
+      variant: 'warning',
+    }).then((accepted) => {
+      trackEvent(
+        accepted ? AnalyticsEvents.TIMER_GAP_ACCEPTED.category : AnalyticsEvents.TIMER_GAP_ADJUSTED.category,
+        accepted ? AnalyticsEvents.TIMER_GAP_ACCEPTED.action : AnalyticsEvents.TIMER_GAP_ADJUSTED.action,
+        String(gapMinutes)
+      );
+      resolveGapCorrection(accepted);
+    });
+    // pendingGapCorrection is a fresh object each time a new gap is proposed
+    // (and null once resolved), so this effect fires exactly once per proposal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingGapCorrection]);
 
   // Merged substitution queue: backend records (FIFO) plus optimistic adds, minus optimistic removes
   const substitutionQueue = useMemo<SubQueue[]>(() => {
@@ -1618,12 +1639,28 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     }
 
     // Close play time records after status is safely persisted.
+    //
+    // Two mechanisms, in order. Either can leave records open, so
+    // halftimePtrClosePendingRef must reflect BOTH, not just the second one:
+    // 1. closeAllOpenPlayTimeRecords closes every record THIS device has locally
+    //    opened (game start, subs, direct lineup adds), tracked independent of the
+    //    observeQuery subscription. It never throws — offline it enqueues, online
+    //    it retries internally — so it reliably queues the close even for a record
+    //    created moments earlier while still offline (the record that used to get
+    //    silently missed because it existed in neither React state nor DynamoDB yet).
+    //    It can still leave records open (e.g. a transient online GraphQL error),
+    //    signaled by its `false` return rather than a throw.
+    // 2. closeActivePlayTimeRecords is a cross-device backstop only, for a record
+    //    opened on a DIFFERENT coach's device that this device's local map can't
+    //    know about. It still needs connectivity to see those records, so it can
+    //    still legitimately fail (throw).
+    const primaryFullyClosed = await mutations.closeAllOpenPlayTimeRecords(halftimeSeconds);
     try {
       await closeActivePlayTimeRecords(playTimeRecords, halftimeSeconds, undefined, game.id, mutations);
-      halftimePtrClosePendingRef.current = false;
+      halftimePtrClosePendingRef.current = !primaryFullyClosed;
     } catch (error) {
       halftimePtrClosePendingRef.current = true;
-      console.warn('[handleHalftime] PTR closing failed; marked pending retry before second half start.', error);
+      console.warn('[handleHalftime] Cross-device PTR closing failed; marked pending retry before second half start.', error);
     } finally {
       manuallyPausedRef.current = false;
     }
@@ -1724,9 +1761,14 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       }
 
       if (halftimePtrClosePendingRef.current) {
+        // Retry the local-map close too, in case any individual close failed at
+        // halftime (its ids stay in the map on failure so this naturally retries
+        // them). currentTime hasn't moved since halftime (timer is paused), so
+        // resumeTime is the same game-clock boundary as halftimeSeconds was.
+        const primaryFullyClosed = await mutations.closeAllOpenPlayTimeRecords(resumeTime);
         try {
           await closeActivePlayTimeRecords(playTimeRecords, resumeTime, undefined, game.id, mutations);
-          halftimePtrClosePendingRef.current = false;
+          halftimePtrClosePendingRef.current = !primaryFullyClosed;
         } catch (error) {
           handleApiError(error, 'Failed to close halftime play-time records before second half start');
           return;
@@ -1816,10 +1858,11 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
 
     // Close play time records after status is safely persisted.
     // Failures here are non-fatal — SeasonReport already handles unclosed PTRs as a fallback.
+    await mutations.closeAllOpenPlayTimeRecords(endGameTime);
     try {
       await closeActivePlayTimeRecords(playTimeRecords, endGameTime, undefined, game.id, mutations);
     } catch (error) {
-      console.error('[handleEndGame] PTR closing failed (non-fatal, game already completed):', error);
+      console.error('[handleEndGame] Cross-device PTR closing failed (non-fatal, game already completed):', error);
     } finally {
       manuallyPausedRef.current = false;
     }
@@ -1861,6 +1904,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     plannedRotations,
     onHalftime: handleHalftime,
     onEndGame: handleEndGame,
+    userId,
   });
 
   // Reset tab when game status changes.

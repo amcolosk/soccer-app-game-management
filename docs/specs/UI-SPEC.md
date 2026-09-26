@@ -411,6 +411,15 @@ Active game cards: left-border accent treatment.
 | No lineup assigned | "No lineup set. Tap a position to assign a player." |
 | All players on field (no bench) | Bench tab: "All players are on the field." |
 
+#### Timer Gap Confirmation
+Reuses the standard confirmation modal pattern (§5.6), not a bespoke component. Appears on resume from a genuine app crash/relaunch on a device that had previously been running this game's timer — never on a normal app open (see `docs/specs/Game-Management-Spec.md` §3.6 for the full decision logic; a second coach opening an already-running game never sees this, regardless of how long the half has been running).
+
+- **Title:** "Was play stopped?"
+- **Message:** "The game clock advanced by about N minutes while this device was disconnected. Is that correct?"
+- **Buttons:** `Yes, that's right` (`.btn-primary`) / `No, let me adjust` (`.btn-secondary`)
+- Dismissing (Escape / overlay tap) behaves the same as `No, let me adjust` — never silently accepts the proposed time.
+- Does **not** appear when the resumed elapsed time would trigger auto-halftime or auto-end-game — those stay silent per existing behavior (§3.4/§3.5 of the Game Management Spec).
+
 ---
 
 ### 7.5 Game Management — Halftime State

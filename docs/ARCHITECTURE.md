@@ -540,6 +540,26 @@ The game timer runs client-side and syncs to DynamoDB periodically:
 - The conversion formula itself lives in `src/utils/gameClock.ts` (`computeCurrentGameSeconds`) — extracted from `useGameSubscriptions.ts` in Milestone B1 so the public `FanGameView` page (which runs the same formula locally on a 1-second tick, seeded from each poll) can't silently diverge from the authenticated app's timer logic
 - Milestone B2 adds a **Lambda-side mirror** at `amplify/functions/shared/gameClock.ts` — a Lambda can't import from `src/`, so `submitStatEvent` derives a helper-submitted event's `gameSeconds`/`half` server-side from this parity-tested duplicate (never trusted from the untrusted public client); `gameClock.test.ts` in that same directory asserts both copies produce identical output for the same inputs
 
+### 4a. Game-state race guards (`useGameSubscriptions.ts` / `useGameTimer.ts` / `GameManagement.tsx`)
+
+The live-game screen holds two independent sources of truth for game state — local component state (driven by direct coach actions) and the `Game.observeQuery` subscription (driven by DynamoDB, including this device's own writes echoing back, another coach's device, and out-of-order/buffered AppSync events). Reconciling them needs a set of guard refs, each protecting against a specific race that has previously shipped as a bug (issues #49, #31, #177) or been caught in review while building the timer-gap-confirmation feature. As of this writing:
+
+| Ref | File | Guards against |
+|---|---|---|
+| `manuallyPausedRef` | `useGameSubscriptions.ts` | The subscription auto-resuming a deliberate local pause; reset only when the confirmed-pause DB write (`lastStartTime: null`) echoes back |
+| `isRunningRef` | `useGameSubscriptions.ts` | Re-entering auto-resume logic while this device is already running; lets the subscription effect skip re-subscribing on every timer tick |
+| `gameStateRef` | `useGameSubscriptions.ts` | Reading stale local status/half inside the subscription closure without adding them to the effect's `[game.id]`-only deps |
+| `pendingGapCorrectionRef` | `useGameSubscriptions.ts` | Re-proposing, or silently applying underneath, an already-open gap-confirmation dialog |
+| `userIdRef` | `useGameSubscriptions.ts` | The same staleness problem as `gameStateRef` — `userId` loads asynchronously well after this effect's one-time subscribe |
+| `lineupSyncInProgressRef` | `useGameSubscriptions.ts` | Concurrent execution of the game-plan → lineup sync effect (a separate concern from the `Game.observeQuery` guards above) |
+| `halftimeTriggeredRef`, `endGameTriggeredRef` | `useGameTimer.ts` | Duplicate auto-halftime/auto-end firing from the 500ms tick |
+| `startGameInProgressRef`, `halftimeInProgressRef`, `endGameInProgressRef` | `GameManagement.tsx` | Duplicate handler invocation from an auto-trigger and a manual button firing together |
+| `halftimePtrClosePendingRef` | `GameManagement.tsx` | Tracking the cross-device `PlayTimeRecord` backstop retry needed before second-half start (see Data Consistency, PlayTimeRecord) |
+
+**Why refs, not effect deps:** the `Game.observeQuery` subscription in `useGameSubscriptions.ts` intentionally has `[game.id]`-only deps — recreating it on every state change would mean a brief resubscribe window on every timer tick or coach action. Anything the subscription's `next` callback needs to read at call time, rather than at the moment the effect first ran, has to go through a ref kept in sync every render — not destructured directly from a hook param or `useState`. Skipping this for a new value is exactly how the `userId` bug happened (a dead feature for an entire session, caught in review): a value that's genuinely constant for the life of one `game.id` doesn't need this; a value that can change afterward (auth state loading in, local UI state, pending async results) does.
+
+**Extending this safely:** `useGameSubscriptions.ts`'s `next` callback separates into (a) an early-return sequence with an explicit, load-bearing execution *order* (the `completed`-status short-circuit, the stale-event checks, the `manuallyPausedRef` reset, then the `isRunningRef` check — reordering any of these has broken this callback before) and (b) three extracted, pure, order-independent decision functions (`classifyIncomingGameEvent`, `mergeIncomingGameState`, `computeGapConfirmationDecision`) with no refs or side effects. A new race-guard almost always belongs in (a), read from a new ref; a new *pure* decision that doesn't need to mutate anything belongs in a new function like (b). Don't collapse the two into one shared shape — the distinct inputs each part needs (a functional-updater `prev`, a pre-update local snapshot, an already-dereferenced ref value) are what keep each piece testable in isolation.
+
 ### 5. Granular PlayTimeRecord
 Individual enter/exit records rather than aggregated totals. This provides a complete audit trail, enables per-position breakdowns, and powers the fair play algorithm. Records store game clock seconds (not wall clock) for accuracy across pauses.
 

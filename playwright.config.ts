@@ -71,8 +71,31 @@ export default defineConfig({
         '**/team-management.spec.ts',
         '**/player-management.spec.ts',
         '**/safe-deletes.spec.ts',
+        // field-conditions-only specs (see that project below) — without this,
+        // a new spec file silently auto-joins this per-commit, merge-gating
+        // lane by default, defeating field-conditions' whole "pre-release
+        // only, not a merge blocker" point.
+        '**/offline-game-management.spec.ts',
+        '**/concurrent-coaches.spec.ts',
+        '**/timer-gap-confirmation.spec.ts',
       ],
       use: { ...devices['Desktop Chrome'], storageState: '.auth/user1.json' },
+    },
+    {
+      // Pre-release field-conditions lane (not run on every push — see
+      // .github/workflows/ci.yml). WebKit engine + mobile viewport via
+      // devices['iPhone 13'] catches Safari-engine/touch-layout issues
+      // ordinary Desktop-Chrome CI never exercises. Explicit testMatch
+      // (not full's testIgnore) so this lane only ever runs the specs
+      // that opt into it.
+      name: 'field-conditions',
+      dependencies: ['setup'],
+      testMatch: [
+        '**/offline-game-management.spec.ts',
+        '**/concurrent-coaches.spec.ts',
+        '**/timer-gap-confirmation.spec.ts',
+      ],
+      use: { ...devices['iPhone 13'], storageState: '.auth/user1.json' },
     },
   ],
 

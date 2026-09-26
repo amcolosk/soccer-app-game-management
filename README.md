@@ -36,6 +36,7 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 ### Game Day Management
 - **Game Timer**: Automatic timer with configurable half lengths
 - **Auto-Pause at Halftime**: Timer pauses when the half ends; resume manually to start the second half
+- **Timer Gap Confirmation**: If a device loses timer continuity (crash, backgrounding, browser close) and comes back to an anomalous elapsed-time gap, the coach is asked to confirm or adjust it before it's applied
 - **Position-Based Lineup**: Assign players to specific positions on the field
 - **Substitution Management**: Easy substitution interface with live play time visibility
 - **Halftime Lineup Changes**: Modify the lineup between halves
@@ -115,6 +116,7 @@ npm run build        # Build for production
 npm run test         # Run unit tests (watch mode)
 npm run test:run     # Run unit tests once
 npm run test:e2e     # Run E2E tests (Playwright)
+npm run test:e2e:field-conditions  # WebKit + mobile-viewport E2E (pre-release lane, see e2e/README.md)
 npm run lint         # Lint TypeScript/TSX files
 ```
 

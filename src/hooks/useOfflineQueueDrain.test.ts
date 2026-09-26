@@ -188,6 +188,34 @@ describe("useOfflineQueueDrain", () => {
     });
   });
 
+  it("requeues a mutation whose call resolves with GraphQL errors instead of dropping it as success", async () => {
+    // Amplify's data client returns GraphQL errors in the result rather than
+    // throwing — this is the exact bug this fix closes: without checking
+    // result.errors, a failed replay of a PlayTimeRecord close would look
+    // like a success and get dropped from the queue, silently orphaning it.
+    mockPendingCount.mockResolvedValue(1);
+    mockGameUpdate.mockResolvedValue({ data: null, errors: [{ message: "Unauthorized" }] });
+    const failedItem = {
+      id: "q1",
+      model: "Game",
+      operation: "update",
+      payload: { id: "game-1", elapsedSeconds: 500 },
+      ownerSub: "user-1",
+      enqueuedAt: Date.now(),
+      retryCount: 0,
+    };
+    mockDequeueAll.mockResolvedValue([failedItem]);
+
+    renderHook(() => useOfflineQueueDrain());
+
+    await waitFor(() => {
+      expect(mockGameUpdate).toHaveBeenCalledWith({ id: "game-1", elapsedSeconds: 500 });
+      expect(mockRequeueFailed).toHaveBeenCalledWith([
+        expect.objectContaining({ id: "q1", model: "Game", operation: "update" }),
+      ]);
+    });
+  });
+
   it("skips drain when auth session is unavailable", async () => {
     mockPendingCount.mockResolvedValue(1);
     mockFetchAuthSession.mockRejectedValue(new Error("not-authenticated"));

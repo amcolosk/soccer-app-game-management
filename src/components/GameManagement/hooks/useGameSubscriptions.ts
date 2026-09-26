@@ -9,7 +9,12 @@ import type {
 } from "../types";
 import { useAmplifyQuery } from "../../../hooks/useAmplifyQuery";
 import { handleApiError } from "../../../utils/errorHandler";
-import { computeCurrentGameSeconds } from "../../../utils/gameClock";
+import {
+  MAX_GAME_SECONDS,
+  ANOMALOUS_GAP_THRESHOLD_SECONDS,
+  buildTimerHeartbeatStorageKey,
+} from "../../../constants/gameTimer";
+import { computeAdditionalGameSeconds } from "../../../utils/gameClock";
 
 const client = generateClient<Schema>();
 
@@ -20,6 +25,177 @@ interface UseGameSubscriptionsParams {
   setCurrentTime: React.Dispatch<React.SetStateAction<number>>;
   setIsRunning: React.Dispatch<React.SetStateAction<boolean>>;
   notesRefreshKey?: number;
+  /** Used to scope the timer-continuity heartbeat read (see constants/gameTimer.ts). */
+  userId: string;
+}
+
+/** A resume gap this device's timer needs a coach's confirmation about — see
+ * ANOMALOUS_GAP_THRESHOLD_SECONDS and the auto-trigger exclusion below. */
+interface PendingGapCorrection {
+  /** The elapsed value before this gap (what stays displayed while pending). */
+  priorElapsed: number;
+  /** The elapsed value this device would resume at if the coach confirms it's correct. */
+  proposedElapsed: number;
+  /** proposedElapsed - priorElapsed, for display ("advanced by N minutes"). */
+  gapSeconds: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Game.observeQuery `next` handler — decision helpers
+//
+// This callback has needed emergency fixes for issues #49, #31, and #177,
+// plus two bugs caught in review while adding the gap-confirmation feature
+// (Issue B). The refs above it (manuallyPausedRef, isRunningRef, gameStateRef,
+// pendingGapCorrectionRef, userIdRef) all exist for the same reason: this
+// effect's deps are [game.id] only (see below), so its closure is created
+// once at mount and never refreshed — anything it needs to read at call time
+// that can change after mount must be read through a ref, not destructured
+// directly, or it silently goes stale (this is exactly how the userId bug
+// happened — see userIdRef's comment).
+//
+// The three functions below are extracted because they're pure — no refs,
+// no state setters, no ordering dependency on anything else in the
+// callback — so isolating them carries no behavior-change risk. What's
+// deliberately NOT extracted is the early-return sequence at the top of the
+// callback (the completed-status short-circuit, the stale-event returns, the
+// manuallyPausedRef reset, and the isRunningRef check): those have an
+// explicit, load-bearing ORDER dependency documented inline (e.g. the
+// manuallyPausedRef reset must run before the isRunningRef check), and
+// collapsing ordering-dependent, ref-mutating code into a reusable function
+// is exactly the kind of change that has broken this callback before.
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Classifies an incoming Game.observeQuery event against the locally-known
+ * status/half, to detect three kinds of stale/out-of-order event this
+ * callback must not act on (see the state-merge and early-return logic below
+ * for how each is used).
+ */
+export function classifyIncomingGameEvent(
+  updatedGame: Pick<Game, 'status' | 'currentHalf'>,
+  localStatus: string | null | undefined,
+  localHalf: number
+): {
+  /** A legitimate second-half start (from any coach's device), not a stale event. */
+  isSecondHalfStartEvent: boolean;
+  /** A buffered first-half in-progress event arriving after this device already
+   * advanced to the second half — must not regress local state (issue #49-class). */
+  isStaleSecondHalfRegression: boolean;
+  /** A buffered pre-start event arriving after the game has already started
+   * locally — must not regress local state back to 'scheduled'. */
+  isStaleScheduledRegression: boolean;
+} {
+  const incomingHalf = updatedGame.currentHalf ?? 1;
+  const isSecondHalfStartEvent = updatedGame.status === 'in-progress' && updatedGame.currentHalf === 2;
+  return {
+    isSecondHalfStartEvent,
+    isStaleSecondHalfRegression:
+      localStatus === 'in-progress'
+      && localHalf === 2
+      && updatedGame.status === 'in-progress'
+      && incomingHalf === 1,
+    isStaleScheduledRegression:
+      updatedGame.status === 'scheduled'
+      && (localStatus === 'in-progress' || localStatus === 'halftime' || localStatus === 'completed'),
+  };
+}
+
+/**
+ * Decides the next local gameState for a NON-completed incoming event (the
+ * `completed` status is handled by an earlier, separate return that
+ * deliberately does NOT go through this function — see its own comment for
+ * why that asymmetry is intentional, not a bug).
+ */
+export function mergeIncomingGameState(
+  prev: Game,
+  updatedGame: Game,
+  isSecondHalfStartEvent: boolean
+): Game {
+  if (prev.status === 'completed') {
+    return prev;
+  }
+  if (updatedGame.status === 'scheduled' && (prev.status === 'in-progress' || prev.status === 'halftime')) {
+    return prev;
+  }
+  if (prev.status === 'halftime' && updatedGame.status === 'in-progress' && !isSecondHalfStartEvent) {
+    return prev;
+  }
+  if (
+    prev.status === 'in-progress'
+    && (prev.currentHalf ?? 1) === 2
+    && updatedGame.status === 'in-progress'
+    && (updatedGame.currentHalf ?? 1) === 1
+  ) {
+    return prev;
+  }
+  // Active-state score is derived locally from goals and is never persisted to
+  // the Game record (see GameManagement's score-derivation effect). Preserve it
+  // here so an unrelated Game field update (pause, resume, halftime transition,
+  // ...) doesn't clobber it back to the DB's stale 0-0 (issue #177). This does
+  // NOT apply to the completed-status path (see that branch's own comment) —
+  // by the time a game reaches 'completed', handleEndGame has already written
+  // the final score snapshot to the DB, so the DB's value is authoritative
+  // there instead.
+  return { ...updatedGame, ourScore: prev.ourScore, opponentScore: prev.opponentScore };
+}
+
+/** Inputs the gap-confirmation decision needs, isolated from the ref-reading
+ * mechanics above (callers pass in the already-dereferenced current values). */
+interface GapConfirmationInputs {
+  updatedGame: Pick<Game, 'currentHalf' | 'halfLengthMinutes'>;
+  teamHalfLengthMinutes: number | null | undefined;
+  priorElapsed: number;
+  additionalSeconds: number;
+  currentUserId: string;
+  gameId: string;
+  hasPendingCorrection: boolean;
+}
+
+type GapConfirmationDecision =
+  | { kind: 'already-pending' }
+  | { kind: 'propose'; proposedElapsed: number }
+  | { kind: 'silent-apply'; proposedElapsed: number };
+
+/**
+ * Pure decision logic for Issue B's gap-confirmation feature — kept separate
+ * from computeGapConfirmationDecision's caller so every input it reasons
+ * about (the resume gap, the two auto-trigger boundaries, the continuity
+ * heartbeat, and whether a correction is already pending) is explicit and
+ * independently testable, rather than buried in the observeQuery callback.
+ * See docs/specs/Game-Management-Spec.md §3.6 for the full behavior spec.
+ */
+export function computeGapConfirmationDecision(inputs: GapConfirmationInputs): GapConfirmationDecision {
+  const { updatedGame, teamHalfLengthMinutes, priorElapsed, additionalSeconds, currentUserId, gameId, hasPendingCorrection } = inputs;
+  const proposedElapsed = priorElapsed + additionalSeconds;
+
+  // Already pending takes priority over everything else below: nothing may
+  // touch currentTime/isRunning while the coach's dialog is still open, even
+  // if a later event's recomputed gap would otherwise cross an auto-trigger
+  // boundary (caught in review — see PITCH-RELIABILITY-HARDENING-PLAN.md Issue B).
+  if (hasPendingCorrection) {
+    return { kind: 'already-pending' };
+  }
+
+  const incomingHalfForGap = updatedGame.currentHalf ?? 1;
+  const willAutoHalftime = incomingHalfForGap === 1
+    && proposedElapsed >= (updatedGame.halfLengthMinutes ?? teamHalfLengthMinutes ?? 30) * 60;
+  const willAutoEnd = proposedElapsed >= MAX_GAME_SECONDS;
+
+  const hasLocalContinuity = !!currentUserId
+    && (() => {
+      try {
+        return localStorage.getItem(buildTimerHeartbeatStorageKey(currentUserId, gameId)) !== null;
+      } catch {
+        return false;
+      }
+    })();
+
+  const isAnomalousGap = additionalSeconds >= ANOMALOUS_GAP_THRESHOLD_SECONDS;
+  const needsConfirmation = hasLocalContinuity && isAnomalousGap && !willAutoHalftime && !willAutoEnd;
+
+  return needsConfirmation
+    ? { kind: 'propose', proposedElapsed }
+    : { kind: 'silent-apply', proposedElapsed };
 }
 
 export function useGameSubscriptions({
@@ -29,10 +205,12 @@ export function useGameSubscriptions({
   setCurrentTime,
   setIsRunning,
   notesRefreshKey = 0,
+  userId,
 }: UseGameSubscriptionsParams) {
   const [gameState, setGameState] = useState(game);
   const [gamePlan, setGamePlan] = useState<GamePlan | null>(null);
   const [plannedRotations, setPlannedRotations] = useState<PlannedRotation[]>([]);
+  const [pendingGapCorrection, setPendingGapCorrection] = useState<PendingGapCorrection | null>(null);
 
   // Simple data subscriptions via reusable hook
   const { data: lineupRaw } = useAmplifyQuery('LineupAssignment', {
@@ -137,6 +315,24 @@ export function useGameSubscriptions({
   // Ref to track if lineup sync is in progress - prevents duplicate creation
   const lineupSyncInProgressRef = useRef(false);
 
+  // Ref for pendingGapCorrection — lets the observeQuery callback (which only
+  // depends on [game.id], see below) avoid re-proposing a second gap
+  // correction while one is already awaiting the coach's answer, without
+  // needing pendingGapCorrection in that effect's deps.
+  const pendingGapCorrectionRef = useRef<PendingGapCorrection | null>(null);
+  pendingGapCorrectionRef.current = pendingGapCorrection;
+
+  // Ref for userId — same reason as isRunningRef/gameStateRef above: the
+  // observeQuery effect's deps are [game.id] only, so it subscribes once at
+  // mount and never re-runs for the life of viewing one game. userId starts
+  // as '' in GameManagement.tsx and is populated later by an async
+  // getCurrentUser() call in a separate effect — without this ref, the
+  // closure below would permanently see the mount-time '', making the
+  // heartbeat continuity check (and the whole gap-confirmation feature)
+  // silently inert for the entire session (caught in review).
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+
   // Observe game changes and restore state (complex timer resume logic — stays manual)
   useEffect(() => {
     const gameSub = client.models.Game.observeQuery({
@@ -164,51 +360,11 @@ export function useGameSubscriptions({
           // periodic saveInterval write (in-progress + lastStartTime) has a buffered
           // AppSync subscription event that arrives out-of-order after the halftime
           // or completed write's subscription event.
-          const isSecondHalfStartEvent =
-            updatedGame.status === 'in-progress' && updatedGame.currentHalf === 2;
           const localHalf = gameStateRef.current.currentHalf ?? 1;
-          const incomingHalf = updatedGame.currentHalf ?? 1;
-          const isStaleSecondHalfRegression =
-            localStatus === 'in-progress'
-            && localHalf === 2
-            && updatedGame.status === 'in-progress'
-            && incomingHalf === 1;
-          const isStaleScheduledRegression =
-            updatedGame.status === 'scheduled'
-            && (localStatus === 'in-progress' || localStatus === 'halftime' || localStatus === 'completed');
+          const { isSecondHalfStartEvent, isStaleSecondHalfRegression, isStaleScheduledRegression } =
+            classifyIncomingGameEvent(updatedGame, localStatus, localHalf);
 
-          setGameState(prev => {
-            if (prev.status === 'completed') {
-              return prev;
-            }
-            if (
-              updatedGame.status === 'scheduled'
-              && (prev.status === 'in-progress' || prev.status === 'halftime')
-            ) {
-              return prev;
-            }
-            if (
-              prev.status === 'halftime' &&
-              updatedGame.status === 'in-progress' &&
-              !isSecondHalfStartEvent
-            ) {
-              return prev;
-            }
-            if (
-              prev.status === 'in-progress'
-              && (prev.currentHalf ?? 1) === 2
-              && updatedGame.status === 'in-progress'
-              && (updatedGame.currentHalf ?? 1) === 1
-            ) {
-              return prev;
-            }
-            // Active-state score is derived locally from goals and is never
-            // persisted to the Game record (see GameManagement's score-derivation
-            // effect). Preserve it here so an unrelated Game field update (pause,
-            // resume, halftime transition, ...) doesn't clobber it back to the
-            // DB's stale 0-0 (issue #177).
-            return { ...updatedGame, ourScore: prev.ourScore, opponentScore: prev.opponentScore };
-          });
+          setGameState(prev => mergeIncomingGameState(prev, updatedGame, isSecondHalfStartEvent));
 
           // If local state is already completed, skip all timer logic — this
           // event is stale and must not trigger auto-resume or time updates.
@@ -243,8 +399,36 @@ export function useGameSubscriptions({
 
           // Auto-resume timer if game was in progress (but not if user manually paused)
           if (updatedGame.status === 'in-progress' && updatedGame.lastStartTime && !manuallyPausedRef.current) {
-            setCurrentTime(computeCurrentGameSeconds(updatedGame));
-            setIsRunning(true);
+            const additionalSeconds = computeAdditionalGameSeconds(updatedGame.lastStartTime);
+            const priorElapsed = updatedGame.elapsedSeconds || 0;
+
+            const decision = computeGapConfirmationDecision({
+              updatedGame,
+              teamHalfLengthMinutes: team.halfLengthMinutes,
+              priorElapsed,
+              additionalSeconds,
+              currentUserId: userIdRef.current,
+              gameId: game.id,
+              hasPendingCorrection: !!pendingGapCorrectionRef.current,
+            });
+
+            switch (decision.kind) {
+              case 'already-pending':
+                // Do nothing — let the open dialog resolve first (see
+                // computeGapConfirmationDecision's comment for why this must be
+                // checked before evaluating the auto-trigger boundaries at all).
+                break;
+              case 'propose':
+                // Don't apply the jump yet — leave currentTime/isRunning as they
+                // are (paused-looking locally) until the coach confirms via
+                // GameManagement's confirm() dialog.
+                setPendingGapCorrection({ priorElapsed, proposedElapsed: decision.proposedElapsed, gapSeconds: additionalSeconds });
+                break;
+              case 'silent-apply':
+                setCurrentTime(decision.proposedElapsed);
+                setIsRunning(true);
+                break;
+            }
           } else {
             // Restore elapsed time for halftime or paused states
             if (updatedGame.elapsedSeconds !== null && updatedGame.elapsedSeconds !== undefined) {
@@ -440,6 +624,32 @@ export function useGameSubscriptions({
     void syncLineupFromGamePlan();
   }, [gamePlan, gameState.status, game.id, team.coaches, lineup]);
 
+  /**
+   * Resolves a pending gap correction (see PendingGapCorrection above).
+   * accept: applies the proposed elapsed time and resumes, exactly like the
+   *   silent auto-resume path would have — isRunning becomes true, so the
+   *   earlier isRunningRef guard in the observeQuery callback blocks any
+   *   further auto-resume logic on its own; manuallyPausedRef is irrelevant
+   *   here. reject: applies nothing — currentTime and isRunning are left as
+   *   they were (isRunning stays false), so the coach's existing Resume
+   *   button (handleResumeTimer in GameManagement.tsx) is the natural next
+   *   action, starting a fresh anchor from the un-jumped time. manuallyPausedRef
+   *   is set only in this branch, so a duplicate/replayed subscription event
+   *   for the same stale lastStartTime doesn't immediately re-propose the
+   *   same correction while isRunning is still false.
+   */
+  const resolveGapCorrection = (accept: boolean) => {
+    const pending = pendingGapCorrectionRef.current;
+    if (!pending) return;
+    if (accept) {
+      setCurrentTime(pending.proposedElapsed);
+      setIsRunning(true);
+    } else {
+      manuallyPausedRef.current = true;
+    }
+    setPendingGapCorrection(null);
+  };
+
   return {
     gameState,
     setGameState,
@@ -454,5 +664,7 @@ export function useGameSubscriptions({
     playerAvailabilities,
     queuedSubstitutions,
     manuallyPausedRef,
+    pendingGapCorrection,
+    resolveGapCorrection,
   };
 }
