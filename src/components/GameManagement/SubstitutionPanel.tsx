@@ -13,6 +13,7 @@ import { formatMinutesSeconds } from "../../utils/gameTimeUtils";
 import { executeSubstitution } from "../../services/substitutionService";
 import { useAvailability } from "../../contexts/AvailabilityContext";
 import type { GameMutationInput } from "../../hooks/useOfflineMutations";
+import { buildDeterministicStartPlayTimeRecordId } from "../../utils/playTimeRecordId";
 import type {
   Game,
   Team,
@@ -312,6 +313,12 @@ export function SubstitutionPanel({
 
       if (gameState.status === 'in-progress') {
         await mutations.createPlayTimeRecord({
+          id: buildDeterministicStartPlayTimeRecordId({
+            gameId: game.id,
+            playerId,
+            half: gameState.currentHalf === 2 ? 2 : 1,
+            startGameSeconds: currentTime,
+          }),
           gameId: game.id,
           playerId,
           positionId,

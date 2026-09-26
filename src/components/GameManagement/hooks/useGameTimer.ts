@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../../../amplify/data/resource";
 import type { Game, GamePlan, PlannedRotation } from "../types";
+import { MAX_GAME_SECONDS, buildTimerHeartbeatStorageKey } from "../../../constants/gameTimer";
 
 const client = generateClient<Schema>();
 
@@ -16,6 +17,8 @@ interface UseGameTimerParams {
   plannedRotations: PlannedRotation[];
   onHalftime: () => void | Promise<void>;
   onEndGame: () => void | Promise<void>;
+  /** Used to scope the timer-continuity heartbeat (see constants/gameTimer.ts). */
+  userId: string;
 }
 
 interface UseGameTimerResult {
@@ -34,6 +37,7 @@ export function useGameTimer({
   plannedRotations,
   onHalftime,
   onEndGame,
+  userId,
 }: UseGameTimerParams): UseGameTimerResult {
   // Guards to prevent duplicate auto-halftime / auto-end-game calls.
   const halftimeTriggeredRef = useRef(false);
@@ -73,6 +77,32 @@ export function useGameTimer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning]);
 
+  // Record that this device has had this game's timer running at least once —
+  // the signal useGameSubscriptions uses to tell "this device's timer was
+  // running and then lost continuity" (crash/backgrounding) apart from "this
+  // device is opening an already-running game for the first time" (a second
+  // coach's device — always silent). See constants/gameTimer.ts.
+  //
+  // Deliberately a separate effect from the anchor-capture one above, keyed
+  // on userId too: userId loads via its own independently-timed async call
+  // (GameManagement.tsx) with no ordering guarantee against isRunning first
+  // flipping true (e.g. via useGameSubscriptions' auto-resume), so a bare
+  // `[isRunning]` dep would permanently skip the write if isRunning flips
+  // before userId is available — the effect wouldn't re-fire once userId
+  // arrives, since it isn't a dep. The write itself is idempotent (always the
+  // literal '1'), so re-running this effect on a later userId change is safe.
+  useEffect(() => {
+    if (isRunning && userId) {
+      try {
+        localStorage.setItem(buildTimerHeartbeatStorageKey(userId, game.id), '1');
+      } catch {
+        // localStorage unavailable (private browsing, quota) — the gap
+        // confirmation just stays silent for this device, an acceptable
+        // fallback since it only affects a UX nicety, not correctness.
+      }
+    }
+  }, [isRunning, userId, game.id]);
+
   useEffect(() => {
     let interval: NodeJS.Timeout;
 
@@ -105,8 +135,8 @@ export function useGameTimer({
           void onHalftimeRef.current();
         }
 
-        // Auto-end game after 2 hours maximum (7200 seconds)
-        if (derived >= 7200 && !endGameTriggeredRef.current) {
+        // Auto-end game after 2 hours maximum
+        if (derived >= MAX_GAME_SECONDS && !endGameTriggeredRef.current) {
           endGameTriggeredRef.current = true;
           void onEndGameRef.current();
         }

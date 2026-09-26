@@ -14,6 +14,7 @@ import { LineupBuilder } from "../LineupBuilder";
 import { LineupShapeView } from "./shape/LineupShapeView";
 import { createLineupInteractionAdapter } from "./shape/lineupInteractionAdapter";
 import type { GameMutationInput } from "../../hooks/useOfflineMutations";
+import { buildDeterministicStartPlayTimeRecordId } from "../../utils/playTimeRecordId";
 import type {
   Game,
   Team,
@@ -363,6 +364,12 @@ export function LineupPanel({
 
       if (gameState.status === 'in-progress') {
         await mutations.createPlayTimeRecord({
+          id: buildDeterministicStartPlayTimeRecordId({
+            gameId: game.id,
+            playerId: selectedPlayer.id,
+            half: gameState.currentHalf === 2 ? 2 : 1,
+            startGameSeconds: currentTime,
+          }),
           gameId: game.id,
           playerId: selectedPlayer.id,
           positionId: positionId,

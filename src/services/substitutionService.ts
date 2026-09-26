@@ -2,8 +2,60 @@ import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import type { PlayTimeRecord } from "../types/schema";
 import type { GameMutationInput } from "../hooks/useOfflineMutations";
+import { buildDeterministicStartPlayTimeRecordId } from "../utils/playTimeRecordId";
 
 const client = generateClient<Schema>();
+
+type PlayTimeRecordIndexPage = {
+  data?: unknown;
+  nextToken?: string | null;
+  errors?: Array<{ message?: string | null }>;
+};
+
+/**
+ * Paginates through the gameId secondary index (amplify/data/resource.ts:
+ * index('gameId').queryField('listPlayTimeRecordsByGameId')) rather than a
+ * filtered Scan — the Scan this replaced needed multiple pages to find matches
+ * because it scanned the whole table, which also widened the offline race
+ * window this file's two-phase close exists to cover.
+ *
+ * Cast the same way SeasonReport.tsx's equivalent query does — the generated
+ * client type for a custom index query field doesn't expose a clean call
+ * signature directly on the model.
+ */
+async function fetchPlayTimeRecordsByGameId(gameId: string): Promise<PlayTimeRecord[]> {
+  const items: PlayTimeRecord[] = [];
+  let nextToken: string | null | undefined = undefined;
+
+  const playTimeModel = client.models.PlayTimeRecord as typeof client.models.PlayTimeRecord & {
+    listPlayTimeRecordsByGameId?: (args: {
+      gameId: string;
+      limit?: number;
+      nextToken?: string;
+    }) => Promise<PlayTimeRecordIndexPage>;
+  };
+
+  if (typeof playTimeModel.listPlayTimeRecordsByGameId !== 'function') {
+    throw new Error('PlayTimeRecord gameId index query is not available on the generated client');
+  }
+
+  do {
+    const response: PlayTimeRecordIndexPage = await playTimeModel.listPlayTimeRecordsByGameId({
+      gameId,
+      limit: 1000,
+      ...(nextToken ? { nextToken } : {}),
+    });
+    if (response.errors && response.errors.length > 0) {
+      throw new Error(response.errors[0]?.message ?? 'Failed to query PlayTimeRecords by gameId index');
+    }
+    if (Array.isArray(response.data)) {
+      items.push(...(response.data as PlayTimeRecord[]));
+    }
+    nextToken = response.nextToken;
+  } while (nextToken);
+
+  return items;
+}
 
 function isMissingRecordError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -12,11 +64,18 @@ function isMissingRecordError(error: unknown): boolean {
 
 /**
  * Closes active play time records for specified players or all active records.
- * 
+ *
  * Uses BOTH the in-memory array AND a fresh DB query to ensure no records are missed.
  * This fixes a race condition where records created by executeSubstitution may not
  * yet be reflected in the React state (updated via observeQuery subscriptions).
- * 
+ *
+ * This is now a CROSS-DEVICE BACKSTOP: the primary close path for records this
+ * device itself opened is GameMutationInput.closeAllOpenPlayTimeRecords
+ * (useOfflineMutations.ts), which tracks open records locally and doesn't
+ * depend on this DB read succeeding. This function still matters for a record
+ * opened on a *different* coach's device, which the local map can't know
+ * about — that case still needs connectivity to see.
+ *
  * @param playTimeRecords - All play time records from React state (may be stale)
  * @param endGameSeconds - The game time to mark as end time
  * @param playerIds - Optional array of player IDs to close records for. If not provided, closes all active records
@@ -32,32 +91,11 @@ export async function closeActivePlayTimeRecords(
   // Start with in-memory records
   const allRecords = [...playTimeRecords];
 
-  // If gameId provided, also query DB to catch any records not yet in React state.
-  // Must paginate through ALL pages since .list() only returns one page at a time,
-  // and without a GSI on gameId the DynamoDB Scan may need multiple pages to find
-  // all matching records (orphaned records from previous runs fill up earlier pages).
+  // If gameId provided, also query DB to catch any records not yet in React state
+  // (e.g. opened on a different coach's device).
   if (gameId) {
     try {
-      let nextToken: string | null | undefined = undefined;
-      const allDbRecords: PlayTimeRecord[] = [];
-      let hasMore = true;
-      
-      while (hasMore) {
-        const listOptions: { filter: { gameId: { eq: string } }; nextToken?: string; limit?: number } = {
-          filter: { gameId: { eq: gameId } },
-          limit: 1000,
-        };
-        if (nextToken) {
-          listOptions.nextToken = nextToken;
-        }
-        const response = await client.models.PlayTimeRecord.list(listOptions);
-        if (response.data && response.data.length > 0) {
-          allDbRecords.push(...response.data);
-        }
-        nextToken = response.nextToken;
-        hasMore = !!nextToken;
-      }
-      
+      const allDbRecords = await fetchPlayTimeRecordsByGameId(gameId);
       if (allDbRecords.length > 0) {
         // Merge: add any DB records not already in the in-memory array
         const existingIds = new Set(allRecords.map(r => r.id));
@@ -103,26 +141,13 @@ export async function closeActivePlayTimeRecords(
   await Promise.all(endPromises);
   console.log('All play time records closed successfully');
 
-  // Retry: DynamoDB Scans use eventually consistent reads, so records written
-  // very recently (e.g., by executeSubstitution seconds before End Game) may not
-  // appear in the first Scan. Wait briefly and re-query to catch stragglers.
+  // Retry: DynamoDB reads are eventually consistent, so records written very
+  // recently (e.g., by executeSubstitution seconds before End Game) may not
+  // appear in the first query. Wait briefly and re-query to catch stragglers.
   if (gameId) {
     await new Promise(resolve => setTimeout(resolve, 500));
     try {
-      let retryToken: string | null | undefined = undefined;
-      const retryRecords: PlayTimeRecord[] = [];
-      let retryMore = true;
-      while (retryMore) {
-        const retryOpts: { filter: { gameId: { eq: string } }; nextToken?: string; limit?: number } = {
-          filter: { gameId: { eq: gameId } },
-          limit: 1000,
-        };
-        if (retryToken) retryOpts.nextToken = retryToken;
-        const retryRes = await client.models.PlayTimeRecord.list(retryOpts);
-        if (retryRes.data) retryRecords.push(...retryRes.data);
-        retryToken = retryRes.nextToken;
-        retryMore = !!retryToken;
-      }
+      const retryRecords = await fetchPlayTimeRecordsByGameId(gameId);
       const stillActive = retryRecords.filter(r =>
         (r.endGameSeconds === null || r.endGameSeconds === undefined) &&
         (!playerIds || playerIds.length === 0 || playerIds.includes(r.playerId))
@@ -185,29 +210,12 @@ export async function executeSubstitution(
   if (!activeRecord) {
     console.warn(`Active play time record for player ${oldPlayerId} not found in React state — querying DB`);
     try {
-      let nextToken: string | null | undefined = undefined;
-      let hasMore = true;
-      outer: while (hasMore) {
-        const listOptions: { filter: { gameId: { eq: string } }; nextToken?: string; limit?: number } = {
-          filter: { gameId: { eq: gameId } },
-          limit: 1000,
-        };
-        if (nextToken) listOptions.nextToken = nextToken;
-        const response = await client.models.PlayTimeRecord.list(listOptions);
-        if (response.data) {
-          const found = response.data.find(
-            r => r.playerId === oldPlayerId &&
-            r.positionId === positionId &&
-            (r.endGameSeconds === null || r.endGameSeconds === undefined)
-          );
-          if (found) {
-            activeRecord = found;
-            break outer;
-          }
-        }
-        nextToken = response.nextToken;
-        hasMore = !!nextToken;
-      }
+      const dbRecords = await fetchPlayTimeRecordsByGameId(gameId);
+      activeRecord = dbRecords.find(
+        r => r.playerId === oldPlayerId &&
+        r.positionId === positionId &&
+        (r.endGameSeconds === null || r.endGameSeconds === undefined)
+      );
     } catch (error) {
       console.warn('DB query for active play time record failed:', error);
     }
@@ -251,6 +259,12 @@ export async function executeSubstitution(
   // 4. Start play time for incoming player
   console.log(`Creating play time record for player ${newPlayerId} starting at ${currentGameSeconds}s`);
   await mutations.createPlayTimeRecord({
+    id: buildDeterministicStartPlayTimeRecordId({
+      gameId,
+      playerId: newPlayerId,
+      half: currentHalf === 2 ? 2 : 1,
+      startGameSeconds: currentGameSeconds,
+    }),
     gameId: gameId,
     playerId: newPlayerId,
     positionId: positionId,

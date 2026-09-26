@@ -24,6 +24,21 @@ export interface GameClockInput {
 }
 
 /**
+ * Seconds elapsed between `lastStartTime` and `now`. `lastStartTime` is
+ * stored as a plain `a.string()` (see amplify/data/resource.ts), so AppSync
+ * never validates its format — a malformed value (bad write, corrupted
+ * offline-queue payload) must degrade to 0 rather than propagate `NaN` into
+ * `PlayTimeRecord`/timer state.
+ */
+export function computeAdditionalGameSeconds(lastStartTime: string, now: number = Date.now()): number {
+  const lastStart = new Date(lastStartTime).getTime();
+  if (Number.isNaN(lastStart)) {
+    return 0;
+  }
+  return Math.floor((now - lastStart) / 1000);
+}
+
+/**
  * Returns the current in-game elapsed seconds for the given clock state.
  * `now` defaults to `Date.now()` but is accepted as a parameter so callers
  * (and tests) can seed a deterministic value.
@@ -32,12 +47,7 @@ export function computeCurrentGameSeconds(input: GameClockInput, now: number = D
   const elapsedSeconds = input.elapsedSeconds ?? 0;
 
   if (input.status === 'in-progress' && input.lastStartTime) {
-    const lastStart = new Date(input.lastStartTime).getTime();
-    if (Number.isNaN(lastStart)) {
-      return elapsedSeconds;
-    }
-    const additionalSeconds = Math.floor((now - lastStart) / 1000);
-    return elapsedSeconds + additionalSeconds;
+    return elapsedSeconds + computeAdditionalGameSeconds(input.lastStartTime, now);
   }
 
   return elapsedSeconds;

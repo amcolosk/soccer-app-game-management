@@ -24,6 +24,7 @@ const {
   mockGameUpdate,
   mockPlayTimeCreate,
   mockPlayTimeList,
+  mockCloseAllOpenPlayTimeRecords,
   mockCreateGameNote,
   mockUpdateGameNote,
   mockDeleteGameNote,
@@ -45,6 +46,7 @@ const {
   mockGameUpdate:        vi.fn().mockResolvedValue({ data: {} }),
   mockPlayTimeCreate:    vi.fn().mockResolvedValue({ data: {} }),
   mockPlayTimeList:      vi.fn().mockResolvedValue({ data: [] }),
+  mockCloseAllOpenPlayTimeRecords: vi.fn().mockResolvedValue(true),
   mockCreateGameNote:    vi.fn().mockResolvedValue(undefined),
   mockUpdateGameNote:    vi.fn().mockResolvedValue(undefined),
   mockDeleteGameNote:    vi.fn().mockResolvedValue(undefined),
@@ -57,6 +59,10 @@ const {
   mockPlannedRotationUpdate: vi.fn().mockResolvedValue({ data: {} }),
   mockPlannedRotationDelete: vi.fn().mockResolvedValue({ data: {} }),
   mockPlannedRotationList: vi.fn().mockResolvedValue({ data: [] }),
+}));
+
+const { mockConfirm } = vi.hoisted(() => ({
+  mockConfirm: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("aws-amplify/data", () => ({
@@ -195,6 +201,7 @@ vi.mock("../../hooks/useOfflineMutations", () => ({
       updateGame:             (...args: unknown[]) => mockGameUpdate(...args),
       createPlayTimeRecord:   (...args: unknown[]) => mockPlayTimeCreate(...args),
       updatePlayTimeRecord:   vi.fn().mockResolvedValue(undefined),
+      closeAllOpenPlayTimeRecords: (...args: unknown[]) => mockCloseAllOpenPlayTimeRecords(...args),
       createSubstitution:     (...args: unknown[]) => mockSubstitutionCreate(...args),
       createLineupAssignment: (...args: unknown[]) => mockLineupCreate(...args),
       deleteLineupAssignment: (id: string) => mockLineupDelete({ id }),
@@ -247,6 +254,8 @@ vi.mock("../../utils/analytics", () => ({
     GAME_DELETED: { category: "game", action: "deleted" },
     PLAYER_MARKED_INJURED: { category: "GameDay", action: "Player Marked Injured" },
     PLAYER_RECOVERED_FROM_INJURY: { category: "GameDay", action: "Player Recovered From Injury" },
+    TIMER_GAP_ACCEPTED: { category: "GameDay", action: "Timer Gap Accepted" },
+    TIMER_GAP_ADJUSTED: { category: "GameDay", action: "Timer Gap Adjusted" },
     ROTATION_RECALCULATED: { category: "GameDay", action: "Rotation Recalculated" },
     ROTATION_WIDGET_OPENED: { category: "GameDay", action: "Rotation Widget Opened" },
   },
@@ -262,7 +271,7 @@ vi.mock("../../utils/gameTimeUtils", () => ({
   formatGameTimeDisplay: vi.fn().mockReturnValue("30:00"),
 }));
 vi.mock("../ConfirmModal", () => ({
-  useConfirm: () => vi.fn().mockResolvedValue(true),
+  useConfirm: () => mockConfirm,
 }));
 vi.mock("../../services/substitutionService", () => ({
   closeActivePlayTimeRecords: vi.fn().mockResolvedValue(undefined),
@@ -328,6 +337,8 @@ const defaultSubscription = {
   playerAvailabilities: [],
   manuallyPausedRef:    { current: false },
   queuedSubstitutions:  [],
+  pendingGapCorrection: null,
+  resolveGapCorrection: vi.fn(),
 };
 
 const renderComponent = () =>
@@ -3119,6 +3130,66 @@ describe("GameManagement – archived team banner", () => {
     });
     renderComponent(); // uses the unmodified mockTeam — no `status` field
     expect(screen.queryByText(/Archived Team/)).not.toBeInTheDocument();
+  });
+});
+
+describe("GameManagement – timer gap confirmation wiring (Issue B)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockConfirm.mockResolvedValue(true);
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+    mockUseGameSubscriptions.mockReturnValue(defaultSubscription);
+  });
+
+  it('asks for confirmation when useGameSubscriptions reports a pending gap correction, and resolves it with the answer', async () => {
+    const resolveGapCorrection = vi.fn();
+    mockConfirm.mockResolvedValue(true);
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+      pendingGapCorrection: { priorElapsed: 2000, proposedElapsed: 2900, gapSeconds: 900 },
+      resolveGapCorrection,
+    });
+
+    renderComponent();
+
+    await waitFor(() => {
+      expect(mockConfirm).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Was play stopped?',
+          message: expect.stringContaining('15 minutes'),
+        })
+      );
+    });
+    await waitFor(() => {
+      expect(resolveGapCorrection).toHaveBeenCalledWith(true);
+    });
+  });
+
+  it('resolves with false when the coach declines the proposed gap', async () => {
+    const resolveGapCorrection = vi.fn();
+    mockConfirm.mockResolvedValue(false);
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+      pendingGapCorrection: { priorElapsed: 2000, proposedElapsed: 2900, gapSeconds: 900 },
+      resolveGapCorrection,
+    });
+
+    renderComponent();
+
+    await waitFor(() => {
+      expect(resolveGapCorrection).toHaveBeenCalledWith(false);
+    });
+  });
+
+  it('does not call confirm when there is no pending gap correction', async () => {
+    mockUseGameSubscriptions.mockReturnValue(defaultSubscription); // pendingGapCorrection: null
+
+    renderComponent();
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mockConfirm).not.toHaveBeenCalled();
   });
 });
 

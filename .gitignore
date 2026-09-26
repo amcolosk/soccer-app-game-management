@@ -28,6 +28,9 @@ dev-dist
 .amplify
 amplify_outputs*
 !/amplify_outputs.ci.json
+
+# Claude Code agent worktree scratch space
+.claude/worktrees/
 amplifyconfiguration*
 seed-policy.json
 amplify/.env

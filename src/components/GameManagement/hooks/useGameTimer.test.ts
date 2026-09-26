@@ -46,6 +46,7 @@ function createDefaultProps(): Parameters<typeof useGameTimer>[0] {
     plannedRotations: [],
     onHalftime: vi.fn(),
     onEndGame: vi.fn(),
+    userId: 'user-1',
   };
 }
 
@@ -63,6 +64,7 @@ describe('useGameTimer', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    localStorage.clear();
   });
 
   it('does not create interval when isRunning is false', () => {
@@ -450,5 +452,63 @@ describe('useGameTimer', () => {
     // Should call the new callback, not the old one
     expect(mockOnHalftime2).toHaveBeenCalled();
     expect(mockOnHalftime1).not.toHaveBeenCalled();
+  });
+
+  describe('timer continuity heartbeat (Issue B)', () => {
+    const HEARTBEAT_KEY = 'teamtrack:timerHeartbeat:user-1:game-1';
+
+    it('writes a heartbeat when isRunning transitions to true', () => {
+      const props = createDefaultProps();
+      props.isRunning = false;
+
+      const { rerender } = renderHook((p) => useGameTimer(p), { initialProps: props });
+      expect(localStorage.getItem(HEARTBEAT_KEY)).toBeNull();
+
+      props.isRunning = true;
+      rerender(props);
+
+      expect(localStorage.getItem(HEARTBEAT_KEY)).toBe('1');
+    });
+
+    it('does not write a heartbeat when userId is empty', () => {
+      const props = createDefaultProps();
+      props.userId = '';
+      props.isRunning = true;
+
+      renderHook(() => useGameTimer(props));
+
+      expect(localStorage.getItem(HEARTBEAT_KEY)).toBeNull();
+    });
+
+    it('writes the heartbeat once userId arrives, even if isRunning was already true when userId was still empty', () => {
+      // userId loads via a separately-timed async call in GameManagement.tsx with
+      // no ordering guarantee against isRunning first flipping true (e.g. via
+      // useGameSubscriptions' auto-resume) — regression test for the case where
+      // isRunning transitions to true BEFORE userId is available.
+      const props = createDefaultProps();
+      props.userId = '';
+      props.isRunning = true;
+
+      const { rerender } = renderHook((p) => useGameTimer(p), { initialProps: props });
+      expect(localStorage.getItem(HEARTBEAT_KEY)).toBeNull();
+
+      // isRunning does NOT transition again — only userId arrives.
+      props.userId = 'user-1';
+      rerender(props);
+
+      expect(localStorage.getItem(HEARTBEAT_KEY)).toBe('1');
+    });
+
+    it('does not throw when localStorage.setItem fails', () => {
+      const props = createDefaultProps();
+      props.isRunning = true;
+      const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('quota exceeded');
+      });
+
+      expect(() => renderHook(() => useGameTimer(props))).not.toThrow();
+
+      setItemSpy.mockRestore();
+    });
   });
 });

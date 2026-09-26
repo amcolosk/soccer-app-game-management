@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { useGameSubscriptions } from './useGameSubscriptions';
+import {
+  useGameSubscriptions,
+  classifyIncomingGameEvent,
+  mergeIncomingGameState,
+  computeGapConfirmationDecision,
+} from './useGameSubscriptions';
 import type { Game, Team } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -100,6 +105,7 @@ function createDefaultProps(overrides: {
   setCurrentTime?: ReturnType<typeof vi.fn>;
   setIsRunning?: ReturnType<typeof vi.fn>;
   game?: Game;
+  userId?: string;
 } = {}) {
   return {
     game: overrides.game ?? createDefaultGame(),
@@ -108,12 +114,207 @@ function createDefaultProps(overrides: {
     setCurrentTime: overrides.setCurrentTime ?? vi.fn(),
     setIsRunning: overrides.setIsRunning ?? vi.fn(),
     notesRefreshKey: 0,
+    userId: overrides.userId ?? '',
   };
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Direct unit tests for the extracted decision functions (Issue C) — these
+// exercise classifyIncomingGameEvent/mergeIncomingGameState/
+// computeGapConfirmationDecision in isolation, independent of the
+// observeQuery/renderHook machinery the tests below also cover them through.
 // ---------------------------------------------------------------------------
+
+describe('classifyIncomingGameEvent', () => {
+  it('flags a legitimate second-half start event', () => {
+    const result = classifyIncomingGameEvent({ status: 'in-progress', currentHalf: 2 }, 'halftime', 1);
+    expect(result.isSecondHalfStartEvent).toBe(true);
+  });
+
+  it('does not flag second-half start when status is not in-progress', () => {
+    const result = classifyIncomingGameEvent({ status: 'halftime', currentHalf: 2 }, 'halftime', 1);
+    expect(result.isSecondHalfStartEvent).toBe(false);
+  });
+
+  it('flags a stale first-half event arriving after local state already advanced to second half', () => {
+    const result = classifyIncomingGameEvent({ status: 'in-progress', currentHalf: 1 }, 'in-progress', 2);
+    expect(result.isStaleSecondHalfRegression).toBe(true);
+  });
+
+  it('does not flag stale second-half regression when the incoming half is also 2', () => {
+    const result = classifyIncomingGameEvent({ status: 'in-progress', currentHalf: 2 }, 'in-progress', 2);
+    expect(result.isStaleSecondHalfRegression).toBe(false);
+  });
+
+  it.each(['in-progress', 'halftime', 'completed'] as const)(
+    'flags a stale scheduled event when local status is already %s',
+    (localStatus) => {
+      const result = classifyIncomingGameEvent({ status: 'scheduled', currentHalf: 1 }, localStatus, 1);
+      expect(result.isStaleScheduledRegression).toBe(true);
+    }
+  );
+
+  it('does not flag stale scheduled regression when local status is also scheduled', () => {
+    const result = classifyIncomingGameEvent({ status: 'scheduled', currentHalf: 1 }, 'scheduled', 1);
+    expect(result.isStaleScheduledRegression).toBe(false);
+  });
+});
+
+describe('mergeIncomingGameState', () => {
+  it('keeps prev unchanged once local state is completed', () => {
+    const prev = createDefaultGame({ status: 'completed' });
+    const updatedGame = createDefaultGame({ status: 'in-progress' });
+    expect(mergeIncomingGameState(prev, updatedGame, false)).toBe(prev);
+  });
+
+  it('rejects a scheduled event regressing local in-progress/halftime state', () => {
+    const prev = createDefaultGame({ status: 'in-progress' });
+    const updatedGame = createDefaultGame({ status: 'scheduled' });
+    expect(mergeIncomingGameState(prev, updatedGame, false)).toBe(prev);
+  });
+
+  it('rejects a stale in-progress event while local state is halftime, unless it is a real second-half start', () => {
+    const prev = createDefaultGame({ status: 'halftime' });
+    const updatedGame = createDefaultGame({ status: 'in-progress', currentHalf: 2 });
+    expect(mergeIncomingGameState(prev, updatedGame, false)).toBe(prev);
+    expect(mergeIncomingGameState(prev, updatedGame, true)).not.toBe(prev);
+  });
+
+  it('rejects a stale first-half event regressing local second-half in-progress state', () => {
+    const prev = createDefaultGame({ status: 'in-progress', currentHalf: 2 });
+    const updatedGame = createDefaultGame({ status: 'in-progress', currentHalf: 1 });
+    expect(mergeIncomingGameState(prev, updatedGame, false)).toBe(prev);
+  });
+
+  it('merges the incoming game but preserves the locally-derived score (issue #177)', () => {
+    const prev = createDefaultGame({ status: 'in-progress', ourScore: 3, opponentScore: 2 });
+    const updatedGame = createDefaultGame({ status: 'in-progress', elapsedSeconds: 900, ourScore: 0, opponentScore: 0 });
+    const merged = mergeIncomingGameState(prev, updatedGame, false);
+    expect(merged.elapsedSeconds).toBe(900);
+    expect(merged.ourScore).toBe(3);
+    expect(merged.opponentScore).toBe(2);
+  });
+});
+
+describe('computeGapConfirmationDecision', () => {
+  const HEARTBEAT_KEY = 'teamtrack:timerHeartbeat:user-1:game-1';
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('returns already-pending when a correction is already pending, regardless of the gap', () => {
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 1, halfLengthMinutes: null },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 0,
+      additionalSeconds: 5,
+      currentUserId: 'user-1',
+      gameId: 'game-1',
+      hasPendingCorrection: true,
+    });
+    expect(decision.kind).toBe('already-pending');
+  });
+
+  it('returns silent-apply when there is no continuity heartbeat', () => {
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 1, halfLengthMinutes: null },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 0,
+      additionalSeconds: 1200,
+      currentUserId: 'user-1',
+      gameId: 'game-1',
+      hasPendingCorrection: false,
+    });
+    expect(decision).toEqual({ kind: 'silent-apply', proposedElapsed: 1200 });
+  });
+
+  it('returns silent-apply when the gap is below the anomalous threshold, even with continuity', () => {
+    localStorage.setItem(HEARTBEAT_KEY, '1');
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 1, halfLengthMinutes: null },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 0,
+      additionalSeconds: 30,
+      currentUserId: 'user-1',
+      gameId: 'game-1',
+      hasPendingCorrection: false,
+    });
+    expect(decision.kind).toBe('silent-apply');
+  });
+
+  it('returns propose when continuity, an anomalous gap, and no auto-trigger boundary all hold', () => {
+    localStorage.setItem(HEARTBEAT_KEY, '1');
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 2, halfLengthMinutes: null },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 2000,
+      additionalSeconds: 900,
+      currentUserId: 'user-1',
+      gameId: 'game-1',
+      hasPendingCorrection: false,
+    });
+    expect(decision).toEqual({ kind: 'propose', proposedElapsed: 2900 });
+  });
+
+  it('returns silent-apply when the proposed elapsed crosses the auto-halftime boundary in half 1', () => {
+    localStorage.setItem(HEARTBEAT_KEY, '1');
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 1, halfLengthMinutes: null },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 1700,
+      additionalSeconds: 650,
+      currentUserId: 'user-1',
+      gameId: 'game-1',
+      hasPendingCorrection: false,
+    });
+    expect(decision.kind).toBe('silent-apply');
+  });
+
+  it('returns silent-apply when the proposed elapsed crosses MAX_GAME_SECONDS, even in half 2', () => {
+    localStorage.setItem(HEARTBEAT_KEY, '1');
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 2, halfLengthMinutes: null },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 7000,
+      additionalSeconds: 900,
+      currentUserId: 'user-1',
+      gameId: 'game-1',
+      hasPendingCorrection: false,
+    });
+    expect(decision.kind).toBe('silent-apply');
+  });
+
+  it('uses the per-game halfLengthMinutes override over the team default when present', () => {
+    localStorage.setItem(HEARTBEAT_KEY, '1');
+    // Team default is 30 min (1800s); a 10-min (600s) per-game override means
+    // priorElapsed=500 + 650s gap = 1150, which crosses the 600s override but
+    // would NOT cross the 1800s team default — proves the override is honored.
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 1, halfLengthMinutes: 10 },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 500,
+      additionalSeconds: 650,
+      currentUserId: 'user-1',
+      gameId: 'game-1',
+      hasPendingCorrection: false,
+    });
+    expect(decision.kind).toBe('silent-apply');
+  });
+
+  it('returns silent-apply when currentUserId is empty (no continuity possible)', () => {
+    const decision = computeGapConfirmationDecision({
+      updatedGame: { currentHalf: 1, halfLengthMinutes: null },
+      teamHalfLengthMinutes: 30,
+      priorElapsed: 0,
+      additionalSeconds: 900,
+      currentUserId: '',
+      gameId: 'game-1',
+      hasPendingCorrection: false,
+    });
+    expect(decision.kind).toBe('silent-apply');
+  });
+});
 
 describe('useGameSubscriptions — Game observeQuery handler', () => {
   beforeEach(() => {
@@ -146,6 +347,7 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    localStorage.clear();
   });
 
   it('stops the timer when completed status arrives even if isRunning is true (primary bug fix)', () => {
@@ -180,6 +382,55 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     expect(setIsRunning).toHaveBeenCalledWith(false);
     // setCurrentTime is called with the authoritative final elapsed time.
     expect(setCurrentTime).toHaveBeenCalledWith(2700);
+  });
+
+  it('does NOT preserve locally-derived score when the incoming status is completed (the other side of the #177 asymmetry — characterization for Issue C)', () => {
+    // The general merge path (setGameState(prev => ({...updatedGame, ourScore: prev.ourScore, ...})))
+    // deliberately preserves locally-derived score (issue #177, tested below). The
+    // `completed` branch takes a separate, earlier return and calls
+    // setGameState(updatedGame) directly — this is a real, load-bearing asymmetry
+    // (the final score snapshot IS written to the DB by handleEndGame before this
+    // event fires, so the DB's completed-status score is authoritative here, unlike
+    // the local derivation used for an in-progress game). Pinning both sides so a
+    // future refactor doesn't accidentally "fix" this into symmetry.
+    const props = createDefaultProps({ isRunning: false });
+    const { result } = renderHook(() => useGameSubscriptions(props));
+
+    act(() => {
+      result.current.setGameState(prev => ({ ...prev, ourScore: 3, opponentScore: 2 }));
+    });
+    expect(result.current.gameState.ourScore).toBe(3);
+
+    act(() => {
+      capturedGameNext!({
+        items: [{ id: 'game-1', status: 'completed', elapsedSeconds: 2700, lastStartTime: null, ourScore: 5, opponentScore: 1 } as Partial<Game>],
+      });
+    });
+
+    // Overwritten with the DB's completed-snapshot score, NOT preserved.
+    expect(result.current.gameState.ourScore).toBe(5);
+    expect(result.current.gameState.opponentScore).toBe(1);
+  });
+
+  it('releases manuallyPausedRef when a confirmed-pause event arrives (lastStartTime cleared)', () => {
+    // handlePauseTimer sets manuallyPausedRef=true locally and writes
+    // lastStartTime:null to the DB. This event — the DB write echoing back — is
+    // the ONLY place manuallyPausedRef is reset from inside this hook (every
+    // other reset is a local handler in GameManagement.tsx setting it directly).
+    // Losing this in a refactor would permanently block auto-resume for any
+    // FUTURE resume event after one manual pause.
+    const props = createDefaultProps({ isRunning: false });
+    const { result } = renderHook(() => useGameSubscriptions(props));
+
+    result.current.manuallyPausedRef.current = true;
+
+    act(() => {
+      capturedGameNext!({
+        items: [{ id: 'game-1', status: 'in-progress', currentHalf: 1, elapsedSeconds: 500, lastStartTime: null } as Partial<Game>],
+      });
+    });
+
+    expect(result.current.manuallyPausedRef.current).toBe(false);
   });
 
   it('does not stop timer or update time when a non-completed update arrives while running', () => {
@@ -251,6 +502,344 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     // Allow ±1s tolerance for timing variance.
     expect(setTimeArg).toBeGreaterThanOrEqual(1029);
     expect(setTimeArg).toBeLessThanOrEqual(1031);
+  });
+
+  it('freezes at elapsedSeconds instead of setting NaN when lastStartTime is malformed — lastStartTime is an unvalidated a.string() field (amplify/data/resource.ts), so a bad write must degrade safely rather than propagate NaN into currentTime/PlayTimeRecord', () => {
+    const setIsRunning = vi.fn();
+    const setCurrentTime = vi.fn();
+    const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime });
+
+    renderHook(() => useGameSubscriptions(props));
+
+    expect(capturedGameNext).not.toBeNull();
+
+    act(() => {
+      capturedGameNext!({
+        items: [
+          {
+            id: 'game-1',
+            status: 'in-progress',
+            elapsedSeconds: 1000,
+            lastStartTime: 'not-a-date',
+          } as Partial<Game>,
+        ],
+      });
+    });
+
+    expect(setCurrentTime).toHaveBeenCalledWith(1000);
+    const setTimeArg = setCurrentTime.mock.calls[0][0] as number;
+    expect(Number.isNaN(setTimeArg)).toBe(false);
+  });
+
+  describe('timer gap confirmation (Issue B)', () => {
+    const HEARTBEAT_KEY = 'teamtrack:timerHeartbeat:user-1:game-1';
+
+    it('applies a large gap silently when this device has no continuity heartbeat (e.g. a second coach opening an already-running game)', () => {
+      vi.useFakeTimers();
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      // No heartbeat written — userId set, but this device never ran this game's timer.
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      const lastStartTime = new Date(now - 20 * 60_000).toISOString(); // 20 min gap — well past threshold
+
+      renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 1, elapsedSeconds: 0, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(setIsRunning).toHaveBeenCalledWith(true);
+      expect(setCurrentTime).toHaveBeenCalled();
+    });
+
+    it('applies a large gap silently when userId has not loaded yet', () => {
+      vi.useFakeTimers();
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: '' });
+      localStorage.setItem('teamtrack:timerHeartbeat::game-1', '1'); // can't happen for real, but prove userId is required
+
+      const now = Date.now();
+      const lastStartTime = new Date(now - 20 * 60_000).toISOString();
+
+      renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 1, elapsedSeconds: 0, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(setIsRunning).toHaveBeenCalledWith(true);
+    });
+
+    it('proposes a gap correction using the CURRENT userId even though it loaded after mount (regression: stale closure caught in review)', () => {
+      // Mirrors GameManagement.tsx's real timeline: userId starts as '' (useState('')),
+      // and is only populated later by an async getCurrentUser() effect — well after
+      // this hook's Game.observeQuery subscription (deps: [game.id] only) has already
+      // subscribed once. Without userIdRef, the subscription's `next` closure would
+      // permanently see the mount-time '', making the gap-confirmation feature
+      // silently inert for the entire session.
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: '' });
+
+      const now = Date.now();
+      const lastStartTime = new Date(now - 15 * 60_000).toISOString();
+
+      const { result, rerender } = renderHook((p) => useGameSubscriptions(p), { initialProps: props });
+
+      // userId loads asynchronously, same game.id — the subscription effect does NOT re-run.
+      rerender({ ...props, userId: 'user-1' });
+
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 2, elapsedSeconds: 2000, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(setIsRunning).not.toHaveBeenCalled();
+      expect(setCurrentTime).not.toHaveBeenCalled();
+      expect(result.current.pendingGapCorrection).not.toBeNull();
+    });
+
+    it('applies a small gap silently even with a continuity heartbeat present (below threshold)', () => {
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      const lastStartTime = new Date(now - 30_000).toISOString(); // 30s — below the 600s threshold
+
+      renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 1, elapsedSeconds: 0, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(setIsRunning).toHaveBeenCalledWith(true);
+      expect(setCurrentTime).toHaveBeenCalled();
+    });
+
+    it('proposes a gap correction instead of auto-resuming when this device has continuity, the gap is anomalous, and no auto-trigger boundary is crossed', () => {
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      // Second half, elapsed already past the half-length boundary — a 15 min
+      // gap here does NOT cross MAX_GAME_SECONDS (7200s), so it's eligible.
+      const lastStartTime = new Date(now - 15 * 60_000).toISOString();
+
+      const { result } = renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 2, elapsedSeconds: 2000, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      // Must NOT have auto-resumed.
+      expect(setIsRunning).not.toHaveBeenCalled();
+      expect(setCurrentTime).not.toHaveBeenCalled();
+      // Must have proposed a correction instead.
+      expect(result.current.pendingGapCorrection).not.toBeNull();
+      expect(result.current.pendingGapCorrection?.priorElapsed).toBe(2000);
+      expect(result.current.pendingGapCorrection?.gapSeconds).toBeGreaterThanOrEqual(899);
+      expect(result.current.pendingGapCorrection?.gapSeconds).toBeLessThanOrEqual(901);
+    });
+
+    it('stays silent when the gap would cross the auto-halftime boundary in half 1', () => {
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      // elapsedSeconds=1700 + an ~11 min (>600s, anomalous) gap crosses the
+      // 30-min (1800s) default half length.
+      const lastStartTime = new Date(now - 11 * 60_000).toISOString();
+
+      const { result } = renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 1, elapsedSeconds: 1700, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(setIsRunning).toHaveBeenCalledWith(true);
+      expect(setCurrentTime).toHaveBeenCalled();
+      expect(result.current.pendingGapCorrection).toBeNull();
+    });
+
+    it('stays silent when the gap would cross the auto-end boundary, even in the second half', () => {
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      // elapsedSeconds already at 7000; a 15 min gap pushes past MAX_GAME_SECONDS (7200).
+      const lastStartTime = new Date(now - 15 * 60_000).toISOString();
+
+      const { result } = renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 2, elapsedSeconds: 7000, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(setIsRunning).toHaveBeenCalledWith(true);
+      expect(setCurrentTime).toHaveBeenCalled();
+      expect(result.current.pendingGapCorrection).toBeNull();
+    });
+
+    it('does not propose a second pending correction — or silently apply the gap underneath the open dialog — while one is already awaiting an answer', () => {
+      // Regression (caught in review): a naive if/else that falls through to
+      // the silent-apply branch whenever the "propose" condition isn't met
+      // would silently jump the clock and resume the timer out from under an
+      // already-open "Was play stopped?" dialog on a second matching event.
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      const lastStartTime = new Date(now - 15 * 60_000).toISOString();
+
+      const { result } = renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 2, elapsedSeconds: 2000, lastStartTime } as Partial<Game>],
+        });
+      });
+      const firstPending = result.current.pendingGapCorrection;
+      expect(firstPending).not.toBeNull();
+      expect(setIsRunning).not.toHaveBeenCalled();
+      expect(setCurrentTime).not.toHaveBeenCalled();
+
+      // A second, slightly different event arrives while still pending.
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 2, elapsedSeconds: 2000, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(result.current.pendingGapCorrection).toBe(firstPending);
+      // Must still not have silently applied the gap underneath the open dialog.
+      expect(setIsRunning).not.toHaveBeenCalled();
+      expect(setCurrentTime).not.toHaveBeenCalled();
+    });
+
+    it('does not silently apply the gap underneath the open dialog when a later event\'s recomputed gap newly crosses an auto-trigger boundary', () => {
+      // Regression (caught in a second-round review): the first fix only
+      // guarded the "propose" branch against a pending correction, but the
+      // silent-apply branch had no such guard. If the dialog is still open
+      // and enough real time passes that a later event's proposedElapsed
+      // newly crosses an auto-trigger boundary, gapNeedsConfirmation flips to
+      // false and the code must still stay a no-op — not silently jump the
+      // clock and resume underneath the coach's still-open dialog.
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      // Half 1, elapsedSeconds=1000 + ~700s gap = 1700, under the 1800s boundary.
+      const lastStartTime = new Date(now - 700_000).toISOString();
+
+      const { result } = renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 1, elapsedSeconds: 1000, lastStartTime } as Partial<Game>],
+        });
+      });
+      expect(result.current.pendingGapCorrection).not.toBeNull();
+
+      // 200s more real time passes while the dialog sits open (e.g. a slow
+      // sideline connection re-syncing observeQuery). The same lastStartTime
+      // now computes a gap that crosses the 1800s auto-halftime boundary.
+      act(() => {
+        vi.advanceTimersByTime(200_000);
+      });
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 1, elapsedSeconds: 1000, lastStartTime } as Partial<Game>],
+        });
+      });
+
+      expect(setIsRunning).not.toHaveBeenCalled();
+      expect(setCurrentTime).not.toHaveBeenCalled();
+      expect(result.current.pendingGapCorrection).not.toBeNull();
+    });
+
+    it('resolveGapCorrection(true) applies the proposed elapsed time and resumes', () => {
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      const lastStartTime = new Date(now - 15 * 60_000).toISOString();
+
+      const { result } = renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 2, elapsedSeconds: 2000, lastStartTime } as Partial<Game>],
+        });
+      });
+      const proposed = result.current.pendingGapCorrection?.proposedElapsed;
+      expect(proposed).toBeDefined();
+
+      act(() => {
+        result.current.resolveGapCorrection(true);
+      });
+
+      expect(setCurrentTime).toHaveBeenCalledWith(proposed);
+      expect(setIsRunning).toHaveBeenCalledWith(true);
+      expect(result.current.pendingGapCorrection).toBeNull();
+    });
+
+    it('resolveGapCorrection(false) leaves currentTime/isRunning untouched and sets manuallyPausedRef', () => {
+      vi.useFakeTimers();
+      localStorage.setItem(HEARTBEAT_KEY, '1');
+      const setIsRunning = vi.fn();
+      const setCurrentTime = vi.fn();
+      const props = createDefaultProps({ isRunning: false, setIsRunning, setCurrentTime, userId: 'user-1' });
+
+      const now = Date.now();
+      const lastStartTime = new Date(now - 15 * 60_000).toISOString();
+
+      const { result } = renderHook(() => useGameSubscriptions(props));
+      act(() => {
+        capturedGameNext!({
+          items: [{ id: 'game-1', status: 'in-progress', currentHalf: 2, elapsedSeconds: 2000, lastStartTime } as Partial<Game>],
+        });
+      });
+      expect(result.current.pendingGapCorrection).not.toBeNull();
+
+      act(() => {
+        result.current.resolveGapCorrection(false);
+      });
+
+      expect(setCurrentTime).not.toHaveBeenCalled();
+      expect(setIsRunning).not.toHaveBeenCalled();
+      expect(result.current.pendingGapCorrection).toBeNull();
+      expect(result.current.manuallyPausedRef.current).toBe(true);
+    });
   });
 
   it('does not fire setIsRunning or setCurrentTime when subscription data is empty', () => {
