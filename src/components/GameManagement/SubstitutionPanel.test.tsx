@@ -465,6 +465,64 @@ describe('SubstitutionPanel', () => {
     });
   });
 
+  it('"Sub All Now" never puts two queued players into the same position', async () => {
+    // Regression: the Sub All loop reads the `lineup` prop captured at click
+    // time, which doesn't update between iterations. With two players queued
+    // for the same position, both saw Alice as the occupant, so both got a new
+    // LineupAssignment (and an open PlayTimeRecord) at pos-1.
+    const user = userEvent.setup();
+    const onQueueRemove = vi.fn();
+    const player3 = { ...player2, id: 'player-3', firstName: 'Cara', playerNumber: 3 } as PlayerWithRoster;
+    const queue: SubQueue[] = [
+      { id: 'q-1', playerId: 'player-2', positionId: 'pos-1' },
+      { id: 'q-2', playerId: 'player-3', positionId: 'pos-1' },
+    ];
+
+    render(
+      <SubstitutionPanel
+        {...defaultProps}
+        players={[player1, player2, player3]}
+        substitutionQueue={queue}
+        onQueueRemove={onQueueRemove}
+      />,
+    );
+
+    await user.click(screen.getByTitle('Execute all queued substitutions at once'));
+
+    await waitFor(() => expect(mockExecuteSubstitution).toHaveBeenCalledTimes(1));
+    expect(mockExecuteSubstitution.mock.calls[0][2]).toBe('player-2');
+    expect(onQueueRemove).toHaveBeenCalledWith('q-1');
+    // The second item stays queued so the coach can run it against the fresh lineup.
+    expect(onQueueRemove).not.toHaveBeenCalledWith('q-2');
+    expect(mockShowWarning).toHaveBeenCalled();
+  });
+
+  it('"Sub All Now" keeps an item queued when its player was subbed off earlier in the same batch', async () => {
+    const user = userEvent.setup();
+    const onQueueRemove = vi.fn();
+    const player3 = { ...player2, id: 'player-3', firstName: 'Cara', playerNumber: 3 } as PlayerWithRoster;
+    const queue: SubQueue[] = [
+      { id: 'q-1', playerId: 'player-3', positionId: 'pos-1' }, // Alice off
+      { id: 'q-2', playerId: 'player-1', positionId: 'pos-2' }, // Alice back on at pos-2
+    ];
+
+    render(
+      <SubstitutionPanel
+        {...defaultProps}
+        players={[player1, player2, player3]}
+        lineup={[lineupAlice, lineupBob]}
+        substitutionQueue={queue}
+        onQueueRemove={onQueueRemove}
+      />,
+    );
+
+    await user.click(screen.getByTitle('Execute all queued substitutions at once'));
+
+    await waitFor(() => expect(onQueueRemove).toHaveBeenCalledWith('q-1'));
+    expect(mockExecuteSubstitution).toHaveBeenCalledTimes(1);
+    expect(onQueueRemove).not.toHaveBeenCalledWith('q-2');
+  });
+
   it('shows bench player even when their PlayTimeRecord is still open (race-condition fix)', async () => {
     // Regression: before the fix, a bench player whose PlayTimeRecord had not yet
     // been closed (subscription lag after a substitution) would be excluded from the

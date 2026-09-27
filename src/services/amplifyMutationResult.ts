@@ -17,3 +17,9 @@ export function assertMutationResult<T>(
   }
   return result.data as NonNullable<T>;
 }
+
+/** True when a mutation failed because the target record no longer exists. */
+export function isMissingRecordError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /not found|does not exist|cannot find/i.test(message);
+}

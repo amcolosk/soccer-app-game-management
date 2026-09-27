@@ -61,6 +61,8 @@ export interface SubstitutionCreateFields {
 }
 
 export interface LineupAssignmentCreateFields {
+  /** Optional client-generated id, so a caller can track the row before the subscription echoes it. */
+  id?: string;
   gameId: string;
   playerId: string;
   positionId?: string | null;

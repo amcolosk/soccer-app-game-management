@@ -11,6 +11,7 @@ import { computeRevisionFingerprint } from "../../utils/rotationDiffUtils";
 import { useGamePlanner, computePlannerRemoteFingerprint } from "./hooks/useGamePlanner";
 import { useWakeLock } from "../../hooks/useWakeLock";
 import { useGameNotification } from "../../hooks/useGameNotification";
+import { useOfflineMutations } from "../../hooks/useOfflineMutations";
 
 // ---------------------------------------------------------------------------
 // Hoisted Amplify mock functions – must use vi.hoisted so they are available
@@ -94,7 +95,7 @@ vi.mock("aws-amplify/data", () => ({
 // Capture callback props that GameManagement passes to child components
 // ---------------------------------------------------------------------------
 const mockCaptures: {
-  onApplyHalftimeSub?: (sub: PlannedSubstitution) => Promise<void>;
+  onApplyHalftimeSubs?: (subs: PlannedSubstitution[]) => Promise<void>;
   onQueueSubstitution?: (playerId: string, positionId: string) => void;
   latestSubstitutionQueue?: { playerId: string; positionId: string }[];
   gameTimerProps?: any;
@@ -108,7 +109,7 @@ const mockCaptures: {
 
 vi.mock("./GameTimer", () => ({
   GameTimer: vi.fn((props: any) => {
-    mockCaptures.onApplyHalftimeSub = props.onApplyHalftimeSub;
+    mockCaptures.onApplyHalftimeSubs = props.onApplyHalftimeSubs;
     mockCaptures.gameTimerProps = props;
     return <div data-testid="game-timer" />;
   }),
@@ -357,35 +358,36 @@ const makeBenchPlayer = (id = "bench-1") => ({
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-describe("GameManagement – handleApplyHalftimeSub", () => {
+describe("GameManagement – handleApplyHalftimeSubs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCaptures.onApplyHalftimeSub = undefined;
+    mockCaptures.onApplyHalftimeSubs = undefined;
     mockCaptures.gameTimerProps = undefined;
     mockCaptures.playerNotesPanelProps = undefined;
     mockUseTeamData.mockReturnValue({ players: [], positions: [] });
     mockUseGameSubscriptions.mockReturnValue(defaultSubscription);
   });
 
-  it("wires onApplyHalftimeSub into GameTimer props", () => {
+  it("wires onApplyHalftimeSubs into GameTimer props", () => {
     renderComponent();
-    expect(typeof mockCaptures.onApplyHalftimeSub).toBe("function");
+    expect(typeof mockCaptures.onApplyHalftimeSubs).toBe("function");
   });
 
   it("deletes the outgoing LineupAssignment", async () => {
     renderComponent();
-    await mockCaptures.onApplyHalftimeSub!({
+    await mockCaptures.onApplyHalftimeSubs!([{
       playerOutId: "p1", playerInId: "p2", positionId: "pos1",
-    });
+    }]);
     expect(mockLineupDelete).toHaveBeenCalledWith({ id: "la-1" });
   });
 
   it("creates a new LineupAssignment for the incoming player with isStarter: true", async () => {
     renderComponent();
-    await mockCaptures.onApplyHalftimeSub!({
+    await mockCaptures.onApplyHalftimeSubs!([{
       playerOutId: "p1", playerInId: "p2", positionId: "pos1",
-    });
+    }]);
     expect(mockLineupCreate).toHaveBeenCalledWith({
+      id:         expect.any(String),
       gameId:     "game-1",
       playerId:   "p2",
       positionId: "pos1",
@@ -396,9 +398,9 @@ describe("GameManagement – handleApplyHalftimeSub", () => {
 
   it("records a Substitution with half=1", async () => {
     renderComponent();
-    await mockCaptures.onApplyHalftimeSub!({
+    await mockCaptures.onApplyHalftimeSubs!([{
       playerOutId: "p1", playerInId: "p2", positionId: "pos1",
-    });
+    }]);
     expect(mockSubstitutionCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         gameId:      "game-1",
@@ -412,9 +414,9 @@ describe("GameManagement – handleApplyHalftimeSub", () => {
 
   it("does NOT create any PlayTimeRecords (deferred to handleStartSecondHalf)", async () => {
     renderComponent();
-    await mockCaptures.onApplyHalftimeSub!({
+    await mockCaptures.onApplyHalftimeSubs!([{
       playerOutId: "p1", playerInId: "p2", positionId: "pos1",
-    });
+    }]);
     expect(mockPlayTimeCreate).not.toHaveBeenCalled();
   });
 
@@ -424,38 +426,246 @@ describe("GameManagement – handleApplyHalftimeSub", () => {
       lineup: makeLineup("p2", "pos1"), // p2 is already the starter at pos1
     });
     renderComponent();
-    await mockCaptures.onApplyHalftimeSub!({
+    await mockCaptures.onApplyHalftimeSubs!([{
       playerOutId: "p1", playerInId: "p2", positionId: "pos1",
-    });
+    }]);
     expect(mockLineupDelete).not.toHaveBeenCalled();
     expect(mockLineupCreate).not.toHaveBeenCalled();
     expect(mockSubstitutionCreate).not.toHaveBeenCalled();
   });
 
-  it("does nothing when no assignment exists for the position", async () => {
+  it("fills an empty position (no delete) and records the planned substitution", async () => {
     mockUseGameSubscriptions.mockReturnValue({
       ...defaultSubscription,
       lineup: [], // nothing assigned
     });
     renderComponent();
-    await mockCaptures.onApplyHalftimeSub!({
+    await mockCaptures.onApplyHalftimeSubs!([{
       playerOutId: "p1", playerInId: "p2", positionId: "pos1",
-    });
+    }]);
     expect(mockLineupDelete).not.toHaveBeenCalled();
-    expect(mockLineupCreate).not.toHaveBeenCalled();
+    expect(mockLineupCreate).toHaveBeenCalledWith(expect.objectContaining({ playerId: "p2", positionId: "pos1" }));
+    expect(mockSubstitutionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ positionId: "pos1", playerOutId: "p1", playerInId: "p2" }),
+    );
+  });
+
+  it("treats an already-deleted outgoing assignment as success", async () => {
+    mockLineupDelete.mockRejectedValueOnce(new Error("Record not found"));
+    renderComponent();
+    await mockCaptures.onApplyHalftimeSubs!([{
+      playerOutId: "p1", playerInId: "p2", positionId: "pos1",
+    }]);
+    expect(mockLineupCreate).toHaveBeenCalledWith(expect.objectContaining({ playerId: "p2", positionId: "pos1" }));
   });
 
   it("calls handleApiError when an API call fails", async () => {
     const { handleApiError } = await import("../../utils/errorHandler");
     mockLineupDelete.mockRejectedValueOnce(new Error("Network error"));
     renderComponent();
-    await mockCaptures.onApplyHalftimeSub!({
+    await mockCaptures.onApplyHalftimeSubs!([{
       playerOutId: "p1", playerInId: "p2", positionId: "pos1",
-    });
+    }]);
     expect(handleApiError).toHaveBeenCalledWith(
       expect.any(Error),
       expect.stringMatching(/halftime/i)
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reproduction: halftime planned subs leaving a player in two positions (or a
+// position with two players). Uses an in-memory LineupAssignment "table" fed
+// by the create/delete mocks so the assertions are on the resulting DB state.
+// ---------------------------------------------------------------------------
+describe("GameManagement – halftime subs never duplicate players on the field", () => {
+  type Row = { id: string; playerId: string; positionId: string; isStarter: boolean };
+  let table: Row[];
+  let nextId: number;
+
+  const seed = (rows: Array<[id: string, playerId: string, positionId: string]>) => {
+    table = rows.map(([id, playerId, positionId]) => ({ id, playerId, positionId, isStarter: true }));
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...mockGame, status: "halftime" },
+      lineup: table.map((row) => ({ ...row, gameId: "game-1" })),
+    });
+  };
+
+  const applyHalftimeSubs = (subs: PlannedSubstitution[]) =>
+    mockCaptures.gameTimerProps.onApplyHalftimeSubs(subs);
+
+  const expectNoDuplicates = () => {
+    const players = table.map((row) => row.playerId);
+    const positions = table.map((row) => row.positionId);
+    expect(new Set(players).size).toBe(players.length);
+    expect(new Set(positions).size).toBe(positions.length);
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    nextId = 1;
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+    mockLineupDelete.mockImplementation(async ({ id }: { id: string }) => {
+      const before = table.length;
+      table = table.filter((row) => row.id !== id);
+      if (table.length === before) throw new Error("Record not found");
+      return {};
+    });
+    mockLineupCreate.mockImplementation(async (fields: Row & { id?: string }) => {
+      table.push({ ...fields, id: fields.id ?? `new-${nextId++}` });
+      return { data: {} };
+    });
+  });
+
+  afterEach(() => {
+    mockLineupDelete.mockReset().mockResolvedValue({});
+    mockLineupCreate.mockReset().mockResolvedValue({ data: { id: "la-new" } });
+  });
+
+  it("moving an on-field player to another position vacates their old position", async () => {
+    // First half: A at LB, B at RB. Plan: A moves LB -> RB, B comes off,
+    // bench player C fills LB. The coach applies only the RB sub.
+    seed([["la-a", "A", "LB"], ["la-b", "B", "RB"]]);
+    renderComponent();
+
+    await applyHalftimeSubs([
+      { playerOutId: "B", playerInId: "A", positionId: "RB" },
+    ]);
+
+    expect(table).toEqual(expect.arrayContaining([expect.objectContaining({ playerId: "A", positionId: "RB" })]));
+    expectNoDuplicates();
+  });
+
+  it("Apply All for a plan containing a position swap ends with each player once", async () => {
+    seed([["la-a", "A", "LB"], ["la-b", "B", "RB"]]);
+    renderComponent();
+
+    await applyHalftimeSubs([
+      { playerOutId: "B", playerInId: "A", positionId: "RB" },
+      { playerOutId: "A", playerInId: "B", positionId: "LB" },
+    ]);
+
+    expect(table).toHaveLength(2);
+    expect(table).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: "A", positionId: "RB" }),
+      expect.objectContaining({ playerId: "B", positionId: "LB" }),
+    ]));
+  });
+
+  it("a double-tapped Apply does not seat the incoming player twice", async () => {
+    seed([["la-1", "p1", "pos1"]]);
+    // Offline, deletes are queued rather than applied, so deleting an
+    // already-deleted row never throws.
+    mockLineupDelete.mockImplementation(async ({ id }: { id: string }) => {
+      table = table.filter((row) => row.id !== id);
+      return {};
+    });
+    renderComponent();
+
+    const sub = { playerOutId: "p1", playerInId: "p2", positionId: "pos1" };
+    await Promise.all([
+      applyHalftimeSubs([sub]),
+      applyHalftimeSubs([sub]),
+    ]);
+
+    expect(table).toEqual([expect.objectContaining({ playerId: "p2", positionId: "pos1" })]);
+    expect(mockSubstitutionCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-applying before the subscription catches up (offline) does not re-seat anyone", async () => {
+    // Offline: writes are queued and the subscription never echoes them, so
+    // the subscribed lineup stays at the pre-Apply state for the whole halftime.
+    seed([["la-a", "A", "LB"], ["la-b", "B", "RB"]]);
+    mockLineupDelete.mockImplementation(async ({ id }: { id: string }) => {
+      table = table.filter((row) => row.id !== id);
+      return {};
+    });
+    renderComponent();
+
+    const plan = [
+      { playerOutId: "B", playerInId: "A", positionId: "RB" },
+      { playerOutId: "A", playerInId: "C", positionId: "LB" },
+    ];
+    await act(async () => { await applyHalftimeSubs(plan); });
+    await act(async () => { await applyHalftimeSubs(plan); });
+
+    expect(mockLineupCreate).toHaveBeenCalledTimes(2);
+    expect(mockSubstitutionCreate).toHaveBeenCalledTimes(2);
+    expectNoDuplicates();
+    // GameTimer is shown the lineup with the pending writes applied.
+    const shown = mockCaptures.gameTimerProps.lineup.map((row: Row) => `${row.positionId}:${row.playerId}`);
+    expect(shown.sort()).toEqual(["LB:C", "RB:A"]);
+  });
+
+  it("Start Second Half opens PlayTimeRecords for the applied lineup, not the stale one", async () => {
+    const user = userEvent.setup();
+    seed([["la-a", "A", "LB"], ["la-b", "B", "RB"]]);
+    renderWithRouter(
+      <GameManagement game={{ ...mockGame, status: "halftime" }} team={{ ...mockTeam, maxPlayersOnField: 2 }} onBack={vi.fn()} />,
+    );
+
+    await act(async () => {
+      await applyHalftimeSubs([
+        { playerOutId: "B", playerInId: "A", positionId: "RB" },
+        { playerOutId: "A", playerInId: "C", positionId: "LB" },
+      ]);
+    });
+    await user.click(screen.getByRole("button", { name: /start second half/i }));
+
+    await waitFor(() => expect(mockPlayTimeCreate).toHaveBeenCalledTimes(2));
+    const opened = mockPlayTimeCreate.mock.calls.map(([fields]) => `${fields.positionId}:${fields.playerId}`);
+    expect(opened.sort()).toEqual(["LB:C", "RB:A"]);
+  });
+
+  it("offline, the second half keeps showing the applied lineup its PlayTimeRecords were opened for", async () => {
+    const user = userEvent.setup();
+    const online = vi.mocked(useOfflineMutations)();
+    vi.mocked(useOfflineMutations).mockReturnValue({ ...online, isOnline: false, pendingCount: 3 });
+    try {
+      seed([["la-a", "A", "LB"], ["la-b", "B", "RB"]]);
+      const { rerender } = renderWithRouter(
+        <GameManagement game={{ ...mockGame, status: "halftime" }} team={{ ...mockTeam, maxPlayersOnField: 2 }} onBack={vi.fn()} />,
+      );
+      await act(async () => {
+        await applyHalftimeSubs([
+          { playerOutId: "B", playerInId: "A", positionId: "RB" },
+          { playerOutId: "A", playerInId: "C", positionId: "LB" },
+        ]);
+      });
+      await user.click(screen.getByRole("button", { name: /start second half/i }));
+      await waitFor(() => expect(mockPlayTimeCreate).toHaveBeenCalledTimes(2));
+
+      // Status flips to in-progress; offline, the subscription still holds the pre-halftime rows.
+      mockUseGameSubscriptions.mockReturnValue({
+        ...mockUseGameSubscriptions(),
+        gameState: { ...mockGame, status: "in-progress", currentHalf: 2 },
+      });
+      rerender(
+        <GameManagement game={{ ...mockGame, status: "in-progress" }} team={{ ...mockTeam, maxPlayersOnField: 2 }} onBack={vi.fn()} />,
+      );
+
+      const shown = mockCaptures.rotationWidgetProps.lineup.map((row: Row) => `${row.positionId}:${row.playerId}`);
+      expect(shown.sort()).toEqual(["LB:C", "RB:A"]);
+    } finally {
+      vi.mocked(useOfflineMutations).mockReturnValue(online);
+    }
+  });
+
+  it("fills a position that a previous move left vacant", async () => {
+    // A already moved LB -> RB (previous Apply); LB is empty.
+    seed([["la-a2", "A", "RB"]]);
+    renderComponent();
+
+    await applyHalftimeSubs([
+      { playerOutId: "A", playerInId: "C", positionId: "LB" },
+    ]);
+
+    expect(table).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: "A", positionId: "RB" }),
+      expect.objectContaining({ playerId: "C", positionId: "LB" }),
+    ]));
+    expectNoDuplicates();
   });
 });
 
@@ -612,7 +822,7 @@ describe("GameManagement – scheduled notes and start transition safety", () =>
 describe("GameManagement – help context wiring", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCaptures.onApplyHalftimeSub = undefined;
+    mockCaptures.onApplyHalftimeSubs = undefined;
     mockUseTeamData.mockReturnValue({ players: [], positions: [] });
     // Reset subscription mock to a working default after clearAllMocks
     mockUseGameSubscriptions.mockReturnValue(defaultSubscription);

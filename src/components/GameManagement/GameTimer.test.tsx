@@ -49,7 +49,7 @@ const noopCallbacks = {
   onEndGame: vi.fn(),
   onAddTestTime: vi.fn(),
   onRecalculateRotations: vi.fn(),
-  onApplyHalftimeSub: vi.fn().mockResolvedValue(undefined),
+  onApplyHalftimeSubs: vi.fn().mockResolvedValue(undefined),
   getPlanConflicts: () => [],
 };
 
@@ -310,7 +310,7 @@ describe("GameTimer", () => {
 
     it("derives halftime applyable changes from persisted halftime lineup when planned halftime subs are empty (issue #160)", async () => {
       const user = userEvent.setup();
-      const onApplyHalftimeSub = vi.fn().mockResolvedValue(undefined);
+      const onApplyHalftimeSubs = vi.fn().mockResolvedValue(undefined);
 
       const emptyHalftimeRotation = [{
         id: "rot-empty-ht",
@@ -339,18 +339,18 @@ describe("GameTimer", () => {
             plannedRotations: emptyHalftimeRotation,
             gamePlan: halftimeLineupPlan,
             lineup: currentLineup,
-            onApplyHalftimeSub,
+            onApplyHalftimeSubs,
           })}
         />,
       );
 
       expect(screen.getByRole("heading", { name: /2nd Half Lineup Changes/i })).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: /^apply$/i }));
-      expect(onApplyHalftimeSub).toHaveBeenCalledWith({
+      expect(onApplyHalftimeSubs).toHaveBeenCalledWith([{
         playerOutId: "p1",
         playerInId: "p2",
         positionId: "pos1",
-      });
+      }]);
     });
 
     it("renders an Apply button for each planned substitution", () => {
@@ -406,18 +406,18 @@ describe("GameTimer", () => {
       expect(screen.getByRole("button", { name: /applied/i })).toBeDisabled();
     });
 
-    it("calls onApplyHalftimeSub with the correct sub when Apply is clicked", async () => {
+    it("calls onApplyHalftimeSubs with the correct sub when Apply is clicked", async () => {
       const user = userEvent.setup();
-      const onApplyHalftimeSub = vi.fn().mockResolvedValue(undefined);
+      const onApplyHalftimeSubs = vi.fn().mockResolvedValue(undefined);
       render(
-        <GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation, onApplyHalftimeSub })} />
+        <GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation, onApplyHalftimeSubs })} />
       );
       await user.click(screen.getByRole("button", { name: /^apply$/i }));
-      expect(onApplyHalftimeSub).toHaveBeenCalledWith({
+      expect(onApplyHalftimeSubs).toHaveBeenCalledWith([{
         playerOutId: "p1",
         playerInId: "p2",
         positionId: "pos1",
-      });
+      }]);
     });
 
     // --- Apply All ---
@@ -453,21 +453,23 @@ describe("GameTimer", () => {
       expect(screen.getByRole("button", { name: /apply all/i })).toBeDisabled();
     });
 
-    it("Apply All calls onApplyHalftimeSub for each pending sub", async () => {
+    it("Apply All calls onApplyHalftimeSubs once with every pending sub as one batch", async () => {
       const user = userEvent.setup();
-      const onApplyHalftimeSub = vi.fn().mockResolvedValue(undefined);
+      const onApplyHalftimeSubs = vi.fn().mockResolvedValue(undefined);
       render(
-        <GameTimer {...makeHalftimeProps({ plannedRotations: twoSubRotation, onApplyHalftimeSub })} />
+        <GameTimer {...makeHalftimeProps({ plannedRotations: twoSubRotation, onApplyHalftimeSubs })} />
       );
       await user.click(screen.getByRole("button", { name: /apply all/i }));
-      await waitFor(() => expect(onApplyHalftimeSub).toHaveBeenCalledTimes(2));
-      expect(onApplyHalftimeSub).toHaveBeenCalledWith({ playerOutId: "p1", playerInId: "p2", positionId: "pos1" });
-      expect(onApplyHalftimeSub).toHaveBeenCalledWith({ playerOutId: "p3", playerInId: "p4", positionId: "pos2" });
+      await waitFor(() => expect(onApplyHalftimeSubs).toHaveBeenCalledTimes(1));
+      expect(onApplyHalftimeSubs).toHaveBeenCalledWith([
+        { playerOutId: "p1", playerInId: "p2", positionId: "pos1" },
+        { playerOutId: "p3", playerInId: "p4", positionId: "pos2" },
+      ]);
     });
 
     it("Apply All skips subs where the incoming player is already in the lineup", async () => {
       const user = userEvent.setup();
-      const onApplyHalftimeSub = vi.fn().mockResolvedValue(undefined);
+      const onApplyHalftimeSubs = vi.fn().mockResolvedValue(undefined);
       const partialLineup = [
         { id: "la-1", gameId: "game-1", playerId: "p2", positionId: "pos1", isStarter: true },
       ] as any[];
@@ -476,23 +478,23 @@ describe("GameTimer", () => {
           {...makeHalftimeProps({
             plannedRotations: twoSubRotation,
             lineup: partialLineup,
-            onApplyHalftimeSub,
+            onApplyHalftimeSubs,
           })}
         />
       );
       await user.click(screen.getByRole("button", { name: /apply all/i }));
-      await waitFor(() => expect(onApplyHalftimeSub).toHaveBeenCalledTimes(1));
-      expect(onApplyHalftimeSub).toHaveBeenCalledWith({ playerOutId: "p3", playerInId: "p4", positionId: "pos2" });
+      await waitFor(() => expect(onApplyHalftimeSubs).toHaveBeenCalledTimes(1));
+      expect(onApplyHalftimeSubs).toHaveBeenCalledWith([{ playerOutId: "p3", playerInId: "p4", positionId: "pos2" }]);
     });
 
     it("Apply All shows 'Applying...' while in progress and re-enables on completion", async () => {
       const user = userEvent.setup();
       let resolveApply!: () => void;
-      const onApplyHalftimeSub = vi.fn().mockReturnValue(
+      const onApplyHalftimeSubs = vi.fn().mockReturnValue(
         new Promise<void>(r => { resolveApply = r; })
       );
       render(
-        <GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation, onApplyHalftimeSub })} />
+        <GameTimer {...makeHalftimeProps({ plannedRotations: oneSubRotation, onApplyHalftimeSubs })} />
       );
 
       user.click(screen.getByRole("button", { name: /apply all/i }));
@@ -506,6 +508,30 @@ describe("GameTimer", () => {
       await waitFor(() =>
         expect(screen.getByRole("button", { name: /apply all/i })).toBeInTheDocument()
       );
+    });
+
+    it("disables every Apply button while a single Apply is in flight (no double-apply)", async () => {
+      const user = userEvent.setup();
+      let resolveApply!: () => void;
+      const onApplyHalftimeSubs = vi.fn().mockReturnValue(
+        new Promise<void>(r => { resolveApply = r; })
+      );
+      render(
+        <GameTimer {...makeHalftimeProps({ plannedRotations: twoSubRotation, onApplyHalftimeSubs })} />
+      );
+
+      await user.click(screen.getAllByRole("button", { name: /^apply$/i })[0]);
+
+      await waitFor(() => {
+        for (const button of screen.getAllByRole("button", { name: /^apply$/i })) {
+          expect(button).toBeDisabled();
+        }
+      });
+      expect(screen.getByRole("button", { name: /applying/i })).toBeDisabled();
+
+      resolveApply();
+      await waitFor(() => expect(screen.getByRole("button", { name: /apply all/i })).not.toBeDisabled());
+      expect(onApplyHalftimeSubs).toHaveBeenCalledTimes(1);
     });
   });
 

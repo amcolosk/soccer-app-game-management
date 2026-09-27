@@ -3,6 +3,7 @@ import type { Schema } from "../../amplify/data/resource";
 import type { PlayTimeRecord } from "../types/schema";
 import type { GameMutationInput } from "../hooks/useOfflineMutations";
 import { buildDeterministicStartPlayTimeRecordId } from "../utils/playTimeRecordId";
+import { isMissingRecordError } from "./amplifyMutationResult";
 
 const client = generateClient<Schema>();
 
@@ -55,11 +56,6 @@ async function fetchPlayTimeRecordsByGameId(gameId: string): Promise<PlayTimeRec
   } while (nextToken);
 
   return items;
-}
-
-function isMissingRecordError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /not found|does not exist|cannot find/i.test(message);
 }
 
 /**
