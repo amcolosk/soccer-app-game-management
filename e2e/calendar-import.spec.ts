@@ -1,4 +1,5 @@
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
 import {
   clickButton,
@@ -17,6 +18,8 @@ import {
  * SSRF surface, and no dependency on the (deliberately never-committed)
  * live PlayMetrics feed URL.
  */
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const FIXTURE_PATH = path.resolve(
   __dirname,
   '..',
