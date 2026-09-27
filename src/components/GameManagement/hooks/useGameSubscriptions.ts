@@ -9,6 +9,7 @@ import type {
 } from "../types";
 import { useAmplifyQuery } from "../../../hooks/useAmplifyQuery";
 import { handleApiError } from "../../../utils/errorHandler";
+import { listAll } from "../../../utils/listAll";
 import {
   MAX_GAME_SECONDS,
   ANOMALOUS_GAP_THRESHOLD_SECONDS,
@@ -447,6 +448,10 @@ export function useGameSubscriptions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.id]);
 
+  // Bumped on every rotationSub push (across re-subscriptions), so a slower full
+  // rotation scan started earlier can't overwrite fresher rows with a pre-write snapshot.
+  const rotationPushSeqRef = useRef(0);
+
   // GamePlan + PlannedRotation subscriptions (co-dependent — stays manual)
   useEffect(() => {
     let currentGamePlanId: string | null = null;
@@ -460,13 +465,16 @@ export function useGameSubscriptions({
           setGamePlan(plan);
           currentGamePlanId = plan.id;
 
-          // Load rotations for this game plan
-            void client.models.PlannedRotation.list({
-            filter: { gamePlanId: { eq: plan.id } },
-          }).then(({ data: rotations }) => {
-            if (rotations) {
-              setPlannedRotations(rotations.sort((a, b) => a.rotationNumber - b.rotationNumber));
-            }
+          // Load rotations for this game plan — every page, since gamePlanId isn't
+          // indexed and a single filtered-scan page can be partial (#213).
+          const seqAtStart = rotationPushSeqRef.current;
+          listAll<PlannedRotation>(client.models.PlannedRotation, {
+            gamePlanId: { eq: plan.id },
+          }).then((rotations) => {
+            if (rotationPushSeqRef.current !== seqAtStart) return;
+            setPlannedRotations(rotations.sort((a, b) => a.rotationNumber - b.rotationNumber));
+          }).catch((error) => {
+            handleApiError(error, 'Failed to load planned rotations');
           });
         }
       },
@@ -476,6 +484,7 @@ export function useGameSubscriptions({
       next: (data) => {
         if (currentGamePlanId) {
           const gameRotations = data.items.filter(r => r.gamePlanId === currentGamePlanId);
+          rotationPushSeqRef.current += 1;
           setPlannedRotations(gameRotations.sort((a, b) => a.rotationNumber - b.rotationNumber));
         }
       },

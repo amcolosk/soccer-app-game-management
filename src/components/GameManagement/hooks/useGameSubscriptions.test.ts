@@ -1516,4 +1516,76 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
       expect(result.current.plannedRotations.map(r => r.rotationNumber)).toEqual([1, 2]);
     });
   });
+
+  it('reads every page of rotations for the plan on load (#213)', async () => {
+    const props = createDefaultProps();
+    let capturedGamePlanNext: ((data: { items: Array<{ id: string }> }) => void) | null = null;
+    mockGamePlanObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Array<{ id: string }> }) => void }) => {
+        capturedGamePlanNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+    mockPlannedRotationList
+      .mockResolvedValueOnce({ data: [{ id: 'r1', gamePlanId: 'gp-1', rotationNumber: 1 }], nextToken: 'p2' })
+      .mockResolvedValueOnce({ data: [{ id: 'r2', gamePlanId: 'gp-1', rotationNumber: 2 }], nextToken: null });
+
+    const { result } = renderHook(() => useGameSubscriptions(props));
+    act(() => {
+      capturedGamePlanNext?.({ items: [{ id: 'gp-1' }] });
+    });
+
+    await waitFor(() => {
+      expect(result.current.plannedRotations.map(r => r.rotationNumber)).toEqual([1, 2]);
+    });
+  });
+
+  it('does not let a slower initial rotation scan overwrite fresher subscription rows (#213)', async () => {
+    const props = createDefaultProps();
+    let capturedGamePlanNext: ((data: { items: Array<{ id: string }> }) => void) | null = null;
+    let capturedRotationNext: ((data: { items: Array<Record<string, unknown>> }) => void) | null = null;
+    mockGamePlanObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Array<{ id: string }> }) => void }) => {
+        capturedGamePlanNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+    mockPlannedRotationObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Array<Record<string, unknown>> }) => void }) => {
+        capturedRotationNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+
+    const scanResolvers: Array<(value: { data: unknown[] }) => void> = [];
+    mockPlannedRotationList.mockImplementation(
+      () => new Promise((resolve) => { scanResolvers.push(resolve); })
+    );
+
+    const { result } = renderHook(() => useGameSubscriptions(props));
+    act(() => {
+      capturedGamePlanNext?.({ items: [{ id: 'gp-1' }] });
+    });
+    // The effect re-subscribes once gamePlan.id is known; the real observeQuery
+    // re-emits its snapshot to the new subscriber.
+    act(() => {
+      capturedGamePlanNext?.({ items: [{ id: 'gp-1' }] });
+    });
+    // A fresher push (post-write rows) lands while the scan is still in flight.
+    act(() => {
+      capturedRotationNext?.({
+        items: [{ id: 'r1', gamePlanId: 'gp-1', rotationNumber: 1, plannedSubstitutions: 'fresh' }],
+      });
+    });
+    await act(async () => {
+      for (const resolve of scanResolvers) {
+        resolve({ data: [{ id: 'r1', gamePlanId: 'gp-1', rotationNumber: 1, plannedSubstitutions: 'stale' }] });
+      }
+    });
+
+    expect(scanResolvers.length).toBeGreaterThan(0);
+    expect(result.current.plannedRotations.map(r => r.plannedSubstitutions)).toEqual(['fresh']);
+    mockPlannedRotationList.mockReset();
+    mockPlannedRotationList.mockResolvedValue({ data: [] });
+  });
 });

@@ -26,6 +26,7 @@ import { useTeamCoachProfiles } from "../../hooks/useTeamCoachProfiles";
 import { useGameSubscriptions } from "./hooks/useGameSubscriptions";
 import { useGameTimer } from "./hooks/useGameTimer";
 import { computePlannerRemoteFingerprint } from "./hooks/useGamePlanner";
+import { listAll } from "../../utils/listAll";
 import { CommandBand } from "./CommandBand";
 import { TabNav, type GameTab } from "./TabNav";
 import { BenchTab } from "./BenchTab";
@@ -1156,11 +1157,11 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         if (!confirmed) {
           return;
         }
-        const existingRotationsResult = await client.models.PlannedRotation.list({
-          filter: { gamePlanId: { eq: gamePlan.id } },
+        const existingRotations = await listAll<PlannedRotation>(client.models.PlannedRotation, {
+          gamePlanId: { eq: gamePlan.id },
         });
         await Promise.all(
-          existingRotationsResult.data.map(r => client.models.PlannedRotation.delete({ id: r.id }))
+          existingRotations.map(r => client.models.PlannedRotation.delete({ id: r.id }))
         );
         await client.models.GamePlan.delete({ id: gamePlan.id });
       }
@@ -1297,8 +1298,10 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       };
 
       const readCurrentPlanState = async () => {
-        const { data } = await client.models.PlannedRotation.list({
-          filter: { gamePlanId: { eq: gamePlan.id } },
+        // Every page: PlannedRotation has no gamePlanId index, so this is a filtered
+        // scan and a single page can hold only part of this plan's rows (#213).
+        const data = await listAll<PlannedRotation>(client.models.PlannedRotation, {
+          gamePlanId: { eq: gamePlan.id },
         });
         const rows = [...data].sort((a, b) => {
           const byRotation = (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0);
@@ -1376,8 +1379,10 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       handleApiError(error, 'Failed to update planned rotations');
       let latestFingerprint = currentFingerprint;
       try {
-        const { data } = await client.models.PlannedRotation.list({
-          filter: { gamePlanId: { eq: gamePlan.id } },
+        // Every page: PlannedRotation has no gamePlanId index, so this is a filtered
+        // scan and a single page can hold only part of this plan's rows (#213).
+        const data = await listAll<PlannedRotation>(client.models.PlannedRotation, {
+          gamePlanId: { eq: gamePlan.id },
         });
         latestFingerprint = computeFingerprintFor(data);
       } catch {

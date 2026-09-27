@@ -3,6 +3,7 @@ import type { Schema } from "../../amplify/data/resource";
 import { GAME_CONFIG } from "../constants/gameConfig";
 import type { GamePlan, PlannedRotation, PlannedSubstitution } from "../types/schema";
 import { isPlayerInjured } from "../utils/availabilityUtils";
+import { listAll } from "../utils/listAll";
 
 export type { PlannedSubstitution } from "../types/schema";
 
@@ -832,8 +833,8 @@ export async function copyGamePlan(
   }
   
   // Fetch source rotations
-  const sourceRotationsResult = await client.models.PlannedRotation.list({
-    filter: { gamePlanId: { eq: sourcePlan.id } },
+  const sourceRotations = await listAll<PlannedRotation>(client.models.PlannedRotation, {
+    gamePlanId: { eq: sourcePlan.id },
   });
   
   // Create new game plan (including starting lineup)
@@ -854,7 +855,7 @@ export async function copyGamePlan(
   }
   
   // Copy rotations
-  const rotationPromises = sourceRotationsResult.data.map(async (sourceRotation) => {
+  const rotationPromises = sourceRotations.map(async (sourceRotation) => {
     return client.models.PlannedRotation.create({
       gamePlanId: newPlan.id,
       rotationNumber: sourceRotation.rotationNumber,
@@ -867,7 +868,7 @@ export async function copyGamePlan(
   
   await Promise.all(rotationPromises);
   
-  console.log(`Copied ${sourceRotationsResult.data.length} rotations to new plan`);
+  console.log(`Copied ${sourceRotations.length} rotations to new plan`);
   
   return newPlan;
 }
