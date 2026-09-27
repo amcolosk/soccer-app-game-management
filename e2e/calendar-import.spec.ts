@@ -1,4 +1,5 @@
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
 import {
   clickButton,
@@ -18,7 +19,7 @@ import {
  * live PlayMetrics feed URL.
  */
 const FIXTURE_PATH = path.resolve(
-  __dirname,
+  path.dirname(fileURLToPath(import.meta.url)),
   '..',
   'amplify',
   'functions',

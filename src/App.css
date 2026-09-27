@@ -2414,7 +2414,15 @@
 }
 
 .lineup-shape-node {
+  --lineup-shape-node-current-width: var(--lineup-shape-node-width);
   position: absolute;
+  /* Clamp the node's center so its full width stays inside the pitch; on narrow
+     viewports an edge position (e.g. x=12.5%) would otherwise hang past the edge and be clipped. */
+  left: clamp(
+    calc(var(--lineup-shape-node-current-width) / 2 + var(--lineup-shape-node-safe-inset)),
+    var(--lineup-shape-node-x),
+    calc(100% - var(--lineup-shape-node-current-width) / 2 - var(--lineup-shape-node-safe-inset))
+  );
   transform: translate(-50%, -50%);
   z-index: 2;
   width: var(--lineup-shape-node-width);
@@ -2422,6 +2430,7 @@
 }
 
 .lineup-shape-node--assigned {
+  --lineup-shape-node-current-width: var(--lineup-shape-assigned-node-width);
   width: var(--lineup-shape-assigned-node-width);
 }
 

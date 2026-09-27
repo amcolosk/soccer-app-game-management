@@ -99,8 +99,16 @@ test.describe("Game Management shape view", () => {
     expect(pitchHeightRatio).toBeGreaterThanOrEqual(0.5);
     expect(pitchHeightRatio).toBeLessThanOrEqual(0.66);
 
-    const pitchHasHorizontalOverflow = await pitch.evaluate((element) => element.scrollWidth > element.clientWidth + 1);
-    expect(pitchHasHorizontalOverflow).toBe(false);
+    // Check the interactive nodes rather than pitch.scrollWidth: the pitch's decorative
+    // corner arcs are centered on the corners by design and would always overhang.
+    const nodesOutsidePitch = await pitch.evaluate((element) => {
+      const pitchRect = element.getBoundingClientRect();
+      return Array.from(element.querySelectorAll(".lineup-shape-node")).filter((node) => {
+        const rect = node.getBoundingClientRect();
+        return rect.left < pitchRect.left - 0.5 || rect.right > pitchRect.right + 0.5;
+      }).length;
+    });
+    expect(nodesOutsidePitch).toBe(0);
 
     const undersizedTapTargets = await page.locator(".lineup-shape-node__tap-target").evaluateAll((elements) =>
       elements.filter((element) => {
