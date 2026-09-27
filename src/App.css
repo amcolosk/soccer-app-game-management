@@ -4318,6 +4318,45 @@
   color: var(--danger-red);
 }
 
+.stat-saves,
+.stat-goals-against,
+.stat-save-percent,
+.stat-shots,
+.stat-shots-on-target,
+.stat-shots-wide,
+.stat-shots-blocked {
+  text-align: center;
+  font-weight: 600;
+}
+
+.stat-saves {
+  color: var(--accent-green);
+}
+
+.stat-goals-against {
+  color: #f44336;
+}
+
+.stat-save-percent {
+  color: var(--primary-green);
+}
+
+.stat-shots {
+  color: var(--text-primary);
+}
+
+.stat-shots-on-target {
+  color: var(--accent-green);
+}
+
+.stat-shots-wide {
+  color: var(--text-secondary);
+}
+
+.stat-shots-blocked {
+  color: var(--text-secondary);
+}
+
 .loading-state {
   text-align: center;
   padding: 3rem;
@@ -8840,5 +8879,75 @@
    GOAL or SAVED -- same visual convention as .halftime-editor__readonly. */
 .shot-outcome-readonly {
   font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+/* Issue #203: Field/Goalkeeper toggle above the Season Report Player
+   Statistics table. Same look-and-feel as .stats-subview-tab(s), but kept
+   as its own class names since it's a different component/context
+   (SeasonReportStatsTabs.tsx, not GameManagement's StatsSubViewTabs.tsx). */
+.season-report-stats-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.season-report-stats-tab {
+  flex: 1;
+  padding: 0.625rem 0.75rem;
+  border: 2px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--card-background);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: all 0.15s;
+}
+
+.season-report-stats-tab--active {
+  border-color: var(--primary-green);
+  background: var(--primary-green);
+  color: white;
+}
+
+.season-report-stats-tab:focus-visible {
+  outline: 3px solid rgba(26, 71, 42, 0.35);
+  outline-offset: 2px;
+}
+
+/* Issue #203: compact 3-up Saves/Goals Against/Save % mini-stat row at the
+   top of a goalkeeper's player-detail drill-down, styled like the
+   .summary-card mini-card idiom but compact/inline within a details-card. */
+.keeper-breakout-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.keeper-breakout-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.keeper-breakout-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--background);
+}
+
+.keeper-breakout-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--primary-green);
+}
+
+.keeper-breakout-label {
+  font-size: 0.8rem;
   color: var(--text-secondary);
 }

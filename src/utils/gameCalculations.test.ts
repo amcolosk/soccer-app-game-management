@@ -8,8 +8,12 @@ import {
   calculateRecord,
   togglePreferredPosition,
   computeScoreFromGoals,
+  resolveSaveKeeperId,
+  calculateSavesByKeeper,
+  calculatePlayerShotStats,
 } from './gameCalculations';
 import type { Goal, GameNote } from '../types/schema';
+import type { PositionRoleLookup } from './playTimeCalculations';
 
 const mockGoals = [
   {
@@ -203,5 +207,153 @@ describe('togglePreferredPosition', () => {
 
   it('should return undefined when removing from empty string', () => {
     expect(togglePreferredPosition('', 'pos-1', false)).toBeUndefined();
+  });
+});
+
+// -- Issue #203: Saves by Goalie ------------------------------------------
+
+const gkPositions: PositionRoleLookup[] = [{ id: 'pos-gk', role: 'GOALKEEPER' }];
+
+interface PTR {
+  id: string;
+  playerId: string;
+  gameId: string;
+  positionId?: string | null;
+  startGameSeconds: number;
+  endGameSeconds?: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function ptr(overrides: Partial<PTR> & Pick<PTR, 'id' | 'playerId' | 'gameId' | 'startGameSeconds'>): PTR {
+  return {
+    positionId: 'pos-gk',
+    endGameSeconds: null,
+    createdAt: '2024-01-01T00:00:00Z',
+    updatedAt: '2024-01-01T00:00:00Z',
+    ...overrides,
+  };
+}
+
+describe('resolveSaveKeeperId', () => {
+  it('returns the explicit playerId directly, never consulting a disagreeing fallback', () => {
+    // Fallback would resolve to 'fallback-player' via the covering record below,
+    // but the save's own explicit playerId must win regardless.
+    const records = [ptr({ id: 'r1', playerId: 'fallback-player', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 2700 })];
+    const save = { playerId: 'explicit-player', gameId: 'g1', gameSeconds: 100 };
+    expect(resolveSaveKeeperId(save, records, gkPositions)).toBe('explicit-player');
+  });
+
+  it('falls back to getGoalkeeperIdAtTime when playerId is absent and gameSeconds is present', () => {
+    const records = [ptr({ id: 'r1', playerId: 'fallback-player', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 2700 })];
+    const save = { playerId: null, gameId: 'g1', gameSeconds: 100 };
+    expect(resolveSaveKeeperId(save, records, gkPositions)).toBe('fallback-player');
+  });
+
+  it('returns null without crashing when playerId is absent and gameSeconds is null', () => {
+    const records = [ptr({ id: 'r1', playerId: 'fallback-player', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 2700 })];
+    const save = { playerId: null, gameId: 'g1', gameSeconds: null };
+    expect(resolveSaveKeeperId(save, records, gkPositions)).toBeNull();
+  });
+
+  it('returns null when playerId is absent and the fallback is unresolvable', () => {
+    const save = { playerId: null, gameId: 'g1', gameSeconds: 5000 };
+    expect(resolveSaveKeeperId(save, [], gkPositions)).toBeNull();
+  });
+});
+
+describe('calculateSavesByKeeper', () => {
+  const records = [ptr({ id: 'r1', playerId: 'keeper-a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 2700 })];
+
+  it('excludes byUs: false saves entirely (not counted, not unattributed)', () => {
+    const saves = [{ id: 's1', playerId: null, gameId: 'g1', gameSeconds: 100, byUs: false }];
+    const result = calculateSavesByKeeper(saves, records, gkPositions);
+    expect(result.byKeeper.size).toBe(0);
+    expect(result.unattributedCount).toBe(0);
+  });
+
+  it('populates byKeeper and byKeeperForSaveId for a save with an explicit playerId', () => {
+    const saves = [{ id: 's1', playerId: 'keeper-a', gameId: 'g1', gameSeconds: 100, byUs: true }];
+    const result = calculateSavesByKeeper(saves, records, gkPositions);
+    expect(result.byKeeper.get('keeper-a')).toBe(1);
+    expect(result.byKeeperForSaveId.get('s1')).toBe('keeper-a');
+  });
+
+  it('populates both maps identically for a save with a resolvable fallback', () => {
+    const saves = [{ id: 's1', playerId: null, gameId: 'g1', gameSeconds: 100, byUs: true }];
+    const result = calculateSavesByKeeper(saves, records, gkPositions);
+    expect(result.byKeeper.get('keeper-a')).toBe(1);
+    expect(result.byKeeperForSaveId.get('s1')).toBe('keeper-a');
+  });
+
+  it('increments unattributedCount and omits byKeeperForSaveId when no fallback resolves', () => {
+    const saves = [{ id: 's1', playerId: null, gameId: 'g1', gameSeconds: 9999, byUs: true }];
+    const result = calculateSavesByKeeper(saves, records, gkPositions);
+    expect(result.unattributedCount).toBe(1);
+    expect(result.byKeeperForSaveId.has('s1')).toBe(false);
+  });
+
+  it('save-appears-in-exactly-one-drill-down invariant: no double counting across keepers', () => {
+    const multiRecords = [
+      ptr({ id: 'r1', playerId: 'keeper-a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 1000 }),
+      ptr({ id: 'r2', playerId: 'keeper-b', gameId: 'g1', startGameSeconds: 1000, endGameSeconds: 2700 }),
+    ];
+    const saves = [
+      { id: 's1', playerId: null, gameId: 'g1', gameSeconds: 100, byUs: true },
+      { id: 's2', playerId: null, gameId: 'g1', gameSeconds: 200, byUs: true },
+      { id: 's3', playerId: null, gameId: 'g1', gameSeconds: 1500, byUs: true },
+    ];
+    const result = calculateSavesByKeeper(saves, multiRecords, gkPositions);
+    expect(result.byKeeperForSaveId.size).toBe(3);
+    const totalCounted = Array.from(result.byKeeper.values()).reduce((sum, n) => sum + n, 0);
+    expect(totalCounted).toBe(result.byKeeperForSaveId.size);
+    expect(result.byKeeper.get('keeper-a')).toBe(2);
+    expect(result.byKeeper.get('keeper-b')).toBe(1);
+  });
+
+  it('returns empty maps/zero count for an empty saves array', () => {
+    const result = calculateSavesByKeeper([], records, gkPositions);
+    expect(result.byKeeper.size).toBe(0);
+    expect(result.byKeeperForSaveId.size).toBe(0);
+    expect(result.unattributedCount).toBe(0);
+  });
+});
+
+describe('calculatePlayerShotStats', () => {
+  it('counts a null-outcome shot toward shots only', () => {
+    const shots = [{ playerId: 'p1', takenByUs: true, outcome: null }];
+    expect(calculatePlayerShotStats('p1', shots)).toEqual({ shots: 1, onTarget: 0, wide: 0, blocked: 0 });
+  });
+
+  it('counts GOAL and SAVED outcomes toward onTarget (and shots)', () => {
+    const shots = [
+      { playerId: 'p1', takenByUs: true, outcome: 'GOAL' as const },
+      { playerId: 'p1', takenByUs: true, outcome: 'SAVED' as const },
+    ];
+    expect(calculatePlayerShotStats('p1', shots)).toEqual({ shots: 2, onTarget: 2, wide: 0, blocked: 0 });
+  });
+
+  it('counts WIDE outcome toward wide (and shots) only', () => {
+    const shots = [{ playerId: 'p1', takenByUs: true, outcome: 'WIDE' as const }];
+    expect(calculatePlayerShotStats('p1', shots)).toEqual({ shots: 1, onTarget: 0, wide: 1, blocked: 0 });
+  });
+
+  it('counts BLOCKED outcome toward blocked (and shots) only', () => {
+    const shots = [{ playerId: 'p1', takenByUs: true, outcome: 'BLOCKED' as const }];
+    expect(calculatePlayerShotStats('p1', shots)).toEqual({ shots: 1, onTarget: 0, wide: 0, blocked: 1 });
+  });
+
+  it('excludes opponent shots (takenByUs: false) even if playerId matches', () => {
+    const shots = [{ playerId: 'p1', takenByUs: false, outcome: 'GOAL' as const }];
+    expect(calculatePlayerShotStats('p1', shots)).toEqual({ shots: 0, onTarget: 0, wide: 0, blocked: 0 });
+  });
+
+  it('excludes shots for a different playerId', () => {
+    const shots = [{ playerId: 'p2', takenByUs: true, outcome: 'GOAL' as const }];
+    expect(calculatePlayerShotStats('p1', shots)).toEqual({ shots: 0, onTarget: 0, wide: 0, blocked: 0 });
+  });
+
+  it('returns an all-zero result for an empty shots array', () => {
+    expect(calculatePlayerShotStats('p1', [])).toEqual({ shots: 0, onTarget: 0, wide: 0, blocked: 0 });
   });
 });

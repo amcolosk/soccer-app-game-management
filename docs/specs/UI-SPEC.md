@@ -601,9 +601,30 @@ Three numeric steppers inside the setup card, arranged in two rows:
 
 #### Layout
 - Team selector at top (dropdown if multiple teams)
-- Summary stats row: W / L / D record, total games
-- Play time table (sortable by player name or total minutes)
+- Summary stats row: W / L / D record, total games, total goals/assists/gold stars, and a Total Saves card (🧤, sums `calculateSavesByKeeper`'s `byKeeper` map; shows a "+N save(s) with no keeper on record" sublabel only when `unattributedCount > 0`)
+- Player Statistics Toggle (below), then the Play Time table for the active view
 - Per-player drill-down (tap row → expand or navigate to player detail)
+
+#### Player Statistics Toggle (Issue #203)
+**Component:** `src/components/SeasonReportStatsTabs.tsx`
+
+A `role="tablist"` segmented control (`aria-label="Player statistics view"`) sits directly above the Player Statistics table, switching it between two views. Interaction mirrors `StatsSubViewTabs.tsx`: `role="tab"`, `aria-selected`, roving `tabIndex` (`0` on the active tab, `-1` otherwise), and `ArrowRight`/`ArrowLeft`/`Home`/`End` keyboard navigation.
+
+| Tab | `aria-label` on the table | Columns |
+|-----|---------------------------|---------|
+| Field (default) | "Player season statistics" | Player, GP, Time, Goals, Assists, Stars, Yellow, Red, Shots, On Target, Wide, Blocked (12 columns) |
+| Goalkeeper | "Goalkeeper season statistics" | Player, GP, Time, Saves, Goals Against, Save % (6 columns) |
+
+- **Row omission rule**: the Goalkeeper tab shows only players who've logged GOALKEEPER-role play time this season (`hasGoalkeeperPlayTime`) — a non-keeper player is omitted entirely, never shown with dashes. Empty state when the filtered list is empty: "No players have logged goalkeeper time yet."
+- **Dash/zero convention**: Field-tab attacking columns use `-` for a literal 0 (existing convention). Goalkeeper-tab Saves/Goals Against always show the real number, including literal `0` — a shutout is a real, notable stat, not an absence. Save % shows `—` specifically when `saves + goalsAgainst === 0`, even for a keeper-experienced player; otherwise it's `Math.round(savePercent * 100)}%`.
+- Icons: 🧤 Saves, 👟 Shots, 🥅 Goals Against; Save %, On Target, Wide, Blocked stay plain-text headers (same convention as the existing GP/Time headers).
+
+#### Player Detail Drill-down — Goalkeeper additions (Issue #203)
+For a player with `hasGoalkeeperPlayTime`, the drill-down gains a compact keeper breakout card (3-up Saves / Goals Against / Save % mini-stat row, `.keeper-breakout-card`) positioned first, above "Play Time by Position". Two new full-width event-list cards (same `.event-list`/`.event-item` shape as Goals/Assists) are inserted after "Goals & Assists by Position" and before "Goals": a Saves list and a Shots list (Shots include the outcome label: Goal / On Target (Saved) / Wide / Blocked / "Outcome not recorded" for a null outcome).
+
+Full drill-down order: keeper breakout card (conditional) → Play Time by Position → Goals & Assists by Position → Saves → Shots → Goals → Assists → Gold Stars → Yellow Cards → Red Cards.
+
+A save is attributed to exactly one player: `calculateSavesByKeeper`'s single team-wide resolution pass (explicit `Save.playerId` first, else a time-window fallback against who occupied the GOALKEEPER-role position at that instant) is reused by the summary card, the Goalkeeper-tab column, and every player's Saves drill-down list — no per-player re-resolution.
 
 #### Empty States
 | Condition | Message |
@@ -611,6 +632,7 @@ Three numeric steppers inside the setup card, arranged in two rows:
 | No teams | "Create a team in the Manage tab to start tracking." |
 | Team has no completed games | "No completed games yet. Play some games to see reports here." |
 | Player has 0 minutes | Show row with 0:00 (don't hide — highlights absence from field) |
+| No player has logged goalkeeper time | "No players have logged goalkeeper time yet." (Goalkeeper tab only) |
 
 #### Tablet Adaptation
 - Wider table with more columns visible (position breakdown inline)

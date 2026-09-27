@@ -67,6 +67,8 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 - **Player Details**: Drill down into individual player performance
 - **Play Time by Position**: See where each player has played and for how long
 - **Goals & Assists**: Track scoring statistics and gold stars
+- **Field / Goalkeeper Toggle**: switch the player statistics table between attacking stats (Goals, Assists, Shots, On Target, Wide, Blocked) and goalkeeper stats (Saves, Goals Against, Save %) — the Goalkeeper view lists only players who've logged goalkeeper time this season
+- **Saves & Goals Against**: a save is credited to its explicit goalkeeper when logged, or derived from who occupied the goalkeeper position at that moment otherwise; opponent goals are attributed to the goalkeeper on the field the same way, feeding a per-player Save % and a team-wide Total Saves summary card
 - **Real-time Updates**: Reports automatically update as games are played
 
 ## Technology Stack

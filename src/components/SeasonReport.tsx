@@ -1,7 +1,7 @@
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, type ReactNode } from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
-import type { Team, Player, TeamRoster, Goal, GameNote, PlayTimeRecord, Game } from '../types/schema';
+import type { Team, Player, TeamRoster, Goal, GameNote, PlayTimeRecord, Game, Save, Shot } from '../types/schema';
 import { handleApiError } from "../utils/errorHandler";
 import { trackEvent, AnalyticsEvents } from "../utils/analytics";
 import { sortRosterByNumber } from "../utils/playerUtils";
@@ -10,9 +10,13 @@ import {
   calculatePlayTimeByPosition,
   calculateGoalsAssistsByPosition,
   calculateTeamGoalsAssistsByPosition,
+  calculateGoalsAgainst,
+  normalizeCompletedGamesRecords,
+  hasGoalkeeperPlayTime,
   formatPlayTime,
   countGamesPlayed,
   type PositionGoalAssistRow,
+  type PositionRoleLookup,
 } from "../utils/playTimeCalculations";
 import {
   calculatePlayerGoals,
@@ -21,12 +25,23 @@ import {
   calculatePlayerYellowCards,
   calculatePlayerRedCards,
   calculateRecord,
+  calculateSavesByKeeper,
+  calculatePlayerShotStats,
 } from "../utils/gameCalculations";
 import { useAmplifyQuery } from "../hooks/useAmplifyQuery";
 import { useHelpFab } from "../contexts/HelpFabContext";
 import { buildFlatDebugSnapshot } from "../utils/debugUtils";
 import type { SeasonReportDebugContext } from "../types/debug";
 import { ArchivedTeamBanner } from "./shared/ArchivedTeamBanner";
+import { SeasonReportStatsTabs, type SeasonReportStatsView } from "./SeasonReportStatsTabs";
+
+const SHOT_OUTCOME_LABEL: Record<string, string> = {
+  GOAL: 'Goal',
+  SAVED: 'On Target (Saved)',
+  WIDE: 'Wide',
+  BLOCKED: 'Blocked',
+  UNKNOWN: 'Outcome not recorded',
+};
 
 const client = generateClient<Schema>();
 
@@ -44,6 +59,14 @@ interface PlayerStats {
   redCards: number;
   totalPlayTimeSeconds: number;
   gamesPlayed: number;
+  shots: number;
+  shotsOnTarget: number;
+  shotsWide: number;
+  shotsBlocked: number;
+  hasGoalkeeperTime: boolean;
+  saves: number;          // meaningful only when hasGoalkeeperTime
+  goalsAgainst: number;   // meaningful only when hasGoalkeeperTime
+  savePercent: number | null; // null when saves+goalsAgainst === 0, even if hasGoalkeeperTime
 }
 
 interface PlayerDetails {
@@ -55,6 +78,9 @@ interface PlayerDetails {
   redCards: Array<{ game: Game; minute: number; half: number }>;
   playTimeByPosition: Map<string, number>;
   goalsAssistsByPosition: PositionGoalAssistRow[];
+  keeperStats: { saves: number; goalsAgainst: number; savePercent: number | null } | null; // null when !hasGoalkeeperTime
+  saves: Array<{ game: Game; minute: number; half: number }>;
+  shots: Array<{ game: Game; minute: number; half: number; outcome: Shot['outcome'] }>;
 }
 
 export function TeamReport({ team }: TeamReportProps) {
@@ -72,6 +98,7 @@ export function TeamReport({ team }: TeamReportProps) {
   const [selectedRoster, setSelectedRoster] = useState<TeamRoster | null>(null);
   const [playerDetails, setPlayerDetails] = useState<PlayerDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [statsView, setStatsView] = useState<SeasonReportStatsView>('field');
 
   // Ref used to return keyboard focus to the clicked row after closing details.
   const lastSelectedRowRef = useRef<HTMLTableRowElement | null>(null);
@@ -80,6 +107,8 @@ export function TeamReport({ team }: TeamReportProps) {
   const [allGoals, setAllGoals] = useState<Goal[]>([]);
   const [allNotes, setAllNotes] = useState<GameNote[]>([]);
   const [allPlayTimeRecords, setAllPlayTimeRecords] = useState<PlayTimeRecord[]>([]);
+  const [allShots, setAllShots] = useState<Shot[]>([]);
+  const [allSaves, setAllSaves] = useState<Save[]>([]);
 
   // Phase 1: Subscribe to team-scoped data and simple models
   const { data: teamRosters, isSynced: rostersSynced } = useAmplifyQuery('TeamRoster', {
@@ -166,6 +195,47 @@ export function TeamReport({ team }: TeamReportProps) {
     const teamPlayTimeRecords = allPlayTimeRecords.filter(r => r && teamGameIds.has(r.gameId));
     return calculateTeamGoalsAssistsByPosition(teamGoals, teamPlayTimeRecords, effectivePositionsMap);
   }, [allGoals, allPlayTimeRecords, allGames, effectivePositionsMap]);
+
+  // GOALKEEPER-role lookup sourced ONLY from FormationPosition -- FieldPosition
+  // has no role field, and adding one to effectivePositionsMap would conflate
+  // the legacy/current-era position-id merge with role semantics that only
+  // ever apply to current-era FormationPosition ids.
+  const positionRoleLookup = useMemo((): PositionRoleLookup[] =>
+    formationPositions.map(p => ({ id: p.id, role: p.role ?? null })),
+    [formationPositions]
+  );
+
+  const completedGameEndTimes = useMemo(() => {
+    const map = new Map<string, number>();
+    allGames.forEach(g => {
+      if (g.status === 'completed' && g.elapsedSeconds != null) map.set(g.id, g.elapsedSeconds);
+    });
+    return map;
+  }, [allGames]);
+
+  const normalizedPlayTimeRecords = useMemo(
+    () => normalizeCompletedGamesRecords(allPlayTimeRecords, completedGameEndTimes),
+    [allPlayTimeRecords, completedGameEndTimes]
+  );
+
+  const teamGameIdsSet = useMemo(() => new Set(allGames.map(g => g.id)), [allGames]);
+  const teamGoals = useMemo(() => allGoals.filter(g => g && teamGameIdsSet.has(g.gameId)), [allGoals, teamGameIdsSet]);
+  const teamNotes = useMemo(() => allNotes.filter(n => n && teamGameIdsSet.has(n.gameId)), [allNotes, teamGameIdsSet]);
+  const teamShots = useMemo(() => allShots.filter(s => s && teamGameIdsSet.has(s.gameId)), [allShots, teamGameIdsSet]);
+  const teamSaves = useMemo(() => allSaves.filter(s => s && teamGameIdsSet.has(s.gameId)), [allSaves, teamGameIdsSet]);
+  const teamPlayTimeRecords = useMemo(
+    () => normalizedPlayTimeRecords.filter(r => r && teamGameIdsSet.has(r.gameId)),
+    [normalizedPlayTimeRecords, teamGameIdsSet]
+  );
+
+  const savesResolution = useMemo(
+    () => calculateSavesByKeeper(teamSaves, teamPlayTimeRecords, positionRoleLookup),
+    [teamSaves, teamPlayTimeRecords, positionRoleLookup]
+  );
+  const goalsAgainstByKeeper = useMemo(
+    () => calculateGoalsAgainst(teamGoals, teamPlayTimeRecords, positionRoleLookup),
+    [teamGoals, teamPlayTimeRecords, positionRoleLookup]
+  );
 
   // Phase 2: Once games are loaded, fetch PlayTimeRecords via gameId index query,
   // and fetch Goals/GameNotes via per-game paginated list() calls. This avoids
@@ -318,6 +388,36 @@ export function TeamReport({ team }: TeamReportProps) {
       return items;
     }
 
+    // Paginated gameId-index fetch for Shot/Save records. Unlike PlayTimeRecord's
+    // helper above, Shot/Save's listShotsByGameId/listSavesByGameId GSIs are only
+    // ever called via client.models.*, never client.queries.*, so no queries-vs-
+    // models ambiguity handling is needed here.
+    async function fetchShotsForGame(gameId: string): Promise<Shot[]> {
+      const items: Shot[] = [];
+      let nextToken: string | null | undefined = undefined;
+      do {
+        const args: { gameId: string; nextToken?: string; limit?: number } = { gameId, limit: 1000 };
+        if (nextToken) args.nextToken = nextToken;
+        const res = await client.models.Shot.listShotsByGameId(args);
+        if (res.data) items.push(...res.data);
+        nextToken = res.nextToken;
+      } while (nextToken);
+      return items;
+    }
+
+    async function fetchSavesForGame(gameId: string): Promise<Save[]> {
+      const items: Save[] = [];
+      let nextToken: string | null | undefined = undefined;
+      do {
+        const args: { gameId: string; nextToken?: string; limit?: number } = { gameId, limit: 1000 };
+        if (nextToken) args.nextToken = nextToken;
+        const res = await client.models.Save.listSavesByGameId(args);
+        if (res.data) items.push(...res.data);
+        nextToken = res.nextToken;
+      } while (nextToken);
+      return items;
+    }
+
     const loadGameData = async () => {
       try {
         const gameIds = allGames.map(g => g.id);
@@ -336,6 +436,26 @@ export function TeamReport({ team }: TeamReportProps) {
         setAllPlayTimeRecords(allPlayTime);
         setAllGoals(allGoalsData);
         setAllNotes(allNotesData);
+
+        // Shot/Save fetches run in their own independent failure domain: a
+        // failure here must never blank the rest of the report (Goals/
+        // PlayTime/Notes-derived sections still render).
+        const [shotSettled, saveSettled] = await Promise.allSettled([
+          Promise.all(gameIds.map(fetchShotsForGame)),
+          Promise.all(gameIds.map(fetchSavesForGame)),
+        ]);
+        // On failure, keep whatever was previously loaded (e.g. by the initial
+        // run) rather than wiping it with an empty array on the 2s reload.
+        if (shotSettled.status === 'fulfilled') {
+          setAllShots(shotSettled.value.flat());
+        } else {
+          handleApiError(shotSettled.reason, 'Failed to load shot data');
+        }
+        if (saveSettled.status === 'fulfilled') {
+          setAllSaves(saveSettled.value.flat());
+        } else {
+          handleApiError(saveSettled.reason, 'Failed to load save data');
+        }
 
         setPhase2Synced(true);
         gameDataLoadedRef.current = true;
@@ -368,42 +488,16 @@ export function TeamReport({ team }: TeamReportProps) {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allSynced, allPlayTimeRecords, teamRosters, players, allGames, allGoals, allNotes]);
+  }, [allSynced, allPlayTimeRecords, teamRosters, players, allGames, allGoals, allNotes, allShots, allSaves, formationPositions]);
 
   const calculateStats = () => {
-    const teamGameIds = new Set(allGames.map(g => g.id));
-    
-    // Build a map of gameId → elapsedSeconds for completed games.
-    // This is used as a safety net: if closeActivePlayTimeRecords missed closing
-    // some records (e.g., due to DynamoDB Scan pagination without a GSI on gameId),
-    // we can still calculate correct play time for completed games.
-    const completedGameEndTimes = new Map<string, number>();
-    allGames.forEach(g => {
-      if (g.status === 'completed' && g.elapsedSeconds != null) {
-        completedGameEndTimes.set(g.id, g.elapsedSeconds);
-      }
-    });
-    
-    // Fix up any unclosed records in completed games before calculating stats.
-    // This handles the case where closeActivePlayTimeRecords didn't find all records
-    // during the DynamoDB Scan (no GSI on gameId, eventually consistent reads).
-    const fixedPlayTimeRecords = allPlayTimeRecords.map(r => {
-      if ((r.endGameSeconds === null || r.endGameSeconds === undefined) && completedGameEndTimes.has(r.gameId)) {
-        const gameEndTime = completedGameEndTimes.get(r.gameId)!;
-        return { ...r, endGameSeconds: gameEndTime };
-      }
-      return r;
-    });
-
     const stats: PlayerStats[] = teamRosters.map((roster) => {
       const player = players.find(p => p.id === roster.playerId);
       if (!player) return null;
-      
-      // Filter data for this team's games only
-      const teamGoals = allGoals.filter(g => g && teamGameIds.has(g.gameId));
-      const teamNotes = allNotes.filter(n => n && teamGameIds.has(n.gameId));
-      const playerPlayTime = fixedPlayTimeRecords.filter(r => 
-        r && r.playerId === player.id && teamGameIds.has(r.gameId)
+
+      // Filter data for this team's games only (already normalized+team-filtered)
+      const playerPlayTime = teamPlayTimeRecords.filter(r =>
+        r && r.playerId === player.id
       );
 
       // Use utility functions for calculations
@@ -419,6 +513,12 @@ export function TeamReport({ team }: TeamReportProps) {
       // Use shared utility to count games played
       const gamesPlayed = countGamesPlayed(player.id, playerPlayTime);
 
+      const shotStats = calculatePlayerShotStats(player.id, teamShots);
+      const keeperEligible = hasGoalkeeperPlayTime(player.id, teamPlayTimeRecords, positionRoleLookup);
+      const saves = savesResolution.byKeeper.get(player.id) ?? 0;
+      const goalsAgainst = goalsAgainstByKeeper.get(player.id) ?? 0;
+      const savePercent = (saves + goalsAgainst) > 0 ? saves / (saves + goalsAgainst) : null;
+
       return {
         player,
         roster,
@@ -429,6 +529,14 @@ export function TeamReport({ team }: TeamReportProps) {
         redCards,
         totalPlayTimeSeconds,
         gamesPlayed,
+        shots: shotStats.shots,
+        shotsOnTarget: shotStats.onTarget,
+        shotsWide: shotStats.wide,
+        shotsBlocked: shotStats.blocked,
+        hasGoalkeeperTime: keeperEligible,
+        saves,
+        goalsAgainst,
+        savePercent,
       };
     }).filter(Boolean) as PlayerStats[];
 
@@ -445,9 +553,6 @@ export function TeamReport({ team }: TeamReportProps) {
     setSelectedPlayer(player);
 
     try {
-      const teamGameIds = new Set(allGames.map(g => g.id));
-      const teamGoals = allGoals.filter(g => g && teamGameIds.has(g.gameId));
-      
       // Get goals scored by this player using utility
       const playerGoalsList = teamGoals.filter(g => g.scorerId === player.id);
       const playerGoals = playerGoalsList
@@ -469,7 +574,6 @@ export function TeamReport({ team }: TeamReportProps) {
         .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
 
       // Get notes for this player
-      const teamNotes = allNotes.filter(n => n && teamGameIds.has(n.gameId));
       const playerNotes = teamNotes.filter(n => n.playerId === player.id);
 
       const goldStars = playerNotes
@@ -499,23 +603,11 @@ export function TeamReport({ team }: TeamReportProps) {
         }))
         .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
 
-      // Calculate play time by position using shared utility
-      // Fix up unclosed records for completed games (same as calculateStats)
-      const completedGameEndTimes = new Map<string, number>();
-      allGames.forEach(g => {
-        if (g.status === 'completed' && g.elapsedSeconds != null) {
-          completedGameEndTimes.set(g.id, g.elapsedSeconds);
-        }
-      });
-      const playerPlayTime = allPlayTimeRecords
-        .filter(r => r && r.playerId === player.id && teamGameIds.has(r.gameId))
-        .map(r => {
-          if ((r.endGameSeconds === null || r.endGameSeconds === undefined) && completedGameEndTimes.has(r.gameId)) {
-            return { ...r, endGameSeconds: completedGameEndTimes.get(r.gameId)! };
-          }
-          return r;
-        });
- 
+      // Calculate play time by position using shared utility.
+      // teamPlayTimeRecords is already normalized (unclosed records in
+      // completed games fixed up) and team-scoped.
+      const playerPlayTime = teamPlayTimeRecords.filter(r => r && r.playerId === player.id);
+
       // Calculate play time by position
       // No need to pass currentGameTime since these are completed games
       const playTimeByPosition = calculatePlayTimeByPosition(
@@ -525,13 +617,40 @@ export function TeamReport({ team }: TeamReportProps) {
       );
 
       // Attribute goals and assists to field positions via play-time intervals.
-      const teamGoalsForAttribution = allGoals.filter(g => g && teamGameIds.has(g.gameId));
       const goalsAssistsByPosition = calculateGoalsAssistsByPosition(
         player.id,
         playerPlayTime,
-        teamGoalsForAttribution,
+        teamGoals,
         effectivePositionsMap
       );
+
+      const keeperEligible = hasGoalkeeperPlayTime(player.id, teamPlayTimeRecords, positionRoleLookup);
+      const keeperStats = keeperEligible
+        ? (() => {
+            const saves = savesResolution.byKeeper.get(player.id) ?? 0;
+            const goalsAgainst = goalsAgainstByKeeper.get(player.id) ?? 0;
+            return { saves, goalsAgainst, savePercent: (saves + goalsAgainst) > 0 ? saves / (saves + goalsAgainst) : null };
+          })()
+        : null;
+
+      const savesList = teamSaves
+        .filter(s => savesResolution.byKeeperForSaveId.get(s.id) === player.id)
+        .map(s => ({
+          game: allGames.find(g => g.id === s.gameId)!,
+          minute: Math.floor((s.gameSeconds || 0) / 60),
+          half: s.half || 1,
+        }))
+        .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
+
+      const shotsList = teamShots
+        .filter(s => s.takenByUs === true && s.playerId === player.id)
+        .map(s => ({
+          game: allGames.find(g => g.id === s.gameId)!,
+          minute: Math.floor((s.gameSeconds || 0) / 60),
+          half: s.half || 1,
+          outcome: s.outcome,
+        }))
+        .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
 
       setPlayerDetails({
         player,
@@ -542,6 +661,9 @@ export function TeamReport({ team }: TeamReportProps) {
         redCards,
         playTimeByPosition,
         goalsAssistsByPosition,
+        keeperStats,
+        saves: savesList,
+        shots: shotsList,
       });
     } catch (error) {
       handleApiError(error, 'Failed to load player details');
@@ -590,6 +712,17 @@ export function TeamReport({ team }: TeamReportProps) {
                 {playerStats.reduce((sum, s) => sum + s.goldStars, 0)}
               </div>
             </div>
+            <div className="summary-card">
+              <div className="summary-label">🧤 Total Saves</div>
+              <div className="summary-value">
+                {Array.from(savesResolution.byKeeper.values()).reduce((sum, n) => sum + n, 0)}
+              </div>
+              {savesResolution.unattributedCount > 0 && (
+                <div className="summary-sublabel">
+                  +{savesResolution.unattributedCount} save{savesResolution.unattributedCount === 1 ? '' : 's'} with no keeper on record
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Team-Level Goals & Assists by Position */}
@@ -623,62 +756,130 @@ export function TeamReport({ team }: TeamReportProps) {
           )}
 
           <h2 className="section-heading">Player Statistics</h2>
-          <div className="stats-table-container">
-            <table className="stats-table" aria-label="Player season statistics">
-              <thead>
-                <tr>
-                  <th className="player-name">Player</th>
-                  <th>GP</th>
-                  <th>Time</th>
-                  <th>⚽<span className="col-label"> Goals</span></th>
-                  <th>🎯<span className="col-label"> Assists</span></th>
-                  <th>⭐<span className="col-label"> Stars</span></th>
-                  <th>🟨<span className="col-label"> Yellow</span></th>
-                  <th>🟥<span className="col-label"> Red</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {playerStats.map((stat) => (
-                  <tr
-                    key={stat.player.id}
-                    ref={selectedPlayer?.id === stat.player.id ? lastSelectedRowRef : null}
-                    tabIndex={0}
-                    aria-selected={selectedPlayer?.id === stat.player.id}
-                    onClick={(e) => {
-                      lastSelectedRowRef.current = e.currentTarget;
-                      setSelectedRoster(stat.roster);
-                      void loadPlayerDetails(stat.player);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        lastSelectedRowRef.current = e.currentTarget;
-                        setSelectedRoster(stat.roster);
-                        void loadPlayerDetails(stat.player);
-                      }
-                    }}
-                    className={`clickable-row ${selectedPlayer?.id === stat.player.id ? 'selected' : ''}`}
-                  >
-                    <td className="player-name">
-                      {stat.roster.playerNumber !== undefined ? `#${stat.roster.playerNumber} ` : ''}
-                      {stat.player.firstName} {stat.player.lastName}
-                    </td>
-                    <td>{stat.gamesPlayed}</td>
-                    <td>{formatPlayTime(stat.totalPlayTimeSeconds, 'long')}</td>
-                    <td className="stat-goals">{stat.goals || '-'}</td>
-                    <td className="stat-assists">{stat.assists || '-'}</td>
-                    <td className="stat-stars">{stat.goldStars || '-'}</td>
-                    <td className="stat-yellow">{stat.yellowCards || '-'}</td>
-                    <td className="stat-red">{stat.redCards || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <SeasonReportStatsTabs activeView={statsView} onChange={setStatsView} />
 
-          {playerStats.length === 0 && (
-            <p className="empty-state">No player statistics available yet.</p>
-          )}
+          {(() => {
+            const renderPlayerRow = (stat: PlayerStats, cells: ReactNode) => (
+              <tr
+                key={stat.player.id}
+                ref={selectedPlayer?.id === stat.player.id ? lastSelectedRowRef : null}
+                tabIndex={0}
+                aria-selected={selectedPlayer?.id === stat.player.id}
+                onClick={(e) => {
+                  lastSelectedRowRef.current = e.currentTarget;
+                  setSelectedRoster(stat.roster);
+                  void loadPlayerDetails(stat.player);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    lastSelectedRowRef.current = e.currentTarget;
+                    setSelectedRoster(stat.roster);
+                    void loadPlayerDetails(stat.player);
+                  }
+                }}
+                className={`clickable-row ${selectedPlayer?.id === stat.player.id ? 'selected' : ''}`}
+              >
+                <td className="player-name">
+                  {stat.roster.playerNumber !== undefined ? `#${stat.roster.playerNumber} ` : ''}
+                  {stat.player.firstName} {stat.player.lastName}
+                </td>
+                <td>{stat.gamesPlayed}</td>
+                <td>{formatPlayTime(stat.totalPlayTimeSeconds, 'long')}</td>
+                {cells}
+              </tr>
+            );
+
+            if (statsView === 'goalkeeper') {
+              const keeperStats = playerStats.filter(s => s.hasGoalkeeperTime);
+              return (
+                <>
+                  <div
+                    className="stats-table-container"
+                    id="season-report-stats-panel-goalkeeper"
+                    role="tabpanel"
+                    aria-labelledby="season-report-stats-tab-goalkeeper"
+                  >
+                    <table className="stats-table" aria-label="Goalkeeper season statistics">
+                      <thead>
+                        <tr>
+                          <th className="player-name">Player</th>
+                          <th>GP</th>
+                          <th>Time</th>
+                          <th>🧤<span className="col-label"> Saves</span></th>
+                          <th>🥅<span className="col-label"> Goals Against</span></th>
+                          <th>Save %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {keeperStats.map((stat) => renderPlayerRow(stat, (
+                          <>
+                            <td className="stat-saves">{stat.saves}</td>
+                            <td className="stat-goals-against">{stat.goalsAgainst}</td>
+                            <td className="stat-save-percent">
+                              {stat.savePercent == null ? '—' : `${Math.round(stat.savePercent * 100)}%`}
+                            </td>
+                          </>
+                        )))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {keeperStats.length === 0 && (
+                    <p className="empty-state">No players have logged goalkeeper time yet.</p>
+                  )}
+                </>
+              );
+            }
+
+            return (
+              <>
+                <div
+                  className="stats-table-container"
+                  id="season-report-stats-panel-field"
+                  role="tabpanel"
+                  aria-labelledby="season-report-stats-tab-field"
+                >
+                  <table className="stats-table" aria-label="Player season statistics">
+                    <thead>
+                      <tr>
+                        <th className="player-name">Player</th>
+                        <th>GP</th>
+                        <th>Time</th>
+                        <th>⚽<span className="col-label"> Goals</span></th>
+                        <th>🎯<span className="col-label"> Assists</span></th>
+                        <th>⭐<span className="col-label"> Stars</span></th>
+                        <th>🟨<span className="col-label"> Yellow</span></th>
+                        <th>🟥<span className="col-label"> Red</span></th>
+                        <th>👟<span className="col-label"> Shots</span></th>
+                        <th>On Target</th>
+                        <th>Wide</th>
+                        <th>Blocked</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {playerStats.map((stat) => renderPlayerRow(stat, (
+                        <>
+                          <td className="stat-goals">{stat.goals || '-'}</td>
+                          <td className="stat-assists">{stat.assists || '-'}</td>
+                          <td className="stat-stars">{stat.goldStars || '-'}</td>
+                          <td className="stat-yellow">{stat.yellowCards || '-'}</td>
+                          <td className="stat-red">{stat.redCards || '-'}</td>
+                          <td className="stat-shots">{stat.shots || '-'}</td>
+                          <td className="stat-shots-on-target">{stat.shotsOnTarget || '-'}</td>
+                          <td className="stat-shots-wide">{stat.shotsWide || '-'}</td>
+                          <td className="stat-shots-blocked">{stat.shotsBlocked || '-'}</td>
+                        </>
+                      )))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {playerStats.length === 0 && (
+                  <p className="empty-state">No player statistics available yet.</p>
+                )}
+              </>
+            );
+          })()}
 
           {selectedPlayer && (
             <div className="player-details-section">
@@ -703,6 +904,29 @@ export function TeamReport({ team }: TeamReportProps) {
                 <div className="loading-state">Loading player details...</div>
               ) : playerDetails ? (
                 <div className="details-content">
+                  {/* Goalkeeper breakout card */}
+                  {playerDetails.keeperStats && (
+                    <div className="details-card keeper-breakout-card">
+                      <h3>🧤 Goalkeeper Stats</h3>
+                      <div className="keeper-breakout-row">
+                        <div className="keeper-breakout-stat">
+                          <span className="keeper-breakout-value">{playerDetails.keeperStats.saves}</span>
+                          <span className="keeper-breakout-label">Saves</span>
+                        </div>
+                        <div className="keeper-breakout-stat">
+                          <span className="keeper-breakout-value">{playerDetails.keeperStats.goalsAgainst}</span>
+                          <span className="keeper-breakout-label">Goals Against</span>
+                        </div>
+                        <div className="keeper-breakout-stat">
+                          <span className="keeper-breakout-value">
+                            {playerDetails.keeperStats.savePercent == null ? '—' : `${Math.round(playerDetails.keeperStats.savePercent * 100)}%`}
+                          </span>
+                          <span className="keeper-breakout-label">Save %</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Play Time by Position */}
                   {playerDetails.playTimeByPosition.size > 0 && (
                     <div className="details-card">
@@ -749,6 +973,44 @@ export function TeamReport({ team }: TeamReportProps) {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  )}
+
+                  {/* Saves */}
+                  {playerDetails.saves.length > 0 && (
+                    <div className="details-card details-card--full-width">
+                      <h3>🧤 Saves ({playerDetails.saves.length})</h3>
+                      <div className="event-list">
+                        {playerDetails.saves.map((save, idx) => (
+                          <div key={idx} className="event-item">
+                            <span className="event-game">
+                              vs {save.game.opponent} ({save.game.gameDate ? new Date(save.game.gameDate).toLocaleDateString() : 'N/A'})
+                            </span>
+                            <span className="event-time">
+                              {save.minute}' (Half {save.half})
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Shots */}
+                  {playerDetails.shots.length > 0 && (
+                    <div className="details-card details-card--full-width">
+                      <h3>👟 Shots ({playerDetails.shots.length})</h3>
+                      <div className="event-list">
+                        {playerDetails.shots.map((shot, idx) => (
+                          <div key={idx} className="event-item">
+                            <span className="event-game">
+                              vs {shot.game.opponent} ({shot.game.gameDate ? new Date(shot.game.gameDate).toLocaleDateString() : 'N/A'})
+                            </span>
+                            <span className="event-time">
+                              {shot.minute}' (Half {shot.half}) — {SHOT_OUTCOME_LABEL[shot.outcome ?? 'UNKNOWN']}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 

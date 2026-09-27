@@ -203,7 +203,7 @@ export function normalizeCompletedRecords(
   );
 }
 
-interface PositionRoleLookup {
+export interface PositionRoleLookup {
   id: string;
   role?: string | null;
 }
@@ -269,6 +269,24 @@ export function getCurrentGoalkeeperId(
   return [...openGoalkeeperPlayerIds][0];
 }
 
+/**
+ * Deterministic tie-break pick among candidate PlayTimeRecords that all
+ * cover the same instant: latest startGameSeconds wins, then earliest
+ * endGameSeconds (null/open treated as +Infinity), then lexicographically
+ * smallest id. Extracted from getAttributedPlayTimeRecord's inline sort so
+ * getGoalkeeperIdAtTime can reuse the exact same tie-break behavior.
+ */
+function pickAttributedRecord(candidates: PlayTimeRecord[]): PlayTimeRecord | null {
+  if (candidates.length === 0) return null;
+  return candidates.sort((a, b) => {
+    if (a.startGameSeconds !== b.startGameSeconds) return b.startGameSeconds - a.startGameSeconds;
+    const aEnd = a.endGameSeconds ?? Number.POSITIVE_INFINITY;
+    const bEnd = b.endGameSeconds ?? Number.POSITIVE_INFINITY;
+    if (aEnd !== bEnd) return aEnd - bEnd;
+    return a.id.localeCompare(b.id);
+  })[0];
+}
+
 function getAttributedPlayTimeRecord(
   playTimeRecords: PlayTimeRecord[],
   playerId: string,
@@ -284,23 +302,120 @@ function getAttributedPlayTimeRecord(
     return record.startGameSeconds <= gameSeconds && gameSeconds <= recordEnd;
   });
 
-  if (candidates.length === 0) {
-    return null;
+  return pickAttributedRecord(candidates);
+}
+
+/**
+ * Determine which single player occupied a GOALKEEPER-role position at a
+ * specific instant (gameId, gameSeconds), via time-window join against
+ * PlayTimeRecord. Filters to gameId itself (does its OWN gameId filtering,
+ * unlike getCurrentGoalkeeperId, whose precondition requires pre-scoped
+ * records) + GOALKEEPER-role positionId + a covering interval
+ * (startGameSeconds <= gameSeconds <= endGameSeconds, open-ended records
+ * treated as covering to +Infinity), then delegates tie-break to
+ * pickAttributedRecord.
+ *
+ * Unlike sibling getCurrentGoalkeeperId, this function does NOT null out on
+ * multi-candidate ambiguity -- it always picks a candidate when any covers
+ * the instant. Reason: normalizer-stretched unclosed records (see
+ * normalizeCompletedGamesRecords) can legitimately overlap the real current
+ * keeper's record at a boundary instant, and "latest start wins" resolves
+ * that correctly, whereas returning null on any overlap would make every
+ * keeper-handover-boundary-second goal/save unattributable by construction.
+ *
+ * This is explicitly NOT a Lambda-parity-tested twin (no amplify/functions/
+ * shared counterpart) -- it's report-only, coach-side-only logic; nothing
+ * on the guest-auth path needs it.
+ */
+export function getGoalkeeperIdAtTime(
+  playTimeRecords: PlayTimeRecord[],
+  positions: PositionRoleLookup[],
+  gameId: string,
+  gameSeconds: number
+): string | null {
+  const goalkeeperPositionIds = new Set(
+    positions.filter(p => p.role === 'GOALKEEPER').map(p => p.id)
+  );
+  if (goalkeeperPositionIds.size === 0) return null;
+
+  const candidates = playTimeRecords.filter(r => {
+    if (r.gameId !== gameId || r.positionId == null || !goalkeeperPositionIds.has(r.positionId)) {
+      return false;
+    }
+    const end = r.endGameSeconds ?? Number.POSITIVE_INFINITY;
+    return r.startGameSeconds <= gameSeconds && gameSeconds <= end;
+  });
+
+  const picked = pickAttributedRecord(candidates);
+  return picked ? picked.playerId : null;
+}
+
+/**
+ * Map of playerId -> count of opponent goals (scoredByUs === false)
+ * attributed to that player via getGoalkeeperIdAtTime. Goals with a null
+ * gameSeconds, or that resolve to no covering GOALKEEPER-role record, are
+ * silently omitted (not counted against anyone) -- same "omit, don't guess"
+ * convention as calculateGoalsByPosition in gameCalculations.ts.
+ */
+export function calculateGoalsAgainst(
+  goals: Array<Pick<Goal, 'scoredByUs' | 'gameId' | 'gameSeconds'>>,
+  playTimeRecords: PlayTimeRecord[],
+  positions: PositionRoleLookup[]
+): Map<string, number> {
+  const result = new Map<string, number>();
+  for (const goal of goals) {
+    if (goal.scoredByUs !== false || goal.gameSeconds == null) continue;
+    const keeperId = getGoalkeeperIdAtTime(playTimeRecords, positions, goal.gameId, goal.gameSeconds);
+    if (keeperId == null) continue;
+    result.set(keeperId, (result.get(keeperId) ?? 0) + 1);
   }
+  return result;
+}
 
-  return candidates.sort((a, b) => {
-    if (a.startGameSeconds !== b.startGameSeconds) {
-      return b.startGameSeconds - a.startGameSeconds;
-    }
+/**
+ * Multi-game wrapper around the existing single-game normalizeCompletedRecords:
+ * groups records by gameId and normalizes each completed game's group against
+ * its own end time; any game not present in completedGameEndSeconds (still
+ * scheduled/in-progress/halftime, or simply unknown) passes through untouched.
+ * Does not mutate the input array; returns a new array in no particular order
+ * (callers that need original ordering must re-sort).
+ */
+export function normalizeCompletedGamesRecords(
+  records: PlayTimeRecord[],
+  completedGameEndSeconds: Map<string, number>
+): PlayTimeRecord[] {
+  const byGame = new Map<string, PlayTimeRecord[]>();
+  for (const r of records) {
+    const group = byGame.get(r.gameId);
+    if (group) group.push(r); else byGame.set(r.gameId, [r]);
+  }
+  const result: PlayTimeRecord[] = [];
+  for (const [gameId, group] of byGame) {
+    const endSeconds = completedGameEndSeconds.get(gameId);
+    result.push(...(endSeconds != null ? normalizeCompletedRecords(group, endSeconds) : group));
+  }
+  return result;
+}
 
-    const aEnd = a.endGameSeconds ?? Number.POSITIVE_INFINITY;
-    const bEnd = b.endGameSeconds ?? Number.POSITIVE_INFINITY;
-    if (aEnd !== bEnd) {
-      return aEnd - bEnd;
-    }
-
-    return a.id.localeCompare(b.id);
-  })[0];
+/**
+ * True if this player has logged any play time at a GOALKEEPER-role
+ * FormationPosition, anywhere in the given (already team-scoped) records.
+ * Used to decide Goalkeeper-tab row inclusion and the player-detail keeper
+ * breakout card -- a player with zero GOALKEEPER-role play time this season
+ * gets neither, regardless of any stray Save.playerId pointing at them.
+ */
+export function hasGoalkeeperPlayTime(
+  playerId: string,
+  playTimeRecords: PlayTimeRecord[],
+  positions: PositionRoleLookup[]
+): boolean {
+  const goalkeeperPositionIds = new Set(
+    positions.filter(p => p.role === 'GOALKEEPER').map(p => p.id)
+  );
+  if (goalkeeperPositionIds.size === 0) return false;
+  return playTimeRecords.some(
+    r => r.playerId === playerId && r.positionId != null && goalkeeperPositionIds.has(r.positionId)
+  );
 }
 
 function resolvePositionName(

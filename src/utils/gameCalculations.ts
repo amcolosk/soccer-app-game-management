@@ -1,4 +1,5 @@
-import type { Goal, GameNote, Game } from "../types/schema";
+import type { Goal, GameNote, Game, Shot, Save, PlayTimeRecord } from "../types/schema";
+import { getGoalkeeperIdAtTime, type PositionRoleLookup } from "./playTimeCalculations";
 
 /**
  * Calculates total goals scored by a player
@@ -66,6 +67,76 @@ export function computeScoreFromGoals(goals: Array<{ scoredByUs: boolean }>) {
   return {
     ourScore: goals.filter(g => g.scoredByUs).length,
     opponentScore: goals.filter(g => !g.scoredByUs).length,
+  };
+}
+
+/**
+ * Resolve which player gets credit for a save: the save's own explicit
+ * playerId when present (never second-guessed by a fallback lookup, even if
+ * that lookup would disagree or find nothing), else a time-window fallback
+ * via getGoalkeeperIdAtTime. This is the single source of truth for save
+ * attribution -- the team card, the per-player Saves column, and the player
+ * drill-down's Saves list all consume calculateSavesByKeeper's output,
+ * which calls this function once per save, rather than each re-resolving
+ * independently.
+ */
+export function resolveSaveKeeperId(
+  save: Pick<Save, 'playerId' | 'gameId' | 'gameSeconds'>,
+  playTimeRecords: PlayTimeRecord[],
+  positions: PositionRoleLookup[]
+): string | null {
+  if (save.playerId) return save.playerId;
+  if (save.gameSeconds == null) return null;
+  return getGoalkeeperIdAtTime(playTimeRecords, positions, save.gameId, save.gameSeconds);
+}
+
+/**
+ * Team-wide single resolution pass for saves: resolves each save's keeper
+ * exactly once via resolveSaveKeeperId, building both an aggregate count map
+ * and a save-id -> keeper-id map. Callers (team summary card, per-player
+ * column, player drill-down) must all reuse this single result rather than
+ * re-resolving against a narrowed per-player record set, which is what
+ * guarantees a save appears in exactly one player's drill-down.
+ */
+export function calculateSavesByKeeper(
+  saves: Array<Pick<Save, 'id' | 'playerId' | 'gameId' | 'gameSeconds' | 'byUs'>>,
+  playTimeRecords: PlayTimeRecord[],
+  positions: PositionRoleLookup[]
+): { byKeeper: Map<string, number>; byKeeperForSaveId: Map<string, string>; unattributedCount: number } {
+  const byKeeper = new Map<string, number>();
+  const byKeeperForSaveId = new Map<string, string>();
+  let unattributedCount = 0;
+
+  for (const save of saves) {
+    if (save.byUs !== true) continue;
+    const keeperId = resolveSaveKeeperId(save, playTimeRecords, positions);
+    if (keeperId == null) {
+      unattributedCount += 1;
+      continue;
+    }
+    byKeeperForSaveId.set(save.id, keeperId);
+    byKeeper.set(keeperId, (byKeeper.get(keeperId) ?? 0) + 1);
+  }
+
+  return { byKeeper, byKeeperForSaveId, unattributedCount };
+}
+
+/**
+ * Per-player shot stats for shots WE took (takenByUs === true), attributed
+ * via Shot.playerId (the shooter). On Target = outcome GOAL or SAVED;
+ * Wide = outcome WIDE; Blocked = outcome BLOCKED; outcome === null counts
+ * toward shots only.
+ */
+export function calculatePlayerShotStats(
+  playerId: string,
+  shots: Array<Pick<Shot, 'playerId' | 'takenByUs' | 'outcome'>>
+): { shots: number; onTarget: number; wide: number; blocked: number } {
+  const playerShots = shots.filter(s => s.takenByUs === true && s.playerId === playerId);
+  return {
+    shots: playerShots.length,
+    onTarget: playerShots.filter(s => s.outcome === 'GOAL' || s.outcome === 'SAVED').length,
+    wide: playerShots.filter(s => s.outcome === 'WIDE').length,
+    blocked: playerShots.filter(s => s.outcome === 'BLOCKED').length,
   };
 }
 
