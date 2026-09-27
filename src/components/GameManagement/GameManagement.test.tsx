@@ -10,6 +10,7 @@ import type { PlannedSubstitution } from "../../services/rotationPlannerService"
 import { computeRevisionFingerprint } from "../../utils/rotationDiffUtils";
 import { useWakeLock } from "../../hooks/useWakeLock";
 import { useGameNotification } from "../../hooks/useGameNotification";
+import { useOfflineMutations } from "../../hooks/useOfflineMutations";
 
 // ---------------------------------------------------------------------------
 // Hoisted Amplify mock functions – must use vi.hoisted so they are available
@@ -614,6 +615,40 @@ describe("GameManagement – halftime subs never duplicate players on the field"
     await waitFor(() => expect(mockPlayTimeCreate).toHaveBeenCalledTimes(2));
     const opened = mockPlayTimeCreate.mock.calls.map(([fields]) => `${fields.positionId}:${fields.playerId}`);
     expect(opened.sort()).toEqual(["LB:C", "RB:A"]);
+  });
+
+  it("offline, the second half keeps showing the applied lineup its PlayTimeRecords were opened for", async () => {
+    const user = userEvent.setup();
+    const online = vi.mocked(useOfflineMutations)();
+    vi.mocked(useOfflineMutations).mockReturnValue({ ...online, isOnline: false, pendingCount: 3 });
+    try {
+      seed([["la-a", "A", "LB"], ["la-b", "B", "RB"]]);
+      const { rerender } = renderWithRouter(
+        <GameManagement game={{ ...mockGame, status: "halftime" }} team={{ ...mockTeam, maxPlayersOnField: 2 }} onBack={vi.fn()} />,
+      );
+      await act(async () => {
+        await applyHalftimeSubs([
+          { playerOutId: "B", playerInId: "A", positionId: "RB" },
+          { playerOutId: "A", playerInId: "C", positionId: "LB" },
+        ]);
+      });
+      await user.click(screen.getByRole("button", { name: /start second half/i }));
+      await waitFor(() => expect(mockPlayTimeCreate).toHaveBeenCalledTimes(2));
+
+      // Status flips to in-progress; offline, the subscription still holds the pre-halftime rows.
+      mockUseGameSubscriptions.mockReturnValue({
+        ...mockUseGameSubscriptions(),
+        gameState: { ...mockGame, status: "in-progress", currentHalf: 2 },
+      });
+      rerender(
+        <GameManagement game={{ ...mockGame, status: "in-progress" }} team={{ ...mockTeam, maxPlayersOnField: 2 }} onBack={vi.fn()} />,
+      );
+
+      const shown = mockCaptures.rotationWidgetProps.lineup.map((row: Row) => `${row.positionId}:${row.playerId}`);
+      expect(shown.sort()).toEqual(["LB:C", "RB:A"]);
+    } finally {
+      vi.mocked(useOfflineMutations).mockReturnValue(online);
+    }
   });
 
   it("fills a position that a previous move left vacant", async () => {

@@ -315,6 +315,10 @@ async function normalizeAndCreateRotationSchedule({
   return allPlannedRotations;
 }
 
+// How long a synced halftime lineup write may go unechoed by the subscription
+// before its optimistic overlay entry is dropped.
+const HALFTIME_OVERLAY_ECHO_GRACE_MS = 10_000;
+
 export function GameManagement({ game, team, onBack, initialTab }: GameManagementProps) {
   const confirm = useConfirm();
   // Load team roster and formation positions with real-time updates
@@ -450,14 +454,6 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     });
   }, [subscribedLineup]);
 
-  useEffect(() => {
-    // Backstop for a write that never echoes (e.g. another coach removed the row).
-    if (gameState.status !== 'halftime') {
-      setHalftimeLineupOverlay((overlay) =>
-        overlay.deletedIds.size === 0 && overlay.created.length === 0 ? overlay : { deletedIds: new Set(), created: [] });
-    }
-  }, [gameState.status]);
-
   const lineup = useMemo(() => {
     if (halftimeLineupOverlay.deletedIds.size === 0 && halftimeLineupOverlay.created.length === 0) {
       return subscribedLineup;
@@ -551,6 +547,21 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   // Offline-aware mutation wrapper — routes writes to IndexedDB when offline,
   // drains automatically on reconnect (fixes issue #35).
   const { mutations, isOnline, pendingCount: pendingMutationCount, isSyncing } = useOfflineMutations();
+
+  useEffect(() => {
+    // Backstop for a pending write that never echoes (e.g. another coach removed
+    // the row first). Deliberately NOT tied to leaving halftime: offline, Start
+    // Second Half opens PlayTimeRecords for the overlaid lineup, so dropping the
+    // overlay then would show the pre-halftime lineup against those records.
+    // Once online with the queue drained, every write has landed and its echo
+    // is due; anything still unreflected after a grace period is stale.
+    if (!isOnline || pendingMutationCount > 0) return;
+    if (halftimeLineupOverlay.deletedIds.size === 0 && halftimeLineupOverlay.created.length === 0) return;
+    const timeout = setTimeout(() => {
+      setHalftimeLineupOverlay({ deletedIds: new Set(), created: [] });
+    }, HALFTIME_OVERLAY_ECHO_GRACE_MS);
+    return () => clearTimeout(timeout);
+  }, [isOnline, pendingMutationCount, halftimeLineupOverlay]);
 
   const { setHelpContext, setDebugContext } = useHelpFab();
 
