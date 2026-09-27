@@ -27,7 +27,11 @@ const client = generateClient<Schema>();
  * swept up here; deleting it would silently undo someone else's action with
  * the exact "no error, nothing visibly happened" symptom this fix exists to
  * remove. When the caller doesn't have a timestamp to anchor on, this is a
- * no-op rather than guessing.
+ * no-op rather than guessing. Known residual gap: an orphan sharing the exact
+ * same `createdAt` millisecond as the cleared assignment (e.g. two rapid
+ * creates from an offline-queue drain) won't be caught by the strict `<`
+ * below and can still resurface — accepted, since the alternative (`<=`)
+ * risks the false positive above, which is the worse failure mode.
  *
  * Queries directly (bypassing the offline mutation queue, like
  * useGameSubscriptions.ts's own game-plan sync) since this is opportunistic
