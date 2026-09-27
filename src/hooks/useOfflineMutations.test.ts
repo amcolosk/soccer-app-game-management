@@ -8,6 +8,7 @@ const {
   mockGameUpdate,
   mockPlayTimeRecordCreate,
   mockPlayTimeRecordUpdate,
+  mockGoalCreate,
   mockShotCreate,
   mockShotUpdate,
   mockShotDelete,
@@ -33,6 +34,7 @@ const {
   mockGameUpdate: vi.fn(),
   mockPlayTimeRecordCreate: vi.fn(),
   mockPlayTimeRecordUpdate: vi.fn(),
+  mockGoalCreate: vi.fn(),
   mockShotCreate: vi.fn(),
   mockShotUpdate: vi.fn(),
   mockShotDelete: vi.fn(),
@@ -70,7 +72,7 @@ vi.mock('aws-amplify/data', () => ({
         delete: vi.fn().mockResolvedValue({ data: {} }),
         update: vi.fn().mockResolvedValue({ data: {} }),
       },
-      Goal: { create: vi.fn().mockResolvedValue({ data: {} }) },
+      Goal: { create: mockGoalCreate },
       Shot: {
         create: mockShotCreate,
         update: mockShotUpdate,
@@ -167,6 +169,7 @@ describe('useOfflineMutations', () => {
     mockGameUpdate.mockResolvedValue({ data: {} });
     mockPlayTimeRecordCreate.mockResolvedValue({ data: {} });
     mockPlayTimeRecordUpdate.mockResolvedValue({ data: {} });
+    mockGoalCreate.mockResolvedValue({ data: {} });
     mockShotCreate.mockResolvedValue({ data: {} });
     mockShotUpdate.mockResolvedValue({ data: {} });
     mockShotDelete.mockResolvedValue({ data: {} });
@@ -322,6 +325,26 @@ describe('useOfflineMutations', () => {
       expect(mockEnqueue).not.toHaveBeenCalled();
     });
 
+    it('createShot omits playerId (rather than sending null) when there is no shooter, since Shot.playerId backs the Player.shots GSI and DynamoDB rejects an explicit null key', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createShot({
+          gameId: 'g1',
+          takenByUs: false,
+          outcome: 'BLOCKED',
+          gameSeconds: 120,
+          half: 1,
+          playerId: null,
+          loggedVia: 'COACH',
+          coaches: ['coach-1'],
+        });
+      });
+
+      const callArg = mockShotCreate.mock.calls[0]?.[0];
+      expect(callArg).not.toHaveProperty('playerId');
+    });
+
     it('deleteShot calls client.models.Shot.delete', async () => {
       const { result } = renderHook(() => useOfflineMutations());
 
@@ -354,6 +377,53 @@ describe('useOfflineMutations', () => {
       expect(callArg).not.toHaveProperty('outcome');
     });
 
+    it('createGoal calls client.models.Goal.create with correct args, including required loggedVia', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createGoal({
+          gameId: 'g1',
+          scoredByUs: true,
+          gameSeconds: 120,
+          half: 1,
+          scorerId: 'p1',
+          assistId: 'p2',
+          loggedVia: 'COACH',
+          coaches: ['coach-1'],
+        });
+      });
+
+      expect(mockGoalCreate).toHaveBeenCalledWith(expect.objectContaining({
+        gameId: 'g1',
+        scoredByUs: true,
+        loggedVia: 'COACH',
+        scorerId: 'p1',
+        assistId: 'p2',
+      }));
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('createGoal omits scorerId/assistId (rather than sending null) for an opponent goal, since Player.goalsScored/assists back GSIs and DynamoDB rejects an explicit null key', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createGoal({
+          gameId: 'g1',
+          scoredByUs: false,
+          gameSeconds: 120,
+          half: 1,
+          scorerId: null,
+          assistId: null,
+          loggedVia: 'COACH',
+          coaches: ['coach-1'],
+        });
+      });
+
+      const callArg = mockGoalCreate.mock.calls[0]?.[0];
+      expect(callArg).not.toHaveProperty('scorerId');
+      expect(callArg).not.toHaveProperty('assistId');
+    });
+
     it('createSave calls client.models.Save.create with correct args, including required loggedVia', async () => {
       const { result } = renderHook(() => useOfflineMutations());
 
@@ -375,6 +445,25 @@ describe('useOfflineMutations', () => {
         loggedVia: 'HELPER',
       }));
       expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('createSave omits playerId (rather than sending null) when the keeper is unresolved, since Save.playerId backs the Player.saves GSI and DynamoDB rejects an explicit null key', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createSave({
+          gameId: 'g1',
+          byUs: true,
+          gameSeconds: 200,
+          half: 1,
+          playerId: null,
+          loggedVia: 'HELPER',
+          coaches: ['coach-1'],
+        });
+      });
+
+      const callArg = mockSaveCreate.mock.calls[0]?.[0];
+      expect(callArg).not.toHaveProperty('playerId');
     });
 
     it('deleteSave calls client.models.Save.delete', async () => {

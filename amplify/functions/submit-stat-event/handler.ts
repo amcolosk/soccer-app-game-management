@@ -418,6 +418,27 @@ function buildCommonWriteFields(writeContext: WriteContext, coaches: string[]) {
   };
 }
 
+// Player.shots/saves/goalsScored/assists (amplify/data/resource.ts) each
+// declare a hasMany relation on one of these fields, which auto-generates a
+// secondary index keyed on it. DynamoDB GSIs are sparse -- an item is fine
+// with the key attribute absent, but rejects the whole write if the
+// attribute is explicitly present with a null value ("Type mismatch for
+// Index Key ... Actual: NULL"). `deriveShotOutcomeWrites` deliberately
+// returns explicit `null` for an unattributed shooter/scorer/assist/keeper
+// (matching the frontend's `shotOutcomeMapping.ts` twin and its parity
+// test), so every write call site here must strip those before handing the
+// object to `dataClient.models.*.create()`, mirroring the same fix on the
+// coach-app side in `src/hooks/useOfflineMutations.ts`.
+function omitNullForeignKeys<T extends Record<string, unknown>>(fields: T, keys: (keyof T)[]): T {
+  const result = { ...fields };
+  for (const key of keys) {
+    if (result[key] === null) {
+      delete result[key];
+    }
+  }
+  return result;
+}
+
 function assertNoWriteErrors(response: { errors?: ReadonlyArray<{ message: string }> }, fallbackMessage: string): void {
   if (response.errors && response.errors.length > 0) {
     throw new Error(response.errors[0]?.message ?? fallbackMessage);
@@ -470,10 +491,9 @@ async function performFirstAttemptWrite(
       await persistWriteContext(rateLimitTable, clientEventId, writeContext);
     }
 
-    const shotResponse = await dataClient.models.Shot.create({
-      ...commonWriteFields,
-      ...derived.shot,
-    });
+    const shotResponse = await dataClient.models.Shot.create(
+      omitNullForeignKeys({ ...commonWriteFields, ...derived.shot }, ['playerId'])
+    );
     assertNoWriteErrors(shotResponse, 'Failed to record shot');
     progressMade = true;
 
@@ -503,8 +523,12 @@ async function performFirstAttemptWrite(
 
     try {
       const secondResponse = derived.goal
-        ? await dataClient.models.Goal.create({ ...commonWriteFields, ...derived.goal })
-        : await dataClient.models.Save.create({ ...commonWriteFields, ...derived.save! });
+        ? await dataClient.models.Goal.create(
+            omitNullForeignKeys({ ...commonWriteFields, ...derived.goal }, ['scorerId', 'assistId'])
+          )
+        : await dataClient.models.Save.create(
+            omitNullForeignKeys({ ...commonWriteFields, ...derived.save! }, ['playerId'])
+          );
       assertNoWriteErrors(secondResponse, 'Failed to record goal/save');
     } catch {
       // m4: return a rejected(...)-shaped result, not a thrown error -- this
@@ -562,8 +586,12 @@ async function performResumeWrite(
     const commonWriteFields = buildCommonWriteFields(writeContext, coaches);
 
     const response = derived.goal
-      ? await dataClient.models.Goal.create({ ...commonWriteFields, ...derived.goal })
-      : await dataClient.models.Save.create({ ...commonWriteFields, ...derived.save! });
+      ? await dataClient.models.Goal.create(
+          omitNullForeignKeys({ ...commonWriteFields, ...derived.goal }, ['scorerId', 'assistId'])
+        )
+      : await dataClient.models.Save.create(
+          omitNullForeignKeys({ ...commonWriteFields, ...derived.save! }, ['playerId'])
+        );
     assertNoWriteErrors(response, 'Failed to record goal/save');
   } catch {
     // Never release (A1) -- hand the row back to 'shot-written' so a LATER

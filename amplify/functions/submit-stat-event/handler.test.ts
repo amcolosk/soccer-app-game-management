@@ -279,13 +279,18 @@ describe('submit-stat-event handler', () => {
     expect(result).toEqual({ ok: false, reason: 'VALIDATION_FAILED' });
   });
 
-  it('allows an "Us" shot with no playerId, deliberately (skip affordance), for every outcome', async () => {
+  it('allows an "Us" shot with no playerId, deliberately (skip affordance), for every outcome, and omits playerId from the write rather than sending null', async () => {
     mockHappyPathSend();
     for (const outcome of ['GOAL', 'SAVED', 'BLOCKED', 'WIDE']) {
       mockShotCreate.mockClear();
       const result = await invoke(createEvent({ outcome, forUs: true, clientEventId: `evt-${outcome}` }));
       expect(result).toEqual({ ok: true, reason: null });
-      expect(mockShotCreate).toHaveBeenCalledWith(expect.objectContaining({ playerId: null, takenByUs: true, outcome }));
+      expect(mockShotCreate).toHaveBeenCalledWith(expect.objectContaining({ takenByUs: true, outcome }));
+      // Shot.playerId backs the Player.shots GSI -- DynamoDB rejects an
+      // explicit null key, so an unattributed shot must omit the field
+      // entirely rather than send `playerId: null`.
+      const callArg = mockShotCreate.mock.calls[0]?.[0];
+      expect(callArg).not.toHaveProperty('playerId');
     }
   });
 
@@ -421,26 +426,32 @@ describe('submit-stat-event handler', () => {
       expect(goalCall.gameSeconds).toBe(shotCall.gameSeconds);
     });
 
-    it('SAVED on "Us" writes a Shot(outcome:SAVED) and a Save with byUs:false (opponent keeper), no attribution', async () => {
+    it('SAVED on "Us" writes a Shot(outcome:SAVED) and a Save with byUs:false (opponent keeper), no attribution -- Shot.playerId and Save.playerId omitted, not null', async () => {
       mockHappyPathSend();
       await invoke(createEvent({ outcome: 'SAVED', forUs: true, playerId: 'p1' }));
       expect(mockShotCreate).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'SAVED', takenByUs: true, playerId: 'p1' }));
-      expect(mockSaveCreate).toHaveBeenCalledWith(expect.objectContaining({ byUs: false, playerId: null }));
+      expect(mockSaveCreate).toHaveBeenCalledWith(expect.objectContaining({ byUs: false }));
+      expect(mockSaveCreate.mock.calls[0]?.[0]).not.toHaveProperty('playerId');
       expect(mockGoalCreate).not.toHaveBeenCalled();
     });
 
-    it('SAVED on "Them" writes a Shot(outcome:SAVED, takenByUs:false) and a Save with byUs:true and our keeper attributed', async () => {
+    it('SAVED on "Them" writes a Shot(outcome:SAVED, takenByUs:false) and a Save with byUs:true and our keeper attributed -- unattributed Shot.playerId omitted, not null', async () => {
       mockHappyPathSend();
       await invoke(createEvent({ outcome: 'SAVED', forUs: false, keeperPlayerId: 'gk1' }));
-      expect(mockShotCreate).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'SAVED', takenByUs: false, playerId: null }));
+      expect(mockShotCreate).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'SAVED', takenByUs: false }));
+      expect(mockShotCreate.mock.calls[0]?.[0]).not.toHaveProperty('playerId');
       expect(mockSaveCreate).toHaveBeenCalledWith(expect.objectContaining({ byUs: true, playerId: 'gk1' }));
     });
 
-    it('GOAL on "Them" (opponent goal) writes a Shot and a Goal with no scorer attribution', async () => {
+    it('GOAL on "Them" (opponent goal) writes a Shot and a Goal with no scorer attribution -- Shot.playerId, Goal.scorerId/assistId omitted, not null (Player.shots/goalsScored/assists GSI key requirement)', async () => {
       mockHappyPathSend();
       await invoke(createEvent({ outcome: 'GOAL', forUs: false }));
-      expect(mockShotCreate).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'GOAL', takenByUs: false, playerId: null }));
-      expect(mockGoalCreate).toHaveBeenCalledWith(expect.objectContaining({ scoredByUs: false, scorerId: null, assistId: null }));
+      expect(mockShotCreate).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'GOAL', takenByUs: false }));
+      expect(mockShotCreate.mock.calls[0]?.[0]).not.toHaveProperty('playerId');
+      expect(mockGoalCreate).toHaveBeenCalledWith(expect.objectContaining({ scoredByUs: false }));
+      const goalCallArg = mockGoalCreate.mock.calls[0]?.[0];
+      expect(goalCallArg).not.toHaveProperty('scorerId');
+      expect(goalCallArg).not.toHaveProperty('assistId');
     });
   });
 
