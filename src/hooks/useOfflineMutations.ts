@@ -269,6 +269,25 @@ function mapCanonicalGameNoteError(message: string): string {
   return `${normalized}: ${friendly}`;
 }
 
+// Player.goalsScored/assists/shots/saves (amplify/data/resource.ts) each
+// declare a hasMany relation on one of these fields, which auto-generates a
+// secondary index keyed on it. DynamoDB GSIs are sparse -- an item is fine
+// with the key attribute absent, but rejects the whole write if the
+// attribute is explicitly present with a null value ("Type mismatch for
+// Index Key ... Actual: NULL"). Every one of these fields is optional
+// (no shooter/scorer/assist/keeper), so any caller sending `null` for one
+// (rather than omitting it) breaks the write outright. Strip them here
+// rather than relying on every call site to remember not to.
+function omitNullForeignKeys<T extends object>(fields: T, keys: (keyof T)[]): T {
+  const result: T = { ...fields };
+  for (const key of keys) {
+    if (result[key] === null) {
+      delete result[key];
+    }
+  }
+  return result;
+}
+
 function assertNoGraphQLErrors(
   result: { errors?: Array<{ message?: string | null }> } | undefined,
   context: string
@@ -751,7 +770,8 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
   );
 
   const createGoal = useCallback(
-    async (fields: GoalCreateFields): Promise<void> => {
+    async (rawFields: GoalCreateFields): Promise<void> => {
+      const fields = omitNullForeignKeys(rawFields, ['scorerId', 'assistId']);
       await enqueueOrRun(
         'Goal', 'create',
         fields as unknown as Record<string, unknown>,
@@ -789,7 +809,8 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
   );
 
   const createShot = useCallback(
-    async (fields: ShotCreateFields): Promise<void> => {
+    async (rawFields: ShotCreateFields): Promise<void> => {
+      const fields = omitNullForeignKeys(rawFields, ['playerId']);
       await enqueueOrRun(
         'Shot', 'create',
         fields as unknown as Record<string, unknown>,
@@ -833,7 +854,8 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
   );
 
   const createSave = useCallback(
-    async (fields: SaveCreateFields): Promise<void> => {
+    async (rawFields: SaveCreateFields): Promise<void> => {
+      const fields = omitNullForeignKeys(rawFields, ['playerId']);
       await enqueueOrRun(
         'Save', 'create',
         fields as unknown as Record<string, unknown>,
