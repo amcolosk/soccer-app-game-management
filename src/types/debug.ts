@@ -44,6 +44,7 @@ export interface GameManagementDebugContext {
   rosterSize: number;
   lineupCount: number;
   starterCount: number;
+  duplicateLineupPositionCount: number;          // positions with >1 LineupAssignment row; see issue #215
   openPlayTimeRecordCount: number;
   closedPlayTimeRecordCount: number;
   ourScore: number;
