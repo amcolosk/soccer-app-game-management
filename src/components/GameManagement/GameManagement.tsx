@@ -409,6 +409,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     gameState,
     setGameState,
     lineup: subscribedLineup,
+    duplicateLineupPositionCount,
     playTimeRecords,
     goals,
     shots,
@@ -790,6 +791,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       rosterSize: players.length,
       lineupCount: lineup.length,
       starterCount,
+      duplicateLineupPositionCount,
       openPlayTimeRecordCount: openPTR,
       closedPlayTimeRecordCount: closedPTR,
       ourScore: gameState.ourScore ?? 0,
@@ -805,8 +807,8 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       allPlannedRotationDetails,
     };
   }, [gameState, currentTime, halfLengthSeconds, isRunning, activeTab, players, lineup,
-      playTimeRecords, goals, gameNotes, playerAvailabilities, gamePlan, plannedRotations,
-      substitutionQueue]);
+      duplicateLineupPositionCount, playTimeRecords, goals, gameNotes, playerAvailabilities,
+      gamePlan, plannedRotations, substitutionQueue]);
 
   const gameManagementDebugSnapshot = useMemo(() => {
     const { availabilityByStatus, ...flat } = gameManagementDebugContext;

@@ -13,6 +13,7 @@ import {
 import { LineupBuilder } from "../LineupBuilder";
 import { LineupShapeView } from "./shape/LineupShapeView";
 import { createLineupInteractionAdapter } from "./shape/lineupInteractionAdapter";
+import { cleanupDuplicateAssignmentsForPosition } from "../../services/lineupCleanupService";
 import type { GameMutationInput } from "../../hooks/useOfflineMutations";
 import { buildDeterministicStartPlayTimeRecordId } from "../../utils/playTimeRecordId";
 import type {
@@ -128,6 +129,8 @@ export function LineupPanel({
     if (!isInteractive) return;
     if (!lineupId) return;
     if (isPendingRemoval(lineupId)) return; // already in flight — avoid a duplicate delete call
+    // Looked up before the delete — once it succeeds this id may no longer be in `lineup`.
+    const positionId = lineup.find(l => l.id === lineupId)?.positionId;
     // Optimistically hide the slot immediately so the click has visible effect
     // even before the delete round-trips back through the subscription.
     setPendingRemovalIds(prev => new Set(prev).add(lineupId));
@@ -136,6 +139,11 @@ export function LineupPanel({
     } catch (error) {
       if (isConflictError(error) || isMissingRecordError(error)) {
         // Treat stale delete targets as already-cleared to avoid noisy halftime errors.
+        // Only clean up on "already gone" — a genuine conflict may mean another
+        // coach just seated a new, legitimate assignment on this position.
+        if (positionId && isMissingRecordError(error)) {
+          void cleanupDuplicateAssignmentsForPosition(game.id, positionId, lineupId);
+        }
         return;
       }
       // Unexpected failure — restore the slot so the coach can see it's still there and retry.
@@ -145,7 +153,13 @@ export function LineupPanel({
         return next;
       });
       handleApiError(error, 'Failed to remove player from lineup');
+      return;
     }
+    // Issue #215: a same-position orphan (left behind by, e.g., a failed delete
+    // during a substitution) is hidden by useGameSubscriptions.ts's dedup — but
+    // deleting only the visible assignment above would unmask it, making the
+    // clear look like it silently did nothing. Delete it too.
+    if (positionId) void cleanupDuplicateAssignmentsForPosition(game.id, positionId, lineupId);
   };
 
   const handleClearAllPositions = async () => {
@@ -198,6 +212,24 @@ export function LineupPanel({
         ) as PromiseRejectedResult;
         throw firstUnexpectedFailure.reason;
       }
+
+      // Issue #215: clean up any same-position orphan left hidden by
+      // useGameSubscriptions.ts's dedup, for every position that actually
+      // cleared (succeeded, or was already gone) above — see
+      // handleRemoveFromLineup's own comment for why deleting only the
+      // visible assignment isn't enough. Skipped for a genuine conflict (as
+      // opposed to "already gone"): another coach may have just seated a new,
+      // legitimate assignment on that position.
+      starterAssignments
+        .filter((assignment, index) => {
+          if (!assignment.positionId) return false;
+          const result = results[index];
+          return result.status === 'fulfilled'
+            || (result.status === 'rejected' && isMissingRecordError(result.reason));
+        })
+        .forEach((assignment) => {
+          void cleanupDuplicateAssignmentsForPosition(game.id, assignment.positionId as string, assignment.id);
+        });
     } catch (error) {
       handleApiError(error, 'Failed to clear lineup');
     }
@@ -315,11 +347,23 @@ export function LineupPanel({
       return "cancelled";
     }
 
+    const positionId = lineup.find(l => l.id === params.assignmentId)?.positionId;
+
     try {
       await mutations.deleteLineupAssignment(params.assignmentId);
+      // Issue #215: see handleRemoveFromLineup's own comment on why a
+      // same-position orphan must be deleted too, not just the visible one.
+      if (positionId) void cleanupDuplicateAssignmentsForPosition(game.id, positionId, params.assignmentId);
       return "success";
     } catch (error) {
       if (isConflictError(error) || isMissingRecordError(error)) {
+        // Only clean up when the assignment was simply already gone — a genuine
+        // optimistic-concurrency conflict may mean another coach just seated a
+        // new, legitimate assignment on this position, which must not be swept
+        // up as an "orphan" here.
+        if (positionId && isMissingRecordError(error)) {
+          void cleanupDuplicateAssignmentsForPosition(game.id, positionId, params.assignmentId);
+        }
         return "conflict";
       }
 

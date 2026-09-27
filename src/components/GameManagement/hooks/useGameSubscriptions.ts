@@ -221,16 +221,36 @@ export function useGameSubscriptions({
   // Deduplicate lineup assignments: when multiple assignments exist for the same
   // position (caused by a failed delete during substitution), keep only the most
   // recently created one. This prevents stale entries from showing the old player.
+  //
+  // Issue #215 investigation: hiding the older row this way means clearing the
+  // CURRENT (kept) assignment for a position can unmask the older orphan,
+  // making it look like the clear silently did nothing. Logged (not yet fixed
+  // at the source) so a recurrence gives us the position/assignment ids and
+  // timestamps needed to confirm this is what's happening.
+  const duplicateLineupPositionCount = useRef(0);
   const lineup = useMemo(() => {
     const byPosition = new Map<string, (typeof lineupRaw)[0]>();
+    let duplicateCount = 0;
     for (const assignment of lineupRaw) {
       if (!assignment.positionId) continue;
       const existing = byPosition.get(assignment.positionId);
-      if (!existing || (assignment.createdAt ?? '') > (existing.createdAt ?? '')) {
+      if (!existing) {
         byPosition.set(assignment.positionId, assignment);
+        continue;
       }
+      duplicateCount += 1;
+      const kept = (assignment.createdAt ?? '') > (existing.createdAt ?? '') ? assignment : existing;
+      const dropped = kept === assignment ? existing : assignment;
+      console.warn(
+        `[useGameSubscriptions] Duplicate LineupAssignment for positionId=${assignment.positionId}: `
+        + `keeping id=${kept.id} createdAt=${kept.createdAt ?? '(none)'}, `
+        + `hiding orphan id=${dropped.id} createdAt=${dropped.createdAt ?? '(none)'} playerId=${dropped.playerId ?? '(none)'} `
+        + `— an orphan like this resurfaces if the kept assignment is later deleted (issue #215).`
+      );
+      byPosition.set(assignment.positionId, kept);
     }
     const withoutPosition = lineupRaw.filter(a => !a.positionId);
+    duplicateLineupPositionCount.current = duplicateCount;
     return [...Array.from(byPosition.values()), ...withoutPosition];
   }, [lineupRaw]);
 
@@ -663,6 +683,7 @@ export function useGameSubscriptions({
     gameState,
     setGameState,
     lineup,
+    duplicateLineupPositionCount: duplicateLineupPositionCount.current,
     playTimeRecords,
     goals,
     shots,
