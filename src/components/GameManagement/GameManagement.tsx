@@ -18,7 +18,6 @@ import { buildDeterministicStartPlayTimeRecordId } from "../../utils/playTimeRec
 import { getMissingRolePositions } from "../../utils/formationUtils";
 import { computeScoreFromGoals } from "../../utils/gameCalculations";
 import {
-  computeRevisionFingerprint,
   computeRotationDiff,
   filterScopedDeletes,
   type RotationDiffOperation,
@@ -28,6 +27,7 @@ import { useOfflineMutations } from "../../hooks/useOfflineMutations";
 import { useTeamCoachProfiles } from "../../hooks/useTeamCoachProfiles";
 import { useGameSubscriptions } from "./hooks/useGameSubscriptions";
 import { useGameTimer } from "./hooks/useGameTimer";
+import { computePlannerRemoteFingerprint } from "./hooks/useGamePlanner";
 import { CommandBand } from "./CommandBand";
 import { TabNav, type GameTab } from "./TabNav";
 import { BenchTab } from "./BenchTab";
@@ -1287,14 +1287,11 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   const handleUpdatePlannedRotations = useCallback(async (
     input: PlannedRotationsUpdateInput
   ): Promise<PlannerMutationResult> => {
-    const computeFingerprintFor = (rotations: PlannedRotation[]) => computeRevisionFingerprint(
-      {
-        startingLineup: gamePlan?.startingLineup as string | null | undefined,
-        halftimeLineup: gamePlan?.halftimeLineup as string | null | undefined,
-        rotationIntervalMinutes: gamePlan?.rotationIntervalMinutes,
-      },
-      rotations
-    );
+    // Must match the fingerprint PlanTab sends (useGamePlanner's remoteFingerprint),
+    // including its defaults for nullable GamePlan fields — see #210.
+    const starterAssignments = lineup.filter(l => l.isStarter);
+    const computeFingerprintFor = (rotations: PlannedRotation[]) =>
+      computePlannerRemoteFingerprint(gamePlan, rotations, starterAssignments);
 
     const currentFingerprint = computeFingerprintFor(plannedRotations);
 
@@ -1449,7 +1446,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         conflictReason: 'Unable to save rotation changes right now. Try again.',
       };
     }
-    }, [gamePlan, gameState.status, plannedRotations, userId, team.coaches]);
+    }, [gamePlan, gameState.status, plannedRotations, lineup, userId, team.coaches]);
 
   const handleSaveGameEdit = useCallback(async () => {
     if (!editGameOpponent.trim()) {

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, act, waitFor, screen, within } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, renderHook, act, waitFor, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
@@ -8,6 +8,7 @@ import "@testing-library/jest-dom/vitest";
 import { GameManagement } from "./GameManagement";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
 import { computeRevisionFingerprint } from "../../utils/rotationDiffUtils";
+import { useGamePlanner } from "./hooks/useGamePlanner";
 import { useWakeLock } from "../../hooks/useWakeLock";
 import { useGameNotification } from "../../hooks/useGameNotification";
 import { useOfflineMutations } from "../../hooks/useOfflineMutations";
@@ -2755,6 +2756,87 @@ describe("GameManagement – planned rotation precondition writer", () => {
     expect(mockPlannedRotationCreate).not.toHaveBeenCalled();
     expect(mockPlannedRotationDelete).not.toHaveBeenCalled();
     expect(mockPlannedRotationList).not.toHaveBeenCalled();
+  });
+
+  // Issue #210: editing a rotation (e.g. removing a player from Rotation 1) was always
+  // rejected as a conflict ("Plan Updated Elsewhere") and rolled back, because PlanTab
+  // sends useGamePlanner's remoteFingerprint (null halftimeLineup -> "[]", null interval
+  // -> 10, null startingLineup -> LineupAssignments) while this writer fingerprinted
+  // the raw nullable GamePlan fields.
+  it.each([
+    {
+      label: "null halftimeLineup",
+      plan: { id: "gp-1", rotationIntervalMinutes: 10, startingLineup: JSON.stringify([{ playerId: "p1", positionId: "pos-1" }]), halftimeLineup: null },
+    },
+    {
+      label: "null rotationIntervalMinutes",
+      plan: { id: "gp-1", rotationIntervalMinutes: null, startingLineup: JSON.stringify([{ playerId: "p1", positionId: "pos-1" }]), halftimeLineup: "[]" },
+    },
+    {
+      label: "null startingLineup (falls back to starter LineupAssignments)",
+      plan: { id: "gp-1", rotationIntervalMinutes: 10, startingLineup: null, halftimeLineup: null },
+    },
+  ])("accepts the planner's own fingerprint for a rotation edit when the GamePlan has $label (#210)", async ({ plan }) => {
+    const existingRotations = [
+      {
+        id: "rot-1",
+        gamePlanId: "gp-1",
+        rotationNumber: 1,
+        gameMinute: 6,
+        half: 1,
+        plannedSubstitutions: "[]",
+      },
+    ] as any[];
+    const starters = [
+      { id: "la-1", gameId: mockGame.id, playerId: "p1", positionId: "pos-1", isStarter: true },
+    ] as any[];
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "scheduled" },
+      lineup: starters,
+      gamePlan: plan as any,
+      plannedRotations: existingRotations,
+    });
+
+    const removal = [
+      {
+        ...existingRotations[0],
+        plannedSubstitutions: JSON.stringify([{ playerOutId: "p1", playerInId: "", positionId: "pos-1" }]),
+      },
+    ];
+    mockPlannedRotationList
+      .mockResolvedValueOnce({ data: existingRotations })
+      .mockResolvedValueOnce({ data: removal });
+    mockPlannedRotationUpdate.mockResolvedValue({ data: removal[0] });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: "scheduled" }} team={mockTeam} onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(typeof mockCaptures.planTabProps?.onUpdatePlannedRotations).toBe("function");
+    });
+
+    // The exact fingerprint PlanTab passes as expectedFingerprint.
+    const { result: planner } = renderHook(() =>
+      useGamePlanner(
+        { ...mockGame, status: "scheduled" } as any,
+        mockTeam as any,
+        plan as any,
+        existingRotations,
+        starters,
+      )
+    );
+
+    const result = await mockCaptures.planTabProps.onUpdatePlannedRotations({
+      expectedFingerprint: planner.current.remoteFingerprint,
+      plannedRotations: removal,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(mockPlannedRotationUpdate).toHaveBeenCalledWith({
+      id: "rot-1",
+      plannedSubstitutions: removal[0].plannedSubstitutions,
+    });
   });
 
   it("executes only in-scope deletes when diff includes mixed gamePlanId delete candidates", async () => {
