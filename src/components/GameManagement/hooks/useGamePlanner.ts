@@ -96,6 +96,32 @@ function serializeStartingLineup(lineup: Map<string, string>): string {
   );
 }
 
+/**
+ * Fingerprint of the server-side plan state, with the planner's defaults applied to
+ * nullable GamePlan fields. This is the value PlanTab sends as `expectedFingerprint`
+ * on rotation writes, so the writer (GameManagement.handleUpdatePlannedRotations) must
+ * use this same function — fingerprinting the raw nullable fields instead made every
+ * rotation edit a false conflict whenever e.g. halftimeLineup was null (#210).
+ */
+export function computePlannerRemoteFingerprint(
+  gamePlan: Pick<GamePlan, "startingLineup" | "halftimeLineup" | "rotationIntervalMinutes"> | null | undefined,
+  plannedRotations: PlannedRotation[],
+  startingLineupAssignments: LineupAssignment[]
+): string {
+  const startingLineupStr = gamePlan?.startingLineup
+    ? (gamePlan.startingLineup as string)
+    : serializeStartingLineup(lineupFromAssignments(startingLineupAssignments));
+
+  return computeRevisionFingerprint(
+    {
+      startingLineup: startingLineupStr,
+      halftimeLineup: (gamePlan?.halftimeLineup as string | null | undefined) ?? "[]",
+      rotationIntervalMinutes: gamePlan?.rotationIntervalMinutes ?? 10,
+    },
+    plannedRotations
+  );
+}
+
 export function useGamePlanner(
   game: Game,
   team: Team,
@@ -122,21 +148,10 @@ export function useGamePlanner(
   const [errors, setErrors] = useState<string[]>([]);
   const mutationInFlightRef = useRef(false);
 
-  const remoteFingerprint = useMemo(() => {
-    const fallbackStartingLineup = lineupFromAssignments(startingLineupAssignments);
-    const startingLineupStr = gamePlan?.startingLineup
-      ? (gamePlan.startingLineup as string)
-      : serializeStartingLineup(fallbackStartingLineup);
-
-    return computeRevisionFingerprint(
-      {
-        startingLineup: startingLineupStr,
-        halftimeLineup: (gamePlan?.halftimeLineup as string | null | undefined) ?? "[]",
-        rotationIntervalMinutes: gamePlan?.rotationIntervalMinutes ?? 10,
-      },
-      plannedRotations
-    );
-  }, [gamePlan, plannedRotations, startingLineupAssignments]);
+  const remoteFingerprint = useMemo(
+    () => computePlannerRemoteFingerprint(gamePlan, plannedRotations, startingLineupAssignments),
+    [gamePlan, plannedRotations, startingLineupAssignments]
+  );
 
   const localFingerprint = useMemo(() => {
     const startingLineupStr = serializeStartingLineup(draft.startingLineup);
