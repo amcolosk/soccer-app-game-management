@@ -51,7 +51,7 @@
     "react-router-dom": "^7.13.0"
   },
   "devDependencies": {
-    "@aws-amplify/backend": "^1.8.0",
+    "@aws-amplify/backend": "^1.25.1",
     "@aws-amplify/backend-cli": "^1.10.0",
     "@aws-amplify/seed": "^1.1.3",
     "@aws-sdk/client-ses": "^3.965.0",
