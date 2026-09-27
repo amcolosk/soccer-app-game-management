@@ -122,22 +122,45 @@ export function calculateSavesByKeeper(
 }
 
 /**
+ * Shared shot-outcome tally: On Target = outcome GOAL or SAVED; Wide =
+ * outcome WIDE; Blocked = outcome BLOCKED; outcome === null counts toward
+ * shots only. Single source of truth for "on target" so calculatePlayerShotStats
+ * and calculateTeamShotStats can't drift apart on the definition.
+ */
+function tallyShotOutcomes(
+  shots: Array<Pick<Shot, 'outcome'>>
+): { shots: number; onTarget: number; wide: number; blocked: number } {
+  return {
+    shots: shots.length,
+    onTarget: shots.filter(s => s.outcome === 'GOAL' || s.outcome === 'SAVED').length,
+    wide: shots.filter(s => s.outcome === 'WIDE').length,
+    blocked: shots.filter(s => s.outcome === 'BLOCKED').length,
+  };
+}
+
+/**
  * Per-player shot stats for shots WE took (takenByUs === true), attributed
- * via Shot.playerId (the shooter). On Target = outcome GOAL or SAVED;
- * Wide = outcome WIDE; Blocked = outcome BLOCKED; outcome === null counts
- * toward shots only.
+ * via Shot.playerId (the shooter). See tallyShotOutcomes for the on
+ * target/wide/blocked definitions.
  */
 export function calculatePlayerShotStats(
   playerId: string,
   shots: Array<Pick<Shot, 'playerId' | 'takenByUs' | 'outcome'>>
 ): { shots: number; onTarget: number; wide: number; blocked: number } {
-  const playerShots = shots.filter(s => s.takenByUs === true && s.playerId === playerId);
-  return {
-    shots: playerShots.length,
-    onTarget: playerShots.filter(s => s.outcome === 'GOAL' || s.outcome === 'SAVED').length,
-    wide: playerShots.filter(s => s.outcome === 'WIDE').length,
-    blocked: playerShots.filter(s => s.outcome === 'BLOCKED').length,
-  };
+  return tallyShotOutcomes(shots.filter(s => s.takenByUs === true && s.playerId === playerId));
+}
+
+/**
+ * Team-level shot stats for one side of a game (forUs true/false). Used for
+ * the post-game "Shots on Goal" comparison, where a team-wide count is
+ * needed rather than a single player's. See tallyShotOutcomes for the on
+ * target/wide/blocked definitions.
+ */
+export function calculateTeamShotStats(
+  forUs: boolean,
+  shots: Array<Pick<Shot, 'takenByUs' | 'outcome'>>
+): { shots: number; onTarget: number; wide: number; blocked: number } {
+  return tallyShotOutcomes(shots.filter(s => s.takenByUs === forUs));
 }
 
 /**

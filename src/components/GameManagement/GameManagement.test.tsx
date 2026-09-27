@@ -177,6 +177,15 @@ vi.mock("./CompletedGameTimeline", () => ({
   }),
 }));
 
+const mockCompletedGameStatsCaptures: { shotsProp?: unknown[]; opponentNameProp?: string } = {};
+vi.mock("./CompletedGameStats", () => ({
+  CompletedGameStats: vi.fn((props: any) => {
+    mockCompletedGameStatsCaptures.shotsProp = props.shots;
+    mockCompletedGameStatsCaptures.opponentNameProp = props.opponentName;
+    return <div data-testid="completed-game-stats" />;
+  }),
+}));
+
 // ---------------------------------------------------------------------------
 // Router wrapper helper
 // ---------------------------------------------------------------------------
@@ -3394,6 +3403,66 @@ describe("GameManagement – CompletedGameTimeline integration", () => {
       <GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />
     );
     expect((mockCgtCaptures.goalsProp as unknown[]).length).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CompletedGameStats integration
+// ---------------------------------------------------------------------------
+
+const makeShotRecord = (id: string, takenByUs: boolean, outcome: string | null) => ({
+  id,
+  gameId: 'game-1',
+  playerId: null,
+  takenByUs,
+  outcome,
+  gameSeconds: 100,
+  half: 1,
+  timestamp: new Date().toISOString(),
+  coaches: ['coach-1'],
+} as any);
+
+describe("GameManagement – CompletedGameStats integration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCompletedGameStatsCaptures.shotsProp = undefined;
+    mockCompletedGameStatsCaptures.opponentNameProp = undefined;
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+  });
+
+  it("renders CompletedGameStats in completed state", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'completed', elapsedSeconds: 3600 },
+    });
+    renderWithRouter(
+      <GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />
+    );
+    expect(screen.getByTestId("completed-game-stats")).toBeInTheDocument();
+  });
+
+  it("does not render CompletedGameStats outside completed state", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress' },
+    });
+    renderWithRouter(
+      <GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />
+    );
+    expect(screen.queryByTestId("completed-game-stats")).not.toBeInTheDocument();
+  });
+
+  it("passes the live shots and opponent name through to CompletedGameStats", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'completed', elapsedSeconds: 3600, opponent: 'Lions' },
+      shots: [makeShotRecord("s1", true, "GOAL"), makeShotRecord("s2", false, "SAVED")],
+    });
+    renderWithRouter(
+      <GameManagement game={{ ...mockGame, status: 'completed' }} team={mockTeam} onBack={vi.fn()} />
+    );
+    expect((mockCompletedGameStatsCaptures.shotsProp as unknown[]).length).toBe(2);
+    expect(mockCompletedGameStatsCaptures.opponentNameProp).toBe('Lions');
   });
 });
 

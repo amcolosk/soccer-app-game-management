@@ -8951,3 +8951,43 @@
   font-size: 0.8rem;
   color: var(--text-secondary);
 }
+
+/* ── Completed Game Stats (post-game Shots on Goal) ───────────────────── */
+
+.completed-game-stats {
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.completed-game-stats__heading {
+  margin: 0 0 0.75rem 0;
+  font-size: 1.1em;
+  font-weight: 600;
+  color: var(--primary-green);
+}
+
+.completed-game-stats__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.completed-game-stats__row:last-child {
+  border-bottom: none;
+}
+
+.completed-game-stats__label {
+  font-size: 0.95em;
+  color: var(--text-secondary);
+}
+
+.completed-game-stats__value {
+  font-size: 1.1em;
+  font-weight: 700;
+  color: var(--text-primary);
+}

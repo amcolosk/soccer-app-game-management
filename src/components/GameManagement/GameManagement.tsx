@@ -47,6 +47,7 @@ import { PlanTab, type GenerateRotationsOptions } from "./PlanTab";
 import type { PlannedRotationsUpdateInput, PlannerMutationResult } from "./PlanTab";
 import { CompletedPlayTimeSummary } from "./CompletedPlayTimeSummary";
 import { CompletedGameTimeline } from "./CompletedGameTimeline";
+import { CompletedGameStats } from "./CompletedGameStats";
 import { OfflineBanner } from "../OfflineBanner";
 import { ArchivedTeamBanner } from "../shared/ArchivedTeamBanner";
 import type { Game, Team, FormationPosition, LineupAssignment, PlannedRotation, SubQueue } from "./types";
@@ -2841,6 +2842,10 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         {/* ── COMPLETED ────────────────────────────────────────────── */}
         {gameState.status === 'completed' && (
           <div className="completed-layout">
+            <CompletedGameStats
+              shots={shots}
+              opponentName={gameState.opponent ?? 'Opponent'}
+            />
             <CompletedPlayTimeSummary
               players={players}
               playTimeRecords={playTimeRecords}
