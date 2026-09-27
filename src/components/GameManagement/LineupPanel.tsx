@@ -130,7 +130,11 @@ export function LineupPanel({
     if (!lineupId) return;
     if (isPendingRemoval(lineupId)) return; // already in flight — avoid a duplicate delete call
     // Looked up before the delete — once it succeeds this id may no longer be in `lineup`.
-    const positionId = lineup.find(l => l.id === lineupId)?.positionId;
+    // createdAt anchors cleanupDuplicateAssignmentsForPosition to "strictly older than the
+    // assignment we're clearing" so it can never sweep up a newer, concurrent legitimate write.
+    const cleared = lineup.find(l => l.id === lineupId);
+    const positionId = cleared?.positionId;
+    const clearedCreatedAt = cleared?.createdAt;
     // Optimistically hide the slot immediately so the click has visible effect
     // even before the delete round-trips back through the subscription.
     setPendingRemovalIds(prev => new Set(prev).add(lineupId));
@@ -142,7 +146,7 @@ export function LineupPanel({
         // Only clean up on "already gone" — a genuine conflict may mean another
         // coach just seated a new, legitimate assignment on this position.
         if (positionId && isMissingRecordError(error)) {
-          void cleanupDuplicateAssignmentsForPosition(game.id, positionId, lineupId);
+          void cleanupDuplicateAssignmentsForPosition(game.id, positionId, clearedCreatedAt);
         }
         return;
       }
@@ -159,7 +163,7 @@ export function LineupPanel({
     // during a substitution) is hidden by useGameSubscriptions.ts's dedup — but
     // deleting only the visible assignment above would unmask it, making the
     // clear look like it silently did nothing. Delete it too.
-    if (positionId) void cleanupDuplicateAssignmentsForPosition(game.id, positionId, lineupId);
+    if (positionId) void cleanupDuplicateAssignmentsForPosition(game.id, positionId, clearedCreatedAt);
   };
 
   const handleClearAllPositions = async () => {
@@ -228,7 +232,7 @@ export function LineupPanel({
             || (result.status === 'rejected' && isMissingRecordError(result.reason));
         })
         .forEach((assignment) => {
-          void cleanupDuplicateAssignmentsForPosition(game.id, assignment.positionId as string, assignment.id);
+          void cleanupDuplicateAssignmentsForPosition(game.id, assignment.positionId as string, assignment.createdAt);
         });
     } catch (error) {
       handleApiError(error, 'Failed to clear lineup');
@@ -291,6 +295,15 @@ export function LineupPanel({
 
       try {
         await mutations.deleteLineupAssignment(selectedPlayerStarter.id);
+        // Issue #215: this vacates the player's PREVIOUS position — same
+        // orphan-unmasking risk as a manual clear, for that position.
+        if (selectedPlayerStarter.positionId) {
+          void cleanupDuplicateAssignmentsForPosition(
+            game.id,
+            selectedPlayerStarter.positionId,
+            selectedPlayerStarter.createdAt,
+          );
+        }
         return "success";
       } catch (cleanupError) {
         const rollbackTargetPlayerId = targetStarter?.playerId ?? null;
@@ -347,13 +360,15 @@ export function LineupPanel({
       return "cancelled";
     }
 
-    const positionId = lineup.find(l => l.id === params.assignmentId)?.positionId;
+    const clearedShape = lineup.find(l => l.id === params.assignmentId);
+    const positionId = clearedShape?.positionId;
+    const clearedCreatedAt = clearedShape?.createdAt;
 
     try {
       await mutations.deleteLineupAssignment(params.assignmentId);
       // Issue #215: see handleRemoveFromLineup's own comment on why a
       // same-position orphan must be deleted too, not just the visible one.
-      if (positionId) void cleanupDuplicateAssignmentsForPosition(game.id, positionId, params.assignmentId);
+      if (positionId) void cleanupDuplicateAssignmentsForPosition(game.id, positionId, clearedCreatedAt);
       return "success";
     } catch (error) {
       if (isConflictError(error) || isMissingRecordError(error)) {
@@ -362,7 +377,7 @@ export function LineupPanel({
         // new, legitimate assignment on this position, which must not be swept
         // up as an "orphan" here.
         if (positionId && isMissingRecordError(error)) {
-          void cleanupDuplicateAssignmentsForPosition(game.id, positionId, params.assignmentId);
+          void cleanupDuplicateAssignmentsForPosition(game.id, positionId, clearedCreatedAt);
         }
         return "conflict";
       }
@@ -516,11 +531,20 @@ export function LineupPanel({
                 if (playerId === '') {
                   if (existing) {
                     await mutations.deleteLineupAssignment(existing.id);
+                    // Issue #215: same orphan-unmasking risk as a halftime clear.
+                    void cleanupDuplicateAssignmentsForPosition(game.id, positionId, existing.createdAt);
                   }
                 } else {
                   const playerExisting = lineup.find(l => l.playerId === playerId);
                   if (playerExisting) {
                     await mutations.deleteLineupAssignment(playerExisting.id);
+                    if (playerExisting.positionId) {
+                      void cleanupDuplicateAssignmentsForPosition(
+                        game.id,
+                        playerExisting.positionId,
+                        playerExisting.createdAt,
+                      );
+                    }
                   }
 
                   if (existing) {

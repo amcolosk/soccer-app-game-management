@@ -10,6 +10,7 @@ import { isoToDatetimeLocal } from "../../utils/gameTimeUtils";
 import { useConfirm } from "../ConfirmModal";
 import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { isMissingRecordError } from "../../services/amplifyMutationResult";
+import { cleanupDuplicateAssignmentsForPosition } from "../../services/lineupCleanupService";
 import { planHalftimeLineupChanges } from "../../utils/halftimeSubstitutionUtils";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, copyGamePlan, type PlannedSubstitution } from "../../services/rotationPlannerService";
@@ -1769,6 +1770,9 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
           };
         });
       };
+      // Snapshot before any deletes so a vacated position's positionId/createdAt
+      // is still known afterward, to anchor issue #215's orphan cleanup below.
+      const assignmentById = new Map(lineup.map((assignment) => [assignment.id, assignment]));
       try {
         for (const assignmentId of changes.deleteAssignmentIds) {
           try {
@@ -1777,6 +1781,17 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
             if (!isMissingRecordError(error)) throw error;
           }
           deletedIds.push(assignmentId);
+          // Issue #215: a same-position orphan (left hidden by
+          // useGameSubscriptions.ts's dedup) would otherwise resurface once
+          // this vacating delete removes the visible assignment.
+          const deletedAssignment = assignmentById.get(assignmentId);
+          if (deletedAssignment?.positionId) {
+            void cleanupDuplicateAssignmentsForPosition(
+              game.id,
+              deletedAssignment.positionId,
+              deletedAssignment.createdAt,
+            );
+          }
         }
         for (const { playerId, positionId } of changes.createAssignments) {
           // Client-generated id so the pending row can be shown (and later
