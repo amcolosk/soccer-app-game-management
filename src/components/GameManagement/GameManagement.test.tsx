@@ -8,7 +8,7 @@ import "@testing-library/jest-dom/vitest";
 import { GameManagement } from "./GameManagement";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
 import { computeRevisionFingerprint } from "../../utils/rotationDiffUtils";
-import { useGamePlanner } from "./hooks/useGamePlanner";
+import { useGamePlanner, computePlannerRemoteFingerprint } from "./hooks/useGamePlanner";
 import { useWakeLock } from "../../hooks/useWakeLock";
 import { useGameNotification } from "../../hooks/useGameNotification";
 
@@ -2627,6 +2627,70 @@ describe("GameManagement – planned rotation precondition writer", () => {
       id: "rot-1",
       plannedSubstitutions: removal[0].plannedSubstitutions,
     });
+  });
+
+  // Issue #213: PlannedRotation has no gamePlanId index, so a filtered list() is a
+  // paginated scan. The mid-flight re-check read only the first page, saw a partial
+  // rotation set, and aborted every rotation edit with "Plan changed while saving".
+  it("reads every page of rotations in the mid-flight re-check instead of reporting a false conflict (#213)", async () => {
+    const plan = {
+      id: "gp-1",
+      rotationIntervalMinutes: 6,
+      startingLineup: JSON.stringify([{ playerId: "p1", positionId: "pos-1" }]),
+      halftimeLineup: "[]",
+    };
+    const existingRotations = [1, 2, 3].map((n) => ({
+      id: `rot-${n}`,
+      gamePlanId: "gp-1",
+      rotationNumber: n,
+      gameMinute: n * 6,
+      half: 1,
+      plannedSubstitutions: "[]",
+    })) as any[];
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "scheduled" },
+      gamePlan: plan as any,
+      plannedRotations: existingRotations,
+    });
+
+    const edited = existingRotations.map((r) =>
+      r.rotationNumber === 1
+        ? { ...r, plannedSubstitutions: JSON.stringify([{ playerOutId: "p1", playerInId: "p2", positionId: "pos-1" }]) }
+        : r
+    );
+
+    // Scan pages: this plan's rows are split across two pages (other games' rows filtered out).
+    mockPlannedRotationList.mockImplementation(async (opts?: { nextToken?: string }) => {
+      const afterWrite = mockPlannedRotationUpdate.mock.calls.length > 0;
+      const rows = afterWrite ? edited : existingRotations;
+      return opts?.nextToken === "page-2"
+        ? { data: rows.slice(1), nextToken: null }
+        : { data: rows.slice(0, 1), nextToken: "page-2" };
+    });
+    mockPlannedRotationUpdate.mockResolvedValue({ data: edited[0] });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: "scheduled" }} team={mockTeam} onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(typeof mockCaptures.planTabProps?.onUpdatePlannedRotations).toBe("function");
+    });
+
+    try {
+      const result = await mockCaptures.planTabProps.onUpdatePlannedRotations({
+        expectedFingerprint: computePlannerRemoteFingerprint(plan as any, existingRotations, []),
+        plannedRotations: edited,
+      });
+
+      expect(result).toMatchObject({ status: "ok" });
+      expect(mockPlannedRotationUpdate).toHaveBeenCalledWith({
+        id: "rot-1",
+        plannedSubstitutions: edited[0].plannedSubstitutions,
+      });
+    } finally {
+      mockPlannedRotationList.mockReset();
+    }
   });
 
   it("executes only in-scope deletes when diff includes mixed gamePlanId delete candidates", async () => {

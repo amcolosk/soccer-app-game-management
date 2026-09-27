@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
+import { listAll } from "../utils/listAll";
 
 const client = generateClient<Schema>();
 
@@ -21,30 +22,6 @@ const client = generateClient<Schema>();
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Paginated list that fetches ALL records matching a filter.
- * Amplify .list() returns at most one page (~100 items by default).
- * We loop through all pages to ensure nothing is missed.
- */
-async function listAll<T extends { id: string }>(
-  model: { list: (opts?: any) => Promise<{ data: T[]; nextToken?: string | null }> },
-  filter?: Record<string, unknown>,
-): Promise<T[]> {
-  const all: T[] = [];
-  let nextToken: string | null | undefined = undefined;
-
-  do {
-    const opts: { limit: number; filter?: Record<string, unknown>; nextToken?: string } = { limit: 1000 };
-    if (filter) opts.filter = filter;
-    if (nextToken) opts.nextToken = nextToken;
-
-    const response = await model.list(opts);
-    all.push(...response.data);
-    nextToken = response.nextToken;
-  } while (nextToken);
-
-  return all;
-}
 
 type SafeDeleteMutationResult = {
   data?: unknown;
