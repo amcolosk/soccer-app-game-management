@@ -13,6 +13,11 @@ import {
   formatPlayTime,
   countGamesPlayed,
   isPlayerCurrentlyPlaying,
+  getGoalkeeperIdAtTime,
+  calculateGoalsAgainst,
+  normalizeCompletedGamesRecords,
+  hasGoalkeeperPlayTime,
+  type PositionRoleLookup,
 } from './playTimeCalculations';
 
 // Mock types for testing - only include fields used by the calculation functions
@@ -1110,5 +1115,201 @@ describe('playTimeCalculations', () => {
         { positionId: 'pos-mf', positionName: 'Midfielder', goals: 1, assists: 0 },
       ]);
     });
+  });
+});
+
+// -- Issue #203: Saves by Goalie ------------------------------------------
+
+interface PTR {
+  id: string;
+  playerId: string;
+  gameId: string;
+  positionId?: string | null;
+  startGameSeconds: number;
+  endGameSeconds?: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const gkPositions: PositionRoleLookup[] = [{ id: 'pos-gk', role: 'GOALKEEPER' }];
+
+function ptr(overrides: Partial<PTR> & Pick<PTR, 'id' | 'playerId' | 'gameId' | 'startGameSeconds'>): PTR {
+  return {
+    positionId: 'pos-gk',
+    endGameSeconds: null,
+    createdAt: '2024-01-01T00:00:00Z',
+    updatedAt: '2024-01-01T00:00:00Z',
+    ...overrides,
+  };
+}
+
+describe('getGoalkeeperIdAtTime', () => {
+  it('returns null when no GOALKEEPER-role position is defined', () => {
+    const records = [ptr({ id: 'r1', playerId: 'a', gameId: 'g1', startGameSeconds: 0 })];
+    expect(getGoalkeeperIdAtTime(records, [{ id: 'pos-gk', role: 'FORWARD' }], 'g1', 100)).toBeNull();
+  });
+
+  it('returns the covering player for a single covering record', () => {
+    const records = [ptr({ id: 'r1', playerId: 'a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 200 })];
+    expect(getGoalkeeperIdAtTime(records, gkPositions, 'g1', 100)).toBe('a');
+  });
+
+  it('returns null when no record covers the instant (keeper gap)', () => {
+    const records = [
+      ptr({ id: 'r1', playerId: 'a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 100 }),
+      ptr({ id: 'r2', playerId: 'b', gameId: 'g1', startGameSeconds: 200, endGameSeconds: 300 }),
+    ];
+    expect(getGoalkeeperIdAtTime(records, gkPositions, 'g1', 150)).toBeNull();
+  });
+
+  it('resolves mid-game keeper substitution correctly on both sides', () => {
+    const records = [
+      ptr({ id: 'r1', playerId: 'a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 1000 }),
+      ptr({ id: 'r2', playerId: 'b', gameId: 'g1', startGameSeconds: 1000, endGameSeconds: 2000 }),
+    ];
+    expect(getGoalkeeperIdAtTime(records, gkPositions, 'g1', 999)).toBe('a');
+    expect(getGoalkeeperIdAtTime(records, gkPositions, 'g1', 1001)).toBe('b');
+  });
+
+  it('does not crash and returns null during a genuine keeper gap', () => {
+    const records: PTR[] = [];
+    expect(getGoalkeeperIdAtTime(records, gkPositions, 'g1', 500)).toBeNull();
+  });
+
+  it('always picks a candidate (does not null out) when two records overlap the same instant', () => {
+    const records = [
+      ptr({ id: 'r1', playerId: 'a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 1200 }),
+      ptr({ id: 'r2', playerId: 'b', gameId: 'g1', startGameSeconds: 900, endGameSeconds: 2000 }),
+    ];
+    // instant 1000 is covered by both; later startGameSeconds (b, 900 > 0) wins
+    expect(getGoalkeeperIdAtTime(records, gkPositions, 'g1', 1000)).toBe('b');
+  });
+
+  it('picks the later-starting record on the exact keeper-handover boundary second', () => {
+    const records = [
+      ptr({ id: 'r1', playerId: 'a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 1000 }),
+      ptr({ id: 'r2', playerId: 'b', gameId: 'g1', startGameSeconds: 1000, endGameSeconds: 2000 }),
+    ];
+    expect(getGoalkeeperIdAtTime(records, gkPositions, 'g1', 1000)).toBe('b');
+  });
+
+  it('breaks a zero-length-record tie deterministically by lexicographically smaller id', () => {
+    const records = [
+      ptr({ id: 'r-zzz', playerId: 'player-z', gameId: 'g1', startGameSeconds: 500, endGameSeconds: 500 }),
+      ptr({ id: 'r-aaa', playerId: 'player-a', gameId: 'g1', startGameSeconds: 500, endGameSeconds: 500 }),
+    ];
+    expect(getGoalkeeperIdAtTime(records, gkPositions, 'g1', 500)).toBe('player-a');
+  });
+
+  it('excludes records with null/undefined positionId without crashing', () => {
+    const records = [
+      ptr({ id: 'r1', playerId: 'a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 200, positionId: null }),
+    ];
+    expect(getGoalkeeperIdAtTime(records, gkPositions, 'g1', 100)).toBeNull();
+  });
+
+  it('excludes records from a different gameId even if the interval numerically covers gameSeconds', () => {
+    const records = [
+      ptr({ id: 'r1', playerId: 'a', gameId: 'other-game', startGameSeconds: 0, endGameSeconds: 200 }),
+    ];
+    expect(getGoalkeeperIdAtTime(records, gkPositions, 'g1', 100)).toBeNull();
+  });
+});
+
+describe('calculateGoalsAgainst', () => {
+  const records = [
+    ptr({ id: 'r1', playerId: 'keeper-a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 2700 }),
+    ptr({ id: 'r2', playerId: 'keeper-b', gameId: 'g2', startGameSeconds: 0, endGameSeconds: 2700 }),
+  ];
+
+  it('counts an opponent goal with a resolvable keeper', () => {
+    const goals = [{ scoredByUs: false, gameId: 'g1', gameSeconds: 100 }];
+    const result = calculateGoalsAgainst(goals, records, gkPositions);
+    expect(result.get('keeper-a')).toBe(1);
+  });
+
+  it('never counts our own goals (scoredByUs: true) as GA for anyone', () => {
+    const goals = [{ scoredByUs: true, gameId: 'g1', gameSeconds: 100 }];
+    const result = calculateGoalsAgainst(goals, records, gkPositions);
+    expect(result.size).toBe(0);
+  });
+
+  it('silently omits an opponent goal with gameSeconds: null', () => {
+    const goals = [{ scoredByUs: false, gameId: 'g1', gameSeconds: null }];
+    const result = calculateGoalsAgainst(goals, records, gkPositions);
+    expect(result.size).toBe(0);
+  });
+
+  it('silently omits an opponent goal with no covering GOALKEEPER-role record', () => {
+    const goals = [{ scoredByUs: false, gameId: 'g1', gameSeconds: 5000 }];
+    const result = calculateGoalsAgainst(goals, records, gkPositions);
+    expect(result.size).toBe(0);
+  });
+
+  it('buckets multiple opponent goals across multiple games per resolved keeper, gameId-scoped', () => {
+    const goals = [
+      { scoredByUs: false, gameId: 'g1', gameSeconds: 100 },
+      { scoredByUs: false, gameId: 'g1', gameSeconds: 200 },
+      { scoredByUs: false, gameId: 'g2', gameSeconds: 100 },
+    ];
+    const result = calculateGoalsAgainst(goals, records, gkPositions);
+    expect(result.get('keeper-a')).toBe(2);
+    expect(result.get('keeper-b')).toBe(1);
+  });
+});
+
+describe('normalizeCompletedGamesRecords', () => {
+  it('normalizes records across 2+ completed games each against their own end time', () => {
+    const records = [
+      ptr({ id: 'r1', playerId: 'a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: null }),
+      ptr({ id: 'r2', playerId: 'b', gameId: 'g2', startGameSeconds: 0, endGameSeconds: null }),
+    ];
+    const endTimes = new Map([['g1', 1000], ['g2', 2000]]);
+    const result = normalizeCompletedGamesRecords(records, endTimes);
+    expect(result.find(r => r.id === 'r1')?.endGameSeconds).toBe(1000);
+    expect(result.find(r => r.id === 'r2')?.endGameSeconds).toBe(2000);
+  });
+
+  it('passes through records for a game not present in completedGameEndSeconds, untouched', () => {
+    const records = [ptr({ id: 'r1', playerId: 'a', gameId: 'in-progress-game', startGameSeconds: 0, endGameSeconds: null })];
+    const result = normalizeCompletedGamesRecords(records, new Map());
+    expect(result[0].endGameSeconds).toBeNull();
+  });
+
+  it('returns [] for an empty records array', () => {
+    expect(normalizeCompletedGamesRecords([], new Map([['g1', 1000]]))).toEqual([]);
+  });
+
+  it('does not mutate the input array', () => {
+    const original = ptr({ id: 'r1', playerId: 'a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: null });
+    const records = [original];
+    normalizeCompletedGamesRecords(records, new Map([['g1', 1000]]));
+    expect(original.endGameSeconds).toBeNull();
+  });
+});
+
+describe('hasGoalkeeperPlayTime', () => {
+  it('returns true for a player with a closed record at a GOALKEEPER-role position', () => {
+    const records = [ptr({ id: 'r1', playerId: 'a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 100 })];
+    expect(hasGoalkeeperPlayTime('a', records, gkPositions)).toBe(true);
+  });
+
+  it('returns true for a player with an open GOALKEEPER-role record', () => {
+    const records = [ptr({ id: 'r1', playerId: 'a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: null })];
+    expect(hasGoalkeeperPlayTime('a', records, gkPositions)).toBe(true);
+  });
+
+  it('returns false for a player with only non-GOALKEEPER-role records', () => {
+    const records = [ptr({ id: 'r1', playerId: 'a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 100, positionId: 'pos-fw' })];
+    expect(hasGoalkeeperPlayTime('a', records, gkPositions)).toBe(false);
+  });
+
+  it('returns false for every player when no GOALKEEPER-role position is defined on the team', () => {
+    const records = [ptr({ id: 'r1', playerId: 'a', gameId: 'g1', startGameSeconds: 0, endGameSeconds: 100 })];
+    expect(hasGoalkeeperPlayTime('a', records, [{ id: 'pos-gk', role: 'FORWARD' }])).toBe(false);
+  });
+
+  it('returns false for a player with zero play-time records at all', () => {
+    expect(hasGoalkeeperPlayTime('a', [], gkPositions)).toBe(false);
   });
 });

@@ -5,6 +5,7 @@ import type { Schema } from '../../data/resource';
 import { resolveShareLinkAccess, selectUpcomingGames, type GameRecord, type ShareLinkAccessTables } from '../shared/shareLinkAccess';
 import { queryAllByGameIdIndex } from '../shared/dynamo';
 import { computeActiveGoalkeeperId, type PlayTimeRecordLike, type PositionRoleLike } from '../shared/goalkeeper';
+import { resolveScore } from '../shared/score';
 
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
@@ -21,6 +22,7 @@ interface TeamRosterRow {
   teamId: string;
   playerId: string;
   isActive?: boolean | null;
+  playerNumber?: number | null;
 }
 
 interface PlayerRow {
@@ -82,6 +84,10 @@ async function batchGetPlayers(playerTable: string, ids: string[]): Promise<Map<
 
 interface FormationPositionRow extends PositionRoleLike {
   positionName?: string | null;
+  abbreviation?: string | null;
+  sortOrder?: number | null;
+  xPct?: number | null;
+  yPct?: number | null;
 }
 
 // Chunked BatchGetItem for FormationPosition rows -- same pattern as
@@ -106,7 +112,7 @@ async function batchGetFormationPositions(
         RequestItems: {
           [formationPositionTable]: {
             Keys: unprocessedKeys,
-            ProjectionExpression: 'id, #role, positionName',
+            ProjectionExpression: 'id, #role, positionName, abbreviation, sortOrder, xPct, yPct',
             ExpressionAttributeNames: { '#role': 'role' },
           },
         },
@@ -187,6 +193,14 @@ function toUpcomingGame(game: GameRecord) {
 // game.status === 'in-progress') to derive activeGoalkeeperId and each
 // on-field player's positionName -- see fetchActiveGoalkeeperAndPositions
 // above and amplify/functions/shared/goalkeeper.ts.
+//
+// Live score fix: also queries Goal's goalsByGameId GSI (only when the
+// broader `isLive` -- in-progress OR halftime, unlike isInProgress above --
+// holds) and derives ourScore/opponentScore from those rows via
+// amplify/functions/shared/score.ts's resolveScore, since Game.ourScore/
+// opponentScore is only ever written at creation (0/0) and completion (final
+// snapshot), never mid-game. See CLAUDE.md's "Game timer is client-side"
+// section for the parity-tested client twin.
 export const handler: Handler = async (event) => {
   const identity = event.identity as AppSyncIdentityIAM | undefined;
   const identityId = identity?.cognitoIdentityId;
@@ -201,10 +215,11 @@ export const handler: Handler = async (event) => {
   const playerTable = process.env.PLAYER_TABLE;
   const playTimeRecordTable = process.env.PLAY_TIME_RECORD_TABLE;
   const formationPositionTable = process.env.FORMATION_POSITION_TABLE;
+  const goalTable = process.env.GOAL_TABLE;
 
   if (
     !shareLinkTable || !teamTable || !gameTable || !rateLimitTable || !teamRosterTable || !playerTable ||
-    !playTimeRecordTable || !formationPositionTable
+    !playTimeRecordTable || !formationPositionTable || !goalTable
   ) {
     throw new Error('Required environment variables are not set');
   }
@@ -254,14 +269,24 @@ export const handler: Handler = async (event) => {
   // `status === 'in-progress'` check).
   const isInProgress = game?.status === 'in-progress';
 
+  // Broader than isInProgress (which gates the PlayTimeRecord/goalkeeper
+  // query and deliberately excludes halftime, since halftime closes all
+  // open PlayTimeRecords). Score must stay live through halftime too --
+  // it should not go stale/reset just because the tap UI is locked.
+  const isLive = game != null && selection.branch === 'LIVE';
+
   // The new PlayTimeRecord GSI query runs concurrently with the existing
   // roster query -- they're independent reads. The FormationPosition
   // batch-get below depends on this query's result (needs its distinct
-  // positionIds first), so it can't join this same Promise.all.
-  const [rosterRows, openPlayTimeRecordsRaw] = await Promise.all([
+  // positionIds first), so it can't join this same Promise.all. The Goal
+  // GSI query (score derivation) is likewise independent of both.
+  const [rosterRows, openPlayTimeRecordsRaw, goalsRaw] = await Promise.all([
     queryActiveRosterByTeamId(teamRosterTable, team.id),
     isInProgress
       ? queryAllByGameIdIndex(docClient, playTimeRecordTable, 'playTimeRecordsByGameId', (game as GameRecord).id)
+      : Promise.resolve([]),
+    isLive
+      ? queryAllByGameIdIndex(docClient, goalTable, 'goalsByGameId', (game as GameRecord).id)
       : Promise.resolve([]),
   ]);
 
@@ -283,23 +308,63 @@ export const handler: Handler = async (event) => {
   // means bench (or the game isn't in-progress, in which case the map is
   // always empty).
   const playerIdToPositionName = new Map<string, string | null>();
+  // Same open-PlayTimeRecord condition as playerIdToPositionName above --
+  // populated in the same forEach loop, under the same `if (positionName)`
+  // guard, so the two maps can never diverge (see the position/positionName
+  // invariant documented on StatTrackerPlayer.position in
+  // amplify/data/resource.ts).
+  const playerIdToPosition = new Map<string, FormationPositionRow>();
   openPlayTimeRecords.forEach((r) => {
-    const positionName = r.positionId ? positionsMap.get(r.positionId)?.positionName ?? null : null;
-    if (positionName) playerIdToPositionName.set(r.playerId, positionName);
+    const position = r.positionId ? positionsMap.get(r.positionId) ?? null : null;
+    const positionName = position?.positionName ?? null;
+    if (positionName) {
+      playerIdToPositionName.set(r.playerId, positionName);
+      playerIdToPosition.set(r.playerId, position as FormationPositionRow);
+    }
   });
 
   const roster = rosterRows
     .map((row) => {
       const player = playersMap.get(row.playerId);
       if (!player) return null;
+      const resolvedPosition = playerIdToPosition.get(row.playerId);
       return {
         id: row.playerId,
         firstName: player.firstName ?? '',
         lastName: player.lastName ?? '',
         positionName: playerIdToPositionName.get(row.playerId) ?? null,
+        playerNumber: row.playerNumber ?? null,
+        // Shaped explicitly (not spread) so no internal-only FormationPosition
+        // field ever leaks into this public payload.
+        position: resolvedPosition
+          ? {
+              id: resolvedPosition.id,
+              positionName: resolvedPosition.positionName ?? null,
+              abbreviation: resolvedPosition.abbreviation ?? null,
+              role: resolvedPosition.role ?? null,
+              sortOrder: resolvedPosition.sortOrder ?? null,
+              xPct: resolvedPosition.xPct ?? null,
+              yPct: resolvedPosition.yPct ?? null,
+            }
+          : null,
       };
     })
-    .filter((p): p is { id: string; firstName: string; lastName: string; positionName: string | null } => p !== null);
+    .filter((p): p is {
+      id: string;
+      firstName: string;
+      lastName: string;
+      positionName: string | null;
+      playerNumber: number | null;
+      position: {
+        id: string;
+        positionName: string | null;
+        abbreviation: string | null;
+        role: string | null;
+        sortOrder: number | null;
+        xPct: number | null;
+        yPct: number | null;
+      } | null;
+    } => p !== null);
 
   if (!game) {
     // NO_GAMES_YET / NO_GAME_RIGHT_NOW -- team resolved, roster still useful
@@ -322,6 +387,8 @@ export const handler: Handler = async (event) => {
     };
   }
 
+  const score = resolveScore(isLive, game, goalsRaw as unknown as Array<{ scoredByUs: boolean }>);
+
   return {
     state: selection.branch,
     teamName: team.name ?? null,
@@ -331,8 +398,8 @@ export const handler: Handler = async (event) => {
     elapsedSeconds: game.elapsedSeconds ?? null,
     lastStartTime: game.lastStartTime ?? null,
     halfLengthMinutes: game.halfLengthMinutes ?? null,
-    ourScore: game.ourScore ?? null,
-    opponentScore: game.opponentScore ?? null,
+    ourScore: score.ourScore,
+    opponentScore: score.opponentScore,
     gameId: game.id,
     roster,
     activeGoalkeeperId,

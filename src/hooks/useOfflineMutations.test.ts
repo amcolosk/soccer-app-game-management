@@ -7,6 +7,8 @@ import { renderHook, act } from '@testing-library/react';
 const {
   mockGameUpdate,
   mockPlayTimeRecordCreate,
+  mockPlayTimeRecordUpdate,
+  mockGoalCreate,
   mockShotCreate,
   mockShotUpdate,
   mockShotDelete,
@@ -31,6 +33,8 @@ const {
 } = vi.hoisted(() => ({
   mockGameUpdate: vi.fn(),
   mockPlayTimeRecordCreate: vi.fn(),
+  mockPlayTimeRecordUpdate: vi.fn(),
+  mockGoalCreate: vi.fn(),
   mockShotCreate: vi.fn(),
   mockShotUpdate: vi.fn(),
   mockShotDelete: vi.fn(),
@@ -60,7 +64,7 @@ vi.mock('aws-amplify/data', () => ({
       Game: { update: mockGameUpdate },
       PlayTimeRecord: {
         create: mockPlayTimeRecordCreate,
-        update: vi.fn().mockResolvedValue({ data: {} }),
+        update: mockPlayTimeRecordUpdate,
       },
       Substitution: { create: vi.fn().mockResolvedValue({ data: {} }) },
       LineupAssignment: {
@@ -68,7 +72,7 @@ vi.mock('aws-amplify/data', () => ({
         delete: vi.fn().mockResolvedValue({ data: {} }),
         update: vi.fn().mockResolvedValue({ data: {} }),
       },
-      Goal: { create: vi.fn().mockResolvedValue({ data: {} }) },
+      Goal: { create: mockGoalCreate },
       Shot: {
         create: mockShotCreate,
         update: mockShotUpdate,
@@ -164,6 +168,8 @@ describe('useOfflineMutations', () => {
     setupOnline();
     mockGameUpdate.mockResolvedValue({ data: {} });
     mockPlayTimeRecordCreate.mockResolvedValue({ data: {} });
+    mockPlayTimeRecordUpdate.mockResolvedValue({ data: {} });
+    mockGoalCreate.mockResolvedValue({ data: {} });
     mockShotCreate.mockResolvedValue({ data: {} });
     mockShotUpdate.mockResolvedValue({ data: {} });
     mockShotDelete.mockResolvedValue({ data: {} });
@@ -301,7 +307,7 @@ describe('useOfflineMutations', () => {
         await result.current.mutations.createShot({
           gameId: 'g1',
           takenByUs: true,
-          onTarget: true,
+          outcome: 'GOAL',
           gameSeconds: 120,
           half: 1,
           playerId: 'p1',
@@ -313,10 +319,30 @@ describe('useOfflineMutations', () => {
       expect(mockShotCreate).toHaveBeenCalledWith(expect.objectContaining({
         gameId: 'g1',
         takenByUs: true,
-        onTarget: true,
+        outcome: 'GOAL',
         loggedVia: 'COACH',
       }));
       expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('createShot omits playerId (rather than sending null) when there is no shooter, since Shot.playerId backs the Player.shots GSI and DynamoDB rejects an explicit null key', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createShot({
+          gameId: 'g1',
+          takenByUs: false,
+          outcome: 'BLOCKED',
+          gameSeconds: 120,
+          half: 1,
+          playerId: null,
+          loggedVia: 'COACH',
+          coaches: ['coach-1'],
+        });
+      });
+
+      const callArg = mockShotCreate.mock.calls[0]?.[0];
+      expect(callArg).not.toHaveProperty('playerId');
     });
 
     it('deleteShot calls client.models.Shot.delete', async () => {
@@ -333,10 +359,69 @@ describe('useOfflineMutations', () => {
       const { result } = renderHook(() => useOfflineMutations());
 
       await act(async () => {
-        await result.current.mutations.updateShot('shot-1', { playerId: 'p2', onTarget: false });
+        await result.current.mutations.updateShot('shot-1', { playerId: 'p2', outcome: 'BLOCKED' });
       });
 
-      expect(mockShotUpdate).toHaveBeenCalledWith({ id: 'shot-1', playerId: 'p2', onTarget: false });
+      expect(mockShotUpdate).toHaveBeenCalledWith({ id: 'shot-1', playerId: 'p2', outcome: 'BLOCKED' });
+    });
+
+    it('updateShot omits the outcome key entirely when the caller does not supply it (M1 guardrail)', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.updateShot('shot-1', { playerId: 'p2' });
+      });
+
+      const callArg = mockShotUpdate.mock.calls[0]?.[0];
+      expect(callArg).toEqual({ id: 'shot-1', playerId: 'p2' });
+      expect(callArg).not.toHaveProperty('outcome');
+    });
+
+    it('createGoal calls client.models.Goal.create with correct args, including required loggedVia', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createGoal({
+          gameId: 'g1',
+          scoredByUs: true,
+          gameSeconds: 120,
+          half: 1,
+          scorerId: 'p1',
+          assistId: 'p2',
+          loggedVia: 'COACH',
+          coaches: ['coach-1'],
+        });
+      });
+
+      expect(mockGoalCreate).toHaveBeenCalledWith(expect.objectContaining({
+        gameId: 'g1',
+        scoredByUs: true,
+        loggedVia: 'COACH',
+        scorerId: 'p1',
+        assistId: 'p2',
+      }));
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('createGoal omits scorerId/assistId (rather than sending null) for an opponent goal, since Player.goalsScored/assists back GSIs and DynamoDB rejects an explicit null key', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createGoal({
+          gameId: 'g1',
+          scoredByUs: false,
+          gameSeconds: 120,
+          half: 1,
+          scorerId: null,
+          assistId: null,
+          loggedVia: 'COACH',
+          coaches: ['coach-1'],
+        });
+      });
+
+      const callArg = mockGoalCreate.mock.calls[0]?.[0];
+      expect(callArg).not.toHaveProperty('scorerId');
+      expect(callArg).not.toHaveProperty('assistId');
     });
 
     it('createSave calls client.models.Save.create with correct args, including required loggedVia', async () => {
@@ -360,6 +445,25 @@ describe('useOfflineMutations', () => {
         loggedVia: 'HELPER',
       }));
       expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('createSave omits playerId (rather than sending null) when the keeper is unresolved, since Save.playerId backs the Player.saves GSI and DynamoDB rejects an explicit null key', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createSave({
+          gameId: 'g1',
+          byUs: true,
+          gameSeconds: 200,
+          half: 1,
+          playerId: null,
+          loggedVia: 'HELPER',
+          coaches: ['coach-1'],
+        });
+      });
+
+      const callArg = mockSaveCreate.mock.calls[0]?.[0];
+      expect(callArg).not.toHaveProperty('playerId');
     });
 
     it('deleteSave calls client.models.Save.delete', async () => {
@@ -450,6 +554,158 @@ describe('useOfflineMutations', () => {
     });
   });
 
+  // ── closeAllOpenPlayTimeRecords — local open-record map (Issue A fix) ──────
+
+  describe('closeAllOpenPlayTimeRecords', () => {
+    it('closes a record created via createPlayTimeRecord, using its id', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createPlayTimeRecord({
+          id: 'ptr:g1:p1:h1:t0',
+          gameId: 'g1',
+          playerId: 'p1',
+          startGameSeconds: 0,
+          coaches: ['coach-1'],
+        });
+      });
+
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(600);
+      });
+
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'ptr:g1:p1:h1:t0', endGameSeconds: 600 });
+    });
+
+    it('closes it even while offline (the record exists only in the queue, not DynamoDB or React state)', async () => {
+      setupOffline();
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createPlayTimeRecord({
+          id: 'ptr:g1:p1:h1:t0',
+          gameId: 'g1',
+          playerId: 'p1',
+          startGameSeconds: 0,
+          coaches: ['coach-1'],
+        });
+      });
+
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(600);
+      });
+
+      // Both the create and the close were enqueued, in order — no direct API calls.
+      expect(mockPlayTimeRecordCreate).not.toHaveBeenCalled();
+      expect(mockPlayTimeRecordUpdate).not.toHaveBeenCalled();
+      expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({
+        model: 'PlayTimeRecord', operation: 'create',
+        payload: expect.objectContaining({ id: 'ptr:g1:p1:h1:t0' }),
+      }));
+      expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({
+        model: 'PlayTimeRecord', operation: 'update',
+        payload: expect.objectContaining({ id: 'ptr:g1:p1:h1:t0', endGameSeconds: 600 }),
+      }));
+    });
+
+    it('does not re-close a record whose close already succeeded', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createPlayTimeRecord({
+          id: 'ptr:g1:p1:h1:t0', gameId: 'g1', playerId: 'p1', startGameSeconds: 0, coaches: ['coach-1'],
+        });
+      });
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(600);
+      });
+      mockPlayTimeRecordUpdate.mockClear();
+
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(900);
+      });
+
+      expect(mockPlayTimeRecordUpdate).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when nothing is open', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(600);
+      });
+
+      expect(mockPlayTimeRecordUpdate).not.toHaveBeenCalled();
+    });
+
+    it('closes multiple open records opened by separate createPlayTimeRecord calls', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createPlayTimeRecord({
+          id: 'ptr:g1:p1:h1:t0', gameId: 'g1', playerId: 'p1', startGameSeconds: 0, coaches: ['coach-1'],
+        });
+        await result.current.mutations.createPlayTimeRecord({
+          id: 'ptr:g1:p2:h1:t0', gameId: 'g1', playerId: 'p2', startGameSeconds: 0, coaches: ['coach-1'],
+        });
+      });
+
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(600);
+      });
+
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'ptr:g1:p1:h1:t0', endGameSeconds: 600 });
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'ptr:g1:p2:h1:t0', endGameSeconds: 600 });
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledTimes(2);
+    });
+
+    it('leaves a failed close in the open map so the next call retries it, and never throws itself', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createPlayTimeRecord({
+          id: 'ptr:g1:p1:h1:t0', gameId: 'g1', playerId: 'p1', startGameSeconds: 0, coaches: ['coach-1'],
+        });
+      });
+
+      mockPlayTimeRecordUpdate.mockResolvedValueOnce({ data: null, errors: [{ message: 'transient failure' }] });
+      await act(async () => {
+        // Returns false (not a throw) so a caller gating a retry signal on this
+        // (e.g. GameManagement's halftimePtrClosePendingRef) can actually see the
+        // failure instead of only relying on a separate backstop call's throw.
+        await expect(
+          result.current.mutations.closeAllOpenPlayTimeRecords(600)
+        ).resolves.toBe(false);
+      });
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledTimes(1);
+
+      // Retry succeeds — the id was never removed from the open map on failure.
+      mockPlayTimeRecordUpdate.mockResolvedValueOnce({ data: {} });
+      await act(async () => {
+        await expect(
+          result.current.mutations.closeAllOpenPlayTimeRecords(600)
+        ).resolves.toBe(true);
+      });
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not track a create that never had an id', async () => {
+      const { result } = renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        await result.current.mutations.createPlayTimeRecord({
+          gameId: 'g1', playerId: 'p1', startGameSeconds: 0, coaches: ['coach-1'],
+        });
+      });
+
+      await act(async () => {
+        await result.current.mutations.closeAllOpenPlayTimeRecords(600);
+      });
+
+      expect(mockPlayTimeRecordUpdate).not.toHaveBeenCalled();
+    });
+  });
+
   // ── Offline path ─────────────────────────────────────────────────────────
 
   describe('offline path — mutations are queued to IndexedDB', () => {
@@ -504,7 +760,7 @@ describe('useOfflineMutations', () => {
         await result.current.mutations.createShot({
           gameId: 'g1',
           takenByUs: true,
-          onTarget: true,
+          outcome: 'GOAL',
           gameSeconds: 120,
           half: 1,
           loggedVia: 'COACH',
@@ -692,7 +948,7 @@ describe('useOfflineMutations', () => {
           id: 'q1',
           model: 'Shot',
           operation: 'create',
-          payload: { gameId: 'g1', takenByUs: true, onTarget: true, gameSeconds: 100, half: 1, loggedVia: 'COACH' },
+          payload: { gameId: 'g1', takenByUs: true, outcome: 'GOAL', gameSeconds: 100, half: 1, loggedVia: 'COACH' },
           enqueuedAt: 1,
           retryCount: 0,
           ownerSub: DEFAULT_SUB,
@@ -917,6 +1173,38 @@ describe('useOfflineMutations', () => {
       });
       await flush();
 
+      expect(mockRequeueFailed).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ id: 'q1' })])
+      );
+    });
+
+    it('requeues a mutation whose call resolves with GraphQL errors instead of dropping it as success', async () => {
+      // Same bug class as useOfflineQueueDrain.test.ts's equivalent test, in this
+      // file's own separate drain path (executeSingleMutation's generic branch).
+      // A generic-model update (e.g. PlayTimeRecord.update from
+      // closeAllOpenPlayTimeRecords) that resolves with { errors: [...] } must not
+      // be silently treated as success and dropped from the queue.
+      mockGameUpdate.mockResolvedValue({ data: null, errors: [{ message: 'Unauthorized' }] });
+      mockDequeueAll.mockResolvedValue([
+        {
+          id: 'q1',
+          model: 'Game',
+          operation: 'update',
+          payload: { id: 'g1' },
+          enqueuedAt: 1,
+          retryCount: 0,
+          ownerSub: DEFAULT_SUB,
+        },
+      ]);
+
+      renderHook(() => useOfflineMutations());
+
+      await act(async () => {
+        capturedOnReconnect?.();
+      });
+      await flush();
+
+      expect(mockGameUpdate).toHaveBeenCalledWith({ id: 'g1' });
       expect(mockRequeueFailed).toHaveBeenCalledWith(
         expect.arrayContaining([expect.objectContaining({ id: 'q1' })])
       );

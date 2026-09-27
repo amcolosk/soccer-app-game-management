@@ -1,12 +1,10 @@
 import { useCallback, useState } from "react";
-import { showWarning, showSuccess } from "../../utils/toast";
+import { showSuccess } from "../../utils/toast";
 import { handleApiError } from "../../utils/errorHandler";
-import { formatGameTimeDisplay } from "../../utils/gameTimeUtils";
 import { PlayerSelect } from "../PlayerSelect";
-import { isPlayerCurrentlyPlaying, getCurrentGoalkeeperId } from "../../utils/playTimeCalculations";
-import { isPlayerInLineup } from "../../utils/lineupUtils";
+import { getCurrentGoalkeeperId } from "../../utils/playTimeCalculations";
 import type { GameMutationInput, ShotUpdateFields, SaveUpdateFields } from "../../hooks/useOfflineMutations";
-import type { Game, Team, PlayerWithRoster, Shot, Save, PlayTimeRecord, LineupAssignment, FormationPosition } from "./types";
+import type { Game, PlayerWithRoster, Shot, Save, PlayTimeRecord, FormationPosition } from "./types";
 import type { StatSubView } from "./StatsSubViewTabs";
 import { GameActionRow } from "./actions/GameActionRow";
 import type { GameActionDescriptor } from "./actions/actionContract";
@@ -15,8 +13,6 @@ type StatItem = Shot | Save;
 
 interface ShotSaveTrackerProps {
   gameState: Game;
-  game: Game;
-  team: Team;
   players: PlayerWithRoster[];
   shots: Shot[];
   saves: Save[];
@@ -24,10 +20,8 @@ interface ShotSaveTrackerProps {
    *  by the shared StatsSubViewTabs segmented control (never "goals": the
    *  caller mounts GoalTracker for that sub-view instead). */
   statView: Exclude<StatSubView, "goals">;
-  currentTime: number;
   mutations: GameMutationInput;
   playTimeRecords: PlayTimeRecord[];
-  lineup: LineupAssignment[];
   positions: FormationPosition[];
 }
 
@@ -40,98 +34,80 @@ const LABELS = {
   saves: { singular: "Save", verb: "recorded", noun: "save" },
 } as const;
 
+// Color-coded per the Shots-list outcome badge (Q2/UI review) -- an
+// application of UI-SPEC §5.7's existing Status-Badge visual language, not a
+// new ad hoc badge system. green=GOAL, blue=SAVED, gray=BLOCKED/WIDE.
+function outcomeBadgeClass(outcome: Shot['outcome'] | null | undefined): string {
+  switch (outcome) {
+    case 'GOAL':
+      return 'shot-outcome-badge shot-outcome-badge--goal';
+    case 'SAVED':
+      return 'shot-outcome-badge shot-outcome-badge--saved';
+    case 'BLOCKED':
+    case 'WIDE':
+      return 'shot-outcome-badge shot-outcome-badge--neutral';
+    default:
+      // Unreachable in practice (every new write always populates outcome),
+      // but a.enum() can't be .required() at the schema level, so a
+      // hand-edited/legacy-shaped row must still render without crashing.
+      return 'shot-outcome-badge shot-outcome-badge--neutral';
+  }
+}
+
+function outcomeBadgeLabel(outcome: Shot['outcome'] | null | undefined): string {
+  switch (outcome) {
+    case 'GOAL': return 'Goal';
+    case 'SAVED': return 'Saved';
+    case 'BLOCKED': return 'Blocked';
+    case 'WIDE': return 'Wide';
+    default: return 'Unknown outcome';
+  }
+}
+
+// Shot's edit-visibility gate (UI review Major, M1 addendum): `isUs` OR a
+// BLOCKED/WIDE outcome -- an opponent-attributed Shot with one of those two
+// outcomes has a genuinely editable field (the outcome itself), unlike
+// GOAL/SAVED/null which stay read-only-or-nothing. Save's gate is unchanged,
+// `isUs`-only -- an opponent Save row still has nothing editable.
+function isEditVisible(statView: Exclude<StatSubView, "goals">, item: StatItem, isUs: boolean): boolean {
+  if (statView === "saves") return isUs;
+  const outcome = (item as Shot).outcome;
+  return isUs || outcome === 'BLOCKED' || outcome === 'WIDE';
+}
+
+// M1: the edit modal's outcome control is editable ONLY when the shot's
+// current, seeded outcome is BLOCKED or WIDE -- GOAL/SAVED/null render a
+// read-only label instead ("delete and re-log to change the outcome"),
+// since editing those in place would silently corrupt the exact outcome
+// this guardrail exists to protect (see the plan's "Accepted risk: sibling
+// drift" section).
+function isOutcomeEditable(outcome: Shot['outcome'] | null | undefined): boolean {
+  return outcome === 'BLOCKED' || outcome === 'WIDE';
+}
+
 export function ShotSaveTracker({
   gameState,
-  game,
-  team,
   players,
   shots,
   saves,
   statView,
-  currentTime,
   mutations,
   playTimeRecords,
-  lineup,
   positions,
 }: ShotSaveTrackerProps) {
   const items: StatItem[] = statView === "shots" ? shots : saves;
   const label = LABELS[statView];
 
-  const [showEntryModal, setShowEntryModal] = useState(false);
-  const [entryIsUs, setEntryIsUs] = useState(true);
-  const [entryPlayerId, setEntryPlayerId] = useState("");
-  const [entryOnTarget, setEntryOnTarget] = useState(true);
-
   const [showEditModal, setShowEditModal] = useState(false);
   const [editItem, setEditItem] = useState<StatItem | null>(null);
   const [editPlayerId, setEditPlayerId] = useState("");
-  const [editOnTarget, setEditOnTarget] = useState(true);
+  // Seeded from the item's current outcome at open time -- only ever sent
+  // back on save when the editable control was actually shown (BLOCKED/WIDE)
+  // AND its value changed, per M1's corrected guardrail.
+  const [editOutcome, setEditOutcome] = useState<Shot['outcome'] | null>(null);
+  const [initialEditOutcome, setInitialEditOutcome] = useState<Shot['outcome'] | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [error, setError] = useState("");
-
-  const onFieldPlayerIds = players
-    .filter(p =>
-      isPlayerCurrentlyPlaying(p.id, playTimeRecords) ||
-      isPlayerInLineup(p.id, lineup)
-    )
-    .map(p => p.id);
-
-  const getCurrentGameTime = () => currentTime;
-
-  const handleOpenEntryModal = (isUs: boolean) => {
-    setEntryIsUs(isUs);
-    // Pre-fill the goalkeeper for a "Us" Save when unambiguous -- see
-    // getCurrentGoalkeeperId's doc comment for exact ambiguity semantics.
-    // Shots are never affected; opponent-attributed entries never prefill.
-    const derivedGoalkeeperId =
-      statView === "saves" && isUs ? getCurrentGoalkeeperId(playTimeRecords, positions) : null;
-    setEntryPlayerId(derivedGoalkeeperId ?? "");
-    setEntryOnTarget(true);
-    setShowEntryModal(true);
-  };
-
-  const handleRecordStat = async () => {
-    if (statView === "shots" && entryIsUs && !entryPlayerId) {
-      showWarning("Please select who took the shot");
-      return;
-    }
-
-    try {
-      const gameSeconds = getCurrentGameTime();
-      const half = gameState.currentHalf || 1;
-      const timestamp = new Date().toISOString();
-
-      if (statView === "shots") {
-        await mutations.createShot({
-          gameId: game.id,
-          takenByUs: entryIsUs,
-          onTarget: entryOnTarget,
-          gameSeconds,
-          half,
-          playerId: entryIsUs && entryPlayerId ? entryPlayerId : undefined,
-          timestamp,
-          loggedVia: "COACH",
-          coaches: team.coaches,
-        });
-      } else {
-        await mutations.createSave({
-          gameId: game.id,
-          byUs: entryIsUs,
-          gameSeconds,
-          half,
-          playerId: entryIsUs && entryPlayerId ? entryPlayerId : undefined,
-          timestamp,
-          loggedVia: "COACH",
-          coaches: team.coaches,
-        });
-      }
-
-      setShowEntryModal(false);
-      showSuccess(`${label.singular} ${label.verb}.`);
-    } catch (err) {
-      handleApiError(err, `Failed to record ${label.noun}`);
-    }
-  };
 
   const handleOpenEditModal = useCallback((item: StatItem) => {
     setEditItem(item);
@@ -143,7 +119,9 @@ export function ShotSaveTracker({
     const derivedGoalkeeperId =
       statView === "saves" && !item.playerId ? getCurrentGoalkeeperId(playTimeRecords, positions) : null;
     setEditPlayerId(item.playerId ?? derivedGoalkeeperId ?? "");
-    setEditOnTarget(statView === "shots" ? (item as Shot).onTarget ?? true : true);
+    const currentOutcome = statView === "shots" ? (item as Shot).outcome ?? null : null;
+    setEditOutcome(currentOutcome);
+    setInitialEditOutcome(currentOutcome);
     setError("");
     setShowEditModal(true);
   }, [statView, playTimeRecords, positions]);
@@ -155,16 +133,21 @@ export function ShotSaveTracker({
 
   const handleSaveEdit = useCallback(async () => {
     if (!editItem) return;
-    if (statView === "shots" && (editItem as Shot).takenByUs && !editPlayerId) {
-      setError("A shooter is required for our shots.");
-      return;
-    }
+    // m7: a shooter-less "Us" shot is a legitimate state on both surfaces --
+    // the M1 editable-outcome control must be able to correct e.g. a
+    // shooterless "Us" BLOCKED shot to WIDE without inventing a shooter, so
+    // this no longer hard-requires a shooter on "Us" shots.
     setIsSavingEdit(true);
     try {
       if (statView === "shots") {
+        const outcomeChanged = isOutcomeEditable(initialEditOutcome) && editOutcome !== initialEditOutcome;
         await mutations.updateShot(editItem.id, {
           playerId: editPlayerId || undefined,
-          onTarget: editOnTarget,
+          // M1: `outcome` is omitted from the payload entirely unless the
+          // editable control was shown (current outcome BLOCKED/WIDE) AND
+          // its value actually changed -- never send a field the coach
+          // never had the ability to meaningfully edit.
+          ...(outcomeChanged && editOutcome ? { outcome: editOutcome } : {}),
         } as ShotUpdateFields);
       } else {
         await mutations.updateSave(editItem.id, {
@@ -179,7 +162,7 @@ export function ShotSaveTracker({
     } finally {
       setIsSavingEdit(false);
     }
-  }, [editItem, editPlayerId, editOnTarget, statView, mutations, label, handleCloseEditModal]);
+  }, [editItem, editPlayerId, editOutcome, initialEditOutcome, statView, mutations, label, handleCloseEditModal]);
 
   const handleDeleteItem = useCallback(async (item: StatItem) => {
     try {
@@ -198,18 +181,6 @@ export function ShotSaveTracker({
 
   return (
     <>
-      {/* Entry Buttons */}
-      {gameState.status !== "scheduled" && (
-        <div className="stat-buttons">
-          <button onClick={() => handleOpenEntryModal(true)} className="btn-stat btn-stat-us">
-            {statView === "shots" ? "🎯" : "🧤"} {label.singular} - Us
-          </button>
-          <button onClick={() => handleOpenEntryModal(false)} className="btn-stat btn-stat-opponent">
-            {statView === "shots" ? "🎯" : "🧤"} {label.singular} - {gameState.opponent}
-          </button>
-        </div>
-      )}
-
       {/* Empty State for Completed */}
       {gameState.status === "completed" && items.length === 0 && (
         <div className="stats-empty-state">
@@ -228,10 +199,7 @@ export function ShotSaveTracker({
               const minute = Math.floor((item.gameSeconds ?? 0) / 60);
               const teamLabel = isUs ? "Us" : (gameState.opponent ?? "Opponent");
               const actionDescriptors: GameActionDescriptor[] = [
-                // Edit is suppressed on opponent-attributed rows: neither Shot
-                // nor Save has a `notes` field, so an opponent row (no player,
-                // no assist, no notes) has nothing meaningful to edit.
-                ...(isUs ? [{
+                ...(isEditVisible(statView, item, isUs) ? [{
                   id: 'edit' as const,
                   label: 'Edit',
                   kind: 'primary' as const,
@@ -247,7 +215,12 @@ export function ShotSaveTracker({
                   ariaLabel: `Delete ${teamLabel} ${label.noun} at ${minute}'`,
                   confirmDialog: {
                     title: `Delete ${label.noun}?`,
-                    body: `This permanently removes this ${label.noun} event from the game timeline.`,
+                    // i4: Shot/Save stay unlinked siblings by design -- say
+                    // so explicitly rather than leaving an apparently
+                    // orphaned Shot/Goal row as a surprise afterward.
+                    body: statView === "shots"
+                      ? `This permanently removes this shot event from the game timeline. Any matching goal or save stays in its own list.`
+                      : `This permanently removes this save event from the game timeline. The matching shot stays in the Shots list.`,
                     confirmText: 'Delete',
                     cancelText: 'Cancel',
                   },
@@ -264,7 +237,9 @@ export function ShotSaveTracker({
                       <span className="stat-minute">{minute}'</span>
                       <span className="stat-half">({item.half === 1 ? "1st" : "2nd"} Half)</span>
                       {statView === "shots" && (
-                        <span className="stat-on-target">{(item as Shot).onTarget ? "On target" : "Off target"}</span>
+                        <span className={outcomeBadgeClass((item as Shot).outcome)}>
+                          {outcomeBadgeLabel((item as Shot).outcome)}
+                        </span>
                       )}
                     </div>
                     {isUs ? (
@@ -290,91 +265,53 @@ export function ShotSaveTracker({
         </div>
       )}
 
-      {/* Entry Modal */}
-      {showEntryModal && (
-        <div className="modal-overlay" onClick={() => setShowEntryModal(false)} role="dialog" aria-modal="true" aria-labelledby={`record-${statView}-modal-title`}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2 id={`record-${statView}-modal-title`}>Record {label.singular}</h2>
+      {/* Edit Modal */}
+      {showEditModal && editItem && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby={`edit-${statView}-modal-title`}>
+          <div className="modal-content">
+            <h2 id={`edit-${statView}-modal-title`}>
+              {isUsAttributed(statView, editItem) ? `Edit Our ${label.singular}` : `Edit ${gameState.opponent ?? 'Opponent'} ${label.singular}`}
+            </h2>
             <p className="modal-subtitle">
-              {entryIsUs ? `Our ${label.singular}` : `${gameState.opponent} ${label.singular}`} - {formatGameTimeDisplay(getCurrentGameTime(), gameState.currentHalf || 1)}
+              {isUsAttributed(statView, editItem) ? `Our ${label.singular}` : `${gameState.opponent ?? 'Opponent'} ${label.singular}`}
+              {' — '}
+              Half {editItem.half}, {Math.floor((editItem.gameSeconds ?? 0) / 60)}'
             </p>
 
-            {entryIsUs && (
+            {isUsAttributed(statView, editItem) && (
               <div className="form-group">
-                <label htmlFor={`${statView}Player`}>
-                  {statView === "shots" ? "Who Took the Shot? *" : "Goalkeeper (optional)"}
-                </label>
+                <label>{statView === "shots" ? "Shooter" : "Goalkeeper"}</label>
                 <PlayerSelect
-                  id={`${statView}Player`}
+                  id={`edit${statView}Player`}
                   players={players}
-                  value={entryPlayerId}
-                  onChange={setEntryPlayerId}
-                  placeholder="Select player..."
-                  className="w-full"
-                  onFieldPlayerIds={onFieldPlayerIds}
+                  value={editPlayerId}
+                  onChange={setEditPlayerId}
+                  placeholder="Select player"
                 />
               </div>
             )}
 
             {statView === "shots" && (
               <div className="form-group">
-                <label htmlFor="shotOnTarget">On Target?</label>
-                <select
-                  id="shotOnTarget"
-                  value={entryOnTarget ? "yes" : "no"}
-                  onChange={(e) => setEntryOnTarget(e.target.value === "yes")}
-                >
-                  <option value="yes">On target</option>
-                  <option value="no">Off target</option>
-                </select>
-              </div>
-            )}
-
-            <div className="form-actions">
-              <button onClick={handleRecordStat} className="btn-primary">
-                Record {label.singular}
-              </button>
-              <button onClick={() => setShowEntryModal(false)} className="btn-secondary">
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Modal (Us-attributed rows only) */}
-      {showEditModal && editItem && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby={`edit-${statView}-modal-title`}>
-          <div className="modal-content">
-            <h2 id={`edit-${statView}-modal-title`}>Edit Our {label.singular}</h2>
-            <p className="modal-subtitle">
-              Our {label.singular}
-              {' — '}
-              Half {editItem.half}, {Math.floor((editItem.gameSeconds ?? 0) / 60)}'
-            </p>
-
-            <div className="form-group">
-              <label>{statView === "shots" ? "Shooter" : "Goalkeeper"}</label>
-              <PlayerSelect
-                id={`edit${statView}Player`}
-                players={players}
-                value={editPlayerId}
-                onChange={setEditPlayerId}
-                placeholder="Select player"
-              />
-            </div>
-
-            {statView === "shots" && (
-              <div className="form-group">
-                <label htmlFor="editShotOnTarget">On Target?</label>
-                <select
-                  id="editShotOnTarget"
-                  value={editOnTarget ? "yes" : "no"}
-                  onChange={(e) => setEditOnTarget(e.target.value === "yes")}
-                >
-                  <option value="yes">On target</option>
-                  <option value="no">Off target</option>
-                </select>
+                <label htmlFor="editShotOutcome">Outcome</label>
+                {isOutcomeEditable(initialEditOutcome) ? (
+                  <select
+                    id="editShotOutcome"
+                    value={editOutcome ?? ''}
+                    onChange={(e) => setEditOutcome(e.target.value as Shot['outcome'])}
+                  >
+                    <option value="BLOCKED">Blocked</option>
+                    <option value="WIDE">Wide</option>
+                  </select>
+                ) : (
+                  // M1: read-only -- correcting a genuinely wrong Goal/Saved
+                  // outcome is delete-and-re-log through the unified entry
+                  // flow, never an in-place outcome edit. Reuses the
+                  // codebase's existing readonly-field visual convention.
+                  <p id="editShotOutcome" className="shot-outcome-readonly">
+                    {outcomeBadgeLabel(initialEditOutcome)} — delete and re-log to change the outcome
+                  </p>
+                )}
               </div>
             )}
 

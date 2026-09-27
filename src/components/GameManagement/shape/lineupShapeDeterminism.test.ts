@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import goldenSnapshot from "./__fixtures__/lineup-shape-golden-v1.json";
 import {
   buildLineupShapeGoldenSnapshot,
+  buildLineupShapeNodes,
   LINEUP_SHAPE_LAYOUT_VERSION,
   type LineupShapeNode,
+  type LineupShapePositionInput,
 } from "./lineupShapeDeterminism";
 import type { FormationPosition } from "../types";
 
@@ -128,5 +130,28 @@ describe("lineupShapeDeterminism", () => {
     expect(nodeById["p-gk"].yPct).toBe(91);
     expect(nodeById["p-cm"].xPct).toBe(60);
     expect(nodeById["p-cm"].yPct).toBe(33);
+  });
+
+  it("still accepts a full FormationPosition[] unchanged (existing coach-side call sites)", () => {
+    const snapshot = buildLineupShapeGoldenSnapshot(positions);
+    expect(snapshot).toEqual(goldenSnapshot);
+  });
+
+  it("accepts a trimmed LineupShapePositionInput[] literal matching the Stat Tracker Lambda's actual payload shape", () => {
+    // No `formationId`/`coaches`/`createdAt`/`updatedAt` -- unlike
+    // FormationPosition, simulating exactly what get-stat-tracker-view's
+    // handler sends over the wire for the public pitch view.
+    const lambdaPayload: LineupShapePositionInput[] = [
+      { id: "lp-gk", positionName: "Goalkeeper", abbreviation: "GK", role: "GOALKEEPER", sortOrder: 0 },
+      { id: "lp-fwd", positionName: "Forward", abbreviation: "FWD", role: "FORWARD", sortOrder: 1, xPct: 30, yPct: 15 },
+    ];
+
+    const nodes = buildLineupShapeNodes(lambdaPayload);
+    const byId = Object.fromEntries(nodes.map((node) => [node.positionId, node]));
+
+    expect(byId["lp-gk"].lane).toBe("gk");
+    expect(byId["lp-fwd"].lane).toBe("fwd");
+    expect(byId["lp-fwd"].xPct).toBe(30);
+    expect(byId["lp-fwd"].yPct).toBe(15);
   });
 });

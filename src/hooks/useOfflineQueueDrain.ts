@@ -31,6 +31,25 @@ function getSafeErrorMessage(error: unknown): string {
   return 'Unknown error';
 }
 
+function getGraphQLErrorMessage(result: { errors?: Array<{ message?: string | null }> } | undefined, fallback: string): string {
+  const message = result?.errors?.[0]?.message;
+  return message && message.length > 0 ? message : fallback;
+}
+
+// Amplify's data client returns GraphQL errors in the result rather than
+// throwing — a bare `await m.update(...)` with no check here would treat a
+// failed replay as a success and drop it from the queue. This mirrors the
+// assertNoGraphQLErrors check useOfflineMutations.ts already uses for its own
+// drain path.
+function assertNoGraphQLErrors(
+  result: { errors?: Array<{ message?: string | null }> } | undefined,
+  context: string
+): void {
+  if (result?.errors && result.errors.length > 0) {
+    throw new Error(`${context}: ${getGraphQLErrorMessage(result, context)}`);
+  }
+}
+
 async function executeQueuedMutation(item: QueuedMutation): Promise<void> {
   if (!DRAINABLE_MODELS.has(item.model) || !ALLOWED_OPS.has(item.operation)) {
     throw new Error(`Disallowed model/operation in drain: ${item.model}.${item.operation}`);
@@ -38,10 +57,11 @@ async function executeQueuedMutation(item: QueuedMutation): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const m = (client.models as Record<string, any>)[item.model];
   if (!m) throw new Error(`Unknown model in drain: ${item.model}`);
+  const context = `Failed to replay ${item.model}.${item.operation}`;
   switch (item.operation) {
-    case 'create': await m.create(item.payload); return;
-    case 'update': await m.update(item.payload); return;
-    case 'delete': await m.delete(item.payload); return;
+    case 'create': assertNoGraphQLErrors(await m.create(item.payload), context); return;
+    case 'update': assertNoGraphQLErrors(await m.update(item.payload), context); return;
+    case 'delete': assertNoGraphQLErrors(await m.delete(item.payload), context); return;
   }
 }
 

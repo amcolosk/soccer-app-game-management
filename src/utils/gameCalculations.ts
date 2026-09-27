@@ -1,4 +1,5 @@
-import type { Goal, GameNote, Game } from "../types/schema";
+import type { Goal, GameNote, Game, Shot, Save, PlayTimeRecord } from "../types/schema";
+import { getGoalkeeperIdAtTime, type PositionRoleLookup } from "./playTimeCalculations";
 
 /**
  * Calculates total goals scored by a player
@@ -44,6 +45,98 @@ export function calculateRecord(games: Pick<Game, 'status' | 'ourScore' | 'oppon
     wins: completed.filter(g => (g.ourScore ?? 0) > (g.opponentScore ?? 0)).length,
     losses: completed.filter(g => (g.ourScore ?? 0) < (g.opponentScore ?? 0)).length,
     ties: completed.filter(g => (g.ourScore ?? 0) === (g.opponentScore ?? 0)).length,
+  };
+}
+
+/**
+ * Derives the current score from Goal records. This is the single source of
+ * truth for "what is the score right now" while a game is active — Game.ourScore/
+ * opponentScore in the DB is NOT kept live; it's only written at game creation
+ * (0/0) and at game completion (final snapshot, GameManagement.tsx's completed-
+ * state reconciliation effect). Any live-score display (CommandBand, Fan Mode,
+ * Sideline Stat Tracker) must derive from Goal records, not the Game row, while
+ * status is 'in-progress' or 'halftime'.
+ *
+ * Mirrored by amplify/functions/shared/score.ts's Lambda-side twin (a Lambda
+ * can't import from src/) — parity-tested in
+ * amplify/functions/shared/score.test.ts. Keep both in sync on any change,
+ * same convention as gameClock.ts/gameClock.test.ts and
+ * goalkeeper.ts/goalkeeper.test.ts.
+ */
+export function computeScoreFromGoals(goals: Array<{ scoredByUs: boolean }>) {
+  return {
+    ourScore: goals.filter(g => g.scoredByUs).length,
+    opponentScore: goals.filter(g => !g.scoredByUs).length,
+  };
+}
+
+/**
+ * Resolve which player gets credit for a save: the save's own explicit
+ * playerId when present (never second-guessed by a fallback lookup, even if
+ * that lookup would disagree or find nothing), else a time-window fallback
+ * via getGoalkeeperIdAtTime. This is the single source of truth for save
+ * attribution -- the team card, the per-player Saves column, and the player
+ * drill-down's Saves list all consume calculateSavesByKeeper's output,
+ * which calls this function once per save, rather than each re-resolving
+ * independently.
+ */
+export function resolveSaveKeeperId(
+  save: Pick<Save, 'playerId' | 'gameId' | 'gameSeconds'>,
+  playTimeRecords: PlayTimeRecord[],
+  positions: PositionRoleLookup[]
+): string | null {
+  if (save.playerId) return save.playerId;
+  if (save.gameSeconds == null) return null;
+  return getGoalkeeperIdAtTime(playTimeRecords, positions, save.gameId, save.gameSeconds);
+}
+
+/**
+ * Team-wide single resolution pass for saves: resolves each save's keeper
+ * exactly once via resolveSaveKeeperId, building both an aggregate count map
+ * and a save-id -> keeper-id map. Callers (team summary card, per-player
+ * column, player drill-down) must all reuse this single result rather than
+ * re-resolving against a narrowed per-player record set, which is what
+ * guarantees a save appears in exactly one player's drill-down.
+ */
+export function calculateSavesByKeeper(
+  saves: Array<Pick<Save, 'id' | 'playerId' | 'gameId' | 'gameSeconds' | 'byUs'>>,
+  playTimeRecords: PlayTimeRecord[],
+  positions: PositionRoleLookup[]
+): { byKeeper: Map<string, number>; byKeeperForSaveId: Map<string, string>; unattributedCount: number } {
+  const byKeeper = new Map<string, number>();
+  const byKeeperForSaveId = new Map<string, string>();
+  let unattributedCount = 0;
+
+  for (const save of saves) {
+    if (save.byUs !== true) continue;
+    const keeperId = resolveSaveKeeperId(save, playTimeRecords, positions);
+    if (keeperId == null) {
+      unattributedCount += 1;
+      continue;
+    }
+    byKeeperForSaveId.set(save.id, keeperId);
+    byKeeper.set(keeperId, (byKeeper.get(keeperId) ?? 0) + 1);
+  }
+
+  return { byKeeper, byKeeperForSaveId, unattributedCount };
+}
+
+/**
+ * Per-player shot stats for shots WE took (takenByUs === true), attributed
+ * via Shot.playerId (the shooter). On Target = outcome GOAL or SAVED;
+ * Wide = outcome WIDE; Blocked = outcome BLOCKED; outcome === null counts
+ * toward shots only.
+ */
+export function calculatePlayerShotStats(
+  playerId: string,
+  shots: Array<Pick<Shot, 'playerId' | 'takenByUs' | 'outcome'>>
+): { shots: number; onTarget: number; wide: number; blocked: number } {
+  const playerShots = shots.filter(s => s.takenByUs === true && s.playerId === playerId);
+  return {
+    shots: playerShots.length,
+    onTarget: playerShots.filter(s => s.outcome === 'GOAL' || s.outcome === 'SAVED').length,
+    wide: playerShots.filter(s => s.outcome === 'WIDE').length,
+    blocked: playerShots.filter(s => s.outcome === 'BLOCKED').length,
   };
 }
 

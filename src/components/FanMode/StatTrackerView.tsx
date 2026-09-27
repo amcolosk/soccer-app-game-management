@@ -4,6 +4,8 @@ import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '../../../amplify/data/resource';
 import { computeCurrentGameSeconds } from '../../utils/gameClock';
 import { formatPlayTime } from '../../utils/playTimeCalculations';
+import { useWakeLock } from '../../hooks/useWakeLock';
+import { TrackerFieldLineup } from './TrackerFieldLineup';
 import './FanMode.css';
 
 // Public, unauthenticated screen (`/track/:token`) — a non-coach helper's
@@ -36,19 +38,29 @@ type ViewState =
   | 'RATE_LIMITED'
   | 'INVALID_LINK';
 
-type EventType = 'GOAL' | 'SHOT' | 'SAVE';
+// Unified shot-outcome tracking: the 3-way GOAL/SHOT/SAVE tap grid is gone,
+// replaced by two entry points ("Log Shot – Us"/"Log Shot – Them") plus an
+// outcome picker -- see src/utils/shotOutcomeMapping.ts for the shared
+// outcome -> records mapping this mirrors on the coach side.
+type ShotOutcome = 'GOAL' | 'SAVED' | 'BLOCKED' | 'WIDE';
 
-type FlowStep = 'closed' | 'side' | 'player' | 'confirmKeeper' | 'assist' | 'onTarget' | 'confirm';
+type FlowStep = 'closed' | 'player' | 'outcome' | 'confirmKeeper' | 'assist' | 'confirm';
 
 interface FlowState {
   step: FlowStep;
-  eventType: EventType | null;
   forUs: boolean | null;
+  outcome: ShotOutcome | null;
+  // Dual use, mutually exclusive per-flow (per the plan): shooter/scorer
+  // attribution on the "Us" side (populated by the initial 'player' step),
+  // OR our keeper attribution on the "Them"+SAVED override-picker path
+  // (populated by the SAME 'player' step, reached via "pick another
+  // keeper"). One slot suffices since a single flow is never both at once.
   playerId: string | null;
+  assistPlayerId: string | null;
   clientEventId: string | null;
   // Save Auto-Goalkeeper Attribution: the display name of the keeper shown
   // (and submitted) for the `confirmKeeper` step, frozen at the same
-  // tap-time as `playerId` in `chooseSide`. Rendering `confirmKeeper` from
+  // tap-time as `playerId` in `pickOutcome`. Rendering `confirmKeeper` from
   // this instead of the live-recomputed `activeGoalkeeperPlayer` keeps what
   // the helper sees in sync with what actually gets submitted, even if a
   // poll lands mid-step and changes/clears the live keeper.
@@ -57,17 +69,19 @@ interface FlowState {
 
 const CLOSED_FLOW: FlowState = {
   step: 'closed',
-  eventType: null,
   forUs: null,
+  outcome: null,
   playerId: null,
+  assistPlayerId: null,
   clientEventId: null,
   confirmedKeeperName: null,
 };
 
-const EVENT_LABELS: Record<EventType, { verb: string; icon: string }> = {
+const OUTCOME_LABELS: Record<ShotOutcome, { verb: string; icon: string }> = {
   GOAL: { verb: 'Goal', icon: '⚽' },
-  SHOT: { verb: 'Shot', icon: '🎯' },
-  SAVE: { verb: 'Save', icon: '🧤' },
+  SAVED: { verb: 'Save', icon: '🧤' },
+  BLOCKED: { verb: 'Blocked shot', icon: '🎯' },
+  WIDE: { verb: 'Wide shot', icon: '🎯' },
 };
 
 export function StatTrackerView() {
@@ -215,6 +229,13 @@ export function StatTrackerView() {
   // GAME_NOT_LIVE rejection.
   const tapUiUnlocked = viewState === 'LIVE' && data?.status === 'in-progress';
 
+  // Keeps the helper's screen from sleeping mid-game -- covers both
+  // in-progress and halftime (viewState === 'LIVE'), same reuse of
+  // src/hooks/useWakeLock.ts that GameManagement.tsx mounts for the coach's
+  // own live-game screen. No-ops silently on browsers without Wake Lock API
+  // support (handled inside the hook).
+  useWakeLock(viewState === 'LIVE');
+
   // Faster resync while the tap UI is locked but the page is still open on
   // a LIVE game (halftime, most commonly) -- a helper shouldn't need to
   // manually reload the page to pick tracking back up once the coach starts
@@ -232,7 +253,7 @@ export function StatTrackerView() {
   const upcomingGames: UpcomingGame[] = (data?.upcomingGames ?? []).filter((g): g is UpcomingGame => !!g);
 
   // Show players actually on the field first, then the bench -- a helper
-  // logging a goal/shot/save is almost always picking an on-field player.
+  // logging a shot is almost always picking an on-field player.
   // positionName is only ever non-null for a player with an open
   // PlayTimeRecord (see get-stat-tracker-view/handler.ts), so this is a
   // stable partition, not a guess.
@@ -246,14 +267,15 @@ export function StatTrackerView() {
   // falls back to the existing full player picker.
   const activeGoalkeeperPlayer = roster.find((p) => p.id === data?.activeGoalkeeperId) ?? null;
 
-  function openFlow(eventType: EventType) {
+  function openFlow(forUs: boolean) {
     if (isSubmitting) return; // duplicate-tap guard: ignore new taps while one is in flight
     setSubmitError(null);
     setFlow({
-      step: 'side',
-      eventType,
-      forUs: null,
+      step: forUs ? 'player' : 'outcome',
+      forUs,
+      outcome: null,
       playerId: null,
+      assistPlayerId: null,
       clientEventId: crypto.randomUUID(),
       confirmedKeeperName: null,
     });
@@ -264,79 +286,114 @@ export function StatTrackerView() {
     setSubmitError(null);
   }
 
-  function chooseSide(forUs: boolean) {
-    if (!flow.eventType) return;
-    setSubmitError(null);
-    if (forUs) {
-      // Save Auto-Goalkeeper Attribution: a "Us" Save with an unambiguous
-      // current goalkeeper skips the full player picker in favor of a
-      // confirm-with-override step. GOAL and SHOT are unaffected.
-      if (flow.eventType === 'SAVE' && activeGoalkeeperPlayer) {
-        setFlow({
-          ...flow,
-          forUs,
-          playerId: activeGoalkeeperPlayer.id,
-          confirmedKeeperName: `${activeGoalkeeperPlayer.firstName} ${activeGoalkeeperPlayer.lastName}`,
-          step: 'confirmKeeper',
-        });
-        return;
-      }
-      setFlow({ ...flow, forUs, step: 'player' });
+  function choosePlayer(playerId: string | null) {
+    if (flow.outcome === null) {
+      // "Us" shooter picker -- the initial step, before an outcome is
+      // chosen at all.
+      setFlow({ ...flow, playerId, step: 'outcome' });
       return;
     }
-    // Opponent path: no player attribution at all — this app has no
-    // opposing roster to validate against.
-    if (flow.eventType === 'SHOT') {
-      setFlow({ ...flow, forUs, step: 'onTarget' });
-    } else {
-      setFlow({ ...flow, forUs, step: 'confirm' });
-    }
+    // "Them" + SAVED keeper-override picker, reached via "pick another
+    // keeper" below.
+    setFlow({ ...flow, playerId, step: 'confirm' });
   }
 
   function pickDifferentKeeper() {
     setFlow({ ...flow, playerId: null, confirmedKeeperName: null, step: 'player' });
   }
 
-  function choosePlayer(playerId: string | null) {
-    if (!flow.eventType) return;
-    if (flow.eventType === 'GOAL') {
-      setFlow({ ...flow, playerId, step: 'assist' });
-    } else if (flow.eventType === 'SHOT') {
-      setFlow({ ...flow, playerId, step: 'onTarget' });
+  // Q1 split (UI review): BLOCKED/WIDE submit immediately on tap -- fast,
+  // low-stakes, already correctable via the coach's edit modal (M1). GOAL
+  // and SAVED always route through an explicit confirm step first.
+  function pickOutcome(outcome: ShotOutcome) {
+    if (outcome === 'BLOCKED' || outcome === 'WIDE') {
+      void submit({ ...flow, outcome });
+      return;
+    }
+
+    if (outcome === 'GOAL') {
+      if (flow.forUs) {
+        setFlow({ ...flow, outcome, step: 'assist' });
+      } else {
+        // Opponent goals carry no scorer/assist attribution.
+        setFlow({ ...flow, outcome, step: 'confirm' });
+      }
+      return;
+    }
+
+    // outcome === 'SAVED'
+    if (flow.forUs) {
+      // "Us" + Saved: no keeper attribution possible (no opponent roster).
+      setFlow({ ...flow, outcome, step: 'confirm' });
+      return;
+    }
+
+    // "Them" + Saved: auto-prefill the current on-field goalkeeper when
+    // unambiguous (Save Auto-Goalkeeper Attribution).
+    if (activeGoalkeeperPlayer) {
+      setFlow({
+        ...flow,
+        outcome,
+        playerId: activeGoalkeeperPlayer.id,
+        confirmedKeeperName: `${activeGoalkeeperPlayer.firstName} ${activeGoalkeeperPlayer.lastName}`,
+        step: 'confirmKeeper',
+      });
     } else {
-      setFlow({ ...flow, playerId, step: 'confirm' });
+      setFlow({ ...flow, outcome, step: 'player' });
     }
   }
 
-  async function submit(payload: { assistPlayerId?: string | null; onTarget?: boolean }) {
-    if (!flow.eventType || flow.forUs === null || !token) return;
+  function chooseAssist(assistPlayerId: string | null) {
+    setFlow({ ...flow, assistPlayerId, step: 'confirm' });
+  }
+
+  // The confirm step's Back action returns to whichever step led here,
+  // without submitting or clearing clientEventId -- distinct from Cancel,
+  // which closes the whole flow.
+  function confirmBack() {
+    if (flow.outcome === 'GOAL' && flow.forUs) {
+      setFlow({ ...flow, step: 'assist' });
+    } else if (flow.outcome === 'SAVED' && !flow.forUs) {
+      setFlow({ ...flow, step: 'player' });
+    } else {
+      setFlow({ ...flow, step: 'outcome' });
+    }
+  }
+
+  async function submit(f: FlowState) {
+    if (!f.outcome || f.forUs === null || !token) return;
     setIsSubmitting(true);
     setSubmitError(null);
     try {
       const result = await client.mutations.submitStatEvent({
         token,
-        eventType: flow.eventType,
-        forUs: flow.forUs,
-        playerId: flow.forUs && flow.playerId ? flow.playerId : undefined,
-        assistPlayerId: flow.forUs && payload.assistPlayerId ? payload.assistPlayerId : undefined,
-        onTarget: payload.onTarget,
-        clientEventId: flow.clientEventId ?? undefined,
+        outcome: f.outcome,
+        forUs: f.forUs,
+        playerId: f.forUs && f.playerId ? f.playerId : undefined,
+        assistPlayerId: f.forUs && f.assistPlayerId ? f.assistPlayerId : undefined,
+        keeperPlayerId: !f.forUs && f.outcome === 'SAVED' && f.playerId ? f.playerId : undefined,
+        clientEventId: f.clientEventId ?? undefined,
         expectedGameId: data?.gameId ?? undefined,
       }, { authMode: 'identityPool' });
 
-      const outcome = result.data as { ok: boolean; reason: string | null } | null;
+      const outcomeResult = result.data as { ok: boolean; reason: string | null } | null;
       if (result.errors && result.errors.length > 0) {
         throw new Error(result.errors[0]?.message ?? 'Failed to log stat');
       }
-      if (!outcome?.ok) {
-        setSubmitError(describeSubmitFailure(outcome?.reason ?? null));
+      if (!outcomeResult?.ok) {
+        // m4: on every rejection (including PARTIAL_WRITE) the sheet is
+        // deliberately left exactly where it is -- `flow.clientEventId` is
+        // never regenerated here, so a subsequent tap on the same control
+        // resumes server-side (PARTIAL_WRITE) or retries cleanly (any other
+        // reason) instead of starting a fresh, unrelated dedup row.
+        setSubmitError(describeSubmitFailure(outcomeResult?.reason ?? null));
         setIsSubmitting(false);
         return;
       }
 
       // Success — close the flow and show a brief confirmation. Immediate
       // re-poll so a mid-session game-change/revocation surfaces promptly.
-      const label = EVENT_LABELS[flow.eventType];
+      const label = OUTCOME_LABELS[f.outcome];
       setFlow(CLOSED_FLOW);
       setIsSubmitting(false);
       setConfirmation(`${label.icon} ${label.verb} logged!`);
@@ -474,24 +531,9 @@ export function StatTrackerView() {
         </p>
       )}
 
-      {tapUiUnlocked && (
-        <section aria-label="On-field lineup" className="fan-mode-lineup">
-          <h2>On the Field</h2>
-          {onFieldRoster.length > 0 ? (
-            <ul className="fan-mode-lineup__grid">
-              {onFieldRoster.map((player) => (
-                <li key={player.id} className="fan-mode-lineup__player">
-                  <span className="fan-mode-lineup__name">{player.firstName} {player.lastName}</span>
-                  {player.positionName && <span className="fan-mode-lineup__position">{player.positionName}</span>}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="fan-mode-empty">No lineup data yet.</p>
-          )}
-        </section>
-      )}
-
+      {/* Log Shot buttons sit between the score and the field map -- the
+          helper taps a number as it's called out, then wants the field map
+          right there to double-check who it was. */}
       {!tapUiUnlocked ? (
         <div className="tracker-paused">
           <p className="fan-mode-empty" data-testid="tracker-not-in-progress">
@@ -507,34 +549,65 @@ export function StatTrackerView() {
           </button>
         </div>
       ) : (
-        <div className="tracker-tap-grid" role="group" aria-label="Log a stat">
-          {(['GOAL', 'SHOT', 'SAVE'] as EventType[]).map((eventType) => (
-            <button
-              key={eventType}
-              type="button"
-              className="tracker-tap-target"
-              onClick={() => openFlow(eventType)}
-              disabled={isSubmitting}
-            >
-              <span aria-hidden="true">{EVENT_LABELS[eventType].icon}</span>
-              <span>{EVENT_LABELS[eventType].verb}</span>
-            </button>
-          ))}
+        <div className="tracker-tap-grid" role="group" aria-label="Log a shot">
+          <button
+            type="button"
+            className="tracker-tap-target"
+            onClick={() => openFlow(true)}
+            disabled={isSubmitting}
+          >
+            <span aria-hidden="true">🎯</span>
+            <span>Log Shot – Us</span>
+          </button>
+          <button
+            type="button"
+            className="tracker-tap-target"
+            onClick={() => openFlow(false)}
+            disabled={isSubmitting}
+          >
+            <span aria-hidden="true">🎯</span>
+            <span>Log Shot – {data?.opponentName ?? 'Opponent'}</span>
+          </button>
         </div>
       )}
 
-      {flow.step !== 'closed' && flow.eventType && (
+      {tapUiUnlocked && (
+        <section aria-label="On-field lineup" className="fan-mode-lineup">
+          <h2>On the Field</h2>
+          {onFieldRoster.length > 0 ? (
+            <TrackerFieldLineup players={onFieldRoster} />
+          ) : (
+            <p className="fan-mode-empty">No lineup data yet.</p>
+          )}
+        </section>
+      )}
+
+      {tapUiUnlocked && benchRoster.length > 0 && (
+        <section aria-label="Bench" className="fan-mode-lineup">
+          <h2>Bench</h2>
+          <ul className="fan-mode-lineup__grid">
+            {benchRoster.map((player) => (
+              <li key={player.id} className="fan-mode-lineup__player">
+                <span className="fan-mode-lineup__name">#{player.playerNumber ?? '?'} {player.firstName} {player.lastName}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {flow.step !== 'closed' && flow.forUs !== null && (
         <StatFlowSheet
           flow={flow}
-          eventType={flow.eventType}
-          roster={sortedRoster}
           opponentName={data?.opponentName ?? 'Opponent'}
+          roster={sortedRoster}
           isSubmitting={isSubmitting}
           submitError={submitError}
-          onChooseSide={chooseSide}
           onChoosePlayer={choosePlayer}
+          onPickOutcome={pickOutcome}
           onPickDifferentKeeper={pickDifferentKeeper}
-          onSubmit={submit}
+          onChooseAssist={chooseAssist}
+          onConfirmBack={confirmBack}
+          onSubmit={(f) => void submit(f)}
           onClose={closeFlow}
         />
       )}
@@ -572,6 +645,10 @@ function describeSubmitFailure(reason: string | null): string {
       return 'The game is no longer in progress.';
     case 'GAME_CHANGED':
       return 'The current game changed — refreshing before you try again.';
+    case 'PARTIAL_WRITE':
+      // m4: retry-steerable, not a flat failure -- a subsequent tap on the
+      // SAME control resumes server-side rather than starting over.
+      return 'Almost done — tap it again to finish.';
     default:
       return 'Could not log that. Please try again.';
   }
@@ -579,55 +656,63 @@ function describeSubmitFailure(reason: string | null): string {
 
 interface StatFlowSheetProps {
   flow: FlowState;
-  eventType: EventType;
-  roster: RosterPlayer[];
   opponentName: string;
+  roster: RosterPlayer[];
   isSubmitting: boolean;
   submitError: string | null;
-  onChooseSide: (forUs: boolean) => void;
   onChoosePlayer: (playerId: string | null) => void;
+  onPickOutcome: (outcome: ShotOutcome) => void;
   onPickDifferentKeeper: () => void;
-  onSubmit: (payload: { assistPlayerId?: string | null; onTarget?: boolean }) => void;
+  onChooseAssist: (assistPlayerId: string | null) => void;
+  onConfirmBack: () => void;
+  onSubmit: (f: FlowState) => void;
   onClose: () => void;
 }
 
 // Sheet-based per-tap question flow — deliberately distinct from the
-// coach-side ShotSaveTracker/GoalTracker's two-button-per-sub-view shape
-// (Milestone A); this is a different page with a different interaction
-// model (one shared sheet driving every event type) and stays as designed
-// here. Save Auto-Goalkeeper Attribution adds a `confirmKeeper` step for a
-// "Us" Save with a known current goalkeeper -- a suggested-default (primary)
-// vs. escape-hatch (de-emphasized) choice, not an equal-weight either/or.
+// coach-side ShotOutcomeEntry's modal shape; this is a different page with a
+// different interaction model (one shared sheet driving every tap) and
+// stays as designed here. Save Auto-Goalkeeper Attribution's `confirmKeeper`
+// step is a specialized instance of the same review-with-override-before-
+// commit shape the generic `confirm` step below generalizes to every other
+// GOAL/SAVED path (Q1).
 function StatFlowSheet({
-  flow, eventType, roster, opponentName, isSubmitting, submitError,
-  onChooseSide, onChoosePlayer, onPickDifferentKeeper, onSubmit, onClose,
+  flow, opponentName, roster, isSubmitting, submitError,
+  onChoosePlayer, onPickOutcome, onPickDifferentKeeper, onChooseAssist, onConfirmBack, onSubmit, onClose,
 }: StatFlowSheetProps) {
-  const label = EVENT_LABELS[eventType];
   const titleId = 'tracker-flow-title';
+  const sideLabel = flow.forUs ? 'Us' : opponentName;
 
   return (
     <div className="tracker-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <div className="tracker-sheet">
-        <h2 id={titleId}>{label.icon} {label.verb}</h2>
-
-        {flow.step === 'side' && (
-          <div className="tracker-sheet-options">
-            <button type="button" className="tracker-sheet-option" onClick={() => onChooseSide(true)} disabled={isSubmitting}>
-              Us
-            </button>
-            <button type="button" className="tracker-sheet-option" onClick={() => onChooseSide(false)} disabled={isSubmitting}>
-              {opponentName}
-            </button>
-          </div>
-        )}
+        <h2 id={titleId}>🎯 Log Shot – {sideLabel}</h2>
 
         {flow.step === 'player' && (
           <PlayerPickerStep
             roster={roster}
-            heading={eventType === 'GOAL' ? 'Who scored?' : eventType === 'SHOT' ? 'Who took the shot?' : 'Which keeper?'}
+            heading={flow.outcome === null ? 'Who took the shot?' : 'Which keeper?'}
             isSubmitting={isSubmitting}
             onChoose={onChoosePlayer}
           />
+        )}
+
+        {flow.step === 'outcome' && (
+          <div className="tracker-sheet-options">
+            <p>What happened?</p>
+            <button type="button" className="tracker-sheet-option" onClick={() => onPickOutcome('GOAL')} disabled={isSubmitting}>
+              Goal
+            </button>
+            <button type="button" className="tracker-sheet-option" onClick={() => onPickOutcome('SAVED')} disabled={isSubmitting}>
+              Saved
+            </button>
+            <button type="button" className="tracker-sheet-option" onClick={() => onPickOutcome('BLOCKED')} disabled={isSubmitting}>
+              Blocked
+            </button>
+            <button type="button" className="tracker-sheet-option" onClick={() => onPickOutcome('WIDE')} disabled={isSubmitting}>
+              Wide
+            </button>
+          </div>
         )}
 
         {flow.step === 'confirmKeeper' && flow.confirmedKeeperName && (
@@ -636,10 +721,10 @@ function StatFlowSheet({
             <button
               type="button"
               className="tracker-sheet-option tracker-sheet-option--primary"
-              onClick={() => onSubmit({})}
+              onClick={() => onSubmit(flow)}
               disabled={isSubmitting}
             >
-              {isSubmitting ? 'Logging…' : 'Yes, log it'}
+              {isSubmitting ? 'Logging…' : 'Log Save'}
             </button>
             <button
               type="button"
@@ -658,26 +743,22 @@ function StatFlowSheet({
             heading="Assisted by? (optional)"
             skipLabel="No assist"
             isSubmitting={isSubmitting}
-            onChoose={(assistPlayerId) => onSubmit({ assistPlayerId })}
+            onChoose={onChooseAssist}
           />
         )}
 
-        {flow.step === 'onTarget' && (
+        {flow.step === 'confirm' && flow.outcome && (
           <div className="tracker-sheet-options">
-            <p>Did it beat the keeper?</p>
-            <button type="button" className="tracker-sheet-option" onClick={() => onSubmit({ onTarget: true })} disabled={isSubmitting}>
-              On target
+            <button
+              type="button"
+              className="tracker-sheet-option tracker-sheet-option--primary"
+              onClick={() => onSubmit(flow)}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Logging…' : `Log ${flow.outcome === 'GOAL' ? 'Goal' : 'Save'}`}
             </button>
-            <button type="button" className="tracker-sheet-option" onClick={() => onSubmit({ onTarget: false })} disabled={isSubmitting}>
-              Off target
-            </button>
-          </div>
-        )}
-
-        {flow.step === 'confirm' && (
-          <div className="tracker-sheet-options">
-            <button type="button" className="tracker-sheet-option tracker-sheet-option--primary" onClick={() => onSubmit({})} disabled={isSubmitting}>
-              {isSubmitting ? 'Logging…' : `Log ${label.verb}`}
+            <button type="button" className="tracker-sheet-option tracker-sheet-option--skip" onClick={onConfirmBack} disabled={isSubmitting}>
+              Back
             </button>
           </div>
         )}
@@ -718,7 +799,7 @@ function PlayerPickerStep({
         onClick={() => onChoose(player.id)}
         disabled={isSubmitting}
       >
-        {player.firstName} {player.lastName}
+        #{player.playerNumber ?? '?'} {player.firstName} {player.lastName}
       </button>
     );
   }

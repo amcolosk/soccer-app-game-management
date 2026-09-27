@@ -198,7 +198,7 @@ export function FormationVisualEditor({
           };
         });
 
-        const shapeNodes = buildLineupShapeNodes(shapeInput as Parameters<typeof buildLineupShapeNodes>[0]);
+        const shapeNodes = buildLineupShapeNodes(shapeInput);
 
         const merged: DraftPosition[] = positions.map(p => {
           if (p.xPct != null && p.yPct != null) {

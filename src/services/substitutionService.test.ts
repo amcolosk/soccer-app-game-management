@@ -9,14 +9,14 @@ import type { PlayTimeRecord } from '../types/schema';
 const {
   mockPlayTimeRecordUpdate,
   mockPlayTimeRecordCreate,
-  mockPlayTimeRecordList,
+  mockPlayTimeRecordListByGameId,
   mockLineupAssignmentDelete,
   mockLineupAssignmentCreate,
   mockSubstitutionCreate,
 } = vi.hoisted(() => ({
   mockPlayTimeRecordUpdate: vi.fn(),
   mockPlayTimeRecordCreate: vi.fn(),
-  mockPlayTimeRecordList: vi.fn(),
+  mockPlayTimeRecordListByGameId: vi.fn(),
   mockLineupAssignmentDelete: vi.fn(),
   mockLineupAssignmentCreate: vi.fn(),
   mockSubstitutionCreate: vi.fn(),
@@ -28,7 +28,7 @@ vi.mock('aws-amplify/data', () => ({
       PlayTimeRecord: {
         update: mockPlayTimeRecordUpdate,
         create: mockPlayTimeRecordCreate,
-        list: mockPlayTimeRecordList,
+        listPlayTimeRecordsByGameId: mockPlayTimeRecordListByGameId,
       },
       LineupAssignment: {
         delete: mockLineupAssignmentDelete,
@@ -69,7 +69,7 @@ describe('closeActivePlayTimeRecords', () => {
     vi.clearAllMocks();
     mockPlayTimeRecordUpdate.mockResolvedValue({ data: {} });
     mockPlayTimeRecordCreate.mockResolvedValue({ data: {} });
-    mockPlayTimeRecordList.mockResolvedValue({ data: [], nextToken: null });
+    mockPlayTimeRecordListByGameId.mockResolvedValue({ data: [], nextToken: null });
   });
 
   it('should close active records with the correct endGameSeconds', async () => {
@@ -129,7 +129,7 @@ describe('closeActivePlayTimeRecords', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // With gameId — DB query and retry path
+  // With gameId — DB query (gameId GSI) and retry path
   // ---------------------------------------------------------------------------
 
   describe('with gameId', () => {
@@ -141,12 +141,12 @@ describe('closeActivePlayTimeRecords', () => {
       vi.useRealTimers();
     });
 
-    it('should query the DB and close records not yet in React state', async () => {
+    it('should query the gameId index and close records not yet in React state', async () => {
       const inMemory = [makeRecord({ id: '1', playerId: 'player-1', endGameSeconds: null })];
       const dbOnlyRecord = makeRecord({ id: 'db-only', playerId: 'player-2', endGameSeconds: null });
 
       // Initial query returns both; retry returns nothing new
-      mockPlayTimeRecordList
+      mockPlayTimeRecordListByGameId
         .mockResolvedValueOnce({ data: [inMemory[0], dbOnlyRecord], nextToken: null })
         .mockResolvedValueOnce({ data: [], nextToken: null });
 
@@ -158,11 +158,11 @@ describe('closeActivePlayTimeRecords', () => {
       expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'db-only', endGameSeconds: 600 });
     });
 
-    it('should paginate through all DB pages until nextToken is null', async () => {
+    it('should paginate through all index pages until nextToken is null', async () => {
       const page1 = makeRecord({ id: '1', endGameSeconds: null });
       const page2 = makeRecord({ id: '2', endGameSeconds: null });
 
-      mockPlayTimeRecordList
+      mockPlayTimeRecordListByGameId
         .mockResolvedValueOnce({ data: [page1], nextToken: 'token-abc' }) // page 1
         .mockResolvedValueOnce({ data: [page2], nextToken: null })         // page 2
         .mockResolvedValueOnce({ data: [], nextToken: null });              // retry
@@ -171,14 +171,14 @@ describe('closeActivePlayTimeRecords', () => {
       await vi.runAllTimersAsync();
       await promise;
 
-      // list called twice for pagination + once for retry
-      expect(mockPlayTimeRecordList).toHaveBeenCalledTimes(3);
+      // index query called twice for pagination + once for retry
+      expect(mockPlayTimeRecordListByGameId).toHaveBeenCalledTimes(3);
       expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: '1', endGameSeconds: 600 });
       expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: '2', endGameSeconds: 600 });
     });
 
-    it('should pass nextToken in subsequent paginated requests', async () => {
-      mockPlayTimeRecordList
+    it('should pass gameId and nextToken in subsequent paginated requests', async () => {
+      mockPlayTimeRecordListByGameId
         .mockResolvedValueOnce({ data: [], nextToken: 'my-token' })
         .mockResolvedValueOnce({ data: [], nextToken: null })
         .mockResolvedValueOnce({ data: [], nextToken: null });
@@ -187,14 +187,15 @@ describe('closeActivePlayTimeRecords', () => {
       await vi.runAllTimersAsync();
       await promise;
 
-      expect(mockPlayTimeRecordList.mock.calls[1][0]).toMatchObject({ nextToken: 'my-token' });
+      expect(mockPlayTimeRecordListByGameId.mock.calls[0][0]).toMatchObject({ gameId: 'game-1' });
+      expect(mockPlayTimeRecordListByGameId.mock.calls[1][0]).toMatchObject({ gameId: 'game-1', nextToken: 'my-token' });
     });
 
     it('should perform a retry pass after the initial close to catch stragglers', async () => {
       const straggler = makeRecord({ id: 'straggler', endGameSeconds: null });
 
-      // Initial scan finds nothing; after delay, retry finds a straggler
-      mockPlayTimeRecordList
+      // Initial query finds nothing; after delay, retry finds a straggler
+      mockPlayTimeRecordListByGameId
         .mockResolvedValueOnce({ data: [], nextToken: null })
         .mockResolvedValueOnce({ data: [straggler], nextToken: null });
 
@@ -202,14 +203,14 @@ describe('closeActivePlayTimeRecords', () => {
       await vi.runAllTimersAsync();
       await promise;
 
-      expect(mockPlayTimeRecordList).toHaveBeenCalledTimes(2);
+      expect(mockPlayTimeRecordListByGameId).toHaveBeenCalledTimes(2);
       expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'straggler', endGameSeconds: 600 });
     });
 
     it('should not close records that are already closed when found in the retry pass', async () => {
       const alreadyClosed = makeRecord({ id: '1', endGameSeconds: 600 });
 
-      mockPlayTimeRecordList
+      mockPlayTimeRecordListByGameId
         .mockResolvedValueOnce({ data: [], nextToken: null })
         .mockResolvedValueOnce({ data: [alreadyClosed], nextToken: null });
 
@@ -220,15 +221,28 @@ describe('closeActivePlayTimeRecords', () => {
       expect(mockPlayTimeRecordUpdate).not.toHaveBeenCalled();
     });
 
-    it('should fall back to in-memory records when the DB query throws', async () => {
+    it('should fall back to in-memory records when the index query throws', async () => {
       const inMemory = [makeRecord({ id: '1', endGameSeconds: null })];
-      mockPlayTimeRecordList.mockRejectedValueOnce(new Error('Network error'));
+      mockPlayTimeRecordListByGameId.mockRejectedValueOnce(new Error('Network error'));
 
       const promise = closeActivePlayTimeRecords(inMemory, 600, undefined, 'game-1');
       await vi.runAllTimersAsync();
       await promise;
 
-      // In-memory record still gets closed despite DB failure
+      // In-memory record still gets closed despite the index query failing
+      expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: '1', endGameSeconds: 600 });
+    });
+
+    it('should throw from the fetch helper (caught by the caller) when the index query returns GraphQL errors', async () => {
+      const inMemory = [makeRecord({ id: '1', endGameSeconds: null })];
+      mockPlayTimeRecordListByGameId.mockResolvedValueOnce({ data: null, errors: [{ message: 'boom' }] });
+
+      const promise = closeActivePlayTimeRecords(inMemory, 600, undefined, 'game-1');
+      await vi.runAllTimersAsync();
+      await promise;
+
+      // The index-read failure is caught internally (cross-device backstop only) —
+      // the in-memory record this device knows about still closes.
       expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: '1', endGameSeconds: 600 });
     });
 
@@ -238,7 +252,7 @@ describe('closeActivePlayTimeRecords', () => {
         makeRecord({ id: '2', playerId: 'player-2', endGameSeconds: null }),
       ];
 
-      mockPlayTimeRecordList
+      mockPlayTimeRecordListByGameId
         .mockResolvedValueOnce({ data: dbRecords, nextToken: null })
         .mockResolvedValueOnce({ data: [], nextToken: null });
 
@@ -278,7 +292,7 @@ describe('executeSubstitution', () => {
     vi.clearAllMocks();
     mockPlayTimeRecordUpdate.mockResolvedValue({ data: {} });
     mockPlayTimeRecordCreate.mockResolvedValue({ data: {} });
-    mockPlayTimeRecordList.mockResolvedValue({ data: [], nextToken: null });
+    mockPlayTimeRecordListByGameId.mockResolvedValue({ data: [], nextToken: null });
     mockLineupAssignmentDelete.mockResolvedValue({ data: {} });
     mockLineupAssignmentCreate.mockResolvedValue({ data: {} });
     mockSubstitutionCreate.mockResolvedValue({ data: {} });
@@ -312,16 +326,25 @@ describe('executeSubstitution', () => {
     });
   });
 
-  it('should create a play time record for the incoming player', async () => {
+  it('should create a play time record for the incoming player with a deterministic id', async () => {
     await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations);
 
     expect(mockPlayTimeRecordCreate).toHaveBeenCalledWith({
+      id: 'ptr:game-1:new-player:h1:t600',
       gameId: 'game-1',
       playerId: 'new-player',
       positionId: 'position-1',
       startGameSeconds: 600,
       coaches,
     });
+  });
+
+  it('should use half 2 in the deterministic id for second-half substitutions', async () => {
+    await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 2100, 2, [], 'assignment-1', coaches, mockMutations);
+
+    expect(mockPlayTimeRecordCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ptr:game-1:new-player:h2:t2100' })
+    );
   });
 
   it('should record the substitution with correct half and game seconds', async () => {
@@ -451,43 +474,43 @@ describe('executeSubstitution', () => {
       vi.clearAllMocks();
       mockPlayTimeRecordUpdate.mockResolvedValue({ data: {} });
       mockPlayTimeRecordCreate.mockResolvedValue({ data: {} });
-      mockPlayTimeRecordList.mockResolvedValue({ data: [], nextToken: null });
+      mockPlayTimeRecordListByGameId.mockResolvedValue({ data: [], nextToken: null });
       mockLineupAssignmentDelete.mockResolvedValue({ data: {} });
       mockLineupAssignmentCreate.mockResolvedValue({ data: {} });
       mockSubstitutionCreate.mockResolvedValue({ data: {} });
     });
 
-    it('should query DB when active record is not found in stale React state', async () => {
+    it('should query the gameId index when active record is not found in stale React state', async () => {
       const dbRecord = makeRecord({ id: 'db-record', playerId: 'old-player', positionId: 'position-1', endGameSeconds: null });
 
       // React state has no matching active record; DB has it
-      mockPlayTimeRecordList.mockResolvedValue({ data: [dbRecord], nextToken: null });
+      mockPlayTimeRecordListByGameId.mockResolvedValue({ data: [dbRecord], nextToken: null });
 
       await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations);
 
-      expect(mockPlayTimeRecordList).toHaveBeenCalledWith(expect.objectContaining({
-        filter: { gameId: { eq: 'game-1' } },
+      expect(mockPlayTimeRecordListByGameId).toHaveBeenCalledWith(expect.objectContaining({
+        gameId: 'game-1',
       }));
       expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'db-record', endGameSeconds: 600 });
     });
 
-    it('should paginate through DB pages when searching for active record', async () => {
+    it('should paginate through index pages when searching for active record', async () => {
       const dbRecord = makeRecord({ id: 'page-2-record', playerId: 'old-player', positionId: 'position-1', endGameSeconds: null });
 
-      mockPlayTimeRecordList
+      mockPlayTimeRecordListByGameId
         .mockResolvedValueOnce({ data: [], nextToken: 'some-token' })
         .mockResolvedValueOnce({ data: [dbRecord], nextToken: null });
 
       await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations);
 
-      expect(mockPlayTimeRecordList).toHaveBeenCalledTimes(2);
-      expect(mockPlayTimeRecordList.mock.calls[1][0]).toMatchObject({ nextToken: 'some-token' });
+      expect(mockPlayTimeRecordListByGameId).toHaveBeenCalledTimes(2);
+      expect(mockPlayTimeRecordListByGameId.mock.calls[1][0]).toMatchObject({ nextToken: 'some-token' });
       expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'page-2-record', endGameSeconds: 600 });
     });
 
     it('should still execute remaining steps even when DB query finds no active record', async () => {
       // Neither React state nor DB has the active record
-      mockPlayTimeRecordList.mockResolvedValue({ data: [], nextToken: null });
+      mockPlayTimeRecordListByGameId.mockResolvedValue({ data: [], nextToken: null });
 
       await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations);
 
@@ -499,8 +522,8 @@ describe('executeSubstitution', () => {
       expect(mockSubstitutionCreate).toHaveBeenCalled();
     });
 
-    it('should fall back gracefully when DB query throws', async () => {
-      mockPlayTimeRecordList.mockRejectedValue(new Error('Network error'));
+    it('should fall back gracefully when the index query throws', async () => {
+      mockPlayTimeRecordListByGameId.mockRejectedValue(new Error('Network error'));
 
       await expect(
         executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [], 'assignment-1', coaches, mockMutations)
@@ -518,12 +541,12 @@ describe('executeSubstitution', () => {
       const dbRecord = makeRecord({ id: 'db-record', playerId: 'old-player', positionId: 'position-1', endGameSeconds: null });
 
       // React state has the record; DB also has it
-      mockPlayTimeRecordList.mockResolvedValue({ data: [dbRecord], nextToken: null });
+      mockPlayTimeRecordListByGameId.mockResolvedValue({ data: [dbRecord], nextToken: null });
 
       await executeSubstitution('game-1', 'old-player', 'new-player', 'position-1', 600, 1, [inMemoryRecord], 'assignment-1', coaches, mockMutations);
 
       // Should use the in-memory record and NOT call the DB
-      expect(mockPlayTimeRecordList).not.toHaveBeenCalled();
+      expect(mockPlayTimeRecordListByGameId).not.toHaveBeenCalled();
       expect(mockPlayTimeRecordUpdate).toHaveBeenCalledWith({ id: 'memory-record', endGameSeconds: 600 });
     });
   });

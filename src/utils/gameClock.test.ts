@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeCurrentGameSeconds } from './gameClock';
+import { computeAdditionalGameSeconds, computeCurrentGameSeconds } from './gameClock';
 
 describe('computeCurrentGameSeconds', () => {
   it('returns elapsedSeconds + additional running seconds when in-progress with a lastStartTime', () => {
@@ -44,5 +44,18 @@ describe('computeCurrentGameSeconds', () => {
     const result = computeCurrentGameSeconds({ status: 'in-progress', elapsedSeconds: 0, lastStartTime });
     expect(result).toBeGreaterThanOrEqual(9);
     expect(result).toBeLessThanOrEqual(11);
+  });
+});
+
+describe('computeAdditionalGameSeconds', () => {
+  it('returns the whole seconds elapsed since lastStartTime', () => {
+    const now = Date.parse('2026-09-13T17:00:30.000Z');
+    const result = computeAdditionalGameSeconds('2026-09-13T17:00:00.000Z', now);
+    expect(result).toBe(30);
+  });
+
+  it('returns 0 for a malformed lastStartTime instead of NaN — lastStartTime is an unvalidated a.string() field (amplify/data/resource.ts), so a bad write must degrade safely, not propagate NaN into the timer/PlayTimeRecord chain', () => {
+    expect(computeAdditionalGameSeconds('not-a-date')).toBe(0);
+    expect(computeAdditionalGameSeconds(' ')).toBe(0);
   });
 });

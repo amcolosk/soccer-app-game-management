@@ -9,12 +9,15 @@ import { handleApiError } from "../../utils/errorHandler";
 import { isoToDatetimeLocal } from "../../utils/gameTimeUtils";
 import { useConfirm } from "../ConfirmModal";
 import { closeActivePlayTimeRecords } from "../../services/substitutionService";
+import { isMissingRecordError } from "../../services/amplifyMutationResult";
+import { planHalftimeLineupChanges } from "../../utils/halftimeSubstitutionUtils";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, copyGamePlan, type PlannedSubstitution } from "../../services/rotationPlannerService";
 import { calculatePlayerPlayTime } from "../../utils/playTimeCalculations";
+import { buildDeterministicStartPlayTimeRecordId } from "../../utils/playTimeRecordId";
 import { getMissingRolePositions } from "../../utils/formationUtils";
+import { computeScoreFromGoals } from "../../utils/gameCalculations";
 import {
-  computeRevisionFingerprint,
   computeRotationDiff,
   filterScopedDeletes,
   type RotationDiffOperation,
@@ -24,12 +27,15 @@ import { useOfflineMutations } from "../../hooks/useOfflineMutations";
 import { useTeamCoachProfiles } from "../../hooks/useTeamCoachProfiles";
 import { useGameSubscriptions } from "./hooks/useGameSubscriptions";
 import { useGameTimer } from "./hooks/useGameTimer";
+import { computePlannerRemoteFingerprint } from "./hooks/useGamePlanner";
+import { listAll } from "../../utils/listAll";
 import { CommandBand } from "./CommandBand";
 import { TabNav, type GameTab } from "./TabNav";
 import { BenchTab } from "./BenchTab";
 import { GameTimer } from "./GameTimer";
 import { GoalTracker } from "./GoalTracker";
 import { ShotSaveTracker } from "./ShotSaveTracker";
+import { ShotOutcomeEntry } from "./ShotOutcomeEntry";
 import { StatsSubViewTabs, type StatSubView } from "./StatsSubViewTabs";
 import { PlayerNotesPanel, type OpenLiveNoteIntent } from "./PlayerNotesPanel";
 import { PreGameNotesPanel } from "./PreGameNotesPanel";
@@ -43,7 +49,7 @@ import { CompletedPlayTimeSummary } from "./CompletedPlayTimeSummary";
 import { CompletedGameTimeline } from "./CompletedGameTimeline";
 import { OfflineBanner } from "../OfflineBanner";
 import { ArchivedTeamBanner } from "../shared/ArchivedTeamBanner";
-import type { Game, Team, FormationPosition, PlannedRotation, SubQueue } from "./types";
+import type { Game, Team, FormationPosition, LineupAssignment, PlannedRotation, SubQueue } from "./types";
 import { AvailabilityProvider } from "../../contexts/AvailabilityContext";
 import { useHelpFab } from "../../contexts/HelpFabContext";
 import type { HelpScreenKey } from "../../help";
@@ -89,16 +95,6 @@ function isStarterCountError(error: unknown): error is StarterCountError {
   return error instanceof StarterCountError;
 }
 
-function buildDeterministicStartPlayTimeRecordId(params: {
-  gameId: string;
-  playerId: string;
-  half: 1 | 2;
-  startGameSeconds: number;
-}): string {
-  const { gameId, playerId, half, startGameSeconds } = params;
-  return `ptr:${gameId}:${playerId}:h${half}:t${startGameSeconds}`;
-}
-
 type StarterSelection = {
   playerId: string;
   positionId: string;
@@ -125,17 +121,6 @@ function parsePersistedStarterLineup(
   } catch {
     return [];
   }
-}
-
-/**
- * Compute final score from Goal records.
- * Used for deriving scores during active game and writing snapshots on completion.
- */
-function computeScoreFromGoals(goals: Array<{ scoredByUs: boolean }>) {
-  return {
-    ourScore: goals.filter(g => g.scoredByUs).length,
-    opponentScore: goals.filter(g => !g.scoredByUs).length,
-  };
 }
 
 /**
@@ -331,6 +316,10 @@ async function normalizeAndCreateRotationSchedule({
   return allPlannedRotations;
 }
 
+// How long a synced halftime lineup write may go unechoed by the subscription
+// before its optimistic overlay entry is dropped.
+const HALFTIME_OVERLAY_ECHO_GRACE_MS = 10_000;
+
 export function GameManagement({ game, team, onBack, initialTab }: GameManagementProps) {
   const confirm = useConfirm();
   // Load team roster and formation positions with real-time updates
@@ -402,6 +391,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   const startStatusRef = useRef<Game['status']>(game.status);
   const [isStartingGame, setIsStartingGame] = useState(false);
   const halftimeInProgressRef = useRef(false);
+  const halftimeSubsInProgressRef = useRef(false);
   const endGameInProgressRef = useRef(false);
   const halftimePtrClosePendingRef = useRef(false);
   const injuryModalRef = useRef<HTMLDivElement | null>(null);
@@ -418,7 +408,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   const {
     gameState,
     setGameState,
-    lineup,
+    lineup: subscribedLineup,
     playTimeRecords,
     goals,
     shots,
@@ -429,6 +419,8 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     playerAvailabilities,
     queuedSubstitutions,
     manuallyPausedRef,
+    pendingGapCorrection,
+    resolveGapCorrection,
   } = useGameSubscriptions({
     game,
     team,
@@ -436,11 +428,74 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     setCurrentTime,
     setIsRunning,
     notesRefreshKey,
+    userId,
   });
+
+  // Halftime lineup writes this device has made that the LineupAssignment
+  // subscription hasn't echoed back yet. Offline that's until reconnect, since
+  // writes are only queued. Without it the halftime screen keeps showing the
+  // pre-Apply lineup, so a second Apply re-seats players already moved and
+  // Start Second Half opens PlayTimeRecords for the old starters.
+  const [halftimeLineupOverlay, setHalftimeLineupOverlay] = useState<{
+    deletedIds: ReadonlySet<string>;
+    created: readonly LineupAssignment[];
+  }>({ deletedIds: new Set(), created: [] });
+  const subscribedLineupRef = useRef(subscribedLineup);
+  subscribedLineupRef.current = subscribedLineup;
+
+  useEffect(() => {
+    // Drop each pending write once the subscription reflects it.
+    setHalftimeLineupOverlay((overlay) => {
+      if (overlay.deletedIds.size === 0 && overlay.created.length === 0) return overlay;
+      const subscribedIds = new Set(subscribedLineup.map((assignment) => assignment.id));
+      const deletedIds = new Set(Array.from(overlay.deletedIds).filter((id) => subscribedIds.has(id)));
+      const created = overlay.created.filter((assignment) => !subscribedIds.has(assignment.id));
+      if (deletedIds.size === overlay.deletedIds.size && created.length === overlay.created.length) return overlay;
+      return { deletedIds, created };
+    });
+  }, [subscribedLineup]);
+
+  const lineup = useMemo(() => {
+    if (halftimeLineupOverlay.deletedIds.size === 0 && halftimeLineupOverlay.created.length === 0) {
+      return subscribedLineup;
+    }
+    const subscribedIds = new Set(subscribedLineup.map((assignment) => assignment.id));
+    return [
+      ...subscribedLineup.filter((assignment) => !halftimeLineupOverlay.deletedIds.has(assignment.id)),
+      ...halftimeLineupOverlay.created.filter((assignment) => !subscribedIds.has(assignment.id)),
+    ];
+  }, [subscribedLineup, halftimeLineupOverlay]);
 
   // Use per-game half length override when set; fall back to team default.
   // gameState is live-updated via observeQuery so this recomputes reactively.
   const halfLengthSeconds = (gameState.halfLengthMinutes ?? team.halfLengthMinutes ?? 30) * 60;
+
+  // Timer gap confirmation (Issue B / #stoppage-drift): useGameSubscriptions
+  // sets pendingGapCorrection instead of silently resuming when this device's
+  // timer had continuity (see constants/gameTimer.ts) and the resume gap is
+  // anomalous and won't be silently handled by an auto-trigger. No persisted
+  // audit trail in v1 — analytics events only (see hardening plan Issue B).
+  useEffect(() => {
+    if (!pendingGapCorrection) return;
+    const gapMinutes = Math.round(pendingGapCorrection.gapSeconds / 60);
+    void confirm({
+      title: 'Was play stopped?',
+      message: `The game clock advanced by about ${gapMinutes} minute${gapMinutes === 1 ? '' : 's'} while this device was disconnected. Is that correct?`,
+      confirmText: "Yes, that's right",
+      cancelText: 'No, let me adjust',
+      variant: 'warning',
+    }).then((accepted) => {
+      trackEvent(
+        accepted ? AnalyticsEvents.TIMER_GAP_ACCEPTED.category : AnalyticsEvents.TIMER_GAP_ADJUSTED.category,
+        accepted ? AnalyticsEvents.TIMER_GAP_ACCEPTED.action : AnalyticsEvents.TIMER_GAP_ADJUSTED.action,
+        String(gapMinutes)
+      );
+      resolveGapCorrection(accepted);
+    });
+    // pendingGapCorrection is a fresh object each time a new gap is proposed
+    // (and null once resolved), so this effect fires exactly once per proposal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingGapCorrection]);
 
   // Merged substitution queue: backend records (FIFO) plus optimistic adds, minus optimistic removes
   const substitutionQueue = useMemo<SubQueue[]>(() => {
@@ -493,6 +548,21 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   // Offline-aware mutation wrapper — routes writes to IndexedDB when offline,
   // drains automatically on reconnect (fixes issue #35).
   const { mutations, isOnline, pendingCount: pendingMutationCount, isSyncing } = useOfflineMutations();
+
+  useEffect(() => {
+    // Backstop for a pending write that never echoes (e.g. another coach removed
+    // the row first). Deliberately NOT tied to leaving halftime: offline, Start
+    // Second Half opens PlayTimeRecords for the overlaid lineup, so dropping the
+    // overlay then would show the pre-halftime lineup against those records.
+    // Once online with the queue drained, every write has landed and its echo
+    // is due; anything still unreflected after a grace period is stale.
+    if (!isOnline || pendingMutationCount > 0) return;
+    if (halftimeLineupOverlay.deletedIds.size === 0 && halftimeLineupOverlay.created.length === 0) return;
+    const timeout = setTimeout(() => {
+      setHalftimeLineupOverlay({ deletedIds: new Set(), created: [] });
+    }, HALFTIME_OVERLAY_ECHO_GRACE_MS);
+    return () => clearTimeout(timeout);
+  }, [isOnline, pendingMutationCount, halftimeLineupOverlay]);
 
   const { setHelpContext, setDebugContext } = useHelpFab();
 
@@ -1144,11 +1214,11 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         if (!confirmed) {
           return;
         }
-        const existingRotationsResult = await client.models.PlannedRotation.list({
-          filter: { gamePlanId: { eq: gamePlan.id } },
+        const existingRotations = await listAll<PlannedRotation>(client.models.PlannedRotation, {
+          gamePlanId: { eq: gamePlan.id },
         });
         await Promise.all(
-          existingRotationsResult.data.map(r => client.models.PlannedRotation.delete({ id: r.id }))
+          existingRotations.map(r => client.models.PlannedRotation.delete({ id: r.id }))
         );
         await client.models.GamePlan.delete({ id: gamePlan.id });
       }
@@ -1218,14 +1288,11 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   const handleUpdatePlannedRotations = useCallback(async (
     input: PlannedRotationsUpdateInput
   ): Promise<PlannerMutationResult> => {
-    const computeFingerprintFor = (rotations: PlannedRotation[]) => computeRevisionFingerprint(
-      {
-        startingLineup: gamePlan?.startingLineup as string | null | undefined,
-        halftimeLineup: gamePlan?.halftimeLineup as string | null | undefined,
-        rotationIntervalMinutes: gamePlan?.rotationIntervalMinutes,
-      },
-      rotations
-    );
+    // Must match the fingerprint PlanTab sends (useGamePlanner's remoteFingerprint),
+    // including its defaults for nullable GamePlan fields — see #210.
+    const starterAssignments = lineup.filter(l => l.isStarter);
+    const computeFingerprintFor = (rotations: PlannedRotation[]) =>
+      computePlannerRemoteFingerprint(gamePlan, rotations, starterAssignments);
 
     const currentFingerprint = computeFingerprintFor(plannedRotations);
 
@@ -1288,8 +1355,10 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       };
 
       const readCurrentPlanState = async () => {
-        const { data } = await client.models.PlannedRotation.list({
-          filter: { gamePlanId: { eq: gamePlan.id } },
+        // Every page: PlannedRotation has no gamePlanId index, so this is a filtered
+        // scan and a single page can hold only part of this plan's rows (#213).
+        const data = await listAll<PlannedRotation>(client.models.PlannedRotation, {
+          gamePlanId: { eq: gamePlan.id },
         });
         const rows = [...data].sort((a, b) => {
           const byRotation = (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0);
@@ -1367,8 +1436,10 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       handleApiError(error, 'Failed to update planned rotations');
       let latestFingerprint = currentFingerprint;
       try {
-        const { data } = await client.models.PlannedRotation.list({
-          filter: { gamePlanId: { eq: gamePlan.id } },
+        // Every page: PlannedRotation has no gamePlanId index, so this is a filtered
+        // scan and a single page can hold only part of this plan's rows (#213).
+        const data = await listAll<PlannedRotation>(client.models.PlannedRotation, {
+          gamePlanId: { eq: gamePlan.id },
         });
         latestFingerprint = computeFingerprintFor(data);
       } catch {
@@ -1380,7 +1451,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         conflictReason: 'Unable to save rotation changes right now. Try again.',
       };
     }
-    }, [gamePlan, gameState.status, plannedRotations, userId, team.coaches]);
+    }, [gamePlan, gameState.status, plannedRotations, lineup, userId, team.coaches]);
 
   const handleSaveGameEdit = useCallback(async () => {
     if (!editGameOpponent.trim()) {
@@ -1627,42 +1698,117 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     }
 
     // Close play time records after status is safely persisted.
+    //
+    // Two mechanisms, in order. Either can leave records open, so
+    // halftimePtrClosePendingRef must reflect BOTH, not just the second one:
+    // 1. closeAllOpenPlayTimeRecords closes every record THIS device has locally
+    //    opened (game start, subs, direct lineup adds), tracked independent of the
+    //    observeQuery subscription. It never throws — offline it enqueues, online
+    //    it retries internally — so it reliably queues the close even for a record
+    //    created moments earlier while still offline (the record that used to get
+    //    silently missed because it existed in neither React state nor DynamoDB yet).
+    //    It can still leave records open (e.g. a transient online GraphQL error),
+    //    signaled by its `false` return rather than a throw.
+    // 2. closeActivePlayTimeRecords is a cross-device backstop only, for a record
+    //    opened on a DIFFERENT coach's device that this device's local map can't
+    //    know about. It still needs connectivity to see those records, so it can
+    //    still legitimately fail (throw).
+    const primaryFullyClosed = await mutations.closeAllOpenPlayTimeRecords(halftimeSeconds);
     try {
       await closeActivePlayTimeRecords(playTimeRecords, halftimeSeconds, undefined, game.id, mutations);
-      halftimePtrClosePendingRef.current = false;
+      halftimePtrClosePendingRef.current = !primaryFullyClosed;
     } catch (error) {
       halftimePtrClosePendingRef.current = true;
-      console.warn('[handleHalftime] PTR closing failed; marked pending retry before second half start.', error);
+      console.warn('[handleHalftime] Cross-device PTR closing failed; marked pending retry before second half start.', error);
     } finally {
       manuallyPausedRef.current = false;
     }
   };
 
-  const handleApplyHalftimeSub = async (sub: PlannedSubstitution) => {
+  const handleApplyHalftimeSubs = async (subs: PlannedSubstitution[]) => {
+    // Every call plans against the same `lineup` snapshot until the subscription
+    // echoes the writes back, so a second call in flight (double-tap, or Apply
+    // while Apply All runs) would re-seat players the first call already moved.
+    if (halftimeSubsInProgressRef.current) return;
+    halftimeSubsInProgressRef.current = true;
     try {
-      const currentAssignment = lineup.find(l => l.positionId === sub.positionId && l.isStarter);
-      if (!currentAssignment) return;
-      if (currentAssignment.playerId === sub.playerInId) return; // already applied
+      const changes = planHalftimeLineupChanges(lineup, subs);
+      if (changes.skipped.length > 0) {
+        showWarning('Some planned halftime substitutions conflict with each other and were not applied.');
+      }
+      if (changes.vacatedPositionIds.length > 0) {
+        const names = changes.vacatedPositionIds
+          .map((id) => positions.find((position) => position.id === id)?.abbreviation ?? 'a position')
+          .join(', ');
+        showWarning(`Now empty: ${names}. Assign a player before starting the second half.`);
+      }
 
-      await mutations.deleteLineupAssignment(currentAssignment.id);
-      await mutations.createLineupAssignment({
-        gameId: game.id,
-        playerId: sub.playerInId,
-        positionId: sub.positionId,
-        isStarter: true,
-        coaches: team.coaches,
-      });
-      await mutations.createSubstitution({
-        gameId: game.id,
-        positionId: sub.positionId,
-        playerOutId: sub.playerOutId,
-        playerInId: sub.playerInId,
-        half: 1,
-        gameSeconds: currentTime,
-        coaches: team.coaches,
-      });
+      // Deletes first so a position never briefly holds two assignments. A row
+      // already gone (e.g. deleted by another coach before our subscription
+      // caught up) is the outcome we want.
+      const deletedIds: string[] = [];
+      const created: LineupAssignment[] = [];
+      const recordPendingWrites = () => {
+        if (deletedIds.length === 0 && created.length === 0) return;
+        // Skip writes the subscription already reflects; the pruning effect
+        // only runs on the next subscription change and would miss them.
+        const subscribedIds = new Set(subscribedLineupRef.current.map((assignment) => assignment.id));
+        setHalftimeLineupOverlay((overlay) => {
+          const nextDeleted = new Set(
+            [...Array.from(overlay.deletedIds), ...deletedIds].filter((id) => subscribedIds.has(id)),
+          );
+          const removed = new Set([...Array.from(overlay.deletedIds), ...deletedIds]);
+          return {
+            deletedIds: nextDeleted,
+            created: [
+              ...overlay.created.filter((assignment) => !removed.has(assignment.id)),
+              ...created.filter((assignment) => !subscribedIds.has(assignment.id)),
+            ],
+          };
+        });
+      };
+      try {
+        for (const assignmentId of changes.deleteAssignmentIds) {
+          try {
+            await mutations.deleteLineupAssignment(assignmentId);
+          } catch (error) {
+            if (!isMissingRecordError(error)) throw error;
+          }
+          deletedIds.push(assignmentId);
+        }
+        for (const { playerId, positionId } of changes.createAssignments) {
+          // Client-generated id so the pending row can be shown (and later
+          // deleted) before the subscription echoes it back.
+          const fields = {
+            id: crypto.randomUUID(),
+            gameId: game.id,
+            playerId,
+            positionId,
+            isStarter: true,
+            coaches: team.coaches,
+          };
+          await mutations.createLineupAssignment(fields);
+          created.push({ ...fields, createdAt: new Date().toISOString() } as LineupAssignment);
+        }
+      } finally {
+        // Record whatever was written, even on a partial failure.
+        recordPendingWrites();
+      }
+      for (const { positionId, playerOutId, playerInId } of changes.substitutions) {
+        await mutations.createSubstitution({
+          gameId: game.id,
+          positionId,
+          playerOutId,
+          playerInId,
+          half: 1,
+          gameSeconds: currentTime,
+          coaches: team.coaches,
+        });
+      }
     } catch (error) {
       handleApiError(error, 'Failed to apply halftime substitution');
+    } finally {
+      halftimeSubsInProgressRef.current = false;
     }
   };
 
@@ -1671,25 +1817,12 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       const startTime = new Date().toISOString();
       const resumeTime = currentTime; // Capture current time to continue from
 
-      if (halftimePtrClosePendingRef.current) {
-        try {
-          await closeActivePlayTimeRecords(playTimeRecords, resumeTime, undefined, game.id, mutations);
-          halftimePtrClosePendingRef.current = false;
-        } catch (error) {
-          handleApiError(error, 'Failed to close halftime play-time records before second half start');
-          return;
-        }
-      }
-      
-      // CRITICAL: Update gameState.currentHalf BEFORE starting the timer.
-      // Without this, the timer hook may see currentHalf===1 and re-trigger
-      // auto-halftime because the DB subscription hasn't propagated yet.
-      setGameState(prev => ({ ...prev, status: 'in-progress', currentHalf: 2 }));
-      
-      // Reset halftime guard so it could theoretically fire again if needed
-      halftimeInProgressRef.current = false;
-      
-      // Create play time records for all players currently in lineup for second half
+      // Resolve and validate starters BEFORE any side effect below (closing
+      // halftime PlayTimeRecords, flipping local gameState to in-progress).
+      // Those side effects aren't backed out on a thrown StarterCountError, and
+      // nothing re-syncs local state afterward (no Game write happens), so doing
+      // them first would strand the coach on an in-progress-looking screen with
+      // no way back except a reload the moment starters are insufficient.
       const resolvedLocalStarters = lineup.filter(
         (l): l is typeof l & { playerId: string; positionId: string } =>
           l.isStarter && !!l.playerId && !!l.positionId
@@ -1702,20 +1835,26 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         positionId: starter.positionId,
       }));
 
+      // Note: unlike handleStartGame, this deliberately does NOT fall back to the
+      // saved GamePlan halftimeLineup/startingLineup snapshot when local starters
+      // are below expected. That snapshot is captured before halftime and goes
+      // stale the moment a coach removes a starter (or reassigns one) during the
+      // break — falling back to it here silently reinstated players the coach had
+      // just removed, with no error or confirmation (#182, #190). The live lineup
+      // subscription plus a direct DB re-query (below) are the only sources of
+      // truth for what's actually starting the second half.
+      //
+      // Residual gap (not closed by this fix): a removal is only visible here
+      // once `lineup` (the subscription prop) reflects the delete. LineupPanel's
+      // own `pendingRemovalIds` hides a just-removed slot optimistically in its
+      // own state, so `resolvedLocalStarterCount` can still read as "full" for a
+      // brief window — or indefinitely while offline, since the delete mutation
+      // is queued rather than applied — in which case neither this DB re-query
+      // nor the check above ever fires, and a still-queued removed player could
+      // still get a second-half PlayTimeRecord. Closing that gap needs the
+      // removal state lifted out of LineupPanel — not fixed here; file a
+      // follow-up issue before acting on it further.
       if (resolvedLocalStarterCount < expectedStarterCount) {
-        const plannedSecondHalfStarters = parsePersistedStarterLineup(
-          (gamePlan?.halftimeLineup as string | null | undefined)
-          || (gamePlan?.startingLineup as string | null | undefined)
-          || null,
-          getPlayerAvailability,
-        );
-
-        if (plannedSecondHalfStarters.length > starters.length) {
-          starters = plannedSecondHalfStarters;
-        }
-      }
-
-      if (starters.length < expectedStarterCount) {
         const fallbackAssignments = await client.models.LineupAssignment.list({
           filter: {
             gameId: { eq: game.id },
@@ -1738,7 +1877,30 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       if (starters.length < expectedStarterCount) {
         throw new StarterCountError('handleStartSecondHalf', expectedStarterCount, starters.length);
       }
-      
+
+      if (halftimePtrClosePendingRef.current) {
+        // Retry the local-map close too, in case any individual close failed at
+        // halftime (its ids stay in the map on failure so this naturally retries
+        // them). currentTime hasn't moved since halftime (timer is paused), so
+        // resumeTime is the same game-clock boundary as halftimeSeconds was.
+        const primaryFullyClosed = await mutations.closeAllOpenPlayTimeRecords(resumeTime);
+        try {
+          await closeActivePlayTimeRecords(playTimeRecords, resumeTime, undefined, game.id, mutations);
+          halftimePtrClosePendingRef.current = !primaryFullyClosed;
+        } catch (error) {
+          handleApiError(error, 'Failed to close halftime play-time records before second half start');
+          return;
+        }
+      }
+
+      // CRITICAL: Update gameState.currentHalf BEFORE starting the timer.
+      // Without this, the timer hook may see currentHalf===1 and re-trigger
+      // auto-halftime because the DB subscription hasn't propagated yet.
+      setGameState(prev => ({ ...prev, status: 'in-progress', currentHalf: 2 }));
+
+      // Reset halftime guard so it could theoretically fire again if needed
+      halftimeInProgressRef.current = false;
+
       const starterPromises = starters.map(l => {
         return mutations.createPlayTimeRecord({
           id: buildDeterministicStartPlayTimeRecordId({
@@ -1814,10 +1976,11 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
 
     // Close play time records after status is safely persisted.
     // Failures here are non-fatal — SeasonReport already handles unclosed PTRs as a fallback.
+    await mutations.closeAllOpenPlayTimeRecords(endGameTime);
     try {
       await closeActivePlayTimeRecords(playTimeRecords, endGameTime, undefined, game.id, mutations);
     } catch (error) {
-      console.error('[handleEndGame] PTR closing failed (non-fatal, game already completed):', error);
+      console.error('[handleEndGame] Cross-device PTR closing failed (non-fatal, game already completed):', error);
     } finally {
       manuallyPausedRef.current = false;
     }
@@ -1859,6 +2022,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     plannedRotations,
     onHalftime: handleHalftime,
     onEndGame: handleEndGame,
+    userId,
   });
 
   // Reset tab when game status changes.
@@ -2413,6 +2577,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                 aria-labelledby="game-tab-panel-tab-goals"
                 tabIndex={0}
               >
+                <ShotOutcomeEntry {...sharedGoalTrackerProps} />
                 <StatsSubViewTabs
                   activeSubView={statSubView}
                   onChange={setStatSubView}
@@ -2584,6 +2749,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                 aria-labelledby="game-tab-panel-tab-goals"
                 tabIndex={0}
               >
+                <ShotOutcomeEntry {...sharedGoalTrackerProps} />
                 <StatsSubViewTabs
                   activeSubView={statSubView}
                   onChange={setStatSubView}
@@ -2641,7 +2807,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
               onEndGame={handleEndGameWithConfirm}
               onAddTestTime={handleAddTestTime}
               onRecalculateRotations={handleRecalculateRotations}
-              onApplyHalftimeSub={handleApplyHalftimeSub}
+              onApplyHalftimeSubs={handleApplyHalftimeSubs}
               getPlanConflicts={getPlanConflicts}
             />
             <LineupPanel {...sharedLineupPanelProps} />
@@ -2688,6 +2854,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
               gameEndSeconds={gameState.elapsedSeconds ?? 0}
               halfLengthSeconds={halfLengthSeconds}
             />
+            <ShotOutcomeEntry {...sharedGoalTrackerProps} />
             <StatsSubViewTabs
               activeSubView={statSubView}
               onChange={setStatSubView}

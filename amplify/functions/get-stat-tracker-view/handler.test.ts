@@ -38,6 +38,7 @@ function setEnv() {
   process.env.PLAYER_TABLE = 'PlayerTable';
   process.env.PLAY_TIME_RECORD_TABLE = 'PlayTimeRecordTable';
   process.env.FORMATION_POSITION_TABLE = 'FormationPositionTable';
+  process.env.GOAL_TABLE = 'GoalTable';
 }
 
 describe('get-stat-tracker-view handler', () => {
@@ -101,7 +102,7 @@ describe('get-stat-tracker-view handler', () => {
       if (command.__type === 'QueryCommand' && table === 'TeamRosterTable') {
         return {
           Items: [
-            { teamId: 'team-1', playerId: 'p1', isActive: true },
+            { teamId: 'team-1', playerId: 'p1', isActive: true, playerNumber: 8 },
             { teamId: 'team-1', playerId: 'p2', isActive: false }, // filtered out
           ],
         };
@@ -122,7 +123,7 @@ describe('get-stat-tracker-view handler', () => {
     expect(result.state).toBe('LIVE');
     expect(result.gameId).toBe('game-1');
     expect(result.opponentName).toBe('Lakeside FC');
-    expect(result.roster).toEqual([{ id: 'p1', firstName: 'Sam', lastName: 'Jones', positionName: null }]);
+    expect(result.roster).toEqual([{ id: 'p1', firstName: 'Sam', lastName: 'Jones', positionName: null, playerNumber: 8, position: null }]);
   });
 
   it('excludes players whose TeamRoster row is inactive (isActive: false)', async () => {
@@ -340,24 +341,135 @@ describe('get-stat-tracker-view handler', () => {
           return { Responses: { PlayerTable: [{ id: 'p1', firstName: 'Sam', lastName: 'Jones' }, { id: 'p2', firstName: 'Ana', lastName: 'Cruz' }] } };
         }
         if (command.__type === 'BatchGetCommand' && (command.input as { RequestItems: Record<string, unknown> }).RequestItems?.FormationPositionTable) {
-          return { Responses: { FormationPositionTable: [{ id: 'pos-fwd', role: 'FORWARD', positionName: 'Forward' }] } };
+          return { Responses: { FormationPositionTable: [{ id: 'pos-fwd', role: 'FORWARD', positionName: 'Forward', abbreviation: 'FWD', sortOrder: 3, xPct: 20, yPct: 15 }] } };
         }
         return {};
       });
 
       const result = await invoke(createEvent()) as {
-        roster: Array<{ id: string; positionName: string | null }>;
+        roster: Array<{ id: string; positionName: string | null; playerNumber: number | null; position: unknown }>;
       };
 
       expect(result.roster).toEqual(expect.arrayContaining([
-        { id: 'p1', firstName: 'Sam', lastName: 'Jones', positionName: 'Forward' },
-        { id: 'p2', firstName: 'Ana', lastName: 'Cruz', positionName: null },
+        {
+          id: 'p1', firstName: 'Sam', lastName: 'Jones', positionName: 'Forward', playerNumber: null,
+          position: { id: 'pos-fwd', positionName: 'Forward', abbreviation: 'FWD', role: 'FORWARD', sortOrder: 3, xPct: 20, yPct: 15 },
+        },
+        { id: 'p2', firstName: 'Ana', lastName: 'Cruz', positionName: null, playerNumber: null, position: null },
       ]));
+    });
+
+    it('surfaces TeamRoster.playerNumber on each roster entry', async () => {
+      mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+        const table = command.input.TableName as string;
+        if (command.__type === 'GetCommand' && table === 'ShareLinkTable') {
+          return { Item: { token: 'tok-1', teamId: 'team-1', type: 'STAT_TRACKER' } };
+        }
+        if (command.__type === 'GetCommand' && table === 'TeamTable') {
+          return { Item: { id: 'team-1', name: 'Eagles' } };
+        }
+        if (command.__type === 'QueryCommand' && table === 'GameTable') {
+          return { Items: [] };
+        }
+        if (command.__type === 'QueryCommand' && table === 'TeamRosterTable') {
+          return {
+            Items: [
+              { teamId: 'team-1', playerId: 'p1', isActive: true, playerNumber: 14 },
+              { teamId: 'team-1', playerId: 'p2', isActive: true }, // no playerNumber on the raw item
+            ],
+          };
+        }
+        if (command.__type === 'BatchGetCommand' && (command.input as { RequestItems: Record<string, unknown> }).RequestItems?.PlayerTable) {
+          return { Responses: { PlayerTable: [{ id: 'p1', firstName: 'Sam', lastName: 'Jones' }, { id: 'p2', firstName: 'Ana', lastName: 'Cruz' }] } };
+        }
+        return {};
+      });
+
+      const result = await invoke(createEvent()) as { roster: Array<{ id: string; playerNumber: number | null }> };
+      expect(result.roster).toEqual(expect.arrayContaining([
+        { id: 'p1', firstName: 'Sam', lastName: 'Jones', positionName: null, playerNumber: 14, position: null },
+        { id: 'p2', firstName: 'Ana', lastName: 'Cruz', positionName: null, playerNumber: null, position: null },
+      ]));
+    });
+
+    it('on-field player at a FormationPosition with xPct/yPct null -> position.xPct/position.yPct come through as null', async () => {
+      mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+        const table = command.input.TableName as string;
+        if (command.__type === 'GetCommand' && table === 'ShareLinkTable') {
+          return { Item: { token: 'tok-1', teamId: 'team-1', type: 'STAT_TRACKER' } };
+        }
+        if (command.__type === 'GetCommand' && table === 'TeamTable') {
+          return { Item: { id: 'team-1', name: 'Eagles' } };
+        }
+        if (command.__type === 'QueryCommand' && table === 'GameTable') {
+          return { Items: [{ id: 'game-1', teamId: 'team-1', opponent: 'Lakeside FC', status: 'in-progress', currentHalf: 1 }] };
+        }
+        if (command.__type === 'QueryCommand' && table === 'TeamRosterTable') {
+          return { Items: [{ teamId: 'team-1', playerId: 'p1', isActive: true, playerNumber: 9 }] };
+        }
+        if (command.__type === 'QueryCommand' && table === 'PlayTimeRecordTable') {
+          return { Items: [{ playerId: 'p1', positionId: 'pos-fwd', endGameSeconds: null }] };
+        }
+        if (command.__type === 'BatchGetCommand' && (command.input as { RequestItems: Record<string, unknown> }).RequestItems?.PlayerTable) {
+          return { Responses: { PlayerTable: [{ id: 'p1', firstName: 'Sam', lastName: 'Jones' }] } };
+        }
+        if (command.__type === 'BatchGetCommand' && (command.input as { RequestItems: Record<string, unknown> }).RequestItems?.FormationPositionTable) {
+          return { Responses: { FormationPositionTable: [{ id: 'pos-fwd', role: 'FORWARD', positionName: 'Forward', abbreviation: 'FWD' }] } };
+        }
+        return {};
+      });
+
+      const result = await invoke(createEvent()) as { roster: Array<{ position: { xPct: number | null; yPct: number | null } | null }> };
+      expect(result.roster[0].position).toEqual({ id: 'pos-fwd', positionName: 'Forward', abbreviation: 'FWD', role: 'FORWARD', sortOrder: null, xPct: null, yPct: null });
+    });
+
+    it('two players with open PlayTimeRecords at the same FormationPosition -> both roster entries get the same position.id', async () => {
+      mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+        const table = command.input.TableName as string;
+        if (command.__type === 'GetCommand' && table === 'ShareLinkTable') {
+          return { Item: { token: 'tok-1', teamId: 'team-1', type: 'STAT_TRACKER' } };
+        }
+        if (command.__type === 'GetCommand' && table === 'TeamTable') {
+          return { Item: { id: 'team-1', name: 'Eagles' } };
+        }
+        if (command.__type === 'QueryCommand' && table === 'GameTable') {
+          return { Items: [{ id: 'game-1', teamId: 'team-1', opponent: 'Lakeside FC', status: 'in-progress', currentHalf: 1 }] };
+        }
+        if (command.__type === 'QueryCommand' && table === 'TeamRosterTable') {
+          return {
+            Items: [
+              { teamId: 'team-1', playerId: 'p1', isActive: true, playerNumber: 1 },
+              { teamId: 'team-1', playerId: 'p2', isActive: true, playerNumber: 14 },
+            ],
+          };
+        }
+        if (command.__type === 'QueryCommand' && table === 'PlayTimeRecordTable') {
+          return {
+            Items: [
+              { playerId: 'p1', positionId: 'gk-pos', endGameSeconds: null },
+              { playerId: 'p2', positionId: 'gk-pos', endGameSeconds: null },
+            ],
+          };
+        }
+        if (command.__type === 'BatchGetCommand' && (command.input as { RequestItems: Record<string, unknown> }).RequestItems?.PlayerTable) {
+          return { Responses: { PlayerTable: [{ id: 'p1', firstName: 'Sam', lastName: 'Jones' }, { id: 'p2', firstName: 'Ana', lastName: 'Cruz' }] } };
+        }
+        if (command.__type === 'BatchGetCommand' && (command.input as { RequestItems: Record<string, unknown> }).RequestItems?.FormationPositionTable) {
+          return { Responses: { FormationPositionTable: [{ id: 'gk-pos', role: 'GOALKEEPER', positionName: 'Goalkeeper' }] } };
+        }
+        return {};
+      });
+
+      const result = await invoke(createEvent()) as { roster: Array<{ id: string; position: { id: string } | null }> };
+      const p1 = result.roster.find((p) => p.id === 'p1');
+      const p2 = result.roster.find((p) => p.id === 'p2');
+      expect(p1?.position?.id).toBe('gk-pos');
+      expect(p2?.position?.id).toBe('gk-pos');
     });
   });
 
   describe('game-clock/score fields', () => {
-    it('a LIVE in-progress game echoes elapsedSeconds/lastStartTime/halfLengthMinutes/ourScore/opponentScore', async () => {
+    it('a LIVE in-progress game echoes elapsedSeconds/lastStartTime/halfLengthMinutes and derives ourScore/opponentScore from Goal records', async () => {
       mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
         const table = command.input.TableName as string;
         if (command.__type === 'GetCommand' && table === 'ShareLinkTable') {
@@ -371,12 +483,25 @@ describe('get-stat-tracker-view handler', () => {
             Items: [{
               id: 'game-1', teamId: 'team-1', opponent: 'Lakeside FC', status: 'in-progress', currentHalf: 2,
               elapsedSeconds: 1500, lastStartTime: '2026-09-21T01:00:00.000Z', halfLengthMinutes: 25,
-              ourScore: 3, opponentScore: 1,
+              // Deliberately different from the goal-derived value below, so
+              // the assertion proves derivation-from-goals rather than
+              // incidentally matching a persisted-field echo.
+              ourScore: 9, opponentScore: 9,
             }],
           };
         }
         if (command.__type === 'QueryCommand' && table === 'TeamRosterTable') {
           return { Items: [] };
+        }
+        if (command.__type === 'QueryCommand' && table === 'GoalTable') {
+          return {
+            Items: [
+              { scoredByUs: true },
+              { scoredByUs: true },
+              { scoredByUs: true },
+              { scoredByUs: false },
+            ],
+          };
         }
         return {};
       });
@@ -391,6 +516,139 @@ describe('get-stat-tracker-view handler', () => {
       expect(result.halfLengthMinutes).toBe(25);
       expect(result.ourScore).toBe(3);
       expect(result.opponentScore).toBe(1);
+    });
+
+    it('a LIVE halftime game (isLive && !isInProgress) also derives the score from Goal records -- proves isLive and isInProgress are not conflated', async () => {
+      mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+        const table = command.input.TableName as string;
+        if (command.__type === 'GetCommand' && table === 'ShareLinkTable') {
+          return { Item: { token: 'tok-1', teamId: 'team-1', type: 'STAT_TRACKER' } };
+        }
+        if (command.__type === 'GetCommand' && table === 'TeamTable') {
+          return { Item: { id: 'team-1', name: 'Eagles' } };
+        }
+        if (command.__type === 'QueryCommand' && table === 'GameTable') {
+          return {
+            Items: [{
+              id: 'game-1', teamId: 'team-1', opponent: 'Lakeside FC', status: 'halftime', currentHalf: 1,
+              elapsedSeconds: 1500, lastStartTime: null, halfLengthMinutes: 25,
+              ourScore: 0, opponentScore: 0,
+            }],
+          };
+        }
+        if (command.__type === 'QueryCommand' && table === 'TeamRosterTable') {
+          return { Items: [] };
+        }
+        if (command.__type === 'QueryCommand' && table === 'GoalTable') {
+          return { Items: [{ scoredByUs: true }, { scoredByUs: false }] };
+        }
+        return {};
+      });
+
+      const result = await invoke(createEvent()) as {
+        state: string; ourScore: number | null; opponentScore: number | null;
+      };
+
+      expect(result.state).toBe('LIVE');
+      expect(result.ourScore).toBe(1);
+      expect(result.opponentScore).toBe(1);
+      // No PlayTimeRecord/FormationPosition query at halftime (isInProgress
+      // stays false), but the Goal query for score derivation IS issued
+      // (isLive is true) -- this is the specific assertion that proves the
+      // two gates aren't conflated.
+      const queriedTables = mockSend.mock.calls.map((call) => (call[0] as { input: Record<string, unknown> }).input.TableName);
+      expect(queriedTables).not.toContain('PlayTimeRecordTable');
+      expect(queriedTables).toContain('GoalTable');
+    });
+
+    it('a LIVE game with zero goals scored so far returns 0/0, not null', async () => {
+      mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+        const table = command.input.TableName as string;
+        if (command.__type === 'GetCommand' && table === 'ShareLinkTable') {
+          return { Item: { token: 'tok-1', teamId: 'team-1', type: 'STAT_TRACKER' } };
+        }
+        if (command.__type === 'GetCommand' && table === 'TeamTable') {
+          return { Item: { id: 'team-1', name: 'Eagles' } };
+        }
+        if (command.__type === 'QueryCommand' && table === 'GameTable') {
+          return {
+            Items: [{
+              id: 'game-1', teamId: 'team-1', opponent: 'Lakeside FC', status: 'in-progress', currentHalf: 1,
+              elapsedSeconds: 60, lastStartTime: '2026-09-21T01:00:00.000Z', halfLengthMinutes: 25,
+              ourScore: 0, opponentScore: 0,
+            }],
+          };
+        }
+        if (command.__type === 'QueryCommand' && table === 'TeamRosterTable') {
+          return { Items: [] };
+        }
+        if (command.__type === 'QueryCommand' && table === 'GoalTable') {
+          return { Items: [] };
+        }
+        return {};
+      });
+
+      const result = await invoke(createEvent()) as { ourScore: number | null; opponentScore: number | null };
+      expect(result.ourScore).toBe(0);
+      expect(result.opponentScore).toBe(0);
+    });
+
+    it('FINISHED branch keeps returning the persisted Game.ourScore/opponentScore snapshot, not a Goal-derived value', async () => {
+      const recentPast = new Date(Date.now() - 1000 * 60 * 30).toISOString(); // 30 min ago
+      mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+        const table = command.input.TableName as string;
+        if (command.__type === 'GetCommand' && table === 'ShareLinkTable') {
+          return { Item: { token: 'tok-1', teamId: 'team-1', type: 'STAT_TRACKER' } };
+        }
+        if (command.__type === 'GetCommand' && table === 'TeamTable') {
+          return { Item: { id: 'team-1', name: 'Eagles' } };
+        }
+        if (command.__type === 'QueryCommand' && table === 'GameTable') {
+          return {
+            Items: [{
+              id: 'game-1', teamId: 'team-1', opponent: 'Lakeside FC', status: 'completed', currentHalf: 2,
+              gameDate: recentPast, ourScore: 4, opponentScore: 2,
+            }],
+          };
+        }
+        if (command.__type === 'QueryCommand' && table === 'TeamRosterTable') {
+          return { Items: [] };
+        }
+        return {};
+      });
+
+      const result = await invoke(createEvent()) as {
+        state: string; ourScore: number | null; opponentScore: number | null;
+      };
+      expect(result.state).toBe('FINISHED');
+      expect(result.ourScore).toBe(4);
+      expect(result.opponentScore).toBe(2);
+      const queriedTables = mockSend.mock.calls.map((call) => (call[0] as { input: Record<string, unknown> }).input.TableName);
+      expect(queriedTables).not.toContain('GoalTable');
+    });
+
+    it('NEXT_GAME / no-game branches keep returning null/null for ourScore/opponentScore', async () => {
+      mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+        const table = command.input.TableName as string;
+        if (command.__type === 'GetCommand' && table === 'ShareLinkTable') {
+          return { Item: { token: 'tok-1', teamId: 'team-1', type: 'STAT_TRACKER' } };
+        }
+        if (command.__type === 'GetCommand' && table === 'TeamTable') {
+          return { Item: { id: 'team-1', name: 'Eagles' } };
+        }
+        if (command.__type === 'QueryCommand' && table === 'GameTable') {
+          return { Items: [] };
+        }
+        if (command.__type === 'QueryCommand' && table === 'TeamRosterTable') {
+          return { Items: [] };
+        }
+        return {};
+      });
+
+      const result = await invoke(createEvent()) as { state: string; ourScore: number | null; opponentScore: number | null };
+      expect(result.state).toBe('NO_GAMES_YET');
+      expect(result.ourScore).toBeNull();
+      expect(result.opponentScore).toBeNull();
     });
   });
 

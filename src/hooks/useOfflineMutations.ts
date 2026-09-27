@@ -61,6 +61,8 @@ export interface SubstitutionCreateFields {
 }
 
 export interface LineupAssignmentCreateFields {
+  /** Optional client-generated id, so a caller can track the row before the subscription echoes it. */
+  id?: string;
   gameId: string;
   playerId: string;
   positionId?: string | null;
@@ -99,7 +101,7 @@ export interface GoalUpdateFields {
 export interface ShotCreateFields {
   gameId: string;
   takenByUs: boolean;
-  onTarget: boolean;
+  outcome: 'GOAL' | 'SAVED' | 'BLOCKED' | 'WIDE';
   gameSeconds: number;
   half?: number | null;
   playerId?: string | null;
@@ -108,9 +110,14 @@ export interface ShotCreateFields {
   coaches?: string[] | null;
 }
 
+// `outcome` stays optional here (unlike the required TS field on create) --
+// the M1 read-only-vs-editable restriction (an editable outcome control only
+// when the current outcome is BLOCKED/WIDE, omitted from the update payload
+// otherwise) is a UI-layer concern (ShotSaveTracker.tsx's edit modal), not a
+// type-layer one; this hook stays agnostic to it.
 export interface ShotUpdateFields {
   playerId?: string | null;
-  onTarget?: boolean;
+  outcome?: 'GOAL' | 'SAVED' | 'BLOCKED' | 'WIDE';
 }
 
 export interface SaveCreateFields {
@@ -176,6 +183,25 @@ export interface GameMutationInput {
   updateGame: (id: string, fields: GameUpdateFields) => Promise<void>;
   createPlayTimeRecord: (fields: PlayTimeRecordCreateFields) => Promise<void>;
   updatePlayTimeRecord: (id: string, fields: PlayTimeRecordUpdateFields) => Promise<void>;
+  /**
+   * Closes every PlayTimeRecord this device has locally opened and not yet
+   * locally closed, tracked independent of the observeQuery subscription —
+   * so it also covers a record that was created while offline and hasn't
+   * reached DynamoDB or React state yet. Never throws: each close is queued
+   * or retried individually (Promise.allSettled), and any that fail stay in
+   * the open-record map so the next call (e.g. at second-half start or
+   * end-game) retries them. This is the primary close path; the DB-scan-based
+   * closeActivePlayTimeRecords in substitutionService.ts is a cross-device
+   * backstop for records opened on a different coach's device.
+   *
+   * Returns `true` when every open record this device knew about closed
+   * successfully, `false` when one or more failed and remain open (still
+   * tracked for retry on the next call) — callers that gate a retry signal
+   * (e.g. GameManagement's halftimePtrClosePendingRef) on the cross-device
+   * backstop's own throw must also fold this in, or a failure here is
+   * silently missed until the next unconditional call (e.g. end-game).
+   */
+  closeAllOpenPlayTimeRecords: (endGameSeconds: number) => Promise<boolean>;
   createSubstitution: (fields: SubstitutionCreateFields) => Promise<void>;
   createLineupAssignment: (fields: LineupAssignmentCreateFields) => Promise<void>;
   deleteLineupAssignment: (id: string) => Promise<void>;
@@ -243,6 +269,25 @@ function mapCanonicalGameNoteError(message: string): string {
   const friendly = CANONICAL_GAME_NOTE_ERRORS[normalized];
   if (!friendly) return message;
   return `${normalized}: ${friendly}`;
+}
+
+// Player.goalsScored/assists/shots/saves (amplify/data/resource.ts) each
+// declare a hasMany relation on one of these fields, which auto-generates a
+// secondary index keyed on it. DynamoDB GSIs are sparse -- an item is fine
+// with the key attribute absent, but rejects the whole write if the
+// attribute is explicitly present with a null value ("Type mismatch for
+// Index Key ... Actual: NULL"). Every one of these fields is optional
+// (no shooter/scorer/assist/keeper), so any caller sending `null` for one
+// (rather than omitting it) breaks the write outright. Strip them here
+// rather than relying on every call site to remember not to.
+function omitNullForeignKeys<T extends object>(fields: T, keys: (keyof T)[]): T {
+  const result: T = { ...fields };
+  for (const key of keys) {
+    if (result[key] === null) {
+      delete result[key];
+    }
+  }
+  return result;
 }
 
 function assertNoGraphQLErrors(
@@ -409,10 +454,15 @@ async function executeSingleMutation(item: QueuedMutation): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const m = (client.models as Record<string, any>)[item.model];
   if (!m) throw new Error(`Unknown model in offline queue: ${item.model}`);
+  // Amplify's data client returns GraphQL errors in the result rather than
+  // throwing — without this check a failed replay (e.g. a PlayTimeRecord
+  // close queued by closeAllOpenPlayTimeRecords) would look like a success
+  // and get dropped from the queue, with nothing left to retry it.
+  const context = `Failed to replay ${item.model}.${item.operation}`;
   switch (item.operation) {
-    case 'create': await m.create(item.payload); return;
-    case 'update': await m.update(item.payload); return;
-    case 'delete': await m.delete(item.payload); return;
+    case 'create': assertNoGraphQLErrors(await m.create(item.payload), context); return;
+    case 'update': assertNoGraphQLErrors(await m.update(item.payload), context); return;
+    case 'delete': assertNoGraphQLErrors(await m.delete(item.payload), context); return;
   }
 }
 
@@ -424,6 +474,12 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
 
   // Ref so mutation callbacks don't need to re-create when isOnline changes
   const isOnlineRef = useRef(navigator.onLine);
+
+  // Locally-tracked open PlayTimeRecords (id -> startGameSeconds), independent
+  // of the observeQuery subscription. Populated by createPlayTimeRecord,
+  // cleared by updatePlayTimeRecord once endGameSeconds is set. See
+  // closeAllOpenPlayTimeRecords below and GameMutationInput's doc comment.
+  const openPlayTimeRecordsRef = useRef<Map<string, number>>(new Map());
 
   // Load initial count from IndexedDB on mount (persists across reloads)
   useEffect(() => {
@@ -607,6 +663,13 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
         fields as unknown as Record<string, unknown>,
         () => executePlayTimeRecordCreate(fields)
       );
+      // Only reached once the create has actually succeeded (thrown errors from
+      // enqueueOrRun above propagate out of this function first) — offline that
+      // means "reliably enqueued", online that means "written". Either way the
+      // record is now open from this device's perspective.
+      if (fields.id) {
+        openPlayTimeRecordsRef.current.set(fields.id, fields.startGameSeconds);
+      }
     },
     [enqueueOrRun]
   );
@@ -621,8 +684,35 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
           assertNoGraphQLErrors(result, 'Failed to update play time record');
         }
       );
+      if (fields.endGameSeconds !== undefined && fields.endGameSeconds !== null) {
+        openPlayTimeRecordsRef.current.delete(id);
+      }
     },
     [enqueueOrRun]
+  );
+
+  const closeAllOpenPlayTimeRecords = useCallback(
+    async (endGameSeconds: number): Promise<boolean> => {
+      const ids = Array.from(openPlayTimeRecordsRef.current.keys());
+      if (ids.length === 0) return true;
+      const results = await Promise.allSettled(
+        ids.map((id) => updatePlayTimeRecord(id, { endGameSeconds }))
+      );
+      const failures = results.filter(
+        (r): r is PromiseRejectedResult => r.status === 'rejected'
+      );
+      if (failures.length > 0) {
+        // Failed ids are still in openPlayTimeRecordsRef (updatePlayTimeRecord only
+        // removes on success), so the next call to this function retries them.
+        console.warn(
+          `[closeAllOpenPlayTimeRecords] ${failures.length} of ${ids.length} close(s) failed; will retry on next call.`,
+          failures.map((f) => getSafeErrorMessage(f.reason))
+        );
+        return false;
+      }
+      return true;
+    },
+    [updatePlayTimeRecord]
   );
 
   const createSubstitution = useCallback(
@@ -682,7 +772,8 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
   );
 
   const createGoal = useCallback(
-    async (fields: GoalCreateFields): Promise<void> => {
+    async (rawFields: GoalCreateFields): Promise<void> => {
+      const fields = omitNullForeignKeys(rawFields, ['scorerId', 'assistId']);
       await enqueueOrRun(
         'Goal', 'create',
         fields as unknown as Record<string, unknown>,
@@ -720,7 +811,8 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
   );
 
   const createShot = useCallback(
-    async (fields: ShotCreateFields): Promise<void> => {
+    async (rawFields: ShotCreateFields): Promise<void> => {
+      const fields = omitNullForeignKeys(rawFields, ['playerId']);
       await enqueueOrRun(
         'Shot', 'create',
         fields as unknown as Record<string, unknown>,
@@ -746,8 +838,14 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
 
   const updateShot = useCallback(
     async (id: string, fields: ShotUpdateFields): Promise<void> => {
-      const { playerId, onTarget } = fields;
-      const safeFields = { playerId, onTarget };
+      // `outcome` is omitted from the payload ENTIRELY when the caller
+      // didn't supply it (M1's edit-modal guardrail: the editable outcome
+      // control only appears for BLOCKED/WIDE shots, and a read-only label
+      // otherwise) -- sending an unconditional key here, even `undefined`,
+      // would risk silently overwriting a GOAL/SAVED outcome the coach never
+      // had the ability to meaningfully edit.
+      const { playerId, outcome } = fields;
+      const safeFields = outcome !== undefined ? { playerId, outcome } : { playerId };
       await enqueueOrRun(
         'Shot', 'update',
         { id, ...safeFields } as Record<string, unknown>,
@@ -758,7 +856,8 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
   );
 
   const createSave = useCallback(
-    async (fields: SaveCreateFields): Promise<void> => {
+    async (rawFields: SaveCreateFields): Promise<void> => {
+      const fields = omitNullForeignKeys(rawFields, ['playerId']);
       await enqueueOrRun(
         'Save', 'create',
         fields as unknown as Record<string, unknown>,
@@ -899,6 +998,7 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       updateGame,
       createPlayTimeRecord,
       updatePlayTimeRecord,
+      closeAllOpenPlayTimeRecords,
       createSubstitution,
       createLineupAssignment,
       deleteLineupAssignment,
@@ -921,7 +1021,7 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       deleteQueuedSubstitution,
     }),
     [
-      updateGame, createPlayTimeRecord, updatePlayTimeRecord, createSubstitution,
+      updateGame, createPlayTimeRecord, updatePlayTimeRecord, closeAllOpenPlayTimeRecords, createSubstitution,
       createLineupAssignment, deleteLineupAssignment, updateLineupAssignment,
       createGoal, deleteGoal, updateGoal,
       createShot, deleteShot, updateShot,

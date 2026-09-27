@@ -610,7 +610,11 @@ backend.archiveTeam.addEnvironment('SHARE_LINK_TABLE', shareLinkTable.tableName)
 // adds: Query PlayTimeRecord's playTimeRecordsByGameId GSI + read
 // FormationPosition (plain BatchGetItem on the base table), both only
 // queried when game.status === 'in-progress', to derive
-// activeGoalkeeperId.
+// activeGoalkeeperId. Live score fix adds: Query Goal's goalsByGameId GSI
+// only (no grantReadData -- no full-table Scan/GetItem, no other Goal GSI),
+// queried when the broader `isLive` holds (in-progress OR halftime), to
+// derive ourScore/opponentScore via amplify/functions/shared/score.ts's
+// resolveScore instead of the stale persisted Game row.
 shareLinkTable.grantReadData(backend.getStatTrackerView.resources.lambda);
 teamTable.grantReadData(backend.getStatTrackerView.resources.lambda);
 fanViewRateLimitTable.grantReadWriteData(backend.getStatTrackerView.resources.lambda);
@@ -624,6 +628,7 @@ backend.getStatTrackerView.resources.lambda.addToRolePolicy(
       `${gameTable.tableArn}/index/gamesByTeamId`,
       `${teamRosterTable.tableArn}/index/gsi-Team.roster`,
       `${playTimeRecordTable.tableArn}/index/playTimeRecordsByGameId`,
+      `${goalTable.tableArn}/index/goalsByGameId`,
     ],
   })
 );
@@ -635,6 +640,7 @@ backend.getStatTrackerView.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.t
 backend.getStatTrackerView.addEnvironment('PLAYER_TABLE', playerTable.tableName);
 backend.getStatTrackerView.addEnvironment('PLAY_TIME_RECORD_TABLE', playTimeRecordTable.tableName);
 backend.getStatTrackerView.addEnvironment('FORMATION_POSITION_TABLE', formationPositionTable.tableName);
+backend.getStatTrackerView.addEnvironment('GOAL_TABLE', goalTable.tableName);
 
 // submit-stat-event: guest + authenticated(identityPool) -- read ShareLink
 // (token lookup) + Team (fresh coaches[] + archived-team check via the

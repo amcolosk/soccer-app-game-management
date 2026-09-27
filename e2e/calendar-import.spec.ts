@@ -21,7 +21,7 @@ import {
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const FIXTURE_PATH = path.resolve(
-  dirname,
+  path.dirname(fileURLToPath(import.meta.url)),
   '..',
   'amplify',
   'functions',

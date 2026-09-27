@@ -13,6 +13,7 @@ import { formatMinutesSeconds } from "../../utils/gameTimeUtils";
 import { executeSubstitution } from "../../services/substitutionService";
 import { useAvailability } from "../../contexts/AvailabilityContext";
 import type { GameMutationInput } from "../../hooks/useOfflineMutations";
+import { buildDeterministicStartPlayTimeRecordId } from "../../utils/playTimeRecordId";
 import type {
   Game,
   Team,
@@ -150,9 +151,21 @@ export function SubstitutionPanel({
     if (!confirmed) return;
 
     setIsExecutingAll(true);
+    // `lineup` is the snapshot from when Sub All was tapped and doesn't update
+    // between iterations, so track what this batch has already changed. A second
+    // item for a position (or player) already subbed in this batch would otherwise
+    // replace the stale occupant and leave two players in that position.
+    const positionsChangedThisBatch = new Set<string>();
+    const playersMovedThisBatch = new Set<string>();
+    let deferredCount = 0;
     try {
       for (const queueItem of substitutionQueue) {
         const { playerId: newPlayerId, positionId } = queueItem;
+
+        if (positionsChangedThisBatch.has(positionId) || playersMovedThisBatch.has(newPlayerId)) {
+          deferredCount += 1;
+          continue;
+        }
 
         const currentAssignment = lineup.find(
           l => l.positionId === positionId && l.isStarter
@@ -190,7 +203,17 @@ export function SubstitutionPanel({
           team.coaches || [],
           mutations
         );
+        positionsChangedThisBatch.add(positionId);
+        playersMovedThisBatch.add(oldPlayerId);
+        playersMovedThisBatch.add(newPlayerId);
         onQueueRemove(queueItem.id);
+      }
+
+      if (deferredCount > 0) {
+        showWarning(
+          `${deferredCount} queued substitution${deferredCount === 1 ? '' : 's'} left in the queue: `
+          + 'that position or player was already changed in this batch. Review and sub individually.',
+        );
       }
 
       trackEvent(AnalyticsEvents.ALL_SUBSTITUTIONS_EXECUTED.category, AnalyticsEvents.ALL_SUBSTITUTIONS_EXECUTED.action);
@@ -312,6 +335,12 @@ export function SubstitutionPanel({
 
       if (gameState.status === 'in-progress') {
         await mutations.createPlayTimeRecord({
+          id: buildDeterministicStartPlayTimeRecordId({
+            gameId: game.id,
+            playerId,
+            half: gameState.currentHalf === 2 ? 2 : 1,
+            startGameSeconds: currentTime,
+          }),
           gameId: game.id,
           playerId,
           positionId,

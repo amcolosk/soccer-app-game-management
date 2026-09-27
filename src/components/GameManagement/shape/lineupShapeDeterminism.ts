@@ -1,6 +1,29 @@
-import type { FormationPosition } from "../types";
+// This module is imported by BOTH the coach-authenticated GameManagement
+// lineup shape editor/view (LineupShapeView.tsx, FormationVisualEditor.tsx)
+// AND the public, unauthenticated Sideline Stat Tracker pitch view
+// (src/components/FanMode/TrackerFieldLineup.tsx) -- it must therefore stay
+// free of any runtime imports (types only), same posture as
+// StatTrackerView.tsx's other dependencies. Do not import
+// react-hot-toast/lineupInteractionAdapter/exportLineupShape/
+// playTimeCalculations or anything else with side effects into this file.
 
 export const LINEUP_SHAPE_LAYOUT_VERSION = "soccer-shape-v1" as const;
+
+// Explicit structural interface, NOT `Pick<FormationPosition, ...>` -- Pick
+// would still require the exact enum/required-field shape from the Amplify
+// schema type, which doesn't match the Stat Tracker Lambda's plain-string/
+// nullable `StatTrackerPosition` payload and would force an unsafe cast at
+// that call site. `FormationPosition` remains structurally assignable to
+// this interface, so existing coach-side call sites need no changes.
+export interface LineupShapePositionInput {
+  id: string;
+  positionName?: string | null;
+  abbreviation?: string | null;
+  role?: string | null;
+  sortOrder?: number | null;
+  xPct?: number | null;
+  yPct?: number | null;
+}
 
 type ShapeLane = "gk" | "def" | "mid" | "fwd";
 
@@ -24,7 +47,7 @@ const LANE_Y: Record<ShapeLane, number> = {
   gk: 86,
 };
 
-function inferLane(position: Pick<FormationPosition, "role">): ShapeLane {
+function inferLane(position: Pick<LineupShapePositionInput, "role">): ShapeLane {
   switch (position.role) {
     case "GOALKEEPER": return "gk";
     case "FORWARD": return "fwd";
@@ -37,7 +60,7 @@ function inferLane(position: Pick<FormationPosition, "role">): ShapeLane {
   }
 }
 
-function sortPositionsDeterministically(positions: FormationPosition[]): FormationPosition[] {
+function sortPositionsDeterministically(positions: LineupShapePositionInput[]): LineupShapePositionInput[] {
   return [...positions].sort((a, b) => {
     const aSort = a.sortOrder ?? Number.MAX_SAFE_INTEGER;
     const bSort = b.sortOrder ?? Number.MAX_SAFE_INTEGER;
@@ -65,7 +88,7 @@ function getLaneX(index: number, laneSize: number): number {
   return Number((left + (index * step)).toFixed(2));
 }
 
-function hasPersistedLayout(position: FormationPosition): position is FormationPosition & { xPct: number; yPct: number } {
+function hasPersistedLayout(position: LineupShapePositionInput): position is LineupShapePositionInput & { xPct: number; yPct: number } {
   return (
     typeof position.xPct === "number"
     && Number.isFinite(position.xPct)
@@ -74,8 +97,8 @@ function hasPersistedLayout(position: FormationPosition): position is FormationP
   );
 }
 
-export function buildLineupShapeNodes(positions: FormationPosition[]): LineupShapeNode[] {
-  const byLane = new Map<ShapeLane, FormationPosition[]>();
+export function buildLineupShapeNodes(positions: LineupShapePositionInput[]): LineupShapeNode[] {
+  const byLane = new Map<ShapeLane, LineupShapePositionInput[]>();
   for (const lane of LANE_ORDER) {
     byLane.set(lane, []);
   }
@@ -106,7 +129,7 @@ export function buildLineupShapeNodes(positions: FormationPosition[]): LineupSha
   return nodes;
 }
 
-export function buildLineupShapeGoldenSnapshot(positions: FormationPosition[]): {
+export function buildLineupShapeGoldenSnapshot(positions: LineupShapePositionInput[]): {
   version: typeof LINEUP_SHAPE_LAYOUT_VERSION;
   nodes: Array<Pick<LineupShapeNode, "positionId" | "lane" | "slotIndex" | "xPct" | "yPct">>;
 } {
