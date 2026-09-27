@@ -9,6 +9,8 @@ import { handleApiError } from "../../utils/errorHandler";
 import { isoToDatetimeLocal } from "../../utils/gameTimeUtils";
 import { useConfirm } from "../ConfirmModal";
 import { closeActivePlayTimeRecords } from "../../services/substitutionService";
+import { isMissingRecordError } from "../../services/amplifyMutationResult";
+import { planHalftimeLineupChanges } from "../../utils/halftimeSubstitutionUtils";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, copyGamePlan, type PlannedSubstitution } from "../../services/rotationPlannerService";
 import { calculatePlayerPlayTime } from "../../utils/playTimeCalculations";
@@ -46,7 +48,7 @@ import { CompletedPlayTimeSummary } from "./CompletedPlayTimeSummary";
 import { CompletedGameTimeline } from "./CompletedGameTimeline";
 import { OfflineBanner } from "../OfflineBanner";
 import { ArchivedTeamBanner } from "../shared/ArchivedTeamBanner";
-import type { Game, Team, FormationPosition, PlannedRotation, SubQueue } from "./types";
+import type { Game, Team, FormationPosition, LineupAssignment, PlannedRotation, SubQueue } from "./types";
 import { AvailabilityProvider } from "../../contexts/AvailabilityContext";
 import { useHelpFab } from "../../contexts/HelpFabContext";
 import type { HelpScreenKey } from "../../help";
@@ -384,6 +386,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   const startStatusRef = useRef<Game['status']>(game.status);
   const [isStartingGame, setIsStartingGame] = useState(false);
   const halftimeInProgressRef = useRef(false);
+  const halftimeSubsInProgressRef = useRef(false);
   const endGameInProgressRef = useRef(false);
   const halftimePtrClosePendingRef = useRef(false);
   const injuryModalRef = useRef<HTMLDivElement | null>(null);
@@ -400,7 +403,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   const {
     gameState,
     setGameState,
-    lineup,
+    lineup: subscribedLineup,
     playTimeRecords,
     goals,
     shots,
@@ -422,6 +425,49 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     notesRefreshKey,
     userId,
   });
+
+  // Halftime lineup writes this device has made that the LineupAssignment
+  // subscription hasn't echoed back yet. Offline that's until reconnect, since
+  // writes are only queued. Without it the halftime screen keeps showing the
+  // pre-Apply lineup, so a second Apply re-seats players already moved and
+  // Start Second Half opens PlayTimeRecords for the old starters.
+  const [halftimeLineupOverlay, setHalftimeLineupOverlay] = useState<{
+    deletedIds: ReadonlySet<string>;
+    created: readonly LineupAssignment[];
+  }>({ deletedIds: new Set(), created: [] });
+  const subscribedLineupRef = useRef(subscribedLineup);
+  subscribedLineupRef.current = subscribedLineup;
+
+  useEffect(() => {
+    // Drop each pending write once the subscription reflects it.
+    setHalftimeLineupOverlay((overlay) => {
+      if (overlay.deletedIds.size === 0 && overlay.created.length === 0) return overlay;
+      const subscribedIds = new Set(subscribedLineup.map((assignment) => assignment.id));
+      const deletedIds = new Set(Array.from(overlay.deletedIds).filter((id) => subscribedIds.has(id)));
+      const created = overlay.created.filter((assignment) => !subscribedIds.has(assignment.id));
+      if (deletedIds.size === overlay.deletedIds.size && created.length === overlay.created.length) return overlay;
+      return { deletedIds, created };
+    });
+  }, [subscribedLineup]);
+
+  useEffect(() => {
+    // Backstop for a write that never echoes (e.g. another coach removed the row).
+    if (gameState.status !== 'halftime') {
+      setHalftimeLineupOverlay((overlay) =>
+        overlay.deletedIds.size === 0 && overlay.created.length === 0 ? overlay : { deletedIds: new Set(), created: [] });
+    }
+  }, [gameState.status]);
+
+  const lineup = useMemo(() => {
+    if (halftimeLineupOverlay.deletedIds.size === 0 && halftimeLineupOverlay.created.length === 0) {
+      return subscribedLineup;
+    }
+    const subscribedIds = new Set(subscribedLineup.map((assignment) => assignment.id));
+    return [
+      ...subscribedLineup.filter((assignment) => !halftimeLineupOverlay.deletedIds.has(assignment.id)),
+      ...halftimeLineupOverlay.created.filter((assignment) => !subscribedIds.has(assignment.id)),
+    ];
+  }, [subscribedLineup, halftimeLineupOverlay]);
 
   // Use per-game half length override when set; fall back to team default.
   // gameState is live-updated via observeQuery so this recomputes reactively.
@@ -1666,31 +1712,90 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     }
   };
 
-  const handleApplyHalftimeSub = async (sub: PlannedSubstitution) => {
+  const handleApplyHalftimeSubs = async (subs: PlannedSubstitution[]) => {
+    // Every call plans against the same `lineup` snapshot until the subscription
+    // echoes the writes back, so a second call in flight (double-tap, or Apply
+    // while Apply All runs) would re-seat players the first call already moved.
+    if (halftimeSubsInProgressRef.current) return;
+    halftimeSubsInProgressRef.current = true;
     try {
-      const currentAssignment = lineup.find(l => l.positionId === sub.positionId && l.isStarter);
-      if (!currentAssignment) return;
-      if (currentAssignment.playerId === sub.playerInId) return; // already applied
+      const changes = planHalftimeLineupChanges(lineup, subs);
+      if (changes.skipped.length > 0) {
+        showWarning('Some planned halftime substitutions conflict with each other and were not applied.');
+      }
+      if (changes.vacatedPositionIds.length > 0) {
+        const names = changes.vacatedPositionIds
+          .map((id) => positions.find((position) => position.id === id)?.abbreviation ?? 'a position')
+          .join(', ');
+        showWarning(`Now empty: ${names}. Assign a player before starting the second half.`);
+      }
 
-      await mutations.deleteLineupAssignment(currentAssignment.id);
-      await mutations.createLineupAssignment({
-        gameId: game.id,
-        playerId: sub.playerInId,
-        positionId: sub.positionId,
-        isStarter: true,
-        coaches: team.coaches,
-      });
-      await mutations.createSubstitution({
-        gameId: game.id,
-        positionId: sub.positionId,
-        playerOutId: sub.playerOutId,
-        playerInId: sub.playerInId,
-        half: 1,
-        gameSeconds: currentTime,
-        coaches: team.coaches,
-      });
+      // Deletes first so a position never briefly holds two assignments. A row
+      // already gone (e.g. deleted by another coach before our subscription
+      // caught up) is the outcome we want.
+      const deletedIds: string[] = [];
+      const created: LineupAssignment[] = [];
+      const recordPendingWrites = () => {
+        if (deletedIds.length === 0 && created.length === 0) return;
+        // Skip writes the subscription already reflects; the pruning effect
+        // only runs on the next subscription change and would miss them.
+        const subscribedIds = new Set(subscribedLineupRef.current.map((assignment) => assignment.id));
+        setHalftimeLineupOverlay((overlay) => {
+          const nextDeleted = new Set(
+            [...Array.from(overlay.deletedIds), ...deletedIds].filter((id) => subscribedIds.has(id)),
+          );
+          const removed = new Set([...Array.from(overlay.deletedIds), ...deletedIds]);
+          return {
+            deletedIds: nextDeleted,
+            created: [
+              ...overlay.created.filter((assignment) => !removed.has(assignment.id)),
+              ...created.filter((assignment) => !subscribedIds.has(assignment.id)),
+            ],
+          };
+        });
+      };
+      try {
+        for (const assignmentId of changes.deleteAssignmentIds) {
+          try {
+            await mutations.deleteLineupAssignment(assignmentId);
+          } catch (error) {
+            if (!isMissingRecordError(error)) throw error;
+          }
+          deletedIds.push(assignmentId);
+        }
+        for (const { playerId, positionId } of changes.createAssignments) {
+          // Client-generated id so the pending row can be shown (and later
+          // deleted) before the subscription echoes it back.
+          const fields = {
+            id: crypto.randomUUID(),
+            gameId: game.id,
+            playerId,
+            positionId,
+            isStarter: true,
+            coaches: team.coaches,
+          };
+          await mutations.createLineupAssignment(fields);
+          created.push({ ...fields, createdAt: new Date().toISOString() } as LineupAssignment);
+        }
+      } finally {
+        // Record whatever was written, even on a partial failure.
+        recordPendingWrites();
+      }
+      for (const { positionId, playerOutId, playerInId } of changes.substitutions) {
+        await mutations.createSubstitution({
+          gameId: game.id,
+          positionId,
+          playerOutId,
+          playerInId,
+          half: 1,
+          gameSeconds: currentTime,
+          coaches: team.coaches,
+        });
+      }
     } catch (error) {
       handleApiError(error, 'Failed to apply halftime substitution');
+    } finally {
+      halftimeSubsInProgressRef.current = false;
     }
   };
 
@@ -2689,7 +2794,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
               onEndGame={handleEndGameWithConfirm}
               onAddTestTime={handleAddTestTime}
               onRecalculateRotations={handleRecalculateRotations}
-              onApplyHalftimeSub={handleApplyHalftimeSub}
+              onApplyHalftimeSubs={handleApplyHalftimeSubs}
               getPlanConflicts={getPlanConflicts}
             />
             <LineupPanel {...sharedLineupPanelProps} />

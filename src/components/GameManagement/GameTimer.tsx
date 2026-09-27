@@ -37,7 +37,7 @@ interface GameTimerProps {
   onEndGame: () => void;
   onAddTestTime: (minutes: number) => void;
   onRecalculateRotations: () => void;
-  onApplyHalftimeSub: (sub: PlannedSubstitution) => Promise<void>;
+  onApplyHalftimeSubs: (subs: PlannedSubstitution[]) => Promise<void>;
   getPlanConflicts: () => Array<{
     type: 'starter' | 'rotation' | 'on-field';
     playerId: string;
@@ -69,11 +69,11 @@ export function GameTimer({
   onEndGame,
   onAddTestTime,
   onRecalculateRotations,
-  onApplyHalftimeSub,
+  onApplyHalftimeSubs,
   getPlanConflicts,
 }: GameTimerProps) {
   const { getPlayerAvailability } = useAvailability();
-  const [isApplyingAll, setIsApplyingAll] = useState(false);
+  const [isApplyingSubs, setIsApplyingSubs] = useState(false);
 
   const parsePlannedSubstitutions = (value: unknown): PlannedSubstitution[] => {
     if (Array.isArray(value)) {
@@ -154,15 +154,20 @@ export function GameTimer({
 
   const canApplyAll = halftimeSubs.some(sub => getHalftimeSubState(sub).canApply);
 
-  const handleApplyAll = async () => {
-    setIsApplyingAll(true);
+  // Subs are applied as one batch so position changes within the plan (a player
+  // who is both coming off one position and going on at another) resolve
+  // together; see planHalftimeLineupChanges.
+  const applySubs = async (subs: PlannedSubstitution[]) => {
+    if (isApplyingSubs || subs.length === 0) return;
+    setIsApplyingSubs(true);
     try {
-      const pending = halftimeSubs.filter(sub => getHalftimeSubState(sub).canApply);
-      await Promise.all(pending.map(sub => onApplyHalftimeSub(sub)));
+      await onApplyHalftimeSubs(subs);
     } finally {
-      setIsApplyingAll(false);
+      setIsApplyingSubs(false);
     }
   };
+
+  const handleApplyAll = () => applySubs(halftimeSubs.filter(sub => getHalftimeSubState(sub).canApply));
 
   return (
     <div className="game-timer-card">
@@ -281,10 +286,10 @@ export function GameTimer({
                   <h4>🔄 2nd Half Lineup Changes</h4>
                   <button
                     onClick={handleApplyAll}
-                    disabled={!canApplyAll || isApplyingAll}
+                    disabled={!canApplyAll || isApplyingSubs}
                     className="btn-secondary"
                   >
-                    {isApplyingAll ? 'Applying...' : 'Apply All'}
+                    {isApplyingSubs ? 'Applying...' : 'Apply All'}
                   </button>
                 </div>
                 <div className="planned-subs-list">
@@ -316,9 +321,9 @@ export function GameTimer({
                           </div>
                         </div>
                         <button
-                          onClick={() => onApplyHalftimeSub(sub)}
+                          onClick={() => applySubs([sub])}
                           className={`btn-queue-sub ${isApplied ? 'queued' : ''}`}
-                          disabled={!canApply}
+                          disabled={!canApply || isApplyingSubs}
                           title={
                             isApplied ? 'Already applied' :
                             canApply ? 'Apply this substitution to the lineup' :
