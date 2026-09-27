@@ -42,6 +42,7 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 - **Halftime Lineup Changes**: Modify the lineup between halves
 - **Score Tracking**: Record goals with scorer, assist, and game time
 - **Unified Shot Outcome Tracking**: Log a shot for either team via a single "Log Shot – Us"/"Log Shot – Them" entry point, then pick what happened — Goal, Saved, Blocked, or Wide — which drives one Shot record plus (for Goal/Saved) a linked Goal or Save record; picking a shooter is optional (skippable) for both an "Us" Goal and an "Us" Shot of any outcome. A Saved-by-us keeper field is pre-populated with the current on-field goalkeeper when unambiguous, still an overridable/clearable picker. The Goals and Shots/Saves lists remain separate, read-only-entry tabs (list/edit/delete only) fed by this one flow
+- **Post-Game Shots on Goal**: the completed-game view shows an on-target shot count (outcome Goal or Saved) for each team, derived from the game's Shot records; hidden for games with no shots logged (e.g. before shot tracking existed)
 - **Game Notes**: Log events such as gold stars and cards
 
 ### Fan Mode (public read-only live game view)

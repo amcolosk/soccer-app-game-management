@@ -458,9 +458,10 @@ Reuses the standard confirmation modal pattern (§5.6), not a bespoke component.
 
 #### Components Rendered
 1. **GameHeader** — final score
-2. Play time summary table (player → total minutes)
-3. Game notes summary (gold stars, cards)
-4. `View Full Report` link → navigates to `/reports/:teamId`
+2. Shots on Goal summary (us vs. opponent on-target counts; hidden when no shots were logged for the game)
+3. Play time summary table (player → total minutes)
+4. Game notes summary (gold stars, cards)
+5. `View Full Report` link → navigates to `/reports/:teamId`
 
 ---
 

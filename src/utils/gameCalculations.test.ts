@@ -11,6 +11,7 @@ import {
   resolveSaveKeeperId,
   calculateSavesByKeeper,
   calculatePlayerShotStats,
+  calculateTeamShotStats,
 } from './gameCalculations';
 import type { Goal, GameNote } from '../types/schema';
 import type { PositionRoleLookup } from './playTimeCalculations';
@@ -355,5 +356,34 @@ describe('calculatePlayerShotStats', () => {
 
   it('returns an all-zero result for an empty shots array', () => {
     expect(calculatePlayerShotStats('p1', [])).toEqual({ shots: 0, onTarget: 0, wide: 0, blocked: 0 });
+  });
+});
+
+describe('calculateTeamShotStats', () => {
+  it('counts GOAL and SAVED outcomes toward onTarget for our shots', () => {
+    const shots = [
+      { takenByUs: true, outcome: 'GOAL' as const },
+      { takenByUs: true, outcome: 'SAVED' as const },
+      { takenByUs: true, outcome: 'WIDE' as const },
+    ];
+    expect(calculateTeamShotStats(true, shots)).toEqual({ shots: 3, onTarget: 2, wide: 1, blocked: 0 });
+  });
+
+  it('counts the opponent side separately from our side', () => {
+    const shots = [
+      { takenByUs: true, outcome: 'GOAL' as const },
+      { takenByUs: false, outcome: 'SAVED' as const },
+      { takenByUs: false, outcome: 'BLOCKED' as const },
+    ];
+    expect(calculateTeamShotStats(false, shots)).toEqual({ shots: 2, onTarget: 1, wide: 0, blocked: 1 });
+  });
+
+  it('counts a null-outcome shot toward shots only', () => {
+    const shots = [{ takenByUs: true, outcome: null }];
+    expect(calculateTeamShotStats(true, shots)).toEqual({ shots: 1, onTarget: 0, wide: 0, blocked: 0 });
+  });
+
+  it('returns an all-zero result for an empty shots array', () => {
+    expect(calculateTeamShotStats(true, [])).toEqual({ shots: 0, onTarget: 0, wide: 0, blocked: 0 });
   });
 });
