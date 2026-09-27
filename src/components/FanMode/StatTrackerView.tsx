@@ -531,30 +531,9 @@ export function StatTrackerView() {
         </p>
       )}
 
-      {tapUiUnlocked && (
-        <section aria-label="On-field lineup" className="fan-mode-lineup">
-          <h2>On the Field</h2>
-          {onFieldRoster.length > 0 ? (
-            <TrackerFieldLineup players={onFieldRoster} />
-          ) : (
-            <p className="fan-mode-empty">No lineup data yet.</p>
-          )}
-        </section>
-      )}
-
-      {tapUiUnlocked && benchRoster.length > 0 && (
-        <section aria-label="Bench" className="fan-mode-lineup">
-          <h2>Bench</h2>
-          <ul className="fan-mode-lineup__grid">
-            {benchRoster.map((player) => (
-              <li key={player.id} className="fan-mode-lineup__player">
-                <span className="fan-mode-lineup__name">#{player.playerNumber ?? '?'} {player.firstName} {player.lastName}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
+      {/* Log Shot buttons sit between the score and the field map -- the
+          helper taps a number as it's called out, then wants the field map
+          right there to double-check who it was. */}
       {!tapUiUnlocked ? (
         <div className="tracker-paused">
           <p className="fan-mode-empty" data-testid="tracker-not-in-progress">
@@ -590,6 +569,30 @@ export function StatTrackerView() {
             <span>Log Shot – {data?.opponentName ?? 'Opponent'}</span>
           </button>
         </div>
+      )}
+
+      {tapUiUnlocked && (
+        <section aria-label="On-field lineup" className="fan-mode-lineup">
+          <h2>On the Field</h2>
+          {onFieldRoster.length > 0 ? (
+            <TrackerFieldLineup players={onFieldRoster} />
+          ) : (
+            <p className="fan-mode-empty">No lineup data yet.</p>
+          )}
+        </section>
+      )}
+
+      {tapUiUnlocked && benchRoster.length > 0 && (
+        <section aria-label="Bench" className="fan-mode-lineup">
+          <h2>Bench</h2>
+          <ul className="fan-mode-lineup__grid">
+            {benchRoster.map((player) => (
+              <li key={player.id} className="fan-mode-lineup__player">
+                <span className="fan-mode-lineup__name">#{player.playerNumber ?? '?'} {player.firstName} {player.lastName}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {flow.step !== 'closed' && flow.forUs !== null && (

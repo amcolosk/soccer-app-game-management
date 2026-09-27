@@ -508,6 +508,28 @@ describe('StatTrackerView', () => {
     });
   });
 
+  describe('layout order (#206: Log Shot buttons between the score and the field map)', () => {
+    it('places the tracker-tap-grid after the score header and before the On the Field section', async () => {
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
+      const { container } = render(<StatTrackerView />);
+      await flush();
+
+      const header = container.querySelector('.fan-mode-header');
+      const tapGrid = container.querySelector('.tracker-tap-grid');
+      const onFieldSection = screen.getByRole('heading', { level: 2, name: 'On the Field' }).closest('section');
+
+      expect(header).toBeInTheDocument();
+      expect(tapGrid).toBeInTheDocument();
+      expect(onFieldSection).toBeInTheDocument();
+
+      const position = header!.compareDocumentPosition(tapGrid!);
+      expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      const tapGridBeforeField = tapGrid!.compareDocumentPosition(onFieldSection!);
+      expect(tapGridBeforeField & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+  });
+
   describe('on-field lineup', () => {
     const onFieldPosition = { id: 'pos-fwd', positionName: 'Forward', abbreviation: 'FWD', role: 'FORWARD', sortOrder: 1, xPct: null, yPct: null };
 
