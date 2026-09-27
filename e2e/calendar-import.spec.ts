@@ -18,10 +18,10 @@ import {
  * SSRF surface, and no dependency on the (deliberately never-committed)
  * live PlayMetrics feed URL.
  */
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const FIXTURE_PATH = path.resolve(
-  __dirname,
+  dirname,
   '..',
   'amplify',
   'functions',
