@@ -69,6 +69,15 @@ export function SubstitutionPanel({
   // Prevent double-tap execution per queue item
   const executingIdsRef = useRef<Set<string>>(new Set());
   const [isExecutingAll, setIsExecutingAll] = useState(false);
+  // Guards the substitution/assign modal as a whole (handleMakeSubstitution
+  // and handleAssignPosition are mutually exclusive per position — occupied
+  // vs. empty — but share one modal open on one substitutionPosition at a
+  // time), separate from executingIdsRef above, which tracks queue-item ids
+  // for the batch path, not single-shot modal actions. isSubmittingModalActionRef
+  // is checked/set synchronously before the first await so a rapid re-tap in
+  // the same instant is caught even before the state update renders.
+  const isSubmittingModalActionRef = useRef(false);
+  const [isSubmittingModalAction, setIsSubmittingModalAction] = useState(false);
   const shouldFilterInjured = gameState.status === 'in-progress' || gameState.status === 'halftime';
 
   // Pick up substitution requests from the orchestrator (triggered by LineupPanel)
@@ -283,6 +292,7 @@ export function SubstitutionPanel({
 
   const handleMakeSubstitution = async (newPlayerId: string) => {
     if (!substitutionPosition) return;
+    if (isSubmittingModalActionRef.current) return;
 
     const currentAssignment = lineup.find(
       l => l.positionId === substitutionPosition.id && l.isStarter
@@ -296,6 +306,8 @@ export function SubstitutionPanel({
 
     const oldPlayerId = currentAssignment.playerId;
 
+    isSubmittingModalActionRef.current = true;
+    setIsSubmittingModalAction(true);
     try {
       await executeSubstitution(
         game.id,
@@ -315,15 +327,22 @@ export function SubstitutionPanel({
       trackEvent(AnalyticsEvents.SUBSTITUTION_MADE.category, AnalyticsEvents.SUBSTITUTION_MADE.action);
     } catch (error) {
       handleApiError(error, 'Failed to make substitution');
+    } finally {
+      isSubmittingModalActionRef.current = false;
+      setIsSubmittingModalAction(false);
     }
   };
 
   const handleAssignPosition = async (positionId: string, playerId: string) => {
+    if (isSubmittingModalActionRef.current) return;
+
     if (isStarterInAnotherPosition(playerId, positionId)) {
       showWarning(DUPLICATE_ON_FIELD_WARNING);
       return;
     }
 
+    isSubmittingModalActionRef.current = true;
+    setIsSubmittingModalAction(true);
     try {
       await mutations.createLineupAssignment({
         gameId: game.id,
@@ -353,6 +372,9 @@ export function SubstitutionPanel({
       setSubstitutionPosition(null);
     } catch (error) {
       handleApiError(error, 'Failed to add player to lineup');
+    } finally {
+      isSubmittingModalActionRef.current = false;
+      setIsSubmittingModalAction(false);
     }
   };
 
@@ -532,6 +554,7 @@ export function SubstitutionPanel({
                                           onClick={() => handleAssignPosition(substitutionPosition.id, player.id)}
                                           className="btn-primary"
                                           title="Assign to position"
+                                          disabled={isSubmittingModalAction}
                                         >
                                           Assign
                                         </button>
@@ -548,6 +571,7 @@ export function SubstitutionPanel({
                                             onClick={() => handleMakeSubstitution(player.id)}
                                             className="btn-sub-now"
                                             title="Substitute immediately"
+                                            disabled={isSubmittingModalAction}
                                           >
                                             Sub Now
                                           </button>
@@ -583,6 +607,7 @@ export function SubstitutionPanel({
                                           onClick={() => handleAssignPosition(substitutionPosition.id, player.id)}
                                           className="btn-primary"
                                           title="Assign to position"
+                                          disabled={isSubmittingModalAction}
                                         >
                                           Assign
                                         </button>
@@ -599,6 +624,7 @@ export function SubstitutionPanel({
                                             onClick={() => handleMakeSubstitution(player.id)}
                                             className="btn-sub-now"
                                             title="Substitute immediately"
+                                            disabled={isSubmittingModalAction}
                                           >
                                             Sub Now
                                           </button>

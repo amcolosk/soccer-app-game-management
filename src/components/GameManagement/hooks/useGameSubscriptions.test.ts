@@ -5,6 +5,7 @@ import {
   classifyIncomingGameEvent,
   mergeIncomingGameState,
   computeGapConfirmationDecision,
+  partitionLineupDuplicates,
 } from './useGameSubscriptions';
 import type { Game, Team } from '../types';
 
@@ -41,6 +42,10 @@ const { mockHandleApiError } = vi.hoisted(() => ({
   mockHandleApiError: vi.fn(),
 }));
 
+const { mockDeleteOrphanedAssignments } = vi.hoisted(() => ({
+  mockDeleteOrphanedAssignments: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('aws-amplify/data', () => ({
   generateClient: vi.fn(() => ({
     models: {
@@ -72,6 +77,10 @@ vi.mock('../../../hooks/useAmplifyQuery', () => ({
 
 vi.mock('../../../utils/errorHandler', () => ({
   handleApiError: (...args: unknown[]) => mockHandleApiError(...args),
+}));
+
+vi.mock('../../../services/lineupCleanupService', () => ({
+  deleteOrphanedAssignments: (...args: unknown[]) => mockDeleteOrphanedAssignments(...args),
 }));
 
 // ---------------------------------------------------------------------------
@@ -316,6 +325,67 @@ describe('computeGapConfirmationDecision', () => {
   });
 });
 
+describe('partitionLineupDuplicates', () => {
+  it('keeps the newer row and drops the older one for a clean duplicate pair', () => {
+    const older = { id: 'la-old', positionId: 'pos-1', createdAt: '2026-01-01T00:00:00.000Z' };
+    const newer = { id: 'la-new', positionId: 'pos-1', createdAt: '2026-01-01T00:00:01.000Z' };
+
+    const { deduped, duplicates } = partitionLineupDuplicates([older, newer]);
+
+    expect(deduped).toEqual([newer]);
+    expect(duplicates).toEqual([{ kept: newer, dropped: older }]);
+  });
+
+  it('produces the right pairwise kept/dropped chain for 3 rows at one position (processed in array order)', () => {
+    const row1 = { id: 'la-1', positionId: 'pos-1', createdAt: '2026-01-01T00:00:00.000Z' };
+    const row2 = { id: 'la-2', positionId: 'pos-1', createdAt: '2026-01-01T00:00:01.000Z' };
+    const row3 = { id: 'la-3', positionId: 'pos-1', createdAt: '2026-01-01T00:00:02.000Z' };
+
+    const { deduped, duplicates } = partitionLineupDuplicates([row1, row2, row3]);
+
+    // Pairwise: row1 vs row2 -> kept row2, dropped row1; then the running
+    // "kept so far" (row2) vs row3 -> kept row3, dropped row2.
+    expect(deduped).toEqual([row3]);
+    expect(duplicates).toEqual([
+      { kept: row2, dropped: row1 },
+      { kept: row3, dropped: row2 },
+    ]);
+  });
+
+  it('returns an empty duplicates array and an unchanged deduped list when there are no duplicates', () => {
+    const rowA = { id: 'la-a', positionId: 'pos-1', createdAt: '2026-01-01T00:00:00.000Z' };
+    const rowB = { id: 'la-b', positionId: 'pos-2', createdAt: '2026-01-01T00:00:01.000Z' };
+
+    const { deduped, duplicates } = partitionLineupDuplicates([rowA, rowB]);
+
+    expect(duplicates).toEqual([]);
+    expect(deduped).toEqual([rowA, rowB]);
+  });
+
+  it('documents current tie behavior: on equal createdAt, the earlier-processed (existing) row wins', () => {
+    const first = { id: 'la-first', positionId: 'pos-1', createdAt: '2026-01-01T00:00:00.000Z' };
+    const second = { id: 'la-second', positionId: 'pos-1', createdAt: '2026-01-01T00:00:00.000Z' };
+
+    const { deduped, duplicates } = partitionLineupDuplicates([first, second]);
+
+    // `(assignment.createdAt ?? '') > (existing.createdAt ?? '')` is false on a
+    // tie, so `existing` (the row already in the map, i.e. the first one
+    // processed) is kept — NOT necessarily the array's later element.
+    expect(deduped).toEqual([first]);
+    expect(duplicates).toEqual([{ kept: first, dropped: second }]);
+  });
+
+  it('keeps rows with no positionId out of the duplicate grouping entirely', () => {
+    const noPosition = { id: 'la-no-pos', positionId: null, createdAt: '2026-01-01T00:00:00.000Z' };
+    const withPosition = { id: 'la-with-pos', positionId: 'pos-1', createdAt: '2026-01-01T00:00:01.000Z' };
+
+    const { deduped, duplicates } = partitionLineupDuplicates([noPosition, withPosition]);
+
+    expect(duplicates).toEqual([]);
+    expect(deduped).toEqual([withPosition, noPosition]);
+  });
+});
+
 describe('useGameSubscriptions — Game observeQuery handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -327,6 +397,7 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     mockLineupUpdate.mockResolvedValue({ data: {} });
     mockHandleApiError.mockReset();
     mockPlannedRotationList.mockResolvedValue({ data: [] });
+    mockDeleteOrphanedAssignments.mockReset().mockResolvedValue(undefined);
 
     // Game.observeQuery captures the `next` callback so tests can trigger events.
     mockGameObserveQuery.mockReturnValue({
@@ -1587,5 +1658,170 @@ describe('useGameSubscriptions — Game observeQuery handler', () => {
     expect(result.current.plannedRotations.map(r => r.plannedSubstitutions)).toEqual(['fresh']);
     mockPlannedRotationList.mockReset();
     mockPlannedRotationList.mockResolvedValue({ data: [] });
+  });
+});
+
+describe('useGameSubscriptions — self-healing duplicate LineupAssignment cleanup (issue #215)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    capturedGameNext = null;
+    mockDeleteOrphanedAssignments.mockReset().mockResolvedValue(undefined);
+    mockLineupList.mockResolvedValue({ data: [] });
+    mockPlannedRotationList.mockResolvedValue({ data: [] });
+    mockHandleApiError.mockReset();
+
+    mockGameObserveQuery.mockReturnValue({
+      subscribe: (handlers: { next: (data: { items: Partial<Game>[] }) => void }) => {
+        capturedGameNext = handlers.next;
+        return makeNoOpSub();
+      },
+    });
+    mockGamePlanObserveQuery.mockReturnValue({ subscribe: () => makeNoOpSub() });
+    mockPlannedRotationObserveQuery.mockReturnValue({ subscribe: () => makeNoOpSub() });
+  });
+
+  function mockQueryData(
+    lineup: Array<{ id: string; positionId?: string | null; playerId?: string | null; createdAt?: string | null }>,
+    playTimeRecords: Array<{ playerId?: string | null; positionId?: string | null; endGameSeconds?: number | null }> = [],
+  ) {
+    mockUseAmplifyQuery.mockImplementation((model: string) => {
+      if (model === 'LineupAssignment') return { data: lineup, isSynced: true };
+      if (model === 'PlayTimeRecord') return { data: playTimeRecords, isSynced: true };
+      return { data: [], isSynced: false };
+    });
+  }
+
+  it('deletes the older row when two rows share the same positionId and playerId (rapid-double-tap case), with no PlayTimeRecord blocking it', async () => {
+    const kept = { id: 'la-new', positionId: 'pos-1', playerId: 'player-1', createdAt: '2026-01-01T00:00:01.000Z' };
+    const dropped = { id: 'la-old', positionId: 'pos-1', playerId: 'player-1', createdAt: '2026-01-01T00:00:00.000Z' };
+    mockQueryData([dropped, kept], []);
+
+    const props = createDefaultProps();
+    renderHook(() => useGameSubscriptions(props));
+
+    await waitFor(() => {
+      expect(mockDeleteOrphanedAssignments).toHaveBeenCalledTimes(1);
+      expect(mockDeleteOrphanedAssignments).toHaveBeenCalledWith([dropped]);
+    });
+  });
+
+  it('does NOT delete a different-player orphan when its player has an OPEN PlayTimeRecord at that position', async () => {
+    const kept = { id: 'la-new', positionId: 'pos-1', playerId: 'player-1', createdAt: '2026-01-01T00:00:01.000Z' };
+    const dropped = { id: 'la-old', positionId: 'pos-1', playerId: 'player-2', createdAt: '2026-01-01T00:00:00.000Z' };
+    const openPlayTimeRecord = { playerId: 'player-2', positionId: 'pos-1', endGameSeconds: null };
+    mockQueryData([dropped, kept], [openPlayTimeRecord]);
+
+    const props = createDefaultProps();
+    renderHook(() => useGameSubscriptions(props));
+
+    // Give any pending effects a chance to run before asserting the negative.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockDeleteOrphanedAssignments).not.toHaveBeenCalled();
+  });
+
+  it('deletes a different-player orphan once its blocking PlayTimeRecord is no longer open', async () => {
+    const kept = { id: 'la-new', positionId: 'pos-1', playerId: 'player-1', createdAt: '2026-01-01T00:00:01.000Z' };
+    const dropped = { id: 'la-old', positionId: 'pos-1', playerId: 'player-2', createdAt: '2026-01-01T00:00:00.000Z' };
+    const closedPlayTimeRecord = { playerId: 'player-2', positionId: 'pos-1', endGameSeconds: 500 };
+    mockQueryData([dropped, kept], [closedPlayTimeRecord]);
+
+    const props = createDefaultProps();
+    renderHook(() => useGameSubscriptions(props));
+
+    await waitFor(() => {
+      expect(mockDeleteOrphanedAssignments).toHaveBeenCalledWith([dropped]);
+    });
+  });
+
+  it('does not retry deleting the same orphan id on re-render (attempted-ids ref)', async () => {
+    const kept = { id: 'la-new', positionId: 'pos-1', playerId: 'player-1', createdAt: '2026-01-01T00:00:01.000Z' };
+    const dropped = { id: 'la-old', positionId: 'pos-1', playerId: 'player-1', createdAt: '2026-01-01T00:00:00.000Z' };
+    mockQueryData([dropped, kept], []);
+
+    const props = createDefaultProps();
+    const { rerender } = renderHook((p) => useGameSubscriptions(p), { initialProps: props });
+
+    await waitFor(() => {
+      expect(mockDeleteOrphanedAssignments).toHaveBeenCalledTimes(1);
+    });
+
+    // Same duplicate data again (e.g. an unrelated re-render) — must not
+    // re-fire for a row already attempted.
+    rerender({ ...props });
+    rerender({ ...props });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockDeleteOrphanedAssignments).toHaveBeenCalledTimes(1);
+  });
+
+  it('never calls deleteOrphanedAssignments when there are no duplicate rows (regression guard)', async () => {
+    const onlyRow = { id: 'la-1', positionId: 'pos-1', playerId: 'player-1', createdAt: '2026-01-01T00:00:00.000Z' };
+    mockQueryData([onlyRow], []);
+
+    const props = createDefaultProps();
+    renderHook(() => useGameSubscriptions(props));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockDeleteOrphanedAssignments).not.toHaveBeenCalled();
+  });
+
+  it('does NOT delete a different-player orphan while PlayTimeRecord has not finished its first sync, even though its data is empty', async () => {
+    // LineupAssignment synced (duplicate visible) but PlayTimeRecord hasn't
+    // delivered its first observeQuery page yet: data is [] not because the
+    // player has no open record, but because the query simply hasn't synced.
+    // Treating that as "no open record" would let a real open record recur
+    // undetected, since attemptedDuplicateCleanupIdsRef never retries an id.
+    const kept = { id: 'la-new', positionId: 'pos-1', playerId: 'player-1', createdAt: '2026-01-01T00:00:01.000Z' };
+    const dropped = { id: 'la-old', positionId: 'pos-1', playerId: 'player-2', createdAt: '2026-01-01T00:00:00.000Z' };
+    mockUseAmplifyQuery.mockImplementation((model: string) => {
+      if (model === 'LineupAssignment') return { data: [dropped, kept], isSynced: true };
+      if (model === 'PlayTimeRecord') return { data: [], isSynced: false };
+      return { data: [], isSynced: false };
+    });
+
+    const props = createDefaultProps();
+    renderHook(() => useGameSubscriptions(props));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockDeleteOrphanedAssignments).not.toHaveBeenCalled();
+  });
+
+  it('runs cleanup once PlayTimeRecord finishes syncing after starting out unsynced', async () => {
+    const kept = { id: 'la-new', positionId: 'pos-1', playerId: 'player-1', createdAt: '2026-01-01T00:00:01.000Z' };
+    const dropped = { id: 'la-old', positionId: 'pos-1', playerId: 'player-2', createdAt: '2026-01-01T00:00:00.000Z' };
+
+    mockUseAmplifyQuery.mockImplementation((model: string) => {
+      if (model === 'LineupAssignment') return { data: [dropped, kept], isSynced: true };
+      if (model === 'PlayTimeRecord') return { data: [], isSynced: false };
+      return { data: [], isSynced: false };
+    });
+
+    const props = createDefaultProps();
+    const { rerender } = renderHook((p) => useGameSubscriptions(p), { initialProps: props });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mockDeleteOrphanedAssignments).not.toHaveBeenCalled();
+
+    // PlayTimeRecord's observeQuery delivers its first (empty, synced) page.
+    mockQueryData([dropped, kept], []);
+    rerender({ ...props });
+
+    await waitFor(() => {
+      expect(mockDeleteOrphanedAssignments).toHaveBeenCalledWith([dropped]);
+    });
   });
 });

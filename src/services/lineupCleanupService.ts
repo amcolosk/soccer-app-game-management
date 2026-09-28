@@ -1,8 +1,45 @@
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
 import { isMissingRecordError } from "./amplifyMutationResult";
+import { listAll } from "../utils/listAll";
 
 const client = generateClient<Schema>();
+
+async function deleteAssignments(
+  orphans: Array<{ id: string; positionId?: string | null; playerId?: string | null; createdAt?: string | null }>,
+): Promise<void> {
+  await Promise.all(
+    orphans.map(async (orphan) => {
+      try {
+        await client.models.LineupAssignment.delete({ id: orphan.id });
+        console.warn(
+          `[lineupCleanupService] Deleted orphaned LineupAssignment id=${orphan.id} `
+          + `(positionId=${orphan.positionId ?? '(none)'}, playerId=${orphan.playerId ?? '(none)'}, createdAt=${orphan.createdAt ?? '(none)'}) `
+          + `left behind after clearing this position (issue #215).`
+        );
+      } catch (error) {
+        if (isMissingRecordError(error)) return;
+        console.warn(`[lineupCleanupService] Failed to delete orphaned assignment id=${orphan.id}`, error);
+      }
+    }),
+  );
+}
+
+/**
+ * Deletes known orphaned LineupAssignment rows by id, for a caller that already
+ * has the rows in hand (e.g. from a query it's already subscribed to) and so
+ * doesn't need — and must not pay the cost or pagination risk of — a fresh
+ * `list()` query. See `cleanupDuplicateAssignmentsForPosition` below for the
+ * query-based variant and the safety invariant both share: only pass rows that
+ * are strictly older than whatever this position's currently-visible/kept
+ * assignment is, never same-or-newer (a legitimate concurrent write).
+ */
+export async function deleteOrphanedAssignments(
+  orphans: Array<{ id: string; positionId?: string | null; playerId?: string | null; createdAt?: string | null }>,
+): Promise<void> {
+  if (orphans.length === 0) return;
+  await deleteAssignments(orphans);
+}
 
 /**
  * Best-effort cleanup for issue #215: `useGameSubscriptions.ts`'s lineup dedup
@@ -33,6 +70,10 @@ const client = generateClient<Schema>();
  * below and can still resurface — accepted, since the alternative (`<=`)
  * risks the false positive above, which is the worse failure mode.
  *
+ * Uses `listAll` (not a single `.list()` page) since LineupAssignment has no
+ * gameId/positionId index — this filter is a scan, and a true orphan can land
+ * on a later page than the first, silently surviving a single-page query.
+ *
  * Queries directly (bypassing the offline mutation queue, like
  * useGameSubscriptions.ts's own game-plan sync) since this is opportunistic
  * tidying, not the primary write the coach is waiting on — a failure here
@@ -46,30 +87,17 @@ export async function cleanupDuplicateAssignmentsForPosition(
   if (!deletedAssignmentCreatedAt) return;
 
   try {
-    const { data } = await client.models.LineupAssignment.list({
-      filter: { gameId: { eq: gameId }, positionId: { eq: positionId } },
-    });
+    const data = await listAll<{ id: string; positionId?: string | null; playerId?: string | null; createdAt?: string | null }>(
+      client.models.LineupAssignment as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+      { gameId: { eq: gameId }, positionId: { eq: positionId } },
+    );
 
     const orphans = data.filter(
       (assignment) => (assignment.createdAt ?? '') < deletedAssignmentCreatedAt,
     );
     if (orphans.length === 0) return;
 
-    await Promise.all(
-      orphans.map(async (orphan) => {
-        try {
-          await client.models.LineupAssignment.delete({ id: orphan.id });
-          console.warn(
-            `[lineupCleanupService] Deleted orphaned LineupAssignment id=${orphan.id} `
-            + `(positionId=${positionId}, playerId=${orphan.playerId ?? '(none)'}, createdAt=${orphan.createdAt ?? '(none)'}) `
-            + `left behind after clearing this position (issue #215).`
-          );
-        } catch (error) {
-          if (isMissingRecordError(error)) return;
-          console.warn(`[lineupCleanupService] Failed to delete orphaned assignment id=${orphan.id}`, error);
-        }
-      }),
-    );
+    await deleteAssignments(orphans);
   } catch (error) {
     console.warn(`[lineupCleanupService] Failed to query for orphaned assignments (gameId=${gameId}, positionId=${positionId})`, error);
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { cleanupDuplicateAssignmentsForPosition } from './lineupCleanupService';
+import { cleanupDuplicateAssignmentsForPosition, deleteOrphanedAssignments } from './lineupCleanupService';
 
 const { mockLineupAssignmentList, mockLineupAssignmentDelete } = vi.hoisted(() => ({
   mockLineupAssignmentList: vi.fn(),
@@ -33,6 +33,7 @@ describe('cleanupDuplicateAssignmentsForPosition', () => {
     await cleanupDuplicateAssignmentsForPosition('game-1', 'pos-1', '2026-09-27T21:00:00.000Z');
 
     expect(mockLineupAssignmentList).toHaveBeenCalledWith({
+      limit: 1000,
       filter: { gameId: { eq: 'game-1' }, positionId: { eq: 'pos-1' } },
     });
     expect(mockLineupAssignmentDelete).toHaveBeenCalledTimes(1);
@@ -110,5 +111,63 @@ describe('cleanupDuplicateAssignmentsForPosition', () => {
       cleanupDuplicateAssignmentsForPosition('game-1', 'pos-1', '2026-09-27T21:00:00.000Z'),
     ).resolves.toBeUndefined();
     expect(mockLineupAssignmentDelete).not.toHaveBeenCalled();
+  });
+
+  it('pages through every result rather than stopping at the first page (no gameId/positionId index)', async () => {
+    mockLineupAssignmentList
+      .mockResolvedValueOnce({
+        data: [],
+        nextToken: 'page-2',
+      })
+      .mockResolvedValueOnce({
+        data: [
+          { id: 'orphan-late-page', playerId: 'player-a', positionId: 'pos-1', createdAt: '2026-09-27T19:00:00.000Z' },
+        ],
+      });
+    mockLineupAssignmentDelete.mockResolvedValue({ data: {}, errors: [] });
+
+    await cleanupDuplicateAssignmentsForPosition('game-1', 'pos-1', '2026-09-27T21:00:00.000Z');
+
+    expect(mockLineupAssignmentList).toHaveBeenCalledTimes(2);
+    expect(mockLineupAssignmentDelete).toHaveBeenCalledWith({ id: 'orphan-late-page' });
+  });
+});
+
+describe('deleteOrphanedAssignments', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('deletes every given orphan by id without querying', async () => {
+    mockLineupAssignmentDelete.mockResolvedValue({ data: {}, errors: [] });
+
+    await deleteOrphanedAssignments([
+      { id: 'orphan-1', positionId: 'pos-1', playerId: 'player-a', createdAt: '2026-09-27T19:00:00.000Z' },
+      { id: 'orphan-2', positionId: 'pos-1', playerId: 'player-b', createdAt: '2026-09-27T20:00:00.000Z' },
+    ]);
+
+    expect(mockLineupAssignmentList).not.toHaveBeenCalled();
+    expect(mockLineupAssignmentDelete).toHaveBeenCalledTimes(2);
+    expect(mockLineupAssignmentDelete).toHaveBeenCalledWith({ id: 'orphan-1' });
+    expect(mockLineupAssignmentDelete).toHaveBeenCalledWith({ id: 'orphan-2' });
+  });
+
+  it('is a no-op given an empty list', async () => {
+    await deleteOrphanedAssignments([]);
+    expect(mockLineupAssignmentDelete).not.toHaveBeenCalled();
+  });
+
+  it('swallows a delete failure for one orphan without throwing, still attempting the rest', async () => {
+    mockLineupAssignmentDelete
+      .mockRejectedValueOnce(new Error('network blip'))
+      .mockResolvedValueOnce({ data: {}, errors: [] });
+
+    await expect(
+      deleteOrphanedAssignments([
+        { id: 'orphan-1' },
+        { id: 'orphan-2' },
+      ]),
+    ).resolves.toBeUndefined();
+    expect(mockLineupAssignmentDelete).toHaveBeenCalledTimes(2);
   });
 });

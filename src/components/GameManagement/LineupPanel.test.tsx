@@ -816,6 +816,130 @@ describe('LineupPanel', () => {
   // handleApplyHalftimeSub / executeSubstitution do — worth a product decision,
   // not asserted here as a bug, just as the current, tested behavior.
 
+  // ── In-flight guard on the position picker (issue #215: rapid double-tap) --
+
+  it('rapid double-click on the position picker only creates one lineup assignment', async () => {
+    const user = userEvent.setup();
+    let resolveCreate: (() => void) | undefined;
+    mockCreateLineupAssignment.mockReturnValueOnce(
+      new Promise((resolve) => { resolveCreate = () => resolve({ data: { id: 'la-new' } }); }),
+    );
+
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[]}
+      />,
+    );
+
+    await user.click(screen.getByText('Alice Smith'));
+    expect(screen.getByText(/assign alice smith to position/i)).toBeInTheDocument();
+
+    const gkButton = screen.getByRole('button', { name: /goalkeeper/i });
+    const defButton = screen.getByRole('button', { name: /defender/i });
+
+    // Rapid double-click: first click on GK starts the in-flight create; a
+    // second click (on GK again, and on a different position) while it's
+    // still pending must be a no-op.
+    await user.click(gkButton);
+    await user.click(gkButton);
+    await user.click(defButton);
+
+    expect(mockCreateLineupAssignment).toHaveBeenCalledTimes(1);
+
+    resolveCreate?.();
+    await waitFor(() =>
+      expect(screen.queryByText(/assign alice smith to position/i)).not.toBeInTheDocument(),
+    );
+  });
+
+  it('disables position-picker buttons while the create is pending', async () => {
+    const user = userEvent.setup();
+    let resolveCreate: (() => void) | undefined;
+    mockCreateLineupAssignment.mockReturnValueOnce(
+      new Promise((resolve) => { resolveCreate = () => resolve({ data: { id: 'la-new' } }); }),
+    );
+
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[]}
+      />,
+    );
+
+    await user.click(screen.getByText('Alice Smith'));
+    const gkButton = screen.getByRole('button', { name: /goalkeeper/i });
+    const defButton = screen.getByRole('button', { name: /defender/i });
+
+    await user.click(gkButton);
+
+    expect(gkButton).toBeDisabled();
+    expect(defButton).toBeDisabled();
+
+    resolveCreate?.();
+    await waitFor(() =>
+      expect(screen.queryByText(/assign alice smith to position/i)).not.toBeInTheDocument(),
+    );
+  });
+
+  it('re-enables the guard after a successful assignment, allowing a further click', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[]}
+      />,
+    );
+
+    await user.click(screen.getByText('Alice Smith'));
+    await user.click(screen.getByRole('button', { name: /goalkeeper/i }));
+
+    await waitFor(() =>
+      expect(mockCreateLineupAssignment).toHaveBeenCalledTimes(1),
+    );
+    // The modal closes on success — reopening it and assigning again proves
+    // the guard cleared (finally ran) rather than being stuck forever.
+    await user.click(screen.getByText('Bob Jones'));
+    await user.click(screen.getByRole('button', { name: /defender/i }));
+
+    await waitFor(() =>
+      expect(mockCreateLineupAssignment).toHaveBeenCalledTimes(2),
+    );
+  });
+
+  it('clears the guard after a rejected assignment so the buttons re-enable (finally runs on failure too)', async () => {
+    const user = userEvent.setup();
+    mockCreateLineupAssignment.mockRejectedValueOnce(new Error('network error'));
+
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[]}
+      />,
+    );
+
+    await user.click(screen.getByText('Alice Smith'));
+    const gkButton = screen.getByRole('button', { name: /goalkeeper/i });
+    await user.click(gkButton);
+
+    await waitFor(() => expect(mockHandleApiError).toHaveBeenCalled());
+    // The modal stays open on failure (no early return before the reject) —
+    // the button must be enabled again for a retry.
+    await waitFor(() => expect(gkButton).not.toBeDisabled());
+
+    await user.click(gkButton);
+    expect(mockCreateLineupAssignment).toHaveBeenCalledTimes(2);
+  });
+
   it('halftime: removing a starter then assigning a replacement fills the vacated position without recording a Substitution', async () => {
     const user = userEvent.setup();
     render(

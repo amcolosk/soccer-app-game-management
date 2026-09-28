@@ -10,6 +10,7 @@ import type {
 import { useAmplifyQuery } from "../../../hooks/useAmplifyQuery";
 import { handleApiError } from "../../../utils/errorHandler";
 import { listAll } from "../../../utils/listAll";
+import { deleteOrphanedAssignments } from "../../../services/lineupCleanupService";
 import {
   MAX_GAME_SECONDS,
   ANOMALOUS_GAP_THRESHOLD_SECONDS,
@@ -199,6 +200,43 @@ export function computeGapConfirmationDecision(inputs: GapConfirmationInputs): G
     : { kind: 'silent-apply', proposedElapsed };
 }
 
+/** One position's dedup outcome: the assignment being kept/displayed, and one
+ * older row hidden behind it (a true orphan by the "latest wins" rule). */
+export interface LineupDuplicatePair<T> {
+  kept: T;
+  dropped: T;
+}
+
+/**
+ * Pure partition of raw LineupAssignment rows into what the UI should show
+ * (one row per position, the latest-created) and the pairs of {kept, dropped}
+ * duplicates found along the way. Shared by the display dedup below and by
+ * the self-healing cleanup effect, so there's one definition of "which row
+ * wins for a position" rather than two independently-tuned tie rules.
+ */
+export function partitionLineupDuplicates<
+  T extends { id: string; positionId?: string | null; createdAt?: string | null }
+>(rows: T[]): { deduped: T[]; duplicates: LineupDuplicatePair<T>[] } {
+  const byPosition = new Map<string, T>();
+  const duplicates: LineupDuplicatePair<T>[] = [];
+
+  for (const assignment of rows) {
+    if (!assignment.positionId) continue;
+    const existing = byPosition.get(assignment.positionId);
+    if (!existing) {
+      byPosition.set(assignment.positionId, assignment);
+      continue;
+    }
+    const kept = (assignment.createdAt ?? '') > (existing.createdAt ?? '') ? assignment : existing;
+    const dropped = kept === assignment ? existing : assignment;
+    byPosition.set(assignment.positionId, kept);
+    duplicates.push({ kept, dropped });
+  }
+
+  const withoutPosition = rows.filter(a => !a.positionId);
+  return { deduped: [...Array.from(byPosition.values()), ...withoutPosition], duplicates };
+}
+
 export function useGameSubscriptions({
   game,
   team,
@@ -214,7 +252,7 @@ export function useGameSubscriptions({
   const [pendingGapCorrection, setPendingGapCorrection] = useState<PendingGapCorrection | null>(null);
 
   // Simple data subscriptions via reusable hook
-  const { data: lineupRaw } = useAmplifyQuery('LineupAssignment', {
+  const { data: lineupRaw, isSynced: isLineupSynced } = useAmplifyQuery('LineupAssignment', {
     filter: { gameId: { eq: game.id } },
   }, [game.id]);
 
@@ -228,35 +266,77 @@ export function useGameSubscriptions({
   // at the source) so a recurrence gives us the position/assignment ids and
   // timestamps needed to confirm this is what's happening.
   const duplicateLineupPositionCount = useRef(0);
-  const lineup = useMemo(() => {
-    const byPosition = new Map<string, (typeof lineupRaw)[0]>();
-    let duplicateCount = 0;
-    for (const assignment of lineupRaw) {
-      if (!assignment.positionId) continue;
-      const existing = byPosition.get(assignment.positionId);
-      if (!existing) {
-        byPosition.set(assignment.positionId, assignment);
-        continue;
-      }
-      duplicateCount += 1;
-      const kept = (assignment.createdAt ?? '') > (existing.createdAt ?? '') ? assignment : existing;
-      const dropped = kept === assignment ? existing : assignment;
+  const { lineup, lineupDuplicates } = useMemo(() => {
+    const { deduped, duplicates } = partitionLineupDuplicates(lineupRaw);
+    for (const { kept, dropped } of duplicates) {
       console.warn(
-        `[useGameSubscriptions] Duplicate LineupAssignment for positionId=${assignment.positionId}: `
+        `[useGameSubscriptions] Duplicate LineupAssignment for positionId=${dropped.positionId}: `
         + `keeping id=${kept.id} createdAt=${kept.createdAt ?? '(none)'}, `
         + `hiding orphan id=${dropped.id} createdAt=${dropped.createdAt ?? '(none)'} playerId=${dropped.playerId ?? '(none)'} `
         + `— an orphan like this resurfaces if the kept assignment is later deleted (issue #215).`
       );
-      byPosition.set(assignment.positionId, kept);
     }
-    const withoutPosition = lineupRaw.filter(a => !a.positionId);
-    duplicateLineupPositionCount.current = duplicateCount;
-    return [...Array.from(byPosition.values()), ...withoutPosition];
+    duplicateLineupPositionCount.current = duplicates.length;
+    return { lineup: deduped, lineupDuplicates: duplicates };
   }, [lineupRaw]);
 
-  const { data: playTimeRecords } = useAmplifyQuery('PlayTimeRecord', {
+  const { data: playTimeRecords, isSynced: isPlayTimeRecordsSynced } = useAmplifyQuery('PlayTimeRecord', {
     filter: { gameId: { eq: game.id } },
   }, [game.id]);
+
+  // Self-healing for issue #215's duplicate-CREATE recurrence: rather than
+  // only cleaning up an orphan reactively when a coach clears the position
+  // (lineupCleanupService.ts's cleanupDuplicateAssignmentsForPosition), also
+  // delete a detected orphan proactively here, as soon as the dedup above
+  // notices it. Deletes by id from rows already in hand (lineupRaw) rather
+  // than re-querying, and only attempts each specific orphan row once per
+  // mount (attemptedDuplicateCleanupIdsRef, keyed by the orphan's own id,
+  // never cleared) so a persistent failure doesn't retry every render.
+  //
+  // Guardrails, both required because this runs automatically with no coach
+  // in the loop watching for a mistake:
+  // - Only strictly-older orphans (dropped.createdAt < kept.createdAt) are
+  //   ever candidates — ties are left alone, same invariant as the reactive
+  //   cleanup, to never risk deleting a legitimate concurrent write.
+  // - An orphan for a DIFFERENT player than the kept row is only deleted if
+  //   that player has no open (endGameSeconds null) PlayTimeRecord at this
+  //   position. Deleting their LineupAssignment while their PlayTimeRecord is
+  //   still open would leave that player's play time silently running with
+  //   no lineup slot left to close it from (see CLAUDE.md: PlayTimeRecord and
+  //   LineupAssignment writes are meant to move together). Same-player
+  //   orphans (the exact rapid-double-tap case) are always safe to delete.
+  // - Both LineupAssignment and PlayTimeRecord must have finished their first
+  //   observeQuery sync before any cleanup runs. The two subscriptions load
+  //   independently with no ordering guarantee; an empty, not-yet-synced
+  //   playTimeRecords would otherwise read as "no open record" and delete a
+  //   different player's orphan before their real open record has arrived —
+  //   permanently, since attemptedDuplicateCleanupIdsRef never retries an id.
+  const attemptedDuplicateCleanupIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isLineupSynced || !isPlayTimeRecordsSynced) return;
+
+    const toDelete = lineupDuplicates.filter(({ kept, dropped }) => {
+      if (!kept.createdAt || (dropped.createdAt ?? '') >= kept.createdAt) return false;
+      if (attemptedDuplicateCleanupIdsRef.current.has(dropped.id)) return false;
+
+      const samePlayer = dropped.playerId === kept.playerId;
+      if (!samePlayer) {
+        const hasOpenPlayTimeRecord = playTimeRecords.some(
+          r => r.playerId === dropped.playerId
+            && r.positionId === dropped.positionId
+            && (r.endGameSeconds === null || r.endGameSeconds === undefined)
+        );
+        if (hasOpenPlayTimeRecord) return false;
+      }
+      return true;
+    });
+
+    if (toDelete.length === 0) return;
+    for (const { dropped } of toDelete) {
+      attemptedDuplicateCleanupIdsRef.current.add(dropped.id);
+    }
+    void deleteOrphanedAssignments(toDelete.map(({ dropped }) => dropped));
+  }, [lineupDuplicates, playTimeRecords, isLineupSynced, isPlayTimeRecordsSynced]);
 
   const halfThenSeconds = (a: { half: number; gameSeconds: number }, b: { half: number; gameSeconds: number }) => {
     if (a.half !== b.half) return a.half - b.half;
