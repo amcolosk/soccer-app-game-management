@@ -48,7 +48,7 @@ vi.mock("../utils/errorHandler", () => ({
 }));
 
 vi.mock("../utils/consoleLogBuffer", () => ({
-  buildConsoleLogSnapshot: () => mockBuildConsoleLogSnapshot(),
+  buildConsoleLogSnapshot: (...args: unknown[]) => mockBuildConsoleLogSnapshot(...args),
 }));
 
 import { BugReport } from "./BugReport";
@@ -571,5 +571,70 @@ describe("BugReport – console log snapshot", () => {
     expect(arg.steps).toContain("1. Click save");
     expect(arg.steps).toContain("Game Planner Debug Snapshot");
     expect(arg.steps).toContain("ERROR: boom");
+  });
+
+  it("passes a shrinking budget to the console snapshot so a full ring buffer can't push the combined payload over the server's limit", async () => {
+    mockBuildConsoleLogSnapshot.mockReturnValue(null);
+    const user = userEvent.setup();
+    const longSteps = "x".repeat(9000);
+    renderBugReport();
+
+    await user.type(screen.getByRole("textbox", { name: /what went wrong/i }), "Something broke");
+    fireEvent.change(screen.getByRole("textbox", { name: /steps to reproduce/i }), { target: { value: longSteps } });
+    await user.click(screen.getByRole("button", { name: /submit report/i }));
+
+    await waitFor(() => expect(mockCreateGitHubIssue).toHaveBeenCalled());
+
+    // MAX_STEPS_LENGTH (10000) - longSteps.length - 2 (join separator reserved once steps is non-empty)
+    expect(mockBuildConsoleLogSnapshot).toHaveBeenCalledWith(998);
+  });
+
+  it("skips the console snapshot entirely when steps + debugContext already fill the budget", async () => {
+    const user = userEvent.setup();
+    const longSteps = "x".repeat(10000);
+    renderBugReport();
+
+    await user.type(screen.getByRole("textbox", { name: /what went wrong/i }), "Something broke");
+    fireEvent.change(screen.getByRole("textbox", { name: /steps to reproduce/i }), { target: { value: longSteps } });
+    await user.click(screen.getByRole("button", { name: /submit report/i }));
+
+    await waitFor(() => expect(mockCreateGitHubIssue).toHaveBeenCalled());
+
+    expect(mockBuildConsoleLogSnapshot).not.toHaveBeenCalled();
+    const arg = mockCreateGitHubIssue.mock.calls[0][0];
+    expect(arg.steps).toBe(longSteps);
+  });
+});
+
+describe("BugReport – error surfacing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockBuildConsoleLogSnapshot.mockReturnValue(null);
+  });
+
+  it("surfaces the thrown error's own message instead of a generic one", async () => {
+    mockCreateGitHubIssue.mockRejectedValue(new Error("Steps must be under 10000 characters"));
+    const user = userEvent.setup();
+    renderBugReport();
+
+    await user.type(screen.getByRole("textbox", { name: /what went wrong/i }), "Something broke");
+    await user.click(screen.getByRole("button", { name: /submit report/i }));
+
+    await waitFor(() => expect(mockHandleApiError).toHaveBeenCalled());
+
+    expect(mockHandleApiError).toHaveBeenCalledWith(expect.any(Error), "Steps must be under 10000 characters");
+  });
+
+  it("falls back to a generic message when the thrown value has no message", async () => {
+    mockCreateGitHubIssue.mockRejectedValue("network down");
+    const user = userEvent.setup();
+    renderBugReport();
+
+    await user.type(screen.getByRole("textbox", { name: /what went wrong/i }), "Something broke");
+    await user.click(screen.getByRole("button", { name: /submit report/i }));
+
+    await waitFor(() => expect(mockHandleApiError).toHaveBeenCalled());
+
+    expect(mockHandleApiError).toHaveBeenCalledWith("network down", "Failed to submit bug report. Please try again.");
   });
 });

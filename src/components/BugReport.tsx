@@ -53,10 +53,15 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
       };
 
       // Combine user-entered steps with any available debug context snapshot
-      // and the recent console.warn/console.error ring buffer.
-      const combinedSteps = [steps, debugContext, buildConsoleLogSnapshot()]
-        .filter(Boolean)
-        .join('\n\n') || undefined;
+      // and the recent console.warn/console.error ring buffer. The console
+      // snapshot alone can run past MAX_STEPS_LENGTH (the server's limit) if
+      // the ring buffer is full, so it only gets whatever budget is left
+      // after steps + debugContext — otherwise the Lambda rejects the whole
+      // submission with a length error the user never sees (caught below).
+      const stepsAndDebug = [steps, debugContext].filter(Boolean).join('\n\n');
+      const consoleBudget = MAX_STEPS_LENGTH - stepsAndDebug.length - (stepsAndDebug ? 2 : 0);
+      const consoleSnapshot = consoleBudget > 0 ? buildConsoleLogSnapshot(consoleBudget) : null;
+      const combinedSteps = [stepsAndDebug, consoleSnapshot].filter(Boolean).join('\n\n') || undefined;
 
       // Send bug report to GitHub Issues via Lambda
       const result = await client.mutations.createGitHubIssue({
@@ -89,7 +94,10 @@ export function BugReport({ onClose, debugContext }: BugReportProps) {
       trackEvent(AnalyticsEvents.BUG_REPORT_SUBMITTED.category, AnalyticsEvents.BUG_REPORT_SUBMITTED.action, severity);
       // No auto-close — user may want to follow the GitHub issue link
     } catch (error) {
-      handleApiError(error, 'Failed to submit bug report. Please try again.');
+      const message = error instanceof Error && error.message
+        ? error.message
+        : 'Failed to submit bug report. Please try again.';
+      handleApiError(error, message);
     } finally {
       setIsSubmitting(false);
     }

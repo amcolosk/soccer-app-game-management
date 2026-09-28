@@ -164,4 +164,52 @@ describe('buildConsoleLogSnapshot', () => {
     expect(snapshot).toContain('WARN: careful');
     expect(snapshot).toContain('ERROR: uh oh');
   });
+
+  it('with no maxLength, includes every entry even past what a 10K budget would allow', async () => {
+    const { installConsoleLogBuffer, buildConsoleLogSnapshot, MAX_CONSOLE_LOG_ENTRIES } = await import('./consoleLogBuffer');
+    installConsoleLogBuffer();
+
+    // Each entry can run up to ~500 chars, so a full buffer is comfortably
+    // past 10,000 characters — the exact regression this guards against.
+    for (let i = 0; i < MAX_CONSOLE_LOG_ENTRIES; i++) {
+      console.error('x'.repeat(490));
+    }
+
+    const snapshot = buildConsoleLogSnapshot();
+    expect(snapshot!.length).toBeGreaterThan(10000);
+  });
+
+  it('with maxLength, keeps only the newest entries that fit and drops the oldest', async () => {
+    const { installConsoleLogBuffer, buildConsoleLogSnapshot } = await import('./consoleLogBuffer');
+    installConsoleLogBuffer();
+
+    console.warn('oldest');
+    console.warn('middle');
+    console.warn('newest');
+
+    // Budget only large enough for the header/footer plus one short entry.
+    const snapshot = buildConsoleLogSnapshot(120);
+    expect(snapshot).toContain('newest');
+    expect(snapshot).not.toContain('oldest');
+    expect(snapshot!.length).toBeLessThanOrEqual(120);
+  });
+
+  it('with maxLength too small for even one entry, returns null', async () => {
+    const { installConsoleLogBuffer, buildConsoleLogSnapshot } = await import('./consoleLogBuffer');
+    installConsoleLogBuffer();
+
+    console.warn('some warning long enough to not fit');
+
+    expect(buildConsoleLogSnapshot(10)).toBeNull();
+  });
+
+  it('with a generous maxLength, behaves the same as no maxLength', async () => {
+    const { installConsoleLogBuffer, buildConsoleLogSnapshot } = await import('./consoleLogBuffer');
+    installConsoleLogBuffer();
+
+    console.warn('careful');
+    console.error('uh oh');
+
+    expect(buildConsoleLogSnapshot(100000)).toBe(buildConsoleLogSnapshot());
+  });
 });

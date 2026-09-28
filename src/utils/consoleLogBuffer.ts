@@ -83,14 +83,31 @@ export function resetConsoleLogBuffer(): void {
 /**
  * Formats the buffer into a human-readable snapshot suitable for inclusion
  * in bug reports. Returns null when nothing has been captured yet.
+ *
+ * With `maxLength`, entries are selected newest-first so a caller with a
+ * limited budget (e.g. a bug report's combined-payload cap) keeps the
+ * entries closest to when the report was filed rather than the stalest
+ * ones still sitting in the ring buffer. Without it, everything is included
+ * (a full 50-entry buffer can run well past 10K characters on its own).
  */
-export function buildConsoleLogSnapshot(): string | null {
+export function buildConsoleLogSnapshot(maxLength?: number): string | null {
   if (buffer.length === 0) return null;
 
-  const lines = [
-    '--- Recent Console Warnings/Errors ---',
-    ...buffer.map(e => `[${e.timestamp}] ${e.level.toUpperCase()}: ${e.message}`),
-    '-----------------------------------',
-  ];
-  return lines.join('\n');
+  const header = '--- Recent Console Warnings/Errors ---';
+  const footer = '-----------------------------------';
+
+  const entryLines: string[] = [];
+  let total = header.length + footer.length + 2;
+  for (let i = buffer.length - 1; i >= 0; i--) {
+    const e = buffer[i];
+    const line = `[${e.timestamp}] ${e.level.toUpperCase()}: ${e.message}`;
+    const lineLength = line.length + 1;
+    if (maxLength !== undefined && total + lineLength > maxLength) break;
+    entryLines.unshift(line);
+    total += lineLength;
+  }
+
+  if (entryLines.length === 0) return null;
+
+  return [header, ...entryLines, footer].join('\n');
 }
