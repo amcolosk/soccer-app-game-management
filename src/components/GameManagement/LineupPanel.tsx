@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { showWarning } from "../../utils/toast";
 import { handleApiError } from "../../utils/errorHandler";
 import { useConfirm } from "../ConfirmModal";
@@ -408,10 +408,22 @@ export function LineupPanel({
     interactionAdapter.getEmptyNodeInteraction(position).onTap();
   };
 
+  // Guards the whole position-picker modal (not per-position): it's opened
+  // for one selectedPlayer at a time, so a rapid tap on position A followed
+  // by a tap on position B before A's create resolves would otherwise seat
+  // the same player twice. isAssigningRef is checked/set synchronously
+  // before the first await so a second tap in the same instant is caught
+  // even before the state update from the first tap has rendered.
+  const isAssigningRef = useRef(false);
+  const [isAssigningPosition, setIsAssigningPosition] = useState(false);
+
   const handleAssignPosition = async (positionId: string) => {
     if (!isInteractive) return;
     if (!selectedPlayer) return;
+    if (isAssigningRef.current) return;
 
+    isAssigningRef.current = true;
+    setIsAssigningPosition(true);
     try {
       await mutations.createLineupAssignment({
         gameId: game.id,
@@ -441,6 +453,9 @@ export function LineupPanel({
       setShowPositionPicker(false);
     } catch (error) {
       handleApiError(error, 'Failed to add player to lineup');
+    } finally {
+      isAssigningRef.current = false;
+      setIsAssigningPosition(false);
     }
   };
 
@@ -692,7 +707,7 @@ export function LineupPanel({
                     key={position.id}
                     className={`position-picker-btn ${occupied ? 'occupied' : ''}`}
                     onClick={() => handleAssignPosition(position.id)}
-                    disabled={!!occupied}
+                    disabled={!!occupied || isAssigningPosition}
                   >
                     <div className="position-picker-label">
                       {position.abbreviation && (

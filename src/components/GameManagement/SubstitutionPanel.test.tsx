@@ -25,7 +25,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // ---------------------------------------------------------------------------
@@ -566,6 +566,204 @@ describe('SubstitutionPanel', () => {
     await waitFor(() => {
       expect(screen.queryByText(/Bob Jones/)).not.toBeInTheDocument();
       expect(screen.getByText(/No eligible substitutes\. All bench players are marked injured\./i)).toBeInTheDocument();
+    });
+  });
+
+  // ── In-flight guard on Assign / Sub Now (issue #215: rapid double-tap) ---
+
+  it('rapid double-click on "Assign" (empty position) creates exactly one lineup assignment', async () => {
+    const user = userEvent.setup();
+    let resolveCreate: (() => void) | undefined;
+    const createLineupAssignment = vi.fn().mockReturnValueOnce(
+      new Promise((resolve) => { resolveCreate = () => resolve({ data: { id: 'la-new' } }); }),
+    );
+
+    render(
+      <SubstitutionPanel
+        {...defaultProps}
+        substitutionRequest={pos2}
+        lineup={[]}
+        mutations={{ ...defaultProps.mutations, createLineupAssignment }}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^assign$/i }).length).toBeGreaterThan(0));
+    const assignButton = screen.getAllByRole('button', { name: /^assign$/i })[0];
+
+    await user.click(assignButton);
+    await user.click(assignButton);
+
+    expect(createLineupAssignment).toHaveBeenCalledTimes(1);
+
+    resolveCreate?.();
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('disables Assign buttons while the create is pending', async () => {
+    const user = userEvent.setup();
+    let resolveCreate: (() => void) | undefined;
+    const createLineupAssignment = vi.fn().mockReturnValueOnce(
+      new Promise((resolve) => { resolveCreate = () => resolve({ data: { id: 'la-new' } }); }),
+    );
+
+    render(
+      <SubstitutionPanel
+        {...defaultProps}
+        substitutionRequest={pos2}
+        lineup={[]}
+        mutations={{ ...defaultProps.mutations, createLineupAssignment }}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^assign$/i }).length).toBeGreaterThan(0));
+    const assignButtons = screen.getAllByRole('button', { name: /^assign$/i });
+    await user.click(assignButtons[0]);
+
+    for (const button of screen.getAllByRole('button', { name: /^assign$/i })) {
+      expect(button).toBeDisabled();
+    }
+
+    resolveCreate?.();
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('clears the Assign guard after a rejected create (finally runs on failure too)', async () => {
+    const user = userEvent.setup();
+    const createLineupAssignment = vi.fn().mockRejectedValueOnce(new Error('network error'));
+
+    render(
+      <SubstitutionPanel
+        {...defaultProps}
+        substitutionRequest={pos2}
+        lineup={[]}
+        mutations={{ ...defaultProps.mutations, createLineupAssignment }}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^assign$/i }).length).toBeGreaterThan(0));
+    const assignButton = screen.getAllByRole('button', { name: /^assign$/i })[0];
+    await user.click(assignButton);
+
+    await waitFor(() => expect(mockHandleApiError).toHaveBeenCalled());
+    await waitFor(() => expect(assignButton).not.toBeDisabled());
+
+    await user.click(assignButton);
+    expect(createLineupAssignment).toHaveBeenCalledTimes(2);
+  });
+
+  it('rapid double-click on "Sub Now" (occupied position) executes exactly one substitution', async () => {
+    const user = userEvent.setup();
+    let resolveSub: (() => void) | undefined;
+    mockExecuteSubstitution.mockReturnValueOnce(
+      new Promise((resolve) => { resolveSub = () => resolve(undefined); }),
+    );
+    mockIsPlayerInLineup.mockImplementation((playerId: string) => playerId === 'player-1');
+
+    render(<SubstitutionPanel {...defaultProps} substitutionRequest={pos1} />);
+
+    await waitFor(() => expect(screen.getAllByTitle('Substitute immediately')).toHaveLength(1));
+    const subNowButton = screen.getByTitle('Substitute immediately');
+
+    await user.click(subNowButton);
+    await user.click(subNowButton);
+
+    expect(mockExecuteSubstitution).toHaveBeenCalledTimes(1);
+
+    resolveSub?.();
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('disables both Queue-modal action buttons while Sub Now is pending', async () => {
+    const user = userEvent.setup();
+    let resolveSub: (() => void) | undefined;
+    mockExecuteSubstitution.mockReturnValueOnce(
+      new Promise((resolve) => { resolveSub = () => resolve(undefined); }),
+    );
+    mockIsPlayerInLineup.mockImplementation((playerId: string) => playerId === 'player-1');
+
+    render(<SubstitutionPanel {...defaultProps} substitutionRequest={pos1} />);
+
+    await waitFor(() => expect(screen.getAllByTitle('Substitute immediately')).toHaveLength(1));
+    const subNowButton = screen.getByTitle('Substitute immediately');
+    await user.click(subNowButton);
+
+    expect(subNowButton).toBeDisabled();
+
+    resolveSub?.();
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('clears the Sub Now guard after a rejected substitution (finally runs on failure too)', async () => {
+    const user = userEvent.setup();
+    mockExecuteSubstitution.mockRejectedValueOnce(new Error('network error'));
+    mockIsPlayerInLineup.mockImplementation((playerId: string) => playerId === 'player-1');
+
+    render(<SubstitutionPanel {...defaultProps} substitutionRequest={pos1} />);
+
+    await waitFor(() => expect(screen.getAllByTitle('Substitute immediately')).toHaveLength(1));
+    const subNowButton = screen.getByTitle('Substitute immediately');
+    await user.click(subNowButton);
+
+    await waitFor(() => expect(mockHandleApiError).toHaveBeenCalled());
+    await waitFor(() => expect(subNowButton).not.toBeDisabled());
+
+    await user.click(subNowButton);
+    expect(mockExecuteSubstitution).toHaveBeenCalledTimes(2);
+  });
+
+  it('a pending modal action does not block the separate queue "Sub Now" execution path (independent guards)', async () => {
+    // executingIdsRef (queue-item path) and isSubmittingModalActionRef (modal
+    // path) are separate guards — a pending modal Sub Now must not disable or
+    // otherwise interfere with executing an already-queued item.
+    const user = userEvent.setup();
+    let resolveModalSub: (() => void) | undefined;
+    mockExecuteSubstitution.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveModalSub = () => resolve(undefined); }),
+    );
+    mockIsPlayerInLineup.mockImplementation((playerId: string) => playerId === 'player-1' || playerId === 'player-2');
+
+    // player-3 stands in as the modal's Sub Now target for pos-1 (Alice);
+    // player-4 is queued to replace Bob (player-2) at pos-2 — a different
+    // player than the current occupant, so the queue item actually executes
+    // instead of being skipped as "already applied".
+    const player3 = { ...player2, id: 'player-3', firstName: 'Cara', playerNumber: 3 } as PlayerWithRoster;
+    const player4 = { ...player2, id: 'player-4', firstName: 'Dave', playerNumber: 4 } as PlayerWithRoster;
+    const queue: SubQueue[] = [{ id: 'q-1', playerId: 'player-4', positionId: 'pos-2' }];
+
+    render(
+      <SubstitutionPanel
+        {...defaultProps}
+        players={[player1, player2, player3, player4]}
+        lineup={[lineupAlice, lineupBob]}
+        substitutionQueue={queue}
+        substitutionRequest={pos1}
+      />,
+    );
+
+    // Start (but don't resolve) a modal "Sub Now" for pos-1.
+    await waitFor(() => expect(screen.getAllByTitle('Substitute immediately')).toHaveLength(1));
+    await user.click(screen.getByTitle('Substitute immediately'));
+    expect(mockExecuteSubstitution).toHaveBeenCalledTimes(1);
+
+    // The separate queue "Sub Now" button (for the already-queued item) is
+    // unaffected by the pending modal action and still executes.
+    const queueSubButton = screen.getByLabelText(/execute sub now/i);
+    expect(queueSubButton).not.toBeDisabled();
+    await user.click(queueSubButton);
+
+    expect(mockExecuteSubstitution).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveModalSub?.();
+      await Promise.resolve();
     });
   });
 
