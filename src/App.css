@@ -6396,6 +6396,8 @@
   max-height: calc(100dvh - 56px - 44px);
   overflow-y: auto;
   overflow-x: hidden;
+  /* Clear the fixed .bottom-nav so the last items (e.g. Goals/Notes/Plan) aren't hidden behind it (#183) */
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
 }
 
 .game-tab-content--page-scroll {
