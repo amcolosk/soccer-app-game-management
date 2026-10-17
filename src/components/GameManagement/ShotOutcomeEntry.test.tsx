@@ -282,6 +282,24 @@ describe("ShotOutcomeEntry", () => {
       expect(mockCreateShot).toHaveBeenCalledTimes(1);
     });
 
+    it("auto-keeper Saved: a failed Save write offers a working retry that re-sends only the Save with the same keeper", async () => {
+      const user = userEvent.setup();
+      mockCreateSave.mockRejectedValueOnce(new Error("network error"));
+      const playTimeRecords = [{ id: "ptr1", playerId: "gk1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: null }] as any[];
+      const positions = [{ id: "gk-pos", role: "GOALKEEPER" }] as any[];
+      render(<ShotOutcomeEntry {...defaultProps} positions={positions} playTimeRecords={playTimeRecords} />);
+      await user.click(screen.getByText(/Log Shot – Eagles/));
+      await user.click(screen.getByRole("button", { name: "Saved" }));
+
+      await waitFor(() => expect(screen.getByRole("button", { name: /Retry saving save/ })).toBeInTheDocument());
+      mockCreateSave.mockResolvedValueOnce(undefined);
+      await user.click(screen.getByRole("button", { name: /Retry saving save/ }));
+      await waitFor(() => expect(mockCreateSave).toHaveBeenCalledTimes(2));
+      expect(mockCreateSave).toHaveBeenLastCalledWith(expect.objectContaining({ byUs: true, playerId: "gk1" }));
+      expect(mockCreateShot).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Save recorded for Gary Keeper."));
+    });
+
     it("backdrop tap is a no-op while a retry is pending", async () => {
       const user = userEvent.setup();
       mockCreateGoal.mockRejectedValueOnce(new Error("network error"));

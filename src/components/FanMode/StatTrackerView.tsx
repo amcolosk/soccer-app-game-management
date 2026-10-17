@@ -52,9 +52,9 @@ interface FlowState {
   outcome: ShotOutcome | null;
   // Dual use, mutually exclusive per-flow (per the plan): shooter/scorer
   // attribution on the "Us" side (populated by the initial 'player' step),
-  // OR our keeper attribution on the "Them"+SAVED override-picker path
-  // (populated by the SAME 'player' step, reached via "pick another
-  // keeper"). One slot suffices since a single flow is never both at once.
+  // OR our keeper attribution on the "Them"+SAVED path (auto-filled from the
+  // current goalkeeper, or chosen in the 'player' step when none is known).
+  // One slot suffices since a single flow is never both at once.
   playerId: string | null;
   assistPlayerId: string | null;
   clientEventId: string | null;
@@ -284,14 +284,14 @@ export function StatTrackerView() {
       setFlow({ ...flow, playerId, step: 'outcome' });
       return;
     }
-    // "Them" + SAVED keeper-override picker, reached via "pick another
-    // keeper" below.
+    // "Them" + SAVED keeper picker, reached when no current keeper is known.
     setFlow({ ...flow, playerId, step: 'confirm' });
   }
 
   // Q1 split (UI review): BLOCKED/WIDE submit immediately on tap -- fast,
   // low-stakes, already correctable via the coach's edit modal (M1). GOAL
-  // and SAVED always route through an explicit confirm step first.
+  // and SAVED route through an explicit confirm step first (except "Them"+SAVED
+  // with a known keeper, which submits immediately).
   function pickOutcome(outcome: ShotOutcome) {
     if (outcome === 'BLOCKED' || outcome === 'WIDE') {
       void submit({ ...flow, outcome });
@@ -321,7 +321,13 @@ export function StatTrackerView() {
     // The helper's success banner names the keeper, and the coach can fix a
     // wrong attribution from the Saves list.
     if (activeGoalkeeperPlayer) {
-      void submit({ ...flow, outcome, playerId: activeGoalkeeperPlayer.id });
+      // After a failed submit the sheet stays here with the same
+      // clientEventId; reuse the keeper from the first tap so a retry can't
+      // pair that id with a keeper who changed in the meantime.
+      const keeperId = flow.outcome === 'SAVED' && flow.playerId ? flow.playerId : activeGoalkeeperPlayer.id;
+      const next = { ...flow, outcome, playerId: keeperId };
+      setFlow(next);
+      void submit(next);
     } else {
       setFlow({ ...flow, outcome, step: 'player' });
     }

@@ -326,6 +326,32 @@ describe('StatTrackerView', () => {
       expect(screen.getByRole('status')).toHaveTextContent('Save logged for Sam Jones!');
     });
 
+    it('after a failed immediate Saved submit, a retry tap reuses the first keeper even if the live keeper changed', async () => {
+      mockSubmitStatEvent.mockResolvedValueOnce(result({ ok: false, reason: 'PARTIAL_WRITE' }));
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'p1' })));
+      render(<StatTrackerView />);
+      await flush();
+
+      fireEvent.click(screen.getByRole('button', { name: /Log Shot – Lakeside FC/ }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'Saved' }));
+      await flush();
+      expect(screen.getByText(/tap it again to finish/i)).toBeInTheDocument();
+      const firstId = mockSubmitStatEvent.mock.calls[0][0].clientEventId;
+
+      mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'p2' })));
+      await act(async () => { vi.advanceTimersByTime(12000); });
+      await flush();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Saved' }));
+      await flush();
+
+      expect(mockSubmitStatEvent).toHaveBeenCalledTimes(2);
+      expect(mockSubmitStatEvent.mock.calls[1][0]).toEqual(expect.objectContaining({
+        keeperPlayerId: 'p1', clientEventId: firstId,
+      }));
+    });
+
     it('activeGoalkeeperId absent/null -> unchanged existing behavior, full picker shown', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
       render(<StatTrackerView />);

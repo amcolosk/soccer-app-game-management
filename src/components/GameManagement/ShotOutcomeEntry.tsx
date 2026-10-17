@@ -39,8 +39,8 @@ interface FlowState {
   // Which step the 'confirm' step's "Back" action returns to -- set at the
   // moment 'confirm' is entered, since different outcome/side combinations
   // reach it from different prior steps (assist for "Us"+Goal, outcome for
-  // everything else that skips straight to confirm, keeperPicker for an
-  // overridden "Them"+Saved keeper).
+  // everything else that skips straight to confirm, keeperPicker for a
+  // "Them"+Saved with no known keeper).
   confirmBackStep: FlowStep;
 }
 
@@ -119,6 +119,7 @@ export function ShotOutcomeEntry({
   }
 
   function pickOutcome(outcome: ShotOutcome) {
+    if (isSubmitting) return;
     if (outcome === 'BLOCKED' || outcome === 'WIDE') {
       // Q1: fast, low-stakes, immediate-submit-on-tap -- already correctable
       // in place via the M1 edit-modal path.
@@ -150,7 +151,11 @@ export function ShotOutcomeEntry({
     const autoKeeperId = getCurrentGoalkeeperId(playTimeRecords, positions);
     const autoKeeper = autoKeeperId ? players.find(p => p.id === autoKeeperId) : null;
     if (autoKeeper) {
-      void performSubmit({ ...flow, outcome, keeperId: autoKeeper.id });
+      // Persist the frozen outcome/keeper into flow too: handleRetry reads
+      // flow.outcome if the Save write fails after the Shot succeeds.
+      const next = { ...flow, outcome, keeperId: autoKeeper.id };
+      setFlow(next);
+      void performSubmit(next);
     } else {
       setFlow({ ...flow, outcome, step: 'keeperPicker' });
     }
@@ -356,16 +361,16 @@ export function ShotOutcomeEntry({
 
                 {flow.step === 'outcome' && (
                   <div className="shot-outcome-picker">
-                    <button type="button" className="shot-outcome-btn shot-outcome-btn--goal" onClick={() => pickOutcome('GOAL')}>
+                    <button type="button" className="shot-outcome-btn shot-outcome-btn--goal" onClick={() => pickOutcome('GOAL')} disabled={isSubmitting}>
                       Goal
                     </button>
-                    <button type="button" className="shot-outcome-btn shot-outcome-btn--saved" onClick={() => pickOutcome('SAVED')}>
+                    <button type="button" className="shot-outcome-btn shot-outcome-btn--saved" onClick={() => pickOutcome('SAVED')} disabled={isSubmitting}>
                       Saved
                     </button>
-                    <button type="button" className="shot-outcome-btn shot-outcome-btn--blocked" onClick={() => pickOutcome('BLOCKED')}>
+                    <button type="button" className="shot-outcome-btn shot-outcome-btn--blocked" onClick={() => pickOutcome('BLOCKED')} disabled={isSubmitting}>
                       Blocked
                     </button>
-                    <button type="button" className="shot-outcome-btn shot-outcome-btn--wide" onClick={() => pickOutcome('WIDE')}>
+                    <button type="button" className="shot-outcome-btn shot-outcome-btn--wide" onClick={() => pickOutcome('WIDE')} disabled={isSubmitting}>
                       Wide
                     </button>
                   </div>
