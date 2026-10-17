@@ -204,31 +204,16 @@ describe("ShotOutcomeEntry", () => {
       await waitFor(() => expect(mockCreateSave).toHaveBeenCalledWith(expect.objectContaining({ byUs: true, playerId: "gk1" })));
     });
 
-    it("SAVED with an auto-resolvable current goalkeeper lands on confirmKeeper with an override escape hatch", async () => {
+    it("SAVED with an auto-resolvable current goalkeeper submits immediately with no confirm step", async () => {
       const user = userEvent.setup();
       const playTimeRecords = [{ id: "ptr1", playerId: "gk1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: null }] as any[];
       const positions = [{ id: "gk-pos", role: "GOALKEEPER" }] as any[];
       render(<ShotOutcomeEntry {...defaultProps} positions={positions} playTimeRecords={playTimeRecords} />);
       await user.click(screen.getByText(/Log Shot – Eagles/));
       await user.click(screen.getByRole("button", { name: "Saved" }));
-      expect(screen.getByText("Gary Keeper made the save?")).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: /Log Save/ }));
       await waitFor(() => expect(mockCreateSave).toHaveBeenCalledWith(expect.objectContaining({ byUs: true, playerId: "gk1" })));
-    });
-
-    it("'pick another keeper' override transitions to the full picker", async () => {
-      const user = userEvent.setup();
-      const playTimeRecords = [{ id: "ptr1", playerId: "gk1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: null }] as any[];
-      const positions = [{ id: "gk-pos", role: "GOALKEEPER" }] as any[];
-      render(<ShotOutcomeEntry {...defaultProps} positions={positions} playTimeRecords={playTimeRecords} />);
-      await user.click(screen.getByText(/Log Shot – Eagles/));
-      await user.click(screen.getByRole("button", { name: "Saved" }));
-      await user.click(screen.getByRole("button", { name: /Not right\? Pick another keeper/ }));
-      expect(screen.getByTestId("shotKeeper")).toBeInTheDocument();
-      await user.selectOptions(screen.getByTestId("shotKeeper"), "p1");
-      await user.click(screen.getByRole("button", { name: "Continue" }));
-      await user.click(screen.getByRole("button", { name: /Log Save/ }));
-      await waitFor(() => expect(mockCreateSave).toHaveBeenCalledWith(expect.objectContaining({ playerId: "p1" })));
+      expect(screen.queryByRole("button", { name: /Log Save/ })).not.toBeInTheDocument();
+      expect(showSuccess).toHaveBeenCalledWith("Save recorded for Gary Keeper.");
     });
   });
 
