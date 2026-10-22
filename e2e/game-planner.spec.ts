@@ -264,6 +264,40 @@ test.describe('Game Planner with Timeline', () => {
     await expect(page.getByText(/plan is read-only during live play/i)).toBeVisible();
   });
 
+  test('Saved lineup templates: save, persist across reload, then delete', async ({ page }) => {
+    test.setTimeout(240000);
+
+    await setupTestData(page);
+    await openGamePlanner(page);
+    await assignStartingLineup(page);
+
+    const templateName = 'E2E standard lineup';
+    const saveButton = page.getByRole('button', { name: /save as template/i });
+    await expect(saveButton).toBeEnabled({ timeout: 15000 });
+    await saveButton.click();
+    await page.getByLabel('Template name').fill(templateName);
+    await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByText('Template saved')).toBeVisible({ timeout: 10000 });
+
+    await page.reload();
+    await waitForPageLoad(page);
+    await expect(page.locator('.game-management')).toBeVisible({ timeout: 15000 });
+
+    await page.getByRole('button', { name: /^load plan$/i }).click();
+    await page.getByRole('button', { name: /^templates$/i }).click();
+    await expect(page.getByRole('button', { name: new RegExp(`^${templateName}`) })).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole('button', { name: `Delete ${templateName}` }).click();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByText(/no saved templates yet/i)).toBeVisible({ timeout: 10000 });
+
+    await page.reload();
+    await waitForPageLoad(page);
+    await page.getByRole('button', { name: /^load plan$/i }).click();
+    await page.getByRole('button', { name: /^templates$/i }).click();
+    await expect(page.getByText(/no saved templates yet/i)).toBeVisible({ timeout: 10000 });
+  });
+
   test('Legacy /game/:id/plan route redirects to merged /game/:id view', async ({ page }) => {
     test.setTimeout(240000);
 

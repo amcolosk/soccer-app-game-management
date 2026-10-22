@@ -104,6 +104,7 @@ A team with formation reference and configuration.
 - `sport`: String — default "Soccer"
 - `gameFormat`: String — default "Halves"
 - `coaches`: String[] — all coaches with access
+- `lineupTemplates`: JSON — array (max 10) of saved lineup templates `{id, name, formationId?, startingLineup, halftimeLineup?, savedAt, updatedAt}`; lineups are arrays of `{playerId, positionId}` using `FormationPosition` ids, and `halftimeLineup` is the full effective halftime lineup (`""` playerId = empty slot), not the stored overrides. Stored on `Team` so it inherits `coaches` with no extra Lambda or IAM wiring; every write is read-modify-write of the whole array from a fresh `Team.get` (last-write-wins if two coaches write at the same instant; the generated client does not expose a conditional `condition`, so no compare-and-set is used). The 10-template cap, 60-character names and entry limits are enforced client-side only. The display path (`parseLineupTemplatesLenient`) drops malformed entries so the rest stay visible; the write path (`parseLineupTemplates`) refuses to overwrite unreadable data, so a malformed entry makes save/rename/delete error until it is repaired. Trade-off: the team list is an unfiltered scan, so every `Team` read carries the blob — move to a dedicated model if the average Team item exceeds ~20 KB or teams exceed ~500. The public share-link Lambdas read `Team` with a `ProjectionExpression` so template data is never loaded per poll.
 
 **Relationships**: Belongs to `Formation`, has many `TeamRoster`, `FieldPosition`, `Game`, `TeamInvitation`
 

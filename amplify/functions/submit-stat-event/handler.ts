@@ -580,7 +580,11 @@ async function performResumeWrite(
     // `teamId` so a coach who accepted an invitation between the original
     // partial failure and this resume ends up in the resumed write's
     // `coaches`, exactly as CLAUDE.md's standing rule requires.
-    const teamResponse = await docClient.send(new GetCommand({ TableName: teamTable, Key: { id: writeContext.teamId } }));
+    const teamResponse = await docClient.send(new GetCommand({
+      TableName: teamTable,
+      Key: { id: writeContext.teamId },
+      ProjectionExpression: 'coaches',
+    }));
     const team = teamResponse.Item as { coaches?: string[] } | undefined;
     const coaches = team?.coaches ?? [];
     const commonWriteFields = buildCommonWriteFields(writeContext, coaches);

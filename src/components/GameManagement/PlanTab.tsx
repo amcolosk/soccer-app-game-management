@@ -3,6 +3,17 @@ import { PlayerAvailabilityGrid } from "../PlayerAvailabilityGrid";
 import { PlannerLineupView } from "./PlannerLineupView";
 import { useGamePlanner } from "./hooks/useGamePlanner";
 import { useConfirm } from "../ConfirmModal";
+import { showError, showSuccess } from "../../utils/toast";
+import { SaveTemplateModal } from "./SaveTemplateModal";
+import { LineupTemplatesPanel } from "./LineupTemplatesPanel";
+import {
+  SKIP_REASON_LABEL,
+  serializePlanToTemplate,
+  type LineupTemplate,
+  type LineupTemplateInput,
+  type SkippedSlot,
+  type TemplateMapResult,
+} from "../../utils/planTemplateUtils";
 import { generateCanonicalKey } from "../../utils/plannerKeyUtils";
 import { calculatePlayTime } from "../../services/rotationPlannerService";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
@@ -36,7 +47,7 @@ interface PlanConflict {
   playerId: string;
   playerName: string;
   status: string;
-  type: 'starter' | 'rotation' | 'on-field';
+  type: 'starter' | 'rotation' | 'on-field' | 'halftime';
   rotationNumbers: number[];
 }
 
@@ -138,6 +149,19 @@ interface PlanTabProps {
   onCloseCopyModal?: () => void;
   onCopyFromGame?: (sourceGameId: string) => Promise<void>;
   isCopyingPlan?: boolean;
+  isOnline?: boolean;
+  /** undefined = templates still loading. */
+  lineupTemplates?: LineupTemplate[];
+  lineupTemplatesError?: string | null;
+  onRefreshLineupTemplates?: () => Promise<void>;
+  onSaveLineupTemplate?: (input: LineupTemplateInput) => Promise<void>;
+  onRenameLineupTemplate?: (id: string, name: string) => Promise<void>;
+  onDeleteLineupTemplate?: (id: string) => Promise<void>;
+  /** Writes both lineups in one GamePlan write and clears existing rotation substitutions. */
+  onApplyLineupTemplate?: (applied: {
+    startingLineup: Map<string, string>;
+    halftimeLineup: Map<string, string> | null;
+  }) => Promise<void>;
 }
 
 export function PlanTab({
@@ -168,6 +192,14 @@ export function PlanTab({
   onCloseCopyModal,
   onCopyFromGame,
   isCopyingPlan = false,
+  isOnline = true,
+  lineupTemplates,
+  lineupTemplatesError = null,
+  onRefreshLineupTemplates,
+  onSaveLineupTemplate,
+  onRenameLineupTemplate,
+  onDeleteLineupTemplate,
+  onApplyLineupTemplate,
 }: PlanTabProps) {
   const lineupPlayerIds = lineup.filter(l => l.isStarter).map(l => l.playerId);
   const isScheduled = game.status === "scheduled";
@@ -357,6 +389,94 @@ export function PlanTab({
     () => mergeHalftimeLineup(endOfFirstHalfLineup, explicitHalftimeLineup),
     [endOfFirstHalfLineup, explicitHalftimeLineup]
   );
+
+  // ─── Lineup templates ────────────────────────────────────────────────────────
+  const [copyModalTab, setCopyModalTab] = useState<"games" | "templates">("games");
+  const [templateModal, setTemplateModal] = useState<{ mode: "save" } | { mode: "rename"; template: LineupTemplate } | null>(null);
+  const [isApplyingTemplate, setIsApplyingTemplate] = useState(false);
+  const [skippedTemplateSlots, setSkippedTemplateSlots] = useState<SkippedSlot[] | null>(null);
+
+  const templatesSupported = !!onSaveLineupTemplate && !!onApplyLineupTemplate;
+  const isTeamArchived = team.status === "archived";
+  const templateWritesBlockedReason = !isOnline
+    ? "You're offline. Reconnect to use templates."
+    : isTeamArchived
+      ? "This team is archived. Templates are read-only."
+      : null;
+  const applyBlockedReason =
+    templateWritesBlockedReason ??
+    (planner.isDirty
+      ? "Save or discard your unsaved plan changes before applying a template."
+      : players.length === 0 || positions.length === 0
+        ? "Roster and positions are still loading."
+        : null);
+  const saveTemplateDisabledReason =
+    templateWritesBlockedReason ??
+    (planner.isDirty
+      ? "Save your plan changes first."
+      : !gamePlan || planner.draft.startingLineup.size === 0
+        ? "Set a starting lineup and save the plan first."
+        : null);
+
+  const handleSubmitTemplate = async (name: string) => {
+    if (!templateModal) return;
+    if (templateModal.mode === "save") {
+      await onSaveLineupTemplate?.(
+        serializePlanToTemplate({
+          name,
+          formationId: team.formationId,
+          startingLineup: planner.draft.startingLineup,
+          effectiveHalftimeLineup,
+          positionIds: positions.map((p) => p.id),
+        })
+      );
+      showSuccess("Template saved");
+    } else {
+      await onRenameLineupTemplate?.(templateModal.template.id, name);
+    }
+  };
+
+  const handleDeleteTemplate = async (template: LineupTemplate) => {
+    const confirmed = await confirm({
+      title: "Delete Template?",
+      message: `Delete "${template.name}"? Games that already loaded it are not affected. This cannot be undone.`,
+      confirmText: "Delete",
+      variant: "danger",
+    });
+    if (!confirmed) return;
+    try {
+      await onDeleteLineupTemplate?.(template.id);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : "Failed to delete template");
+    }
+  };
+
+  const handleApplyTemplate = async (_template: LineupTemplate, mapped: TemplateMapResult) => {
+    if (!onApplyLineupTemplate) return;
+    if (gamePlan) {
+      const confirmed = await confirm({
+        title: "Replace Existing Plan?",
+        message: "This will replace your starting and halftime lineups and clear all rotation substitutions. This cannot be undone.",
+        confirmText: "Replace",
+        variant: "warning",
+      });
+      if (!confirmed) return;
+    }
+    setIsApplyingTemplate(true);
+    try {
+      await onApplyLineupTemplate({
+        startingLineup: mapped.startingLineup,
+        halftimeLineup: mapped.halftimeLineup,
+      });
+      setSkippedTemplateSlots(mapped.skipped.length > 0 ? mapped.skipped : null);
+      showSuccess("Lineup applied. Rotations cleared \u2014 tap Generate Rotations.");
+      onCloseCopyModal?.();
+    } catch (error) {
+      showError(error instanceof Error ? error.message : "Failed to apply template");
+    } finally {
+      setIsApplyingTemplate(false);
+    }
+  };
 
   const rotationRowsForLineup = useMemo(
     () =>
@@ -1138,12 +1258,34 @@ export function PlanTab({
           {!readOnly && onOpenCopyModal && (
             <button
               type="button"
-              onClick={onOpenCopyModal}
+              onClick={() => {
+                setCopyModalTab("games");
+                onOpenCopyModal();
+              }}
               disabled={isCopyingPlan || isRecalculating}
               className="btn-secondary plan-tab__generate-btn"
             >
-              Copy from game
+              Load plan
             </button>
+          )}
+
+          {!readOnly && templatesSupported && (
+            <>
+              <button
+                type="button"
+                onClick={() => setTemplateModal({ mode: "save" })}
+                disabled={!!saveTemplateDisabledReason || isRecalculating}
+                aria-describedby={saveTemplateDisabledReason ? "save-template-hint" : undefined}
+                className="btn-secondary plan-tab__generate-btn"
+              >
+                Save as template
+              </button>
+              {saveTemplateDisabledReason && (
+                <p id="save-template-hint" className="plan-tab__template-hint">
+                  {saveTemplateDisabledReason}
+                </p>
+              )}
+            </>
           )}
 
           {hasNoPlans && (
@@ -1185,6 +1327,7 @@ export function PlanTab({
               <li key={c.playerId}>
                 <strong>{c.playerName}</strong> &mdash; {c.status}
                 {c.type === 'starter' && ' (starting lineup)'}
+                {c.type === 'halftime' && ' (halftime lineup)'}
                 {c.rotationNumbers.length > 0 && ` \u00b7 Rotation${c.rotationNumbers.length > 1 ? 's' : ''} ${c.rotationNumbers.join(', ')}`}
               </li>
             ))}
@@ -1200,6 +1343,28 @@ export function PlanTab({
               {isRecalculating ? '\u23f3 Recalculating...' : '\ud83d\udd04 Recalculate Rotations'}
             </button>
           )}
+        </div>
+      )}
+
+      {skippedTemplateSlots && skippedTemplateSlots.length > 0 && (
+        <div className="plan-conflict-banner" role="status">
+          <h4>Some Template Slots Weren&apos;t Applied</h4>
+          <ul>
+            {skippedTemplateSlots.map((slot, i) => (
+              <li key={`${slot.half}-${slot.positionId}-${i}`}>
+                {slot.half === "starting" ? "Starting lineup" : "Halftime lineup"} &middot;{" "}
+                {positions.find((p) => p.id === slot.positionId)?.abbreviation ?? "Unknown position"} &middot;{" "}
+                {(() => {
+                  const p = players.find((x) => x.id === slot.playerId);
+                  return p ? `${p.firstName} ${p.lastName}` : "Former player";
+                })()}
+                : {SKIP_REASON_LABEL[slot.reason]}
+              </li>
+            ))}
+          </ul>
+          <button type="button" className="btn-secondary" onClick={() => setSkippedTemplateSlots(null)}>
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -1400,19 +1565,59 @@ export function PlanTab({
       {isCopyModalOpen && onCloseCopyModal && (
         <div
           className="modal-overlay"
-          onClick={onCloseCopyModal}
+          onClick={isCopyingPlan || isApplyingTemplate ? undefined : onCloseCopyModal}
           role="dialog"
           aria-modal="true"
           aria-labelledby="copy-plan-modal-title"
-          aria-busy={isCopyingPlan}
+          aria-busy={isCopyingPlan || isApplyingTemplate}
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2 id="copy-plan-modal-title">Copy Plan from Game</h2>
+            <h2 id="copy-plan-modal-title">Load Plan</h2>
+
+            {templatesSupported && (
+              <div className="copy-modal-tabs" role="group" aria-label="Plan source">
+                <button
+                  type="button"
+                  aria-pressed={copyModalTab === "games"}
+                  className={`copy-modal-tab${copyModalTab === "games" ? " is-active" : ""}`}
+                  disabled={isCopyingPlan || isApplyingTemplate}
+                  onClick={() => setCopyModalTab("games")}
+                >
+                  Previous games
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={copyModalTab === "templates"}
+                  className={`copy-modal-tab${copyModalTab === "templates" ? " is-active" : ""}`}
+                  disabled={isCopyingPlan || isApplyingTemplate}
+                  onClick={() => setCopyModalTab("templates")}
+                >
+                  Templates
+                </button>
+              </div>
+            )}
 
             {isCopyingPlan && (
               <p aria-live="polite" className="copy-plan-status">Copying plan\u2026</p>
             )}
 
+            {templatesSupported && copyModalTab === "templates" ? (
+              <LineupTemplatesPanel
+                templates={lineupTemplates}
+                error={lineupTemplatesError}
+                players={players}
+                positions={positions}
+                teamFormationId={team.formationId}
+                applyBlockedReason={applyBlockedReason}
+                canManage={!templateWritesBlockedReason}
+                manageBlockedReason={templateWritesBlockedReason}
+                onRetry={onRefreshLineupTemplates ? () => void onRefreshLineupTemplates() : undefined}
+                isBusy={isApplyingTemplate}
+                onApply={(t, mapped) => void handleApplyTemplate(t, mapped)}
+                onRename={(t) => setTemplateModal({ mode: "rename", template: t })}
+                onDelete={(t) => void handleDeleteTemplate(t)}
+              />
+            ) : (
             <div aria-live="polite">
               {previousGamesWithPlans === undefined ? (
                 <p>Loading games\u2026</p>
@@ -1425,7 +1630,7 @@ export function PlanTab({
                       <button
                         type="button"
                         className="game-option"
-                        disabled={isCopyingPlan}
+                        disabled={isCopyingPlan || isApplyingTemplate}
                         onClick={() => void onCopyFromGame?.(g.id)}
                       >
                         <div className="game-info">
@@ -1440,17 +1645,27 @@ export function PlanTab({
                 </ul>
               )}
             </div>
+            )}
 
             <button
               type="button"
               className="btn-secondary"
               onClick={onCloseCopyModal}
-              disabled={isCopyingPlan}
+              disabled={isCopyingPlan || isApplyingTemplate}
             >
               Cancel
             </button>
           </div>
         </div>
+      )}
+
+      {templateModal && (
+        <SaveTemplateModal
+          mode={templateModal.mode}
+          initialName={templateModal.mode === "rename" ? templateModal.template.name : ""}
+          onSubmit={handleSubmitTemplate}
+          onClose={() => setTemplateModal(null)}
+        />
       )}
     </div>
   );

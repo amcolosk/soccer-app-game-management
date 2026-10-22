@@ -160,6 +160,8 @@ export async function validateShareLinkAndTeam(
   const teamResponse = await docClient.send(new GetCommand({
     TableName: teamTable,
     Key: { id: shareLink.teamId },
+    ProjectionExpression: 'id, #name, coaches, #status',
+    ExpressionAttributeNames: { '#name': 'name', '#status': 'status' },
   }));
   const team = teamResponse.Item as TeamRecord | undefined;
   if (!team) {

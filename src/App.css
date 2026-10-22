@@ -8993,3 +8993,128 @@
   font-weight: 700;
   color: var(--text-primary);
 }
+
+/* Lineup templates (Plan tab) */
+.plan-tab__template-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.copy-modal-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.copy-modal-tab {
+  flex: 1;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  background: var(--card-background);
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.copy-modal-tab.is-active {
+  border-color: var(--primary-green);
+  background: var(--light-green);
+}
+
+.lineup-template-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.lineup-template-row__select {
+  width: 100%;
+  min-height: 44px;
+}
+
+.lineup-template-row__select.is-selected {
+  border-color: var(--primary-green);
+  background: var(--light-green);
+}
+
+.lineup-template-row__select.is-other-formation {
+  border-style: dashed;
+}
+
+.lineup-template-row__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.lineup-template-row__actions .btn-secondary {
+  flex: 1;
+  min-height: 44px;
+}
+
+.lineup-template-row__delete {
+  color: var(--danger-red);
+}
+
+.lineup-templates:focus {
+  outline: none;
+}
+
+.lineup-templates__error {
+  color: var(--danger-red);
+}
+
+.lineup-templates__error p {
+  margin: 0 0 0.5rem;
+}
+
+.template-preview {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.template-preview h3 {
+  margin: 0 0 0.5rem;
+}
+
+.template-preview__heading {
+  margin: 0.5rem 0 0.25rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.template-preview__list {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.template-preview__warning,
+.template-preview__note {
+  color: var(--text-primary);
+  border-left: 3px solid var(--color-strategy);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.9rem;
+}
+
+.template-preview .btn-primary,
+.template-preview .btn-secondary {
+  min-height: 44px;
+}
+
+.save-template-modal__hint {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.save-template-modal__error {
+  color: var(--danger-red);
+}

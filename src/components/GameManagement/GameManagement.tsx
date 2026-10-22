@@ -30,6 +30,14 @@ import { useGameSubscriptions } from "./hooks/useGameSubscriptions";
 import { useGameTimer } from "./hooks/useGameTimer";
 import { computePlannerRemoteFingerprint } from "./hooks/useGamePlanner";
 import { listAll } from "../../utils/listAll";
+import { useLineupTemplates } from "./hooks/useLineupTemplates";
+import { assertMutationResult } from "../../services/amplifyMutationResult";
+import {
+  mergeHalftimeLineup,
+  parseHalftimeLineup,
+  serializeHalftimeLineup,
+} from "../../utils/halftimeProjectionUtils";
+import { computeLineupAtRotation } from "../../utils/gamePlannerUtils";
 import { CommandBand } from "./CommandBand";
 import { TabNav, type GameTab } from "./TabNav";
 import { BenchTab } from "./BenchTab";
@@ -370,6 +378,8 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
   const [previousGamesWithPlans, setPreviousGamesWithPlans] = useState<PreviousGameSummary[] | null>(null);
   const [isCopyingPlan, setIsCopyingPlan] = useState(false);
+  const lineupTemplates = useLineupTemplates(team.id);
+  const refreshLineupTemplates = lineupTemplates.refresh;
 
   // Optimistic overlay ids pending backend confirmation (to avoid flicker on add)
   const [optimisticAddIds, setOptimisticAddIds] = useState<Set<string>>(new Set());
@@ -861,7 +871,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   // Detect conflicts between current availability and the rotation plan
   const getPlanConflicts = () => {
     const conflicts: Array<{
-      type: 'starter' | 'rotation' | 'on-field';
+      type: 'starter' | 'rotation' | 'on-field' | 'halftime';
       playerId: string;
       playerName: string;
       status: string;
@@ -917,6 +927,46 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                 });
               }
             }
+          }
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
+    // Check the effective halftime lineup (end of first half plus explicit overrides).
+    // Only meaningful before halftime: once the second half starts the live lineup is authoritative.
+    const canCheckHalftime =
+      gameState.status === 'scheduled' ||
+      (gameState.status === 'in-progress' && (gameState.currentHalf ?? 1) === 1);
+    if (canCheckHalftime && gamePlan.startingLineup) {
+      try {
+        const startingEntries = JSON.parse(gamePlan.startingLineup as string) as Array<{ playerId: string; positionId: string }>;
+        const startingMap = new Map(startingEntries.map(e => [e.positionId, e.playerId]));
+        const firstHalfRows = plannedRotations
+          .filter(r => r.half === 1)
+          .sort((a, b) => (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0))
+          .map(r => ({
+            rotationNumber: r.rotationNumber ?? 0,
+            plannedSubstitutions: (r.plannedSubstitutions as string) ?? '[]',
+          }));
+        const endOfFirstHalf = firstHalfRows.length > 0
+          ? computeLineupAtRotation(startingMap, firstHalfRows, firstHalfRows[firstHalfRows.length - 1].rotationNumber)
+          : startingMap;
+        const halftimeLineup = mergeHalftimeLineup(
+          endOfFirstHalf,
+          parseHalftimeLineup(gamePlan.halftimeLineup as string | null | undefined)
+        );
+        for (const playerId of halftimeLineup.values()) {
+          if (!playerId || conflicts.some(c => c.playerId === playerId)) continue;
+          const status = getPlayerAvailability(playerId);
+          if (status === 'absent' || status === 'injured') {
+            const player = players.find(p => p.id === playerId);
+            conflicts.push({
+              type: 'halftime',
+              playerId,
+              playerName: player ? `#${player.playerNumber} ${player.firstName} ${player.lastName}` : 'Unknown',
+              status,
+              rotationNumbers: [],
+            });
           }
         }
       } catch { /* ignore parse errors */ }
@@ -1173,6 +1223,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     if (gameState.status !== 'scheduled') return;
     setPreviousGamesWithPlans(null); // null = loading state
     setIsCopyModalOpen(true);
+    void refreshLineupTemplates();
     try {
       const [gamesResult, plansResult] = await Promise.all([
         client.models.Game.list({ filter: { teamId: { eq: team.id } } }),
@@ -1200,9 +1251,9 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       setPreviousGamesWithPlans(previous);
     } catch (error) {
       handleApiError(error, 'Failed to load previous games');
-      setIsCopyModalOpen(false);
+      setPreviousGamesWithPlans([]);
     }
-  }, [gameState.status, team.id, game.id]);
+  }, [gameState.status, team.id, game.id, refreshLineupTemplates]);
 
   const handleCopyFromGame = useCallback(async (sourceGameId: string) => {
     if (gameState.status !== 'scheduled') return;
@@ -1266,6 +1317,97 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       setIsCopyingPlan(false);
     }
   }, [gameState.status, gamePlan, game.id, team.coaches, userId, confirm]);
+
+  const handleApplyLineupTemplate = useCallback(async (applied: {
+    startingLineup: Map<string, string>;
+    halftimeLineup: Map<string, string> | null;
+  }) => {
+    if (gameState.status !== 'scheduled') {
+      throw new Error('Templates can only be applied before the game starts.');
+    }
+    const freshGame = await client.models.Game.get({ id: game.id });
+    if ((freshGame?.data as Game | null)?.status !== 'scheduled') {
+      throw new Error('The game has already started.');
+    }
+
+    // The gamePlan prop can lag a plan created moments ago, so decide update vs create from a fresh read.
+    const existingPlans = await listAll<import('./types').GamePlan>(client.models.GamePlan, { gameId: { eq: game.id } });
+    const existingPlan = existingPlans[0] ?? null;
+
+    const startingLineupStr = JSON.stringify(
+      Array.from(applied.startingLineup.entries()).map(([positionId, playerId]) => ({ playerId, positionId }))
+    );
+    const halftimeLineupStr = serializeHalftimeLineup(applied.halftimeLineup ?? new Map());
+
+    let planId: string;
+    if (existingPlan) {
+      assertMutationResult(
+        await client.models.GamePlan.update({
+          id: existingPlan.id,
+          startingLineup: startingLineupStr,
+          halftimeLineup: halftimeLineupStr,
+          totalRotations: 0,
+        }),
+        'Failed to apply template'
+      );
+      planId = existingPlan.id;
+    } else {
+      let coachId = userId;
+      if (!coachId) {
+        try {
+          coachId = (await getCurrentUser()).userId;
+        } catch {
+          coachId = '';
+        }
+      }
+      const coaches = Array.from(new Set([...(team.coaches ?? []), coachId].filter(Boolean))) as string[];
+      const created = assertMutationResult(
+        await client.models.GamePlan.create({
+          gameId: game.id,
+          rotationIntervalMinutes: 10,
+          totalRotations: 0,
+          startingLineup: startingLineupStr,
+          halftimeLineup: halftimeLineupStr,
+          coaches,
+        } as Parameters<typeof client.models.GamePlan.create>[0]),
+        'Failed to apply template'
+      );
+      planId = created.id;
+
+      let writeConfirmed = false;
+      for (let i = 0; i < 5; i++) {
+        await new Promise(resolve => setTimeout(resolve, 400));
+        const check = await listAll<import('./types').GamePlan>(client.models.GamePlan, { gameId: { eq: game.id } });
+        if (check.some(p => p.id === planId)) {
+          writeConfirmed = true;
+          break;
+        }
+      }
+      if (!writeConfirmed) {
+        throw new Error('The lineup was saved but may not have loaded yet. Refresh and check the plan.');
+      }
+    }
+
+    // Rotations were derived from the old lineups; clear their substitutions but keep the rows so the
+    // schedule (and its ids) stay valid for Generate Rotations.
+    try {
+      const rotations = await listAll<PlannedRotation>(client.models.PlannedRotation, { gamePlanId: { eq: planId } });
+      const stale = rotations.filter(r => (r.plannedSubstitutions as string | null) !== '[]');
+      const results = await Promise.allSettled(
+        stale.map(async r =>
+          assertMutationResult(
+            await client.models.PlannedRotation.update({ id: r.id, plannedSubstitutions: '[]' }),
+            'rotation clear failed'
+          )
+        )
+      );
+      if (results.some(r => r.status === 'rejected')) throw new Error('rotation clear failed');
+    } catch {
+      throw new Error('The lineups were applied, but clearing the old rotations failed. Apply the template again to finish.');
+    }
+
+    trackEvent(AnalyticsEvents.LOAD_LINEUP_TEMPLATE.category, AnalyticsEvents.LOAD_LINEUP_TEMPLATE.action);
+  }, [gameState.status, game.id, team.coaches, userId]);
 
   const handleOpenEditGame = useCallback(() => {
     setEditGameOpponent(game.opponent ?? '');
@@ -2531,6 +2673,17 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                     onCloseCopyModal={() => setIsCopyModalOpen(false)}
                     onCopyFromGame={handleCopyFromGame}
                     isCopyingPlan={isCopyingPlan}
+                    isOnline={isOnline}
+                    lineupTemplates={lineupTemplates.templates}
+                    lineupTemplatesError={lineupTemplates.loadError}
+                    onRefreshLineupTemplates={lineupTemplates.refresh}
+                    onSaveLineupTemplate={async (input) => {
+                      await lineupTemplates.saveTemplate(input);
+                      trackEvent(AnalyticsEvents.SAVE_LINEUP_TEMPLATE.category, AnalyticsEvents.SAVE_LINEUP_TEMPLATE.action);
+                    }}
+                    onRenameLineupTemplate={lineupTemplates.renameTemplate}
+                    onDeleteLineupTemplate={lineupTemplates.deleteTemplate}
+                    onApplyLineupTemplate={handleApplyLineupTemplate}
                     {...sharedLineupPanelProps}
                   />
                 )}

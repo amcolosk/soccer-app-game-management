@@ -98,6 +98,8 @@ High-frequency in-game actions tracked separately from coarse game lifecycle eve
 | `Plan Saved` | — | Game plan saved/updated |
 | `Auto-Generate Rotations` | — | Rotation algorithm executed |
 | `Copy Plan From Game` | — | Plan copied from a previous game |
+| `Save Lineup Template` | — | Starting + halftime lineup saved as a team template |
+| `Load Lineup Template` | — | Lineup template applied to a game's plan |
 
 ### Category: `Availability`
 
@@ -179,6 +181,8 @@ High-frequency in-game actions tracked separately from coarse game lifecycle eve
 | GamePlanner → Plan Saved | ✅ Implemented |
 | GamePlanner → Auto-Generate Rotations | ✅ Implemented |
 | GamePlanner → Copy Plan From Game | ✅ Implemented |
+| GamePlanner → Save Lineup Template | ✅ Implemented |
+| GamePlanner → Load Lineup Template | ✅ Implemented |
 | Availability → Mark Player | ✅ Implemented |
 | Team → Delete Team | ✅ Implemented |
 | Player → Add Player to Roster | ✅ Implemented |

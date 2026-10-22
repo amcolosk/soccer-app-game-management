@@ -139,6 +139,16 @@ describe("GameTimer", () => {
       expect(screen.getByText(/absent/)).toBeInTheDocument();
     });
 
+    it("labels a halftime-lineup conflict", () => {
+      const conflicts = [
+        { type: "halftime" as const, playerId: "p1", playerName: "#10 Alice", status: "absent", rotationNumbers: [] },
+      ];
+      render(
+        <GameTimer {...defaultProps} gamePlan={{ id: "gp1" } as any} getPlanConflicts={() => conflicts} />
+      );
+      expect(screen.getByText(/\(halftime lineup\)/)).toBeInTheDocument();
+    });
+
     it("does not show conflict banner when no conflicts", () => {
       render(
         <GameTimer {...defaultProps} gamePlan={{ id: "gp1" } as any} getPlanConflicts={() => []} />

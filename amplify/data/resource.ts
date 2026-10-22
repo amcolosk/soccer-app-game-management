@@ -105,6 +105,9 @@ const schema = a.schema({
       calendarFeedHost: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]), // display-only hostname, e.g. "calendar.playmetrics.com" -- never the full URL
       calendarFeedLastSyncedAt: a.datetime().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
       calendarFeedLastError: a.string().authorization((allow) => [allow.ownersDefinedIn('coaches').to(['read'])]),
+      // Saved lineup templates (starting + halftime lineups), a JSON array of at most 10.
+      // Inherits the model-level coach grant, so no Lambda needs to maintain access.
+      lineupTemplates: a.json(),
     })
     .authorization((allow) => [
       // Delete is intentionally disallowed on the model. Use deleteTeamSafe.

@@ -1355,8 +1355,8 @@ describe("PlanTab", () => {
     });
   });
 
-  describe("Copy from game button", () => {
-    it("renders 'Copy from game' button when onOpenCopyModal is provided and not readOnly", () => {
+  describe("Load plan button", () => {
+    it("renders 'Load plan' button when onOpenCopyModal is provided and not readOnly", () => {
       const onOpenCopyModal = vi.fn();
       render(
         <PlanTab
@@ -1364,10 +1364,10 @@ describe("PlanTab", () => {
           onOpenCopyModal={onOpenCopyModal}
         />
       );
-      expect(screen.getByRole("button", { name: /copy from game/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /load plan/i })).toBeInTheDocument();
     });
 
-    it("does not render 'Copy from game' button when readOnly is true", () => {
+    it("does not render 'Load plan' button when readOnly is true", () => {
       render(
         <PlanTab
           {...defaultProps}
@@ -1376,15 +1376,15 @@ describe("PlanTab", () => {
           onOpenCopyModal={vi.fn()}
         />
       );
-      expect(screen.queryByRole("button", { name: /copy from game/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /load plan/i })).not.toBeInTheDocument();
     });
 
-    it("does not render 'Copy from game' button when onOpenCopyModal is not provided", () => {
+    it("does not render 'Load plan' button when onOpenCopyModal is not provided", () => {
       render(<PlanTab {...defaultProps} />);
-      expect(screen.queryByRole("button", { name: /copy from game/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /load plan/i })).not.toBeInTheDocument();
     });
 
-    it("'Copy from game' button is disabled when isCopyingPlan is true", () => {
+    it("'Load plan' button is disabled when isCopyingPlan is true", () => {
       render(
         <PlanTab
           {...defaultProps}
@@ -1392,7 +1392,202 @@ describe("PlanTab", () => {
           isCopyingPlan={true}
         />
       );
-      expect(screen.getByRole("button", { name: /copy from game/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /load plan/i })).toBeDisabled();
+    });
+  });
+
+  describe("Lineup templates", () => {
+    const template = (overrides: Record<string, unknown> = {}) => ({
+      id: "tpl-1",
+      name: "Standard",
+      formationId: "form-1",
+      startingLineup: [
+        { positionId: "pos-1", playerId: "player-1" },
+        { positionId: "pos-2", playerId: "player-2" },
+      ],
+      halftimeLineup: [
+        { positionId: "pos-1", playerId: "player-3" },
+        { positionId: "pos-2", playerId: "" },
+      ],
+      savedAt: "2026-10-22T00:00:00.000Z",
+      updatedAt: "2026-10-22T00:00:00.000Z",
+      ...overrides,
+    });
+
+    const templateProps = (extra: Record<string, unknown> = {}) => ({
+      ...defaultProps,
+      team: { ...mockTeam, formationId: "form-1" } as Team,
+      onOpenCopyModal: vi.fn(),
+      onCloseCopyModal: vi.fn(),
+      isCopyModalOpen: true,
+      lineupTemplates: [template()],
+      onSaveLineupTemplate: vi.fn().mockResolvedValue(undefined),
+      onRenameLineupTemplate: vi.fn().mockResolvedValue(undefined),
+      onDeleteLineupTemplate: vi.fn().mockResolvedValue(undefined),
+      onApplyLineupTemplate: vi.fn().mockResolvedValue(undefined),
+      ...extra,
+    });
+
+    const openTemplatesTab = () => fireEvent.click(screen.getByRole("button", { name: /^templates$/i }));
+
+    it("saves the starting lineup and the full effective halftime lineup under the typed name", async () => {
+      const props = templateProps({ isCopyModalOpen: false });
+      render(<PlanTab {...props} />);
+      fireEvent.click(screen.getByRole("button", { name: /save as template/i }));
+      fireEvent.change(screen.getByLabelText("Template name"), { target: { value: "My lineup" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(props.onSaveLineupTemplate).toHaveBeenCalledTimes(1));
+      const input = props.onSaveLineupTemplate.mock.calls[0][0];
+      expect(input.name).toBe("My lineup");
+      expect(input.formationId).toBe("form-1");
+      expect(input.startingLineup).toEqual([
+        { positionId: "pos-1", playerId: "player-1" },
+        { positionId: "pos-2", playerId: "player-2" },
+      ]);
+      // Player 3 rotates in at pos-1 during the first half, so the saved halftime lineup must include them.
+      expect(input.halftimeLineup).toEqual([
+        { positionId: "pos-1", playerId: "player-3" },
+        { positionId: "pos-2", playerId: "player-2" },
+      ]);
+    });
+
+    it("disables Save as template while the planner has unsaved edits", () => {
+      (useGamePlanner as any).mockReturnValue({ ...mockPlannerResult, isDirty: true });
+      render(<PlanTab {...templateProps({ isCopyModalOpen: false })} />);
+      expect(screen.getByRole("button", { name: /save as template/i })).toBeDisabled();
+    });
+
+    it("disables Save as template when no plan exists yet", () => {
+      render(<PlanTab {...templateProps({ isCopyModalOpen: false, gamePlan: null, plannedRotations: [] })} />);
+      expect(screen.getByRole("button", { name: /save as template/i })).toBeDisabled();
+    });
+
+    it("hides template actions when readOnly", () => {
+      render(
+        <PlanTab
+          {...templateProps({ isCopyModalOpen: false, readOnly: true, game: { ...mockGame, status: "in-progress" } })}
+        />
+      );
+      expect(screen.queryByRole("button", { name: /save as template/i })).not.toBeInTheDocument();
+    });
+
+    it("shows the empty state on the Templates tab", () => {
+      render(<PlanTab {...templateProps({ lineupTemplates: [] })} />);
+      openTemplatesTab();
+      expect(screen.getByText(/no saved templates yet/i)).toBeInTheDocument();
+    });
+
+    it("loads previous games and templates independently (games failure does not hide templates)", () => {
+      render(<PlanTab {...templateProps({ previousGamesWithPlans: [] })} />);
+      expect(screen.getByText(/no other games with plans/i)).toBeInTheDocument();
+      openTemplatesTab();
+      expect(screen.getByText("Standard")).toBeInTheDocument();
+    });
+
+    it("confirms before replacing an existing plan, then applies mapped lineups", async () => {
+      const props = templateProps();
+      render(<PlanTab {...props} />);
+      openTemplatesTab();
+      fireEvent.click(screen.getByRole("button", { name: /^standard/i }));
+      fireEvent.click(screen.getByRole("button", { name: /apply template/i }));
+
+      await waitFor(() => expect(props.onApplyLineupTemplate).toHaveBeenCalledTimes(1));
+      expect(mockConfirm).toHaveBeenCalledOnce();
+      const applied = props.onApplyLineupTemplate.mock.calls[0][0];
+      expect([...applied.startingLineup.entries()]).toEqual([
+        ["pos-1", "player-1"],
+        ["pos-2", "player-2"],
+      ]);
+      expect(applied.halftimeLineup.get("pos-1")).toBe("player-3");
+      expect(applied.halftimeLineup.get("pos-2")).toBe("");
+    });
+
+    it("does not call apply when the replace confirmation is declined", async () => {
+      mockConfirm.mockResolvedValueOnce(false);
+      const props = templateProps();
+      render(<PlanTab {...props} />);
+      openTemplatesTab();
+      fireEvent.click(screen.getByRole("button", { name: /^standard/i }));
+      fireEvent.click(screen.getByRole("button", { name: /apply template/i }));
+      await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+      expect(props.onApplyLineupTemplate).not.toHaveBeenCalled();
+    });
+
+    it("applies without a confirmation when no plan exists", async () => {
+      const props = templateProps({ gamePlan: null, plannedRotations: [] });
+      render(<PlanTab {...props} />);
+      openTemplatesTab();
+      fireEvent.click(screen.getByRole("button", { name: /^standard/i }));
+      fireEvent.click(screen.getByRole("button", { name: /apply template/i }));
+      await waitFor(() => expect(props.onApplyLineupTemplate).toHaveBeenCalled());
+      expect(mockConfirm).not.toHaveBeenCalled();
+    });
+
+    it("blocks Apply while the planner has unsaved edits", () => {
+      (useGamePlanner as any).mockReturnValue({ ...mockPlannerResult, isDirty: true });
+      render(<PlanTab {...templateProps()} />);
+      openTemplatesTab();
+      fireEvent.click(screen.getByRole("button", { name: /^standard/i }));
+      expect(screen.getByRole("button", { name: /apply template/i })).toBeDisabled();
+      expect(screen.getByText(/unsaved plan changes/i)).toBeInTheDocument();
+    });
+
+    it("blocks Apply while offline", () => {
+      render(<PlanTab {...templateProps({ isOnline: false })} />);
+      openTemplatesTab();
+      fireEvent.click(screen.getByRole("button", { name: /^standard/i }));
+      expect(screen.getByRole("button", { name: /apply template/i })).toBeDisabled();
+    });
+
+    it("blocks Apply for a template saved under a different formation", () => {
+      render(<PlanTab {...templateProps({ lineupTemplates: [template({ formationId: "other-form" })] })} />);
+      openTemplatesTab();
+      fireEvent.click(screen.getByRole("button", { name: /^standard/i }));
+      expect(screen.getByRole("button", { name: /apply template/i })).toBeDisabled();
+      expect(screen.getByText(/different formation/i, { selector: "p" })).toBeInTheDocument();
+    });
+
+    it("blocks Apply until roster and positions have loaded", () => {
+      render(<PlanTab {...templateProps({ players: [] })} />);
+      openTemplatesTab();
+      fireEvent.click(screen.getByRole("button", { name: /^standard/i }));
+      expect(screen.getByRole("button", { name: /apply template/i })).toBeDisabled();
+    });
+
+    it("lists skipped slots after applying a template with a removed player", async () => {
+      const props = templateProps({
+        lineupTemplates: [
+          template({
+            startingLineup: [
+              { positionId: "pos-1", playerId: "player-1" },
+              { positionId: "pos-2", playerId: "gone-player" },
+            ],
+          }),
+        ],
+        isCopyModalOpen: true,
+      });
+      const { rerender } = render(<PlanTab {...props} />);
+      openTemplatesTab();
+      fireEvent.click(screen.getByRole("button", { name: /^standard/i }));
+      fireEvent.click(screen.getByRole("button", { name: /apply template/i }));
+      await waitFor(() => expect(props.onApplyLineupTemplate).toHaveBeenCalled());
+      rerender(<PlanTab {...props} isCopyModalOpen={false} />);
+      expect(await screen.findByText(/player is no longer on the roster/i)).toBeInTheDocument();
+      expect(screen.getByText(/former player/i)).toBeInTheDocument();
+    });
+
+    it("renames and deletes from the inline row actions", async () => {
+      const props = templateProps();
+      render(<PlanTab {...props} />);
+      openTemplatesTab();
+      fireEvent.click(screen.getByRole("button", { name: /^delete standard/i }));
+      await waitFor(() => expect(props.onDeleteLineupTemplate).toHaveBeenCalledWith("tpl-1"));
+
+      fireEvent.click(screen.getByRole("button", { name: /^rename standard/i }));
+      fireEvent.change(screen.getByLabelText("Template name"), { target: { value: "Renamed" } });
+      fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+      await waitFor(() => expect(props.onRenameLineupTemplate).toHaveBeenCalledWith("tpl-1", "Renamed"));
     });
   });
 
