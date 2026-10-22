@@ -123,7 +123,8 @@ Global player pool — players are not scoped to a team, they're shared via `Tea
 #### **TeamRoster**
 Junction table linking a `Player` to a `Team` with team-specific data.
 - `teamId`, `playerId`: ID (FKs)
-- `playerNumber`: Int — jersey number
+- `playerNumber`: Int (optional) — jersey number; required in the UI except for guests
+- `isGuest`: Boolean (default false) — guest-ness is per team, so it lives here rather than on `Player`; existing rows read back `null`, normalize with `?? false`
 - `preferredPositions`: String — comma-separated `FieldPosition` IDs
 - `isActive`: Boolean
 - `coaches`: String[]
@@ -530,7 +531,7 @@ Every model carries a `coaches: string[]` field. This enables Amplify's `ownersD
 This separation allows formation templates to be shared and reused while giving each team control over their actual playing positions.
 
 ### 3. Global Player Pool
-Players are global entities linked to teams via `TeamRoster`. A player can appear on multiple teams without duplication. Team-specific data (jersey number, preferred positions) lives on the `TeamRoster` record.
+Players are global entities linked to teams via `TeamRoster`. A player can appear on multiple teams without duplication. Team-specific data (jersey number, preferred positions, guest flag) lives on the `TeamRoster` record. Guest players are created through `src/services/rosterService.ts` (`createPlayerOnRoster`): `Player.coaches` is the team's coaches plus the creator, and a failed `TeamRoster` create rolls back via `deletePlayerCascade`.
 
 ### 4. Client-Side Timer
 The game timer runs client-side and syncs to DynamoDB periodically:

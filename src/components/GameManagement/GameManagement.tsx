@@ -61,6 +61,9 @@ import type { GameManagementDebugContext } from "../../types/debug";
 import { useWakeLock } from "../../hooks/useWakeLock";
 import { useGameNotification } from "../../hooks/useGameNotification";
 import { formatJerseyPrefix } from "../../utils/playerUtils";
+import { createPlayerOnRoster, parseOptionalPlayerNumbers, RosterValidationError } from "../../services/rosterService";
+import { AddGuestPlayerModal } from "./AddGuestPlayerModal";
+import type { GuestPlayerFieldValues } from "../guestPlayerFieldValues";
 
 // Used only for planning operations (PlannedRotation.update) — not live-game mutations.
 const client = generateClient<Schema>();
@@ -369,6 +372,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
 
   // Copy-from-game state
   const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
+  const [isAddGuestModalOpen, setIsAddGuestModalOpen] = useState(false);
   const [previousGamesWithPlans, setPreviousGamesWithPlans] = useState<PreviousGameSummary[] | null>(null);
   const [isCopyingPlan, setIsCopyingPlan] = useState(false);
 
@@ -2322,7 +2326,55 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     </div>
   );
 
+  const handleAddGuestPlayer = async (values: GuestPlayerFieldValues): Promise<boolean> => {
+    if (!userId) {
+      showError('User not authenticated');
+      return false;
+    }
+    try {
+      const { birthYear, jerseyNumber } = parseOptionalPlayerNumbers(values);
+      await createPlayerOnRoster({
+        team,
+        currentUserId: userId,
+        firstName: values.firstName,
+        lastName: values.lastName,
+        birthYear,
+        jerseyNumber,
+        preferredPositionIds: values.preferredPositionIds,
+        isGuest: true,
+        existingNumbers: players.flatMap(p => (p.playerNumber != null ? [p.playerNumber] : [])),
+      });
+    } catch (error) {
+      if (error instanceof RosterValidationError) {
+        showWarning(error.message);
+      } else {
+        handleApiError(error, 'Failed to add guest player');
+      }
+      return false;
+    }
+    trackEvent(AnalyticsEvents.GUEST_PLAYER_ADDED.category, AnalyticsEvents.GUEST_PLAYER_ADDED.action);
+    if (plannedRotations.length > 0) {
+      showWarning('Guest player added. Recalculate rotations to include them.');
+    } else {
+      showSuccess('Guest player added');
+    }
+    return true;
+  };
+
+  // Only offered pregame: the two-step Player + TeamRoster create can't be queued offline.
+  const guestPlayerAction = gameState.status === 'scheduled'
+    ? {
+        onOpen: () => setIsAddGuestModalOpen(true),
+        disabledReason: !isOnline
+          ? 'Reconnect to add a guest player'
+          : !userId
+            ? 'Loading your account…'
+            : undefined,
+      }
+    : undefined;
+
   const sharedLineupPanelProps = {
+    guestPlayerAction,
     gameState,
     game,
     team,
@@ -2968,6 +3020,13 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
             </div>
           </div>
         )}
+
+        <AddGuestPlayerModal
+          isOpen={isAddGuestModalOpen}
+          positions={positions}
+          onClose={() => setIsAddGuestModalOpen(false)}
+          onSubmit={handleAddGuestPlayer}
+        />
 
         <CreateEditNoteModal
           isOpen={isPreGameNoteModalOpen}

@@ -226,29 +226,46 @@ export function teamFormReducer(state: TeamFormState, action: TeamFormAction): T
 // Roster Form Reducer
 // ============================================================
 
+type RosterAddMode = 'existing' | 'guest';
+
 export interface RosterFormState {
   isAdding: boolean;
+  /** 'existing' picks a player already in the pool; 'guest' creates a new guest player. */
+  mode: RosterAddMode;
   editing: TeamRoster | null;
   selectedPlayer: string;
+  /** Existing-player mode only: flag the roster entry as a guest (jersey number becomes optional). */
+  markExistingAsGuest: boolean;
+  /** Shared by both add modes and the edit form (raw string; '' = no number). */
   playerNumber: string;
   preferredPositions: string[];
+  guestFirstName: string;
+  guestLastName: string;
+  guestBirthYear: string;
   editFirstName: string;
   editLastName: string;
 }
 
 export type RosterFormAction =
   | { type: 'START_ADD' }
-  | { type: 'SET_FIELD'; field: 'selectedPlayer' | 'playerNumber' | 'editFirstName' | 'editLastName'; value: string }
+  | { type: 'SET_MODE'; mode: RosterAddMode }
+  | { type: 'SET_MARK_EXISTING_AS_GUEST'; value: boolean }
+  | { type: 'SET_FIELD'; field: 'selectedPlayer' | 'playerNumber' | 'editFirstName' | 'editLastName' | 'guestFirstName' | 'guestLastName' | 'guestBirthYear'; value: string }
   | { type: 'SET_PREFERRED_POSITIONS'; positions: string[] }
   | { type: 'EDIT_ROSTER'; roster: TeamRoster; firstName: string; lastName: string }
   | { type: 'RESET' };
 
 export const initialRosterForm: RosterFormState = {
   isAdding: false,
+  mode: 'existing',
   editing: null,
   selectedPlayer: '',
+  markExistingAsGuest: false,
   playerNumber: '',
   preferredPositions: [],
+  guestFirstName: '',
+  guestLastName: '',
+  guestBirthYear: '',
   editFirstName: '',
   editLastName: '',
 };
@@ -257,15 +274,19 @@ export function rosterFormReducer(state: RosterFormState, action: RosterFormActi
   switch (action.type) {
     case 'START_ADD':
       return { ...initialRosterForm, isAdding: true };
+    case 'SET_MODE':
+      // Switching modes drops the other mode's fields so no stale hidden state gets submitted.
+      return { ...initialRosterForm, isAdding: true, mode: action.mode };
+    case 'SET_MARK_EXISTING_AS_GUEST':
+      return { ...state, markExistingAsGuest: action.value };
     case 'SET_FIELD':
       return { ...state, [action.field]: action.value };
     case 'SET_PREFERRED_POSITIONS':
       return { ...state, preferredPositions: action.positions };
     case 'EDIT_ROSTER':
       return {
-        isAdding: false,
+        ...initialRosterForm,
         editing: action.roster,
-        selectedPlayer: '',
         playerNumber: action.roster.playerNumber?.toString() || '',
         preferredPositions: action.roster.preferredPositions ? action.roster.preferredPositions.split(', ') : [],
         editFirstName: action.firstName,

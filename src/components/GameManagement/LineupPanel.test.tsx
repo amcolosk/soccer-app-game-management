@@ -973,4 +973,15 @@ describe('LineupPanel', () => {
     );
     expect(defaultProps.mutations.createSubstitution).not.toHaveBeenCalled();
   });
+
+  it('shows Add Guest Player in the header when interactive and hides it when read-only', async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    const { rerender } = render(<LineupPanel {...defaultProps} guestPlayerAction={{ onOpen }} />);
+    await user.click(screen.getByRole('button', { name: '+ Add Guest Player' }));
+    expect(onOpen).toHaveBeenCalledOnce();
+
+    rerender(<LineupPanel {...defaultProps} isReadOnly guestPlayerAction={{ onOpen }} />);
+    expect(screen.queryByRole('button', { name: '+ Add Guest Player' })).not.toBeInTheDocument();
+  });
 });

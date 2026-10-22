@@ -18,6 +18,17 @@ export function parseBirthYear(raw: string): number | undefined | null {
   return n;
 }
 
+/**
+ * Parses a raw jersey-number string.
+ * Returns: the parsed number | undefined (blank input) | null (invalid input — not an integer 1-99)
+ */
+export function parseJerseyNumber(raw: string): number | undefined | null {
+  if (!raw.trim()) return undefined;
+  const n = Number(raw);
+  if (!isValidPlayerNumber(n)) return null;
+  return n;
+}
+
 // ---------------------------------------------------------------------------
 // Team Form
 // ---------------------------------------------------------------------------

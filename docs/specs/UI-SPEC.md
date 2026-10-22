@@ -193,6 +193,8 @@ Inline pill badges on game cards:
 | halftime | `⏸️ Halftime` | Amber pill |
 | completed | `✅ Completed` | Gray pill |
 
+**Guest badge.** `GuestBadge` renders `.status-badge.status-badge--guest`, a neutral pill (`--hover-background` fill, `--text-secondary` text, `--border-color` border; note `.status-badge.unavailable` has no real color of its own). In space-constrained chips (`PlannerLineupView` bench/assigned chips, Management position tags) it renders as a compact "G" mark with a screen-reader-only "Guest" label. In `BenchTab` the badge order is Guest, Injured, status message. Guest players are added from Manage ▸ roster ("New guest player" mode or "Mark as guest" on an existing player) and from the pregame lineup (Field tab header, Plan tab next to "Starting Formation"), the latter only while the game is `scheduled`, not read-only, and online. A player without a jersey number shows no `#` and sorts last; the completed play-time summary shows "—".
+
 `ShotSaveTracker`'s per-row shot-outcome badge (Goal/Saved/Blocked/Wide, §7.4/§13.2) reuses this same inline-pill visual language (`.status-badge`-style sizing/shape) with its own color coding rather than introducing a new badge shape — green for Goal, blue for Saved, gray/neutral for Blocked and Wide.
 
 ---

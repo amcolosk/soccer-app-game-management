@@ -30,6 +30,7 @@ export const AnalyticsEvents = {
   // Player
   PLAYER_ADDED: { category: 'Player', action: 'Add Player' },
   PLAYER_ADDED_TO_ROSTER: { category: 'Player', action: 'Add Player to Roster' },
+  GUEST_PLAYER_ADDED: { category: 'Player', action: 'Add Guest Player' },
   PLAYER_DELETED: { category: 'Player', action: 'Delete Player' },
 
   // Formation

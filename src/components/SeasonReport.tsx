@@ -5,6 +5,7 @@ import type { Team, Player, TeamRoster, Goal, GameNote, PlayTimeRecord, Game, Sa
 import { handleApiError } from "../utils/errorHandler";
 import { trackEvent, AnalyticsEvents } from "../utils/analytics";
 import { sortRosterByNumber, formatJerseyPrefix } from "../utils/playerUtils";
+import { GuestBadge } from "./GuestBadge";
 import {
   calculatePlayerPlayTime,
   calculatePlayTimeByPosition,
@@ -783,6 +784,7 @@ export function TeamReport({ team }: TeamReportProps) {
                 <td className="player-name">
                   {formatJerseyPrefix(stat.roster.playerNumber)}
                   {stat.player.firstName} {stat.player.lastName}
+                  {stat.roster.isGuest && <> <GuestBadge /></>}
                 </td>
                 <td>{stat.gamesPlayed}</td>
                 <td>{formatPlayTime(stat.totalPlayTimeSeconds, 'long')}</td>
@@ -887,6 +889,7 @@ export function TeamReport({ team }: TeamReportProps) {
                 <h2>
                   {selectedPlayer.firstName} {selectedPlayer.lastName} 
                   {selectedRoster?.playerNumber != null && ` #${selectedRoster.playerNumber}`}
+                  {selectedRoster?.isGuest && <> <GuestBadge /></>}
                 </h2>
                 <button
                   onClick={() => {

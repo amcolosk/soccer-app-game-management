@@ -688,4 +688,10 @@ describe("BenchTab — late arrival", () => {
     await user.click(screen.getByRole("button", { name: /Cancel/i }));
     expect(screen.queryByRole("heading", { name: /Add Late Arrival/i })).not.toBeInTheDocument();
   });
+
+  it("shows the Guest badge for guest players on the bench", () => {
+    const players = [{ ...makePlayer("p1", 7, "Alice"), isGuest: true }, makePlayer("p2", 8, "Bob")];
+    render(<BenchTab {...defaultProps} players={players as any} />);
+    expect(screen.getAllByText("Guest")).toHaveLength(1);
+  });
 });

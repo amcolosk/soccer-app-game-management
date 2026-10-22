@@ -21,6 +21,7 @@ import type {
   PlayerAvailability,
 } from "./types";
 import { formatJerseyPrefix, formatJerseyNumber } from "../../utils/playerUtils";
+import { GuestBadge } from "../GuestBadge";
 
 interface BenchTabProps {
   players: PlayerWithRoster[];
@@ -405,6 +406,7 @@ export function BenchTab({
                         </span>
                       </div>
                       <div className="bench-tab__player-meta">
+                        {player.isGuest && <GuestBadge />}
                         {isInjured && <span className="status-badge unavailable">Injured</span>}
                         {rowStatusMessage && (
                           <span className="status-badge">{rowStatusMessage}</span>
@@ -428,6 +430,7 @@ export function BenchTab({
                         </span>
                       </div>
                       <div className="bench-tab__player-meta">
+                        {player.isGuest && <GuestBadge />}
                         {isInjured && <span className="status-badge unavailable">Injured</span>}
                         {rowStatusMessage && (
                           <span className="status-badge">{rowStatusMessage}</span>
