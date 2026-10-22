@@ -4,7 +4,7 @@ import type { Schema } from "../../amplify/data/resource";
 import type { Team, Player, TeamRoster, Goal, GameNote, PlayTimeRecord, Game, Save, Shot } from '../types/schema';
 import { handleApiError } from "../utils/errorHandler";
 import { trackEvent, AnalyticsEvents } from "../utils/analytics";
-import { sortRosterByNumber } from "../utils/playerUtils";
+import { sortRosterByNumber, formatJerseyPrefix } from "../utils/playerUtils";
 import {
   calculatePlayerPlayTime,
   calculatePlayTimeByPosition,
@@ -781,7 +781,7 @@ export function TeamReport({ team }: TeamReportProps) {
                 className={`clickable-row ${selectedPlayer?.id === stat.player.id ? 'selected' : ''}`}
               >
                 <td className="player-name">
-                  {stat.roster.playerNumber !== undefined ? `#${stat.roster.playerNumber} ` : ''}
+                  {formatJerseyPrefix(stat.roster.playerNumber)}
                   {stat.player.firstName} {stat.player.lastName}
                 </td>
                 <td>{stat.gamesPlayed}</td>
@@ -886,7 +886,7 @@ export function TeamReport({ team }: TeamReportProps) {
               <div className="details-header">
                 <h2>
                   {selectedPlayer.firstName} {selectedPlayer.lastName} 
-                  {selectedRoster?.playerNumber !== undefined && ` #${selectedRoster.playerNumber}`}
+                  {selectedRoster?.playerNumber != null && ` #${selectedRoster.playerNumber}`}
                 </h2>
                 <button
                   onClick={() => {

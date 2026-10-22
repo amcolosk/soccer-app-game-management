@@ -16,6 +16,7 @@ import type {
   LineupAssignment,
   Team,
 } from "./types";
+import { formatJerseyNumber } from "../../utils/playerUtils";
 
 export interface PlannerLineupViewProps {
   /** Planner lineup: positionId → playerId (empty string or missing = unassigned) */
@@ -326,7 +327,7 @@ export function PlannerLineupView({
                       onDragStart={() => handleDragStart(assignedPlayer.id, pos.id)}
                       onDragEnd={clearDragSource}
                     >
-                      <span className="player-number">#{assignedPlayer.playerNumber || 0}</span>
+                      <span className="player-number">{formatJerseyNumber(assignedPlayer.playerNumber)}</span>
                       <span className="player-name-short">{getPlayerDisplayName(assignedPlayer)}</span>
                       {!isReadOnly && (
                         <button
@@ -405,7 +406,7 @@ export function PlannerLineupView({
                       onDragStart={() => handleDragStart(player.id, null)}
                       onDragEnd={clearDragSource}
                     >
-                      <span className="player-number">#{player.playerNumber || 0}</span>
+                      <span className="player-number">{formatJerseyNumber(player.playerNumber)}</span>
                       <span className="player-name">
                         {getPlayerDisplayName(player)}
                         {preferredPositions ? (

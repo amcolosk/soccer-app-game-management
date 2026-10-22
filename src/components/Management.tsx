@@ -41,6 +41,7 @@ import type { ManagementDebugContext } from '../types/debug';
 import { FormationVisualEditor } from './FormationVisualEditor';
 import { CalendarFeedSettings } from './CalendarFeedSettings';
 import type { DraftPosition } from './FormationVisualEditor';
+import { formatJerseyPrefix, formatJerseyNumber } from "../utils/playerUtils";
 
 const client = generateClient<Schema>();
 
@@ -1371,7 +1372,7 @@ export function Management() {
                                         if (!player) return null;
                                         return (
                                           <div key={roster.id} className="position-player-tag">
-                                            <span>#{roster.playerNumber} {player.firstName} {player.lastName}</span>
+                                            <span>{formatJerseyPrefix(roster.playerNumber)}{player.firstName} {player.lastName}</span>
                                             <button
                                               type="button"
                                               onClick={() => handleTogglePlayerPosition(roster.id, position.id, false)}
@@ -1401,7 +1402,7 @@ export function Management() {
                                         if (!player) return null;
                                         return (
                                           <option key={roster.id} value={roster.id}>
-                                            #{roster.playerNumber} {player.firstName} {player.lastName}
+                                            {formatJerseyPrefix(roster.playerNumber)}{player.firstName} {player.lastName}
                                           </option>
                                         );
                                       })}
@@ -1605,7 +1606,7 @@ export function Management() {
                                   borderRadius: '4px'
                                 }}>
                                   <span>
-                                    #{roster.playerNumber} {player.firstName} {player.lastName}
+                                    {formatJerseyPrefix(roster.playerNumber)}{player.firstName} {player.lastName}
                                   </span>
                                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                                     <button
@@ -1999,7 +2000,7 @@ export function Management() {
                 const playerRosters = teamRosters.filter(r => r.playerId === player.id);
                 const teamsList = playerRosters.map(r => {
                   const team = teams.find(t => t.id === r.teamId);
-                  return team ? `${team.name} #${r.playerNumber}` : '';
+                  return team ? `${team.name} ${formatJerseyNumber(r.playerNumber)}`.trim() : '';
                 }).filter(Boolean).join(', ');
                 const isSwiped = swipedItemId === player.id;
                 const isEditing = playerForm.editing?.id === player.id;

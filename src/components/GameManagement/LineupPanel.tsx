@@ -25,6 +25,7 @@ import type {
   LineupAssignment,
   PlayTimeRecord,
 } from "./types";
+import { formatJerseyPrefix, formatJerseyNumber } from "../../utils/playerUtils";
 
 interface LineupPanelProps {
   gameState: Game;
@@ -598,7 +599,7 @@ export function LineupPanel({
                     {assignedPlayer ? (
                       <div className="assigned-player-slot">
                         <div className="assigned-player">
-                          <span className="player-number-small">#{assignedPlayer.playerNumber}</span>
+                          <span className="player-number-small">{formatJerseyNumber(assignedPlayer.playerNumber)}</span>
                           <span className="player-name-small">
                             {assignedPlayer.firstName} {assignedPlayer.lastName}
                           </span>
@@ -668,7 +669,7 @@ export function LineupPanel({
                         className={`player-card ${isInteractive ? 'clickable' : ''} ${inLineup ? 'in-lineup' : ''} ${playing ? 'currently-playing' : ''}`}
                         onClick={isInteractive ? () => handlePlayerClick(player) : undefined}
                       >
-                        <div className="player-number">#{player.playerNumber}</div>
+                        <div className="player-number">{formatJerseyNumber(player.playerNumber)}</div>
                         <div className="player-info">
                           <h3>{player.firstName} {player.lastName}</h3>
                           {assignedPosition && (
@@ -717,7 +718,7 @@ export function LineupPanel({
                     </div>
                     {occupied && (
                       <div className="occupied-by">
-                        #{occupied.playerNumber} {occupied.firstName}
+                        {formatJerseyPrefix(occupied.playerNumber)}{occupied.firstName}
                       </div>
                     )}
                   </button>

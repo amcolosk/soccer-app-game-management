@@ -60,6 +60,7 @@ import { isSubEffectivelyExecuted } from "../../utils/rotationConflictUtils";
 import type { GameManagementDebugContext } from "../../types/debug";
 import { useWakeLock } from "../../hooks/useWakeLock";
 import { useGameNotification } from "../../hooks/useGameNotification";
+import { formatJerseyPrefix } from "../../utils/playerUtils";
 
 // Used only for planning operations (PlannedRotation.update) — not live-game mutations.
 const client = generateClient<Schema>();
@@ -881,7 +882,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
             conflicts.push({
               type: 'starter',
               playerId: entry.playerId,
-              playerName: player ? `#${player.playerNumber} ${player.firstName} ${player.lastName}` : 'Unknown',
+              playerName: player ? `${formatJerseyPrefix(player.playerNumber)}${player.firstName} ${player.lastName}` : 'Unknown',
               status,
               rotationNumbers: [],
             });
@@ -911,7 +912,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                 conflicts.push({
                   type: 'rotation',
                   playerId: pid,
-                  playerName: player ? `#${player.playerNumber} ${player.firstName} ${player.lastName}` : 'Unknown',
+                  playerName: player ? `${formatJerseyPrefix(player.playerNumber)}${player.firstName} ${player.lastName}` : 'Unknown',
                   status,
                   rotationNumbers: [rotation.rotationNumber],
                 });
@@ -945,7 +946,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                   type: 'on-field',
                   playerId: sub.playerInId,
                   playerName: player
-                    ? `#${player.playerNumber} ${player.firstName} ${player.lastName}`
+                    ? `${formatJerseyPrefix(player.playerNumber)}${player.firstName} ${player.lastName}`
                     : 'Unknown',
                   status: 'on-field',
                   rotationNumbers: [rotation.rotationNumber],
@@ -987,7 +988,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         .map(p => ({
           id: p.id,
           playerId: p.id,
-          playerNumber: p.playerNumber || 0,
+          playerNumber: p.playerNumber,
           preferredPositions: p.preferredPositions,
         }));
 
@@ -1513,7 +1514,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       .map(l => {
         const player = players.find(p => p.id === l.playerId);
         const status = getPlayerAvailability(l.playerId);
-        return player ? `#${player.playerNumber} ${player.firstName} (${status})` : `Unknown (${status})`;
+        return player ? `${formatJerseyPrefix(player.playerNumber)}${player.firstName} (${status})` : `Unknown (${status})`;
       });
 
     if (unavailableStarters.length > 0) {

@@ -21,6 +21,7 @@ import {
 } from "./lineupInteractionAdapter";
 import { exportLineupShapeLocally, type ExportBenchPlayer } from "./exportLineupShape";
 import { SoccerPitchSurface } from "../../shared/SoccerPitchSurface";
+import { formatJerseyPrefix } from "../../../utils/playerUtils";
 
 interface LineupShapeViewProps {
   gameState: Game;
@@ -500,7 +501,7 @@ export function LineupShapeView({
               : false;
             return (
               <li key={player.id} className="lineup-shape-view__bench-item">
-                <span>#{player.playerNumber ?? "?"} {player.firstName} {player.lastName}</span>
+                <span>{formatJerseyPrefix(player.playerNumber)}{player.firstName} {player.lastName}</span>
                 <span>{formatPlayTime(playTimeSeconds, "short")}</span>
                 {preferred && <span className="lineup-shape-view__bench-fit">Fit</span>}
               </li>
@@ -542,7 +543,7 @@ export function LineupShapeView({
                       onClick={() => void handleQuickReplacePlayer(player.id)}
                       disabled={quickReplaceStatus === "loading"}
                     >
-                      <span className="lineup-shape-view__quick-replace-player">#{player.playerNumber ?? "?"} {player.firstName} {player.lastName}</span>
+                      <span className="lineup-shape-view__quick-replace-player">{formatJerseyPrefix(player.playerNumber)}{player.firstName} {player.lastName}</span>
                       <span className="lineup-shape-view__quick-replace-meta">{formatPlayTime(playTimeSeconds, "short")}</span>
                       {preferred && <span className="lineup-shape-view__bench-fit">Fit</span>}
                     </button>

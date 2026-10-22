@@ -77,7 +77,7 @@ export function useTeamData(teamId: string, formationId: string | null | undefin
                   if (!player) return null;
                   return {
                     ...player,
-                    playerNumber: roster.playerNumber,
+                    playerNumber: roster.playerNumber ?? undefined,
                     preferredPositions: roster.preferredPositions || undefined,
                   };
                 })

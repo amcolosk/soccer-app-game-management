@@ -7,6 +7,7 @@ import { formatPlayTime } from '../../utils/playTimeCalculations';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { TrackerFieldLineup } from './TrackerFieldLineup';
 import './FanMode.css';
+import { formatJerseyPrefix } from "../../utils/playerUtils";
 
 // Public, unauthenticated screen (`/track/:token`) — a non-coach helper's
 // sideline stat-entry page. Polls `getStatTrackerView` on the same
@@ -588,7 +589,7 @@ export function StatTrackerView() {
           <ul className="fan-mode-lineup__grid">
             {benchRoster.map((player) => (
               <li key={player.id} className="fan-mode-lineup__player">
-                <span className="fan-mode-lineup__name">#{player.playerNumber ?? '?'} {player.firstName} {player.lastName}</span>
+                <span className="fan-mode-lineup__name">{formatJerseyPrefix(player.playerNumber)}{player.firstName} {player.lastName}</span>
               </li>
             ))}
           </ul>
@@ -799,7 +800,7 @@ function PlayerPickerStep({
         onClick={() => onChoose(player.id)}
         disabled={isSubmitting}
       >
-        #{player.playerNumber ?? '?'} {player.firstName} {player.lastName}
+        {formatJerseyPrefix(player.playerNumber)}{player.firstName} {player.lastName}
       </button>
     );
   }
