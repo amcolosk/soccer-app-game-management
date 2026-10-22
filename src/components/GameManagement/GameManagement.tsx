@@ -2331,6 +2331,12 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       showError('User not authenticated');
       return false;
     }
+    // The opener is gated at render time, but the modal can outlive that state
+    // (connection drops, co-coach starts the game).
+    if (!isOnline || gameState.status !== 'scheduled') {
+      showWarning(!isOnline ? 'Reconnect to add a guest player' : 'Guest players can only be added before the game starts');
+      return false;
+    }
     try {
       const { birthYear, jerseyNumber } = parseOptionalPlayerNumbers(values);
       await createPlayerOnRoster({
