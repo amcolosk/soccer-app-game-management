@@ -583,9 +583,18 @@ Three numeric steppers inside the setup card, arranged in two rows:
 | `+` / `−` active | `--primary-green`, white icon |
 | Label | `--text-secondary` |
 
+#### Lineup templates (scheduled games)
+
+- **Save as template** (secondary button, Plan tab, `!readOnly` only): disabled with a one-line hint while the planner has unsaved edits, no plan exists yet, offline, or the team is archived. Opens a name modal (1-60 chars enforced by `maxLength`, placeholder "e.g. 2-3-1 standard"; validation errors keep the Save label and set `aria-invalid`/`aria-describedby`, and only a failed save changes the button to Retry). The disabled reason is linked with `aria-describedby`. Saves the starting lineup and the full effective halftime lineup; rotations are not saved.
+- **Load plan** (secondary button, replaces "Copy from game"): opens one sheet with two source toggles (`aria-pressed` buttons in a `role="group"`, not a tablist), *Previous games* (existing copy behavior) and *Templates*; the sheet always opens on *Previous games*. The two sources load independently; a failure loading games does not hide templates.
+- **Templates tab**: rows sorted by most recently updated; selecting a row shows a read-only preview (position abbreviation + player) and warnings. Each row shows inline Rename and Delete buttons (44px targets, no popover, so nothing is clipped by the scrolling list). Delete confirms and then parks focus on the panel; Rename reuses the name modal, which returns focus to the opener on close. When offline or on an archived team the buttons are replaced by a one-line reason. A load failure shows the error with a Retry button instead of the empty state.
+- **Apply template**: disabled (with the reason shown) while the planner has unsaved edits, offline, archived team, roster/positions not loaded, template saved for a different formation, or none of its starters are on the roster. If a plan exists the standard "Replace Existing Plan?" confirmation appears and states that rotation substitutions will be cleared. On success a toast reads "Lineup applied. Rotations cleared - tap Generate Rotations." and any slots that could not be applied (player no longer on the roster, position missing, duplicate player) are listed (position, player name or "Former player", reason) in a dismissible banner. Informational warnings use the primary text colour with a left accent border; red is reserved for errors.
+- Plan Conflicts also flags unavailable players in the effective halftime lineup, labelled "(halftime lineup)", before halftime only.
+
 #### Empty States
 | Condition | Message |
 |-----------|---------|
+| No saved templates | "No saved templates yet. Save your first one from this Plan tab." |
 | No players available | "Mark players as available above to generate a rotation plan." |
 | No plan generated | "Tap 'Auto-Generate' to create a balanced rotation, or build one manually." |
 

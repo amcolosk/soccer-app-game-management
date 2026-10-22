@@ -62,6 +62,8 @@ export const AnalyticsEvents = {
   PLAN_SAVED: { category: 'GamePlanner', action: 'Plan Saved' },
   AUTO_GENERATE_ROTATIONS: { category: 'GamePlanner', action: 'Auto-Generate Rotations' },
   COPY_PLAN_FROM_GAME: { category: 'GamePlanner', action: 'Copy Plan From Game' },
+  SAVE_LINEUP_TEMPLATE: { category: 'GamePlanner', action: 'Save Lineup Template' },
+  LOAD_LINEUP_TEMPLATE: { category: 'GamePlanner', action: 'Load Lineup Template' },
 
   // Player availability
   AVAILABILITY_MARKED: { category: 'Availability', action: 'Mark Player' },

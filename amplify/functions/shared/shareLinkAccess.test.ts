@@ -56,6 +56,23 @@ describe('validateShareLinkAndTeam', () => {
     expect(result).toEqual({ ok: false, reason: 'INVALID_LINK' });
   });
 
+  it('reads only the Team fields it needs, so lineup templates stored on Team are never loaded per poll', async () => {
+    const send = vi.fn(async (command: { input?: Record<string, unknown> }) => {
+      if (command.input?.TableName === 'ShareLinkTable') {
+        return { Item: { token: 't1', teamId: 'team-1', type: 'FAN' } };
+      }
+      return { Item: { id: 'team-1', name: 'Eagles', coaches: ['c1'], status: 'active' } };
+    });
+    const docClient = { send } as unknown as FakeDocClient;
+    const result = await validateShareLinkAndTeam(docClient, 'ShareLinkTable', 'TeamTable', 't1', 'FAN');
+    expect(result.ok).toBe(true);
+    const teamCall = send.mock.calls
+      .map(([cmd]) => cmd.input as Record<string, unknown>)
+      .find((input) => input.TableName === 'TeamTable');
+    expect(teamCall?.ProjectionExpression).toBe('id, #name, coaches, #status');
+    expect(teamCall?.ExpressionAttributeNames).toEqual({ '#name': 'name', '#status': 'status' });
+  });
+
   it('rejects a revoked token', async () => {
     const docClient = makeDocClient((cmd) => {
       if (cmd.input?.TableName === 'ShareLinkTable') {

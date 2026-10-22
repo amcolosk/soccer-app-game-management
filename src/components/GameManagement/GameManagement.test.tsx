@@ -39,6 +39,9 @@ const {
   mockPlannedRotationUpdate,
   mockPlannedRotationDelete,
   mockPlannedRotationList,
+  mockGamePlanList,
+  mockGamePlanCreate,
+  mockGamePlanUpdate,
 } = vi.hoisted(() => ({
   mockLineupDelete:      vi.fn().mockResolvedValue({}),
   mockLineupCreate:      vi.fn().mockResolvedValue({ data: { id: "la-new" } }),
@@ -61,6 +64,9 @@ const {
   mockPlannedRotationUpdate: vi.fn().mockResolvedValue({ data: {} }),
   mockPlannedRotationDelete: vi.fn().mockResolvedValue({ data: {} }),
   mockPlannedRotationList: vi.fn().mockResolvedValue({ data: [] }),
+  mockGamePlanList: vi.fn().mockResolvedValue({ data: [] }),
+  mockGamePlanCreate: vi.fn().mockResolvedValue({ data: { id: 'plan-new' } }),
+  mockGamePlanUpdate: vi.fn().mockResolvedValue({ data: { id: 'plan-1' } }),
 }));
 
 const { mockConfirm } = vi.hoisted(() => ({
@@ -80,6 +86,11 @@ vi.mock("aws-amplify/data", () => ({
       PlayTimeRecord: {
         create: mockPlayTimeCreate,
         list:   mockPlayTimeList,
+      },
+      GamePlan: {
+        list: mockGamePlanList,
+        create: mockGamePlanCreate,
+        update: mockGamePlanUpdate,
       },
       PlannedRotation: {
         create: mockPlannedRotationCreate,
@@ -269,6 +280,8 @@ vi.mock("../../utils/analytics", () => ({
     TIMER_GAP_ADJUSTED: { category: "GameDay", action: "Timer Gap Adjusted" },
     ROTATION_RECALCULATED: { category: "GameDay", action: "Rotation Recalculated" },
     ROTATION_WIDGET_OPENED: { category: "GameDay", action: "Rotation Widget Opened" },
+    SAVE_LINEUP_TEMPLATE: { category: "GamePlanner", action: "Save Lineup Template" },
+    LOAD_LINEUP_TEMPLATE: { category: "GamePlanner", action: "Load Lineup Template" },
   },
 }));
 vi.mock("../../utils/toast", () => ({
@@ -3699,5 +3712,181 @@ describe("GameManagement – Goals/Shots/Saves segmented control", () => {
     expect(screen.queryByRole("tablist", { name: "Goals sub-view" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("goal-tracker")).not.toBeInTheDocument();
     expect(screen.queryByTestId(/shot-save-tracker/)).not.toBeInTheDocument();
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Lineup templates: halftime conflicts and applyLineupTemplate
+// ---------------------------------------------------------------------------
+describe("GameManagement – lineup templates", () => {
+  const players = [
+    { id: 'p-start', playerNumber: 1, firstName: 'Sam', lastName: 'Start' },
+    { id: 'p-in', playerNumber: 2, firstName: 'Ria', lastName: 'Rotated' },
+    { id: 'p-ht', playerNumber: 3, firstName: 'Hal', lastName: 'Halftime' },
+  ];
+  const startingLineup = JSON.stringify([{ positionId: 'pos1', playerId: 'p-start' }]);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCaptures.planTabProps = undefined;
+    mockUseTeamData.mockReturnValue({ players, positions: [] });
+    mockGameGet.mockResolvedValue({ data: { id: 'game-1', status: 'scheduled' } });
+    mockGamePlanList.mockResolvedValue({ data: [] });
+    mockGamePlanUpdate.mockResolvedValue({ data: { id: 'plan-1' } });
+    mockGamePlanCreate.mockResolvedValue({ data: { id: 'plan-new' } });
+    mockPlannedRotationList.mockResolvedValue({ data: [] });
+    mockPlannedRotationUpdate.mockResolvedValue({ data: {} });
+  });
+
+  const renderScheduled = (overrides: Record<string, unknown> = {}) => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled' },
+      ...overrides,
+    });
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+  };
+
+  it("flags an unavailable player who is only in the halftime lineup as a 'halftime' conflict", () => {
+    renderScheduled({
+      gamePlan: { id: 'plan-1', rotationIntervalMinutes: 10, startingLineup, halftimeLineup: JSON.stringify([{ positionId: 'pos1', playerId: 'p-ht' }]) },
+      playerAvailabilities: [{ id: 'a', playerId: 'p-ht', status: 'absent', gameId: 'game-1' }],
+    });
+    const conflicts = mockCaptures.planTabProps?.planConflicts;
+    expect(conflicts).toEqual([expect.objectContaining({ type: 'halftime', playerId: 'p-ht', status: 'absent' })]);
+  });
+
+  it("evaluates the effective halftime lineup, including players rotated in during the first half", () => {
+    renderScheduled({
+      gamePlan: { id: 'plan-1', rotationIntervalMinutes: 10, startingLineup, halftimeLineup: '[]' },
+      plannedRotations: [
+        {
+          id: 'r1', rotationNumber: 1, gameMinute: 10, half: 1,
+          plannedSubstitutions: JSON.stringify([{ playerOutId: 'p-start', playerInId: 'p-in', positionId: 'pos1' }]),
+        },
+      ],
+      playerAvailabilities: [{ id: 'a', playerId: 'p-in', status: 'injured', gameId: 'game-1' }],
+    });
+    const conflicts = mockCaptures.planTabProps?.planConflicts as any[];
+    expect(conflicts.filter(c => c.playerId === 'p-in')).toHaveLength(1);
+  });
+
+  it("does not duplicate a player already flagged as a starter", () => {
+    renderScheduled({
+      gamePlan: { id: 'plan-1', rotationIntervalMinutes: 10, startingLineup, halftimeLineup: '[]' },
+      playerAvailabilities: [{ id: 'a', playerId: 'p-start', status: 'absent', gameId: 'game-1' }],
+    });
+    const conflicts = mockCaptures.planTabProps?.planConflicts as any[];
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].type).toBe('starter');
+  });
+
+  it("ignores halftime conflicts once the second half has started", () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'in-progress', currentHalf: 2 },
+      gamePlan: { id: 'plan-1', rotationIntervalMinutes: 10, startingLineup, halftimeLineup: JSON.stringify([{ positionId: 'pos1', playerId: 'p-ht' }]) } as any,
+      playerAvailabilities: [{ id: 'a', playerId: 'p-ht', status: 'absent', gameId: 'game-1' }],
+    });
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'in-progress' }} team={mockTeam} onBack={vi.fn()} />);
+    const conflicts = mockCaptures.rotationWidgetProps?.getPlanConflicts?.() as any[];
+    expect(conflicts.find(c => c.type === 'halftime')).toBeUndefined();
+  });
+
+  const applied = () => ({
+    startingLineup: new Map([['pos1', 'p-start']]),
+    halftimeLineup: new Map([['pos1', 'p-ht'], ['pos2', '']]),
+  });
+
+  it("apply updates the existing GamePlan once with both lineups and clears rotation substitutions without deleting rows", async () => {
+    renderScheduled({ gamePlan: { id: 'plan-1', rotationIntervalMinutes: 15, startingLineup: '[]' } });
+    mockGamePlanList.mockResolvedValue({ data: [{ id: 'plan-1', gameId: 'game-1' }] });
+    mockPlannedRotationList.mockResolvedValue({
+      data: [
+        { id: 'r1', plannedSubstitutions: JSON.stringify([{ playerOutId: 'a', playerInId: 'b', positionId: 'pos1' }]) },
+        { id: 'r2', plannedSubstitutions: '[]' },
+      ],
+    });
+
+    await act(async () => { await mockCaptures.planTabProps.onApplyLineupTemplate(applied()); });
+
+    expect(mockGamePlanCreate).not.toHaveBeenCalled();
+    expect(mockGamePlanUpdate).toHaveBeenCalledTimes(1);
+    const update = mockGamePlanUpdate.mock.calls[0][0];
+    expect(update.id).toBe('plan-1');
+    expect(update).not.toHaveProperty('rotationIntervalMinutes');
+    expect(update.totalRotations).toBe(0);
+    expect(JSON.parse(update.startingLineup)).toEqual([{ playerId: 'p-start', positionId: 'pos1' }]);
+    expect(JSON.parse(update.halftimeLineup)).toEqual([
+      { playerId: 'p-ht', positionId: 'pos1' },
+      { playerId: '', positionId: 'pos2' },
+    ]);
+    expect(mockPlannedRotationUpdate).toHaveBeenCalledTimes(1);
+    expect(mockPlannedRotationUpdate).toHaveBeenCalledWith({ id: 'r1', plannedSubstitutions: '[]' });
+    expect(mockPlannedRotationDelete).not.toHaveBeenCalled();
+    // Plan write happens before the rotation clear.
+    expect(mockGamePlanUpdate.mock.invocationCallOrder[0]).toBeLessThan(mockPlannedRotationUpdate.mock.invocationCallOrder[0]);
+  });
+
+  it("apply creates exactly one GamePlan from a fresh read when the gamePlan prop is stale, with team coaches", async () => {
+    renderScheduled({ gamePlan: null });
+    mockGamePlanList
+      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValue({ data: [{ id: 'plan-new', gameId: 'game-1' }] });
+
+    await act(async () => { await mockCaptures.planTabProps.onApplyLineupTemplate(applied()); });
+
+    expect(mockGamePlanUpdate).not.toHaveBeenCalled();
+    expect(mockGamePlanCreate).toHaveBeenCalledTimes(1);
+    const created = mockGamePlanCreate.mock.calls[0][0];
+    expect(created.gameId).toBe('game-1');
+    expect(created.coaches).toEqual(expect.arrayContaining(['coach-1']));
+  });
+
+  it("apply updates (never creates) when the prop is stale but a fresh read finds the plan", async () => {
+    renderScheduled({ gamePlan: null });
+    mockGamePlanList.mockResolvedValue({ data: [{ id: 'plan-1', gameId: 'game-1' }] });
+    await act(async () => { await mockCaptures.planTabProps.onApplyLineupTemplate(applied()); });
+    expect(mockGamePlanCreate).not.toHaveBeenCalled();
+    expect(mockGamePlanUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("apply rejects without writing when the game is no longer scheduled", async () => {
+    renderScheduled({ gamePlan: { id: 'plan-1', rotationIntervalMinutes: 10, startingLineup: '[]' } });
+    mockGameGet.mockResolvedValue({ data: { id: 'game-1', status: 'in-progress' } });
+    await expect(
+      act(async () => { await mockCaptures.planTabProps.onApplyLineupTemplate(applied()); })
+    ).rejects.toThrow(/already started/i);
+    expect(mockGamePlanUpdate).not.toHaveBeenCalled();
+    expect(mockGamePlanCreate).not.toHaveBeenCalled();
+  });
+
+  it("apply reports a retryable partial failure when clearing rotations fails after the plan write", async () => {
+    renderScheduled({ gamePlan: { id: 'plan-1', rotationIntervalMinutes: 10, startingLineup: '[]' } });
+    mockGamePlanList.mockResolvedValue({ data: [{ id: 'plan-1', gameId: 'game-1' }] });
+    mockPlannedRotationList.mockResolvedValue({
+      data: [{ id: 'r1', plannedSubstitutions: JSON.stringify([{ playerOutId: 'a', playerInId: 'b', positionId: 'pos1' }]) }],
+    });
+    mockPlannedRotationUpdate.mockRejectedValue(new Error('network'));
+
+    await expect(
+      act(async () => { await mockCaptures.planTabProps.onApplyLineupTemplate(applied()); })
+    ).rejects.toThrow(/apply the template again/i);
+    expect(mockGamePlanUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("apply treats a rotation update that resolves with errors as a retryable partial failure", async () => {
+    renderScheduled({ gamePlan: { id: 'plan-1', rotationIntervalMinutes: 10, startingLineup: '[]' } });
+    mockGamePlanList.mockResolvedValue({ data: [{ id: 'plan-1', gameId: 'game-1' }] });
+    mockPlannedRotationList.mockResolvedValue({
+      data: [{ id: 'r1', plannedSubstitutions: JSON.stringify([{ playerOutId: 'a', playerInId: 'b', positionId: 'pos1' }]) }],
+    });
+    mockPlannedRotationUpdate.mockResolvedValue({ data: null, errors: [{ message: 'Unauthorized' }] });
+
+    await expect(
+      act(async () => { await mockCaptures.planTabProps.onApplyLineupTemplate(applied()); })
+    ).rejects.toThrow(/apply the template again/i);
+    expect(mockGamePlanUpdate).toHaveBeenCalledTimes(1);
   });
 });

@@ -560,6 +560,18 @@ describe('submit-stat-event handler', () => {
       expect(dedupStore.get(key)?.status).toBe('succeeded');
     });
 
+    it('the resume-time Team re-read projects only coaches', async () => {
+      mockHappyPathSend();
+      mockSaveCreate.mockRejectedValueOnce(new Error('AppSync error'));
+      await invoke(createEvent({ outcome: 'SAVED', forUs: false, keeperPlayerId: 'gk1', clientEventId: 'evt-1' }));
+      await invoke(createEvent({ outcome: 'SAVED', forUs: false, keeperPlayerId: 'gk1', clientEventId: 'evt-1' }));
+
+      const teamReads = mockSend.mock.calls
+        .map(([command]) => command as { __type: string; input: Record<string, unknown> })
+        .filter((command) => command.__type === 'GetCommand' && command.input.TableName === 'TeamTable');
+      expect(teamReads.some((command) => command.input.ProjectionExpression === 'coaches')).toBe(true);
+    });
+
     it('a resumed Save write also succeeds without re-creating the Shot', async () => {
       mockHappyPathSend();
       mockSaveCreate.mockRejectedValueOnce(new Error('AppSync error'));

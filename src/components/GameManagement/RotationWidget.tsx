@@ -30,7 +30,7 @@ interface RotationWidgetProps {
   onRecalculateRotations?: () => void;
   isRecalculating?: boolean;
   getPlanConflicts?: () => Array<{
-    type: 'starter' | 'rotation' | 'on-field';
+    type: 'starter' | 'rotation' | 'on-field' | 'halftime';
     playerId: string;
     playerName: string;
     status: string;

@@ -30,6 +30,7 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 ### Pre-Game Planning
 - **Player Availability**: Mark players as available, absent, or late before each game
 - **Game Planner**: Build a pre-game rotation plan with configurable rotation intervals
+- **Lineup Templates**: Save a plan's starting and halftime lineups as a named team template (up to 10) and load it into any scheduled game; rotations are cleared on load so you can regenerate them
 - **Lineup Builder**: Drag-and-drop interface to assign players to positions for each rotation slot
 - **Fair Rotation Algorithm**: Automatically generate balanced rotation plans that distribute play time equitably based on player availability and preferred positions
 
@@ -148,7 +149,7 @@ npm run lint         # Lint TypeScript/TSX files
 ## Data Model
 
 - **Formation / FormationPosition**: Reusable position templates
-- **Team**: Configuration, formation reference, and coach list
+- **Team**: Configuration, formation reference, coach list, and saved lineup templates (`lineupTemplates` JSON)
 - **Player**: Global player pool (name, birth year, active status)
 - **TeamRoster**: Links players to teams with jersey numbers and preferred positions
 - **PlayerAvailability**: Per-game availability status for each player
