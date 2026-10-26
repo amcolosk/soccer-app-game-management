@@ -33,7 +33,7 @@ export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActio
   const scheduleFocusAfterAction = useCallback((actionId?: GameActionDescriptor['id']) => {
     window.setTimeout(() => {
       const restored = focusInvokingButton();
-      if (actionId === 'delete' && headingIdForDeleteSuccessFocus) {
+      if ((actionId === 'delete' || actionId === 'rescind') && headingIdForDeleteSuccessFocus) {
         if (!restored) {
           document.getElementById(headingIdForDeleteSuccessFocus)?.focus();
           invokingButtonRef.current = null;

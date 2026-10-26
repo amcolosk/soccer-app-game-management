@@ -112,8 +112,9 @@ describe("PlayerNotesPanel red card send-off", () => {
     await fillRedCard(user, "p2");
 
     const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent("leaves the goalkeeper position");
-    expect(dialog).toHaveTextContent("plays a player down");
+    expect(dialog).toHaveTextContent("Goalkeeper sent off: #9 Bea Jones");
+    expect(dialog).toHaveTextContent("Put a field player in goal");
+    expect(dialog).toHaveTextContent("old position will stay empty");
   });
 
   it("tells the coach when the card was recorded but the lineup could not be cleared", async () => {
@@ -179,5 +180,39 @@ describe("PlayerNotesPanel rescind send-off", () => {
   it("does not offer rescind on a yellow card", () => {
     renderPanel({ gameNotes: [{ ...redCard, id: "y", noteType: "yellow-card" }] });
     expect(screen.queryByRole("button", { name: "Rescind send-off" })).not.toBeInTheDocument();
+  });
+});
+
+describe("PlayerNotesPanel send-off guards", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    performSendOff.mockResolvedValue({ vacateFailed: false });
+  });
+
+  it("reports the recorded send-off so the lock applies before the note syncs", async () => {
+    const onSendOffRecorded = vi.fn();
+    const user = userEvent.setup();
+    renderPanel({ onSendOffRecorded });
+    await fillRedCard(user, "p1");
+    await user.click(await screen.findByRole("button", { name: "Send off" }));
+    await waitFor(() => expect(onSendOffRecorded).toHaveBeenCalledWith({ playerId: "p1", positionId: "cb" }));
+  });
+
+  it("refuses to card a player who is already sent off", async () => {
+    const user = userEvent.setup();
+    renderPanel({ sentOffPlayerIds: new Set(["p1"]) });
+    await fillRedCard(user, "p1");
+    await waitFor(() => expect(showWarning).toHaveBeenCalledWith(expect.stringContaining("already been sent off")));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(performSendOff).not.toHaveBeenCalled();
+  });
+
+  it("announces the send-off even when the red card is the first note (live region is always mounted)", async () => {
+    const user = userEvent.setup();
+    const { container } = renderPanel();
+    expect(container.querySelector('[aria-live="polite"].sr-only')).not.toBeNull();
+    await fillRedCard(user, "p1");
+    await user.click(await screen.findByRole("button", { name: "Send off" }));
+    await waitFor(() => expect(container.textContent).toContain("sent off."));
   });
 });

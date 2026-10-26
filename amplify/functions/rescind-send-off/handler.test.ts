@@ -82,4 +82,23 @@ describe('rescind-send-off handler', () => {
     mockTables(undefined);
     await expect(invoke(event())).rejects.toThrow('NOT_FOUND_GAME_NOTE');
   });
+
+  it('maps a lost race (condition check failure) to RULE_ALREADY_RESCINDED instead of a raw DynamoDB error', async () => {
+    mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+      if (command.__type === 'GetCommand') {
+        if (command.input.TableName === 'GameNoteTable') return { Item: { id: 'note-1', gameId: 'game-1', noteType: 'red-card' } };
+        if (command.input.TableName === 'GameTable') return { Item: { id: 'game-1', teamId: 'team-1' } };
+        return { Item: { id: 'team-1', coaches: ['coach-2'] } };
+      }
+      throw Object.assign(new Error('The conditional request failed'), { name: 'ConditionalCheckFailedException' });
+    });
+    await expect(invoke(event())).rejects.toThrow('RULE_ALREADY_RESCINDED');
+  });
+
+  it('treats an explicit stored null rescindedAt as not yet rescinded', async () => {
+    mockTables({ id: 'note-1', gameId: 'game-1', noteType: 'red-card', rescindedAt: null });
+    await expect(invoke(event())).resolves.toMatchObject({ id: 'note-1' });
+    const update = mockSend.mock.calls.find(([c]) => c.__type === 'UpdateCommand')?.[0];
+    expect(update.input.ConditionExpression).toContain('attribute_type(#rescindedAt, :nullType)');
+  });
 });

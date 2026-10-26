@@ -2,6 +2,29 @@ import type { FormationPosition, GameNote } from "../components/GameManagement/t
 
 type SendOffNote = Pick<GameNote, "noteType" | "playerId" | "positionId" | "rescindedAt">;
 
+export interface PendingSendOff {
+  playerId: string;
+  positionId: string | null;
+}
+
+/**
+ * Send-offs this device has recorded whose card note hasn't round-tripped through
+ * the subscription yet (always the case offline). Without them the lock and the
+ * sent-off exclusion would silently not apply until reconnect.
+ */
+export function withPendingSendOffs(
+  notes: readonly SendOffNote[],
+  pending: readonly PendingSendOff[],
+): SendOffNote[] {
+  const cardedPlayerIds = new Set(
+    notes.filter((note) => note.noteType === "red-card" && note.playerId).map((note) => note.playerId as string),
+  );
+  const synthetic = pending
+    .filter((entry) => !cardedPlayerIds.has(entry.playerId))
+    .map((entry) => ({ noteType: "red-card", playerId: entry.playerId, positionId: entry.positionId, rescindedAt: null }) as SendOffNote);
+  return [...notes, ...synthetic];
+}
+
 /** A red card against a specific player that has not been rescinded. */
 export function isActiveSendOff(note: SendOffNote): boolean {
   return note.noteType === "red-card" && !!note.playerId && !note.rescindedAt;

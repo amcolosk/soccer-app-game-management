@@ -215,6 +215,8 @@ gameTable.grantReadData(backend.createGameNote.resources.lambda);
 teamRosterTable.grantReadData(backend.createGameNote.resources.lambda);
 formationPositionTable.grantReadData(backend.createGameNote.resources.lambda);
 backend.createGameNote.addEnvironment('FORMATION_POSITION_TABLE', formationPositionTable.tableName);
+teamTable.grantReadData(backend.createGameNote.resources.lambda);
+backend.createGameNote.addEnvironment('TEAM_TABLE', teamTable.tableName);
 backend.createGameNote.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
 backend.createGameNote.addEnvironment('GAME_TABLE', gameTable.tableName);
 backend.createGameNote.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);

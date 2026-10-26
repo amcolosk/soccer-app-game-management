@@ -146,18 +146,28 @@ export const handler: Handler = async (event) => {
     }
 
     const formationPositionTable = process.env.FORMATION_POSITION_TABLE;
-    if (!formationPositionTable) {
-      throw new Error('Required environment variable FORMATION_POSITION_TABLE is not set');
+    const teamTable = process.env.TEAM_TABLE;
+    if (!formationPositionTable || !teamTable) {
+      throw new Error('Required environment variables FORMATION_POSITION_TABLE and TEAM_TABLE are not set');
     }
+
+    // Authorize against the game's team, not the position's own coaches array: a co-coach
+    // can be missing from a formation's coaches even though they coach the team.
+    const teamResponse = await docClient.send(new GetCommand({
+      TableName: teamTable,
+      Key: { id: game.teamId },
+      ProjectionExpression: 'id, formationId',
+    }));
+    const team = teamResponse.Item as { id: string; formationId?: string | null } | undefined;
 
     const positionResponse = await docClient.send(new GetCommand({
       TableName: formationPositionTable,
       Key: { id: args.positionId },
-      ProjectionExpression: 'id, coaches',
+      ProjectionExpression: 'id, formationId',
     }));
-    const position = positionResponse.Item as { id: string; coaches?: string[] } | undefined;
-    if (!position || !position.coaches?.includes(authorId)) {
-      throw new Error('positionId must be a position the caller can access');
+    const position = positionResponse.Item as { id: string; formationId?: string } | undefined;
+    if (!team?.formationId || !position || position.formationId !== team.formationId) {
+      throw new Error('positionId must be a position in the game team formation');
     }
   }
 

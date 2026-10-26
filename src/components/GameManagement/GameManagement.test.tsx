@@ -3701,3 +3701,112 @@ describe("GameManagement – Goals/Shots/Saves segmented control", () => {
     expect(screen.queryByTestId(/shot-save-tracker/)).not.toBeInTheDocument();
   });
 });
+
+describe("GameManagement – red card send-off enforcement", () => {
+  const redCard = (overrides: Record<string, unknown> = {}) => ({
+    id: "note-red", gameId: "game-1", noteType: "red-card", playerId: "p9", positionId: "pos1",
+    gameSeconds: 600, half: 1, rescindedAt: null, ...overrides,
+  });
+  const defenderPositions = [
+    { id: "pos1", positionName: "Center Back", abbreviation: "CB", role: "DEFENDER" },
+    { id: "pos2", positionName: "Striker", abbreviation: "ST", role: "FORWARD" },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCaptures.onApplyHalftimeSubs = undefined;
+    mockCaptures.onQueueSubstitution = undefined;
+    mockCaptures.latestSubstitutionQueue = undefined;
+    mockCaptures.playerNotesPanelProps = undefined;
+    mockUseTeamData.mockReturnValue({ players: [], positions: defenderPositions });
+  });
+
+  const withNotes = (gameNotes: unknown[], extra: Record<string, unknown> = {}) =>
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: mockGame,
+      lineup: makeLineup("p1", "pos2"),
+      gameNotes,
+      ...extra,
+    });
+
+  it("skips planned halftime subs into a locked position", async () => {
+    withNotes([redCard()]);
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    await mockCaptures.onApplyHalftimeSubs!([{ playerOutId: "p1", playerInId: "p2", positionId: "pos1" }]);
+    expect(mockLineupCreate).not.toHaveBeenCalled();
+    const { showWarning } = await import("../../utils/toast");
+    expect(showWarning).toHaveBeenCalledWith(expect.stringContaining("sent-off player or a position locked"));
+  });
+
+  it("skips planned halftime subs that bring a sent-off player back on, but still applies the rest", async () => {
+    withNotes([redCard({ playerId: "p2", positionId: "pos1" })]);
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    await mockCaptures.onApplyHalftimeSubs!([
+      { playerOutId: "p1", playerInId: "p2", positionId: "pos2" },
+    ]);
+    expect(mockLineupCreate).not.toHaveBeenCalled();
+
+    await mockCaptures.onApplyHalftimeSubs!([
+      { playerOutId: "p1", playerInId: "p3", positionId: "pos2" },
+    ]);
+    expect(mockLineupCreate).toHaveBeenCalledWith(expect.objectContaining({ playerId: "p3", positionId: "pos2" }));
+  });
+
+  it("does not lock a position whose send-off was rescinded", async () => {
+    withNotes([redCard({ rescindedAt: "2026-10-26T00:00:00Z" })]);
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    await mockCaptures.onApplyHalftimeSubs!([{ playerOutId: "p1", playerInId: "p2", positionId: "pos1" }]);
+    expect(mockLineupCreate).toHaveBeenCalled();
+  });
+
+  it("refuses to queue a sent-off player or a locked position", async () => {
+    withNotes([redCard()]);
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    const { showWarning } = await import("../../utils/toast");
+
+    act(() => {
+      mockCaptures.onQueueSubstitution!("p9", "pos2");
+      mockCaptures.onQueueSubstitution!("p3", "pos1");
+    });
+    expect(showWarning).toHaveBeenCalledWith("This player was sent off and cannot return to the game");
+    expect(showWarning).toHaveBeenCalledWith("That position is locked after a red card");
+    expect(mockCaptures.latestSubstitutionQueue).toHaveLength(0);
+  });
+
+  it("drops an already-queued sub once its player is sent off or its position locks", () => {
+    withNotes([redCard()], {
+      queuedSubstitutions: [
+        { id: "q1", playerId: "p9", positionId: "pos2" },
+        { id: "q2", playerId: "p3", positionId: "pos1" },
+        { id: "q3", playerId: "p4", positionId: "pos2" },
+      ],
+    });
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    expect(mockCaptures.latestSubstitutionQueue?.map((q) => q.playerId)).toEqual(["p4"]);
+  });
+
+  it("applies a send-off recorded on this device before its note has synced (offline)", () => {
+    withNotes([]);
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+
+    act(() => {
+      (mockCaptures.playerNotesPanelProps as any).onSendOffRecorded({ playerId: "p5", positionId: "pos1" });
+    });
+
+    expect([...(mockCaptures.playerNotesPanelProps as any).sentOffPlayerIds]).toEqual(["p5"]);
+    act(() => {
+      mockCaptures.onQueueSubstitution!("p3", "pos1");
+    });
+    expect(mockCaptures.latestSubstitutionQueue).toHaveLength(0);
+  });
+
+  it("gives the notes panel the live lineup, play time and positions it needs to take a player off the field", () => {
+    withNotes([]);
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    const props = mockCaptures.playerNotesPanelProps as any;
+    expect(props.lineup).toHaveLength(1);
+    expect(props.positions).toEqual(defenderPositions);
+    expect(Array.isArray(props.playTimeRecords)).toBe(true);
+  });
+});

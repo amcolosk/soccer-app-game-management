@@ -10,6 +10,7 @@ import { useSwipeActions } from "../../hooks/useSwipeDelete";
 import { getGameNoteActionDecision, getRescindSendOffDecision } from "../../../shared/policies/gameNoteActionPolicy";
 import { useConfirm } from "../ConfirmModal";
 import { findSendOffTarget, performSendOff } from "../../services/sendOffService";
+import { getSentOffPlayerIds, type PendingSendOff } from "../../utils/sendOffCalculations";
 import type { Game, Team, PlayerWithRoster, GameNote, FormationPosition, LineupAssignment, PlayTimeRecord } from "./types";
 import { useSpeechToText, type StopReason } from "./hooks/useSpeechToText";
 import type { GameActionDescriptor } from "./actions/actionContract";
@@ -51,6 +52,9 @@ interface PlayerNotesPanelProps {
   lineup?: LineupAssignment[];
   playTimeRecords?: PlayTimeRecord[];
   positions?: FormationPosition[];
+  /** Includes send-offs recorded on this device that haven't synced yet; falls back to the synced notes. */
+  sentOffPlayerIds?: ReadonlySet<string>;
+  onSendOffRecorded?: (sendOff: PendingSendOff) => void;
 }
 
 export function PlayerNotesPanel({
@@ -73,6 +77,8 @@ export function PlayerNotesPanel({
   lineup,
   playTimeRecords,
   positions,
+  sentOffPlayerIds,
+  onSendOffRecorded,
 }: PlayerNotesPanelProps) {
   const confirm = useConfirm();
   const isExternallyControlled =
@@ -286,7 +292,7 @@ export function PlayerNotesPanel({
     if (!target) {
       message = `${label} is not on the field. The red card is recorded and they cannot be subbed on for the rest of the game.`;
     } else if (isGoalkeeper) {
-      message = `${label} will be sent off and leaves the goalkeeper position. Move a field player into goal; the position that player leaves then stays empty for the rest of the game, and the team plays a player down.`;
+      message = `Goalkeeper sent off: ${label}. Put a field player in goal. That player's old position will stay empty for the rest of the game.`;
     } else {
       message = `${label} will be sent off. ${position?.positionName ?? 'Their position'} stays empty for the rest of the game and no substitute can fill it.`;
     }
@@ -308,6 +314,10 @@ export function PlayerNotesPanel({
       const timeInSeconds = gameState.status === 'completed' ? currentTime : getCurrentGameTime();
 
       if (noteType === 'red-card' && notePlayerId && lineup && playTimeRecords && gameState.status !== 'completed') {
+        if ((sentOffPlayerIds ?? getSentOffPlayerIds(gameNotes)).has(notePlayerId)) {
+          showWarning('This player has already been sent off. Rescind the existing red card first if it was a mistake.');
+          return;
+        }
         const confirmed = await confirmSendOff(notePlayerId);
         if (!confirmed) return;
 
@@ -326,6 +336,7 @@ export function PlayerNotesPanel({
           mutations,
         });
 
+        onSendOffRecorded?.({ playerId: notePlayerId, positionId: target?.positionId ?? null });
         if (result.vacateFailed) {
           showWarning('Red card recorded, but the lineup could not be updated. Remove the player from the field manually.');
         }
@@ -539,11 +550,11 @@ export function PlayerNotesPanel({
       )}
 
       {/* Game Notes List */}
+      <div className="sr-only" aria-live="polite">{actionPoliteMessage}</div>
+      <div className="sr-only" aria-live="assertive">{actionAssertiveMessage}</div>
       {inGameNotes.length > 0 && (
         <div className="notes-section" ref={notesSectionRef}>
           <h3 id="game-notes-heading" tabIndex={-1}>Game Notes</h3>
-          <div className="sr-only" aria-live="polite">{actionPoliteMessage}</div>
-          <div className="sr-only" aria-live="assertive">{actionAssertiveMessage}</div>
           <div className="notes-list">
             {inGameNotes.map((note) => {
               const noteTypeValue = (note.noteType ?? 'other') as 'gold-star' | 'yellow-card' | 'red-card' | 'other' | 'coaching-point';

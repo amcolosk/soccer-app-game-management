@@ -779,6 +779,48 @@ describe('LineupPanel', () => {
     expect(onSubstitute).toHaveBeenCalledWith(pos1);
   });
 
+  it('asks before assigning a player to a locked position from the halftime position picker', async () => {
+    const user = userEvent.setup();
+    mockConfirm.mockResolvedValueOnce(false);
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[]}
+        lockedPositionIds={new Set(['pos-1'])}
+      />,
+    );
+
+    await user.click(screen.getByText('Alice Smith'));
+    const lockedPickerButton = document.querySelector('.position-picker-btn--locked') as HTMLElement;
+    expect(lockedPickerButton).toHaveTextContent('Sent off');
+    await user.click(lockedPickerButton);
+
+    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'Position locked' }));
+    expect(mockCreateLineupAssignment).not.toHaveBeenCalled();
+  });
+
+  it('assigns to a locked position only after the coach confirms the override', async () => {
+    const user = userEvent.setup();
+    mockConfirm.mockResolvedValueOnce(true);
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[]}
+        lockedPositionIds={new Set(['pos-1'])}
+      />,
+    );
+
+    await user.click(screen.getByText('Alice Smith'));
+    await user.click(document.querySelector('.position-picker-btn--locked') as HTMLElement);
+    await waitFor(() => expect(mockCreateLineupAssignment).toHaveBeenCalledWith(
+      expect.objectContaining({ positionId: 'pos-1', playerId: 'player-1' }),
+    ));
+  });
+
   it('does not mark an occupied position as locked', () => {
     render(<LineupPanel {...defaultProps} lockedPositionIds={new Set(['pos-1'])} />);
     expect(screen.queryByText(/Sent off/)).not.toBeInTheDocument();

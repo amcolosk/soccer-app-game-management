@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getLockedPositionIds, getSentOffPlayerIds, isActiveSendOff } from "./sendOffCalculations";
+import { getLockedPositionIds, getSentOffPlayerIds, isActiveSendOff, withPendingSendOffs } from "./sendOffCalculations";
 
 const positions = [
   { id: "gk", role: "GOALKEEPER" as const },
@@ -44,6 +44,19 @@ describe("sendOffCalculations", () => {
 
   it("never locks a goalkeeper position", () => {
     expect(getLockedPositionIds([note({ positionId: "gk" })], positions).size).toBe(0);
+  });
+
+  it("applies a locally recorded send-off before its note has synced", () => {
+    const merged = withPendingSendOffs([], [{ playerId: "p1", positionId: "cb" }]);
+    expect([...getSentOffPlayerIds(merged)]).toEqual(["p1"]);
+    expect([...getLockedPositionIds(merged, positions)]).toEqual(["cb"]);
+  });
+
+  it("stops applying the pending entry once any card note for that player has synced (including a rescinded one)", () => {
+    const rescinded = note({ rescindedAt: "x" });
+    const merged = withPendingSendOffs([rescinded], [{ playerId: "p1", positionId: "cb" }]);
+    expect(getSentOffPlayerIds(merged).size).toBe(0);
+    expect(getLockedPositionIds(merged, positions).size).toBe(0);
   });
 
   it("ignores red cards without a vacated position", () => {

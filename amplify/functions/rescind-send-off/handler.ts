@@ -80,11 +80,13 @@ export const handler: Handler = async (event) => {
   }
 
   const now = new Date().toISOString();
-  const updateResponse = await docClient.send(new UpdateCommand({
+  let updateResponse;
+  try {
+    updateResponse = await docClient.send(new UpdateCommand({
     TableName: gameNoteTable,
     Key: { id: note.id },
     UpdateExpression: 'SET #rescindedAt = :rescindedAt, #rescindedById = :rescindedById, #updatedAt = :updatedAt',
-    ConditionExpression: 'attribute_exists(id) AND attribute_not_exists(#rescindedAt)',
+    ConditionExpression: 'attribute_exists(id) AND (attribute_not_exists(#rescindedAt) OR attribute_type(#rescindedAt, :nullType))',
     ExpressionAttributeNames: {
       '#rescindedAt': 'rescindedAt',
       '#rescindedById': 'rescindedById',
@@ -94,9 +96,17 @@ export const handler: Handler = async (event) => {
       ':rescindedAt': now,
       ':rescindedById': callerSub,
       ':updatedAt': now,
+      ':nullType': 'NULL',
     },
     ReturnValues: 'ALL_NEW',
   }));
+  } catch (error) {
+    // A concurrent rescind (or a note deleted underneath us) fails the condition.
+    if ((error as { name?: string })?.name === 'ConditionalCheckFailedException') {
+      throw new Error('RULE_ALREADY_RESCINDED');
+    }
+    throw error;
+  }
 
   const updated = (updateResponse.Attributes ?? {}) as Record<string, unknown>;
 

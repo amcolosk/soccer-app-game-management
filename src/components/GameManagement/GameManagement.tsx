@@ -11,7 +11,7 @@ import { useConfirm } from "../ConfirmModal";
 import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { isMissingRecordError } from "../../services/amplifyMutationResult";
 import { cleanupDuplicateAssignmentsForPosition } from "../../services/lineupCleanupService";
-import { getLockedPositionIds, getSentOffPlayerIds } from "../../utils/sendOffCalculations";
+import { getLockedPositionIds, getSentOffPlayerIds, withPendingSendOffs, type PendingSendOff } from "../../utils/sendOffCalculations";
 import { planHalftimeLineupChanges } from "../../utils/halftimeSubstitutionUtils";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, copyGamePlan, type PlannedSubstitution } from "../../services/rotationPlannerService";
@@ -502,8 +502,14 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   }, [pendingGapCorrection]);
 
   // Red-card send-offs: positions that stay empty and players who cannot return this game.
-  const lockedPositionIds = useMemo(() => getLockedPositionIds(gameNotes, positions), [gameNotes, positions]);
-  const sentOffPlayerIds = useMemo(() => getSentOffPlayerIds(gameNotes), [gameNotes]);
+  const [pendingSendOffs, setPendingSendOffs] = useState<PendingSendOff[]>([]);
+  const handleSendOffRecorded = useCallback(
+    (sendOff: PendingSendOff) => setPendingSendOffs((prev) => [...prev, sendOff]),
+    [],
+  );
+  const sendOffNotes = useMemo(() => withPendingSendOffs(gameNotes, pendingSendOffs), [gameNotes, pendingSendOffs]);
+  const lockedPositionIds = useMemo(() => getLockedPositionIds(sendOffNotes, positions), [sendOffNotes, positions]);
+  const sentOffPlayerIds = useMemo(() => getSentOffPlayerIds(sendOffNotes), [sendOffNotes]);
   const eligiblePlayers = useMemo(
     () => (sentOffPlayerIds.size === 0 ? players : players.filter((player) => !sentOffPlayerIds.has(player.id))),
     [players, sentOffPlayerIds],
@@ -528,8 +534,11 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       .map(id => pendingOptimisticAddsRef.current.get(id))
       .filter((q): q is SubQueue => q != null);
 
-    return [...backendItems, ...optimisticItems];
-  }, [queuedSubstitutions, optimisticAddIds, optimisticRemoveIds]);
+    // A sub queued before a red card must not bring the sent-off player back on or fill the locked slot.
+    return [...backendItems, ...optimisticItems].filter(
+      (item) => !sentOffPlayerIds.has(item.playerId) && !lockedPositionIds.has(item.positionId),
+    );
+  }, [queuedSubstitutions, optimisticAddIds, optimisticRemoveIds, sentOffPlayerIds, lockedPositionIds]);
 
   // When backend confirms an add (item appears in subscription), clear from optimistic set
   useEffect(() => {
@@ -2111,6 +2120,14 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   };
 
   const handleQueueSubstitution = (playerId: string, positionId: string) => {
+    if (sentOffPlayerIds.has(playerId)) {
+      showWarning("This player was sent off and cannot return to the game");
+      return;
+    }
+    if (lockedPositionIds.has(positionId)) {
+      showWarning("That position is locked after a red card");
+      return;
+    }
     // Duplicate check against merged queue
     const alreadyQueued = substitutionQueue.some(
       q => q.playerId === playerId && q.positionId === positionId
@@ -2396,6 +2413,8 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     lineup,
     playTimeRecords,
     positions,
+    sentOffPlayerIds,
+    onSendOffRecorded: handleSendOffRecorded,
     onNoteSaved: () => setNotesRefreshKey(k => k + 1),
   };
 

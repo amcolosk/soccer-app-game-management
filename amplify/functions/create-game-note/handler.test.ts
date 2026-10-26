@@ -187,11 +187,13 @@ describe('create-game-note handler', () => {
     const redCard = (overrides: Partial<HandlerEvent['arguments']> = {}) =>
       createEvent({ noteType: 'red-card', gameSeconds: 600, half: 1, playerId: 'player-1', positionId: 'pos-1', ...overrides });
 
-    const mockWithPosition = (position: unknown) => {
+    const mockWithPosition = (position: unknown, team: unknown = { id: 'team-1', formationId: 'formation-1' }) => {
       process.env.FORMATION_POSITION_TABLE = 'FormationPositionTable';
+      process.env.TEAM_TABLE = 'TeamTable';
       mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
         if (command.__type === 'GetCommand') {
           if (command.input.TableName === 'FormationPositionTable') return { Item: position };
+          if (command.input.TableName === 'TeamTable') return { Item: team };
           return { Item: { id: 'game-1', teamId: 'team-1', coaches: ['coach-1'] } };
         }
         if (command.__type === 'ScanCommand') return { Items: [{ id: 'roster-1' }] };
@@ -199,31 +201,41 @@ describe('create-game-note handler', () => {
       });
     };
 
-    it('stores positionId on a red-card note when the caller can access the position', async () => {
-      mockWithPosition({ id: 'pos-1', coaches: ['coach-1'] });
+    it('stores positionId when the position belongs to the game team formation', async () => {
+      mockWithPosition({ id: 'pos-1', formationId: 'formation-1' });
       await invoke(redCard());
       const putCall = mockSend.mock.calls.find(([command]) => command.__type === 'PutCommand');
       expect((putCall?.[0].input.Item as { positionId?: string }).positionId).toBe('pos-1');
     });
 
+    it('accepts a co-coach even when the position coaches array does not list them', async () => {
+      mockWithPosition({ id: 'pos-1', formationId: 'formation-1', coaches: ['original-coach'] });
+      await expect(invoke(redCard())).resolves.toBeDefined();
+    });
+
     it('rejects positionId on a non red-card note', async () => {
-      mockWithPosition({ id: 'pos-1', coaches: ['coach-1'] });
+      mockWithPosition({ id: 'pos-1', formationId: 'formation-1' });
       await expect(invoke(redCard({ noteType: 'yellow-card' }))).rejects.toThrow('positionId is only allowed on red-card notes');
     });
 
     it('rejects positionId without a playerId', async () => {
-      mockWithPosition({ id: 'pos-1', coaches: ['coach-1'] });
+      mockWithPosition({ id: 'pos-1', formationId: 'formation-1' });
       await expect(invoke(redCard({ playerId: undefined }))).rejects.toThrow('positionId requires a playerId');
     });
 
-    it('rejects a positionId the caller cannot access', async () => {
-      mockWithPosition({ id: 'pos-1', coaches: ['someone-else'] });
-      await expect(invoke(redCard())).rejects.toThrow('positionId must be a position the caller can access');
+    it('rejects a position from a different formation', async () => {
+      mockWithPosition({ id: 'pos-1', formationId: 'someone-elses-formation' });
+      await expect(invoke(redCard())).rejects.toThrow('positionId must be a position in the game team formation');
     });
 
     it('rejects a positionId that does not exist', async () => {
       mockWithPosition(undefined);
-      await expect(invoke(redCard())).rejects.toThrow('positionId must be a position the caller can access');
+      await expect(invoke(redCard())).rejects.toThrow('positionId must be a position in the game team formation');
+    });
+
+    it('rejects when the team has no formation', async () => {
+      mockWithPosition({ id: 'pos-1', formationId: 'formation-1' }, { id: 'team-1', formationId: null });
+      await expect(invoke(redCard())).rejects.toThrow('positionId must be a position in the game team formation');
     });
   });
 });

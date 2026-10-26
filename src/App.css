@@ -9020,21 +9020,32 @@
 }
 
 /* ── Red card send-off ───────────────────────────────────────────── */
-.empty-slot.empty-slot--locked {
-  border: 2px solid var(--danger-red);
-  background: rgba(211, 47, 47, 0.1);
-  color: var(--danger-red);
+.empty-slot.empty-slot--locked,
+.empty-slot.empty-slot--locked.clickable:hover {
+  border: 2px solid #b71c1c;
+  background: #fff0f0;
+  color: #b71c1c;
   font-style: normal;
+  font-weight: 700;
+  transform: none;
+}
+
+.position-picker-btn--locked {
+  border-color: #b71c1c;
+}
+
+.position-picker-btn--locked .occupied-by {
+  color: #b71c1c;
   font-weight: 700;
 }
 
 .lineup-shape-node--locked .lineup-shape-node__tap-target {
-  border-color: var(--danger-red);
-  background: rgba(211, 47, 47, 0.12);
+  border-color: #b71c1c;
+  background: #fff0f0;
 }
 
 .lineup-shape-node--locked .lineup-shape-node__player {
-  color: var(--danger-red);
+  color: #b71c1c;
   font-weight: 700;
 }
 
@@ -9043,13 +9054,13 @@
 }
 
 .note-card.note-rescinded {
-  opacity: 0.65;
   border-left-color: var(--text-secondary);
   background: transparent;
 }
 
 .note-card.note-rescinded .note-text,
 .note-card.note-rescinded .note-player {
+  color: var(--text-secondary);
   text-decoration: line-through;
 }
 
@@ -9057,9 +9068,9 @@
   margin-left: 0.5rem;
   padding: 0.1rem 0.5rem;
   border-radius: 999px;
-  border: 1px solid var(--text-secondary);
-  color: var(--text-secondary);
+  border: 1px solid var(--text-primary);
+  color: var(--text-primary);
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
 }

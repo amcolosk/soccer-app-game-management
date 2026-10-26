@@ -425,6 +425,17 @@ export function LineupPanel({
     if (!selectedPlayer) return;
     if (isAssigningRef.current) return;
 
+    if (lockedPositionIds?.has(positionId)) {
+      const overrideConfirmed = await confirm({
+        title: 'Position locked',
+        message: 'This position is locked because its player was sent off, so the team plays a player down. Assign a player anyway?',
+        confirmText: 'Assign anyway',
+        cancelText: 'Keep it empty',
+        variant: 'warning',
+      });
+      if (!overrideConfirmed) return;
+    }
+
     isAssigningRef.current = true;
     setIsAssigningPosition(true);
     try {
@@ -707,10 +718,11 @@ export function LineupPanel({
             <div className="position-picker-grid">
               {positions.map((position) => {
                 const occupied = getPositionPlayer(position.id);
+                const pickerLocked = !occupied && (lockedPositionIds?.has(position.id) ?? false);
                 return (
                   <button
                     key={position.id}
-                    className={`position-picker-btn ${occupied ? 'occupied' : ''}`}
+                    className={`position-picker-btn ${occupied ? 'occupied' : ''} ${pickerLocked ? 'position-picker-btn--locked' : ''}`}
                     onClick={() => handleAssignPosition(position.id)}
                     disabled={!!occupied || isAssigningPosition}
                   >
@@ -725,6 +737,7 @@ export function LineupPanel({
                         #{occupied.playerNumber} {occupied.firstName}
                       </div>
                     )}
+                    {pickerLocked && <div className="occupied-by">{'\u{1F7E5}'} Sent off</div>}
                   </button>
                 );
               })}
