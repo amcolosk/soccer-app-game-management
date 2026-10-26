@@ -64,7 +64,7 @@ export function CompletedPlayTimeSummary({
                     hasTime ? undefined : "completed-playtime-summary__row--no-time"
                   }
                 >
-                  <th scope="row">{player.playerNumber}</th>
+                  <th scope="row">{player.playerNumber ?? "—"}</th>
                   <td>{`${player.firstName} ${player.lastName}`}</td>
                   <td className="completed-playtime-summary__col--time">
                     {hasTime ? formatPlayTime(seconds, "long") : "—"}

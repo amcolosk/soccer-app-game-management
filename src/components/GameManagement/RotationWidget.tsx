@@ -12,6 +12,7 @@ import type {
   PlayTimeRecord,
   SubQueue,
 } from "./types";
+import { formatJerseyPrefix, formatJerseyNumber } from "../../utils/playerUtils";
 
 interface RotationWidgetProps {
   gameState: Game;
@@ -268,14 +269,14 @@ export function RotationWidget({
                         {/* Player leaving the field */}
                         <div className="sub-player-row sub-player-row--out">
                           <span className="sub-direction-pill sub-direction-pill--out" aria-label="coming off">OFF</span>
-                          <span className="player-number">#{playerOut?.playerNumber}</span>
+                          <span className="player-number">{formatJerseyNumber(playerOut?.playerNumber)}</span>
                           <span className="player-name">{playerOut?.firstName} {playerOut?.lastName}</span>
                           <span className="sub-availability-slot">{getAvailabilityBadge(outAvailability)}</span>
                         </div>
                         {/* Player entering from bench */}
                         <div className="sub-player-row sub-player-row--in">
                           <span className="sub-direction-pill sub-direction-pill--in" aria-label="coming in">IN</span>
-                          <span className="player-number">#{playerIn?.playerNumber}</span>
+                          <span className="player-number">{formatJerseyNumber(playerIn?.playerNumber)}</span>
                           <span className="player-name">{playerIn?.firstName} {playerIn?.lastName}</span>
                           <span className="sub-availability-slot">{getAvailabilityBadge(inAvailability)}</span>
                         </div>
@@ -285,7 +286,7 @@ export function RotationWidget({
                           <div className="sub-conflict-banner" role="alert">
                             <span aria-hidden="true">⚠️</span>
                             <span>
-                              #{playerIn?.playerNumber} {playerIn?.firstName} is already on the field — this sub cannot execute
+                              {formatJerseyPrefix(playerIn?.playerNumber)}{playerIn?.firstName} is already on the field — this sub cannot execute
                             </span>
                           </div>
                         );

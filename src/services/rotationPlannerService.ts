@@ -12,7 +12,7 @@ const client = generateClient<Schema>();
 export interface SimpleRoster {
   id: string;
   playerId: string;
-  playerNumber: number;
+  playerNumber?: number;
   preferredPositions?: string;
   availableFromMinute?: number;   // null/undefined = available from game start (0)
   availableUntilMinute?: number;  // null/undefined = available until game end

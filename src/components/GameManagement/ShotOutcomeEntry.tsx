@@ -8,6 +8,7 @@ import { isPlayerInLineup } from "../../utils/lineupUtils";
 import { deriveShotOutcomeWrites, type ShotOutcome } from "../../utils/shotOutcomeMapping";
 import type { GameMutationInput, GoalCreateFields, SaveCreateFields } from "../../hooks/useOfflineMutations";
 import type { Game, Team, PlayerWithRoster, PlayTimeRecord, LineupAssignment, FormationPosition } from "./types";
+import { formatJerseyNumber } from "../../utils/playerUtils";
 
 interface ShotOutcomeEntryProps {
   gameState: Game;
@@ -287,13 +288,13 @@ export function ShotOutcomeEntry({
     const parts = [`${outcomeVerb} — ${side}`];
     if (flow.forUs && flow.outcome === 'GOAL') {
       const shooter = flow.shooterId ? players.find(p => p.id === flow.shooterId) : null;
-      if (shooter) parts.push(`#${shooter.playerNumber}`);
+      if (shooter) parts.push(formatJerseyNumber(shooter.playerNumber));
       const assist = flow.assistId ? players.find(p => p.id === flow.assistId) : null;
-      if (assist) parts.push(`assist #${assist.playerNumber}`);
+      if (assist) parts.push(`assist ${formatJerseyNumber(assist.playerNumber)}`.trim());
     }
     if (!flow.forUs && flow.outcome === 'SAVED') {
       const keeper = flow.keeperId ? players.find(p => p.id === flow.keeperId) : null;
-      if (keeper) parts.push(`keeper #${keeper.playerNumber}`);
+      if (keeper) parts.push(`keeper ${formatJerseyNumber(keeper.playerNumber)}`.trim());
     }
     return parts.join(', ');
   }

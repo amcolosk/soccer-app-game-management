@@ -20,6 +20,8 @@ import type {
   PlayTimeRecord,
   PlayerAvailability,
 } from "./types";
+import { formatJerseyPrefix, formatJerseyNumber } from "../../utils/playerUtils";
+import { GuestBadge } from "../GuestBadge";
 
 interface BenchTabProps {
   players: PlayerWithRoster[];
@@ -397,13 +399,14 @@ export function BenchTab({
                     >
                       <div className="bench-tab__player-header">
                         <span className="bench-tab__player-label">
-                          #{player.playerNumber} {player.firstName} {player.lastName}
+                          {formatJerseyPrefix(player.playerNumber)}{player.firstName} {player.lastName}
                         </span>
                         <span className="bench-tab__player-time">
                           {formatPlayTime(player.playTimeSeconds, "short")}
                         </span>
                       </div>
                       <div className="bench-tab__player-meta">
+                        {player.isGuest && <GuestBadge />}
                         {isInjured && <span className="status-badge unavailable">Injured</span>}
                         {rowStatusMessage && (
                           <span className="status-badge">{rowStatusMessage}</span>
@@ -420,13 +423,14 @@ export function BenchTab({
                     <div className={`bench-tab__player-row bench-tab__player-row--readonly ${isInjured ? "bench-tab__player-row--injured" : ""}`}>
                       <div className="bench-tab__player-header">
                         <span className="bench-tab__player-label">
-                          #{player.playerNumber} {player.firstName} {player.lastName}
+                          {formatJerseyPrefix(player.playerNumber)}{player.firstName} {player.lastName}
                         </span>
                         <span className="bench-tab__player-time">
                           {formatPlayTime(player.playTimeSeconds, "short")}
                         </span>
                       </div>
                       <div className="bench-tab__player-meta">
+                        {player.isGuest && <GuestBadge />}
                         {isInjured && <span className="status-badge unavailable">Injured</span>}
                         {rowStatusMessage && (
                           <span className="status-badge">{rowStatusMessage}</span>
@@ -500,7 +504,7 @@ export function BenchTab({
                 >
                   <div className="bench-tab__player-header">
                     <span className="bench-tab__player-label">
-                      #{player.playerNumber} {player.firstName} {player.lastName}
+                      {formatJerseyPrefix(player.playerNumber)}{player.firstName} {player.lastName}
                     </span>
                     <span className="bench-tab__player-time">
                       {formatPlayTime(player.playTimeSeconds, "short")}
@@ -534,7 +538,7 @@ export function BenchTab({
                   onClick={() => handleLateArrival(player.id)}
                   aria-label={`Mark ${player.firstName} ${player.lastName} as arrived`}
                 >
-                  <span className="player-number">#{player.playerNumber}</span>
+                  <span className="player-number">{formatJerseyNumber(player.playerNumber)}</span>
                   <span className="player-name">
                     {player.firstName} {player.lastName}
                   </span>

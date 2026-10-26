@@ -16,6 +16,8 @@ import type {
   LineupAssignment,
   Team,
 } from "./types";
+import { formatJerseyNumber } from "../../utils/playerUtils";
+import { GuestBadge } from "../GuestBadge";
 
 export interface PlannerLineupViewProps {
   /** Planner lineup: positionId → playerId (empty string or missing = unassigned) */
@@ -326,8 +328,8 @@ export function PlannerLineupView({
                       onDragStart={() => handleDragStart(assignedPlayer.id, pos.id)}
                       onDragEnd={clearDragSource}
                     >
-                      <span className="player-number">#{assignedPlayer.playerNumber || 0}</span>
-                      <span className="player-name-short">{getPlayerDisplayName(assignedPlayer)}</span>
+                      <span className="player-number">{formatJerseyNumber(assignedPlayer.playerNumber)}</span>
+                      <span className="player-name-short">{getPlayerDisplayName(assignedPlayer)}{assignedPlayer.isGuest && <GuestBadge compact />}</span>
                       {!isReadOnly && (
                         <button
                           type="button"
@@ -362,7 +364,7 @@ export function PlannerLineupView({
                       {sortedPlayers.map((player) => {
                         const isPreferred = parsePreferredPositions(player.preferredPositions).has(pos.id);
                         const num = player.playerNumber != null ? `#${player.playerNumber} ` : "";
-                        const displayName = `${num}${getPlayerDisplayName(player)}`;
+                        const displayName = `${num}${getPlayerDisplayName(player)}${player.isGuest ? " (Guest)" : ""}`;
                         const optionLabel = isPreferred ? `⭐ ${displayName}` : displayName;
 
                         return (
@@ -405,9 +407,10 @@ export function PlannerLineupView({
                       onDragStart={() => handleDragStart(player.id, null)}
                       onDragEnd={clearDragSource}
                     >
-                      <span className="player-number">#{player.playerNumber || 0}</span>
+                      <span className="player-number">{formatJerseyNumber(player.playerNumber)}</span>
                       <span className="player-name">
                         {getPlayerDisplayName(player)}
+                        {player.isGuest && <GuestBadge compact />}
                         {preferredPositions ? (
                           <span className="planner-lineup-view__preferred-positions"> {preferredPositions}</span>
                         ) : null}

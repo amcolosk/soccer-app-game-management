@@ -25,6 +25,9 @@ import type {
   LineupAssignment,
   PlayTimeRecord,
 } from "./types";
+import { formatJerseyPrefix, formatJerseyNumber } from "../../utils/playerUtils";
+import { AddGuestPlayerButton, type GuestPlayerAction } from "./AddGuestPlayerButton";
+import { GuestBadge } from "../GuestBadge";
 
 interface LineupPanelProps {
   gameState: Game;
@@ -37,6 +40,8 @@ interface LineupPanelProps {
   currentTime: number;
   hideAvailablePlayers?: boolean;
   isReadOnly?: boolean;
+  /** Pregame-only entry point for adding a guest player; omitted in every other game state. */
+  guestPlayerAction?: GuestPlayerAction;
   onSubstitute: (position: FormationPosition) => void;
   mutations: GameMutationInput;
   currentUserId?: string;
@@ -59,6 +64,7 @@ export function LineupPanel({
   currentTime,
   hideAvailablePlayers = false,
   isReadOnly = false,
+  guestPlayerAction,
   onSubstitute,
   mutations,
   viewMode = "list",
@@ -468,6 +474,7 @@ export function LineupPanel({
             {gameState.status === 'halftime' ? 'Second Half Lineup' : gameState.status === 'in-progress' ? 'Current Lineup' : 'Starting Lineup'} ({startersCount}/{team.maxPlayersOnField})
           </h2>
           <div className="lineup-header__actions">
+            {isInteractive && <AddGuestPlayerButton action={guestPlayerAction} />}
             {shapeEnabled && (
               <div className="lineup-view-toggle" role="group" aria-label="Lineup view mode">
                 <button
@@ -598,7 +605,7 @@ export function LineupPanel({
                     {assignedPlayer ? (
                       <div className="assigned-player-slot">
                         <div className="assigned-player">
-                          <span className="player-number-small">#{assignedPlayer.playerNumber}</span>
+                          <span className="player-number-small">{formatJerseyNumber(assignedPlayer.playerNumber)}</span>
                           <span className="player-name-small">
                             {assignedPlayer.firstName} {assignedPlayer.lastName}
                           </span>
@@ -668,9 +675,9 @@ export function LineupPanel({
                         className={`player-card ${isInteractive ? 'clickable' : ''} ${inLineup ? 'in-lineup' : ''} ${playing ? 'currently-playing' : ''}`}
                         onClick={isInteractive ? () => handlePlayerClick(player) : undefined}
                       >
-                        <div className="player-number">#{player.playerNumber}</div>
+                        <div className="player-number">{formatJerseyNumber(player.playerNumber)}</div>
                         <div className="player-info">
-                          <h3>{player.firstName} {player.lastName}</h3>
+                          <h3>{player.firstName} {player.lastName}{player.isGuest && <> <GuestBadge /></>}</h3>
                           {assignedPosition && (
                             <p className="player-position">
                               Playing: {assignedPosition.positionName}
@@ -717,7 +724,7 @@ export function LineupPanel({
                     </div>
                     {occupied && (
                       <div className="occupied-by">
-                        #{occupied.playerNumber} {occupied.firstName}
+                        {formatJerseyPrefix(occupied.playerNumber)}{occupied.firstName}
                       </div>
                     )}
                   </button>

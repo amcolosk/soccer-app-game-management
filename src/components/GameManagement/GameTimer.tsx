@@ -14,6 +14,7 @@ import type {
   PlannedRotation,
   LineupAssignment,
 } from "./types";
+import { formatJerseyNumber } from "../../utils/playerUtils";
 
 interface GameTimerProps {
   gameState: Game;
@@ -304,14 +305,14 @@ export function GameTimer({
                         <div className="sub-position-label">{position?.abbreviation}</div>
                         <div className="sub-players">
                           <div className="sub-player sub-out">
-                            <span className="player-number">#{playerOut?.playerNumber}</span>
+                            <span className="player-number">{formatJerseyNumber(playerOut?.playerNumber)}</span>
                             <span className="player-name">
                               {playerOut?.firstName} {playerOut?.lastName}
                             </span>
                           </div>
                           <div className="sub-arrow">→</div>
                           <div className="sub-player sub-in">
-                            <span className="player-number">#{playerIn?.playerNumber}</span>
+                            <span className="player-number">{formatJerseyNumber(playerIn?.playerNumber)}</span>
                             <span className="player-name">
                               {playerIn?.firstName} {playerIn?.lastName}
                             </span>

@@ -60,6 +60,10 @@ import { isSubEffectivelyExecuted } from "../../utils/rotationConflictUtils";
 import type { GameManagementDebugContext } from "../../types/debug";
 import { useWakeLock } from "../../hooks/useWakeLock";
 import { useGameNotification } from "../../hooks/useGameNotification";
+import { formatJerseyPrefix } from "../../utils/playerUtils";
+import { createPlayerOnRoster, parseOptionalPlayerNumbers, RosterValidationError } from "../../services/rosterService";
+import { AddGuestPlayerModal } from "./AddGuestPlayerModal";
+import type { GuestPlayerFieldValues } from "../guestPlayerFieldValues";
 
 // Used only for planning operations (PlannedRotation.update) — not live-game mutations.
 const client = generateClient<Schema>();
@@ -368,6 +372,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
 
   // Copy-from-game state
   const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
+  const [isAddGuestModalOpen, setIsAddGuestModalOpen] = useState(false);
   const [previousGamesWithPlans, setPreviousGamesWithPlans] = useState<PreviousGameSummary[] | null>(null);
   const [isCopyingPlan, setIsCopyingPlan] = useState(false);
 
@@ -881,7 +886,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
             conflicts.push({
               type: 'starter',
               playerId: entry.playerId,
-              playerName: player ? `#${player.playerNumber} ${player.firstName} ${player.lastName}` : 'Unknown',
+              playerName: player ? `${formatJerseyPrefix(player.playerNumber)}${player.firstName} ${player.lastName}` : 'Unknown',
               status,
               rotationNumbers: [],
             });
@@ -911,7 +916,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                 conflicts.push({
                   type: 'rotation',
                   playerId: pid,
-                  playerName: player ? `#${player.playerNumber} ${player.firstName} ${player.lastName}` : 'Unknown',
+                  playerName: player ? `${formatJerseyPrefix(player.playerNumber)}${player.firstName} ${player.lastName}` : 'Unknown',
                   status,
                   rotationNumbers: [rotation.rotationNumber],
                 });
@@ -945,7 +950,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                   type: 'on-field',
                   playerId: sub.playerInId,
                   playerName: player
-                    ? `#${player.playerNumber} ${player.firstName} ${player.lastName}`
+                    ? `${formatJerseyPrefix(player.playerNumber)}${player.firstName} ${player.lastName}`
                     : 'Unknown',
                   status: 'on-field',
                   rotationNumbers: [rotation.rotationNumber],
@@ -987,7 +992,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         .map(p => ({
           id: p.id,
           playerId: p.id,
-          playerNumber: p.playerNumber || 0,
+          playerNumber: p.playerNumber,
           preferredPositions: p.preferredPositions,
         }));
 
@@ -1513,7 +1518,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       .map(l => {
         const player = players.find(p => p.id === l.playerId);
         const status = getPlayerAvailability(l.playerId);
-        return player ? `#${player.playerNumber} ${player.firstName} (${status})` : `Unknown (${status})`;
+        return player ? `${formatJerseyPrefix(player.playerNumber)}${player.firstName} (${status})` : `Unknown (${status})`;
       });
 
     if (unavailableStarters.length > 0) {
@@ -2321,7 +2326,61 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     </div>
   );
 
+  const handleAddGuestPlayer = async (values: GuestPlayerFieldValues): Promise<boolean> => {
+    if (!userId) {
+      showError('User not authenticated');
+      return false;
+    }
+    // The opener is gated at render time, but the modal can outlive that state
+    // (connection drops, co-coach starts the game).
+    if (!isOnline || gameState.status !== 'scheduled') {
+      showWarning(!isOnline ? 'Reconnect to add a guest player' : 'Guest players can only be added before the game starts');
+      return false;
+    }
+    try {
+      const { birthYear, jerseyNumber } = parseOptionalPlayerNumbers(values);
+      await createPlayerOnRoster({
+        team,
+        currentUserId: userId,
+        firstName: values.firstName,
+        lastName: values.lastName,
+        birthYear,
+        jerseyNumber,
+        preferredPositionIds: values.preferredPositionIds,
+        isGuest: true,
+        existingNumbers: players.flatMap(p => (p.playerNumber != null ? [p.playerNumber] : [])),
+      });
+    } catch (error) {
+      if (error instanceof RosterValidationError) {
+        showWarning(error.message);
+      } else {
+        handleApiError(error, 'Failed to add guest player');
+      }
+      return false;
+    }
+    trackEvent(AnalyticsEvents.GUEST_PLAYER_ADDED.category, AnalyticsEvents.GUEST_PLAYER_ADDED.action);
+    if (plannedRotations.length > 0) {
+      showWarning('Guest player added. Recalculate rotations to include them.');
+    } else {
+      showSuccess('Guest player added');
+    }
+    return true;
+  };
+
+  // Only offered pregame: the two-step Player + TeamRoster create can't be queued offline.
+  const guestPlayerAction = gameState.status === 'scheduled'
+    ? {
+        onOpen: () => setIsAddGuestModalOpen(true),
+        disabledReason: !isOnline
+          ? 'Reconnect to add a guest player'
+          : !userId
+            ? 'Loading your account…'
+            : undefined,
+      }
+    : undefined;
+
   const sharedLineupPanelProps = {
+    guestPlayerAction,
     gameState,
     game,
     team,
@@ -2967,6 +3026,13 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
             </div>
           </div>
         )}
+
+        <AddGuestPlayerModal
+          isOpen={isAddGuestModalOpen}
+          positions={positions}
+          onClose={() => setIsAddGuestModalOpen(false)}
+          onSubmit={handleAddGuestPlayer}
+        />
 
         <CreateEditNoteModal
           isOpen={isPreGameNoteModalOpen}

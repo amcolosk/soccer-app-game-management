@@ -1,4 +1,4 @@
-import { useState, useEffect, useReducer, useMemo } from 'react';
+import { useState, useEffect, useReducer, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
@@ -14,10 +14,15 @@ import {
   BIRTH_YEAR_MIN,
   BIRTH_YEAR_MAX_FN,
   parseBirthYear,
+  parseJerseyNumber,
+  isPlayerNumberUnique,
   validateTeamFormData,
   validateFormationFormData,
 } from '../utils/validation';
 import { useConfirm } from './ConfirmModal';
+import { GuestBadge } from './GuestBadge';
+import { GuestPlayerFields } from './GuestPlayerFields';
+import { createPlayerOnRoster, parseOptionalPlayerNumbers, RosterValidationError } from '../services/rosterService';
 import { deleteTeamCascade, deletePlayerCascade, deleteFormationCascade, getPlayerImpact } from '../services/cascadeDeleteService';
 import { removeDemoData } from '../services/demoDataService';
 import { archiveTeam, restoreTeam, assignTeamOwner } from '../services/teamLifecycleService';
@@ -41,6 +46,7 @@ import type { ManagementDebugContext } from '../types/debug';
 import { FormationVisualEditor } from './FormationVisualEditor';
 import { CalendarFeedSettings } from './CalendarFeedSettings';
 import type { DraftPosition } from './FormationVisualEditor';
+import { formatJerseyPrefix, formatJerseyNumber } from "../utils/playerUtils";
 
 const client = generateClient<Schema>();
 
@@ -204,6 +210,15 @@ export function Management() {
   // Form state (useReducer)
   const [teamForm, teamDispatch] = useReducer(teamFormReducer, initialTeamForm);
   const [rosterForm, rosterDispatch] = useReducer(rosterFormReducer, initialRosterForm);
+  const guestFirstNameRef = useRef<HTMLInputElement | null>(null);
+  const guestSubmitInFlightRef = useRef(false);
+  const [isSubmittingGuest, setIsSubmittingGuest] = useState(false);
+
+  useEffect(() => {
+    if (rosterForm.isAdding && rosterForm.mode === 'guest') {
+      guestFirstNameRef.current?.focus();
+    }
+  }, [rosterForm.isAdding, rosterForm.mode]);
 
   // Swipe-to-delete
   const { getSwipeProps, getSwipeStyle, close: closeSwipe, swipedItemId } = useSwipeDelete();
@@ -525,13 +540,15 @@ export function Management() {
   };
 
   const handleAddPlayerToRoster = async (teamId: string) => {
-    if (!rosterForm.selectedPlayer || !rosterForm.playerNumber.trim()) {
-      showWarning('Please select a player and enter a player number');
+    const isGuest = rosterForm.markExistingAsGuest;
+    if (!rosterForm.selectedPlayer || (!isGuest && !rosterForm.playerNumber.trim())) {
+      showWarning(isGuest ? 'Please select a player' : 'Please select a player and enter a player number');
       return;
     }
 
-    const num = parseInt(rosterForm.playerNumber);
-    if (isNaN(num) || num < 1 || num > 99) {
+    // undefined = blank (allowed for guests only), null = invalid
+    const num = parseJerseyNumber(rosterForm.playerNumber);
+    if (num === null) {
       showWarning('Please enter a valid player number (1-99)');
       return;
     }
@@ -543,7 +560,7 @@ export function Management() {
     }
 
     // Check if number is already in use on this team
-    if (teamRosters.some(r => r.teamId === teamId && r.playerNumber === num)) {
+    if (!isPlayerNumberUnique(num, teamId, teamRosters)) {
       showWarning('This player number is already in use on this team');
       return;
     }
@@ -559,7 +576,9 @@ export function Management() {
       const createRosterResponse = await client.models.TeamRoster.create({
         teamId,
         playerId: rosterForm.selectedPlayer,
-        playerNumber: num,
+        // Omit rather than send null when a guest has no number.
+        ...(num !== undefined ? { playerNumber: num } : {}),
+        ...(isGuest ? { isGuest: true } : {}),
         preferredPositions: rosterForm.preferredPositions.length > 0
           ? rosterForm.preferredPositions.join(', ')
           : undefined,
@@ -594,8 +613,57 @@ export function Management() {
       rosterDispatch({ type: 'RESET' });
       setBirthYearFilters([]);
       trackEvent(AnalyticsEvents.PLAYER_ADDED_TO_ROSTER.category, AnalyticsEvents.PLAYER_ADDED_TO_ROSTER.action);
+      if (isGuest) {
+        trackEvent(AnalyticsEvents.GUEST_PLAYER_ADDED.category, AnalyticsEvents.GUEST_PLAYER_ADDED.action);
+      }
     } catch (error) {
       handleApiError(error, 'Failed to add player to roster');
+    }
+  };
+
+  const handleAddGuestToRoster = async (teamId: string) => {
+    if (guestSubmitInFlightRef.current) return;
+    const team = teams.find(t => t.id === teamId);
+    if (!team) {
+      showError('Team not found');
+      return;
+    }
+    if (!currentUserId) {
+      showError('User not authenticated');
+      return;
+    }
+
+    guestSubmitInFlightRef.current = true;
+    setIsSubmittingGuest(true);
+    try {
+      const { birthYear, jerseyNumber } = parseOptionalPlayerNumbers({
+        birthYear: rosterForm.guestBirthYear,
+        jerseyNumber: rosterForm.playerNumber,
+      });
+      await createPlayerOnRoster({
+        team,
+        currentUserId,
+        firstName: rosterForm.guestFirstName,
+        lastName: rosterForm.guestLastName,
+        birthYear,
+        jerseyNumber,
+        preferredPositionIds: rosterForm.preferredPositions,
+        isGuest: true,
+        existingNumbers: teamRosters.flatMap(r =>
+          r.teamId === teamId && r.playerNumber != null ? [r.playerNumber] : []
+        ),
+      });
+      rosterDispatch({ type: 'RESET' });
+      trackEvent(AnalyticsEvents.GUEST_PLAYER_ADDED.category, AnalyticsEvents.GUEST_PLAYER_ADDED.action);
+    } catch (error) {
+      if (error instanceof RosterValidationError) {
+        showWarning(error.message);
+      } else {
+        handleApiError(error, 'Failed to add guest player');
+      }
+    } finally {
+      guestSubmitInFlightRef.current = false;
+      setIsSubmittingGuest(false);
     }
   };
 
@@ -620,19 +688,22 @@ export function Management() {
   const handleUpdateRoster = async () => {
     if (!rosterForm.editing) return;
 
-    if (!rosterForm.playerNumber.trim()) {
+    // A guest's number is optional; everyone else still needs one.
+    const isGuest = rosterForm.editing.isGuest === true;
+    if (!isGuest && !rosterForm.playerNumber.trim()) {
       showWarning('Please enter a player number');
       return;
     }
 
-    const num = parseInt(rosterForm.playerNumber);
-    if (isNaN(num) || num < 1 || num > 99) {
+    // undefined = blank (guest clearing/omitting the number), null = invalid
+    const num = parseJerseyNumber(rosterForm.playerNumber);
+    if (num === null) {
       showWarning('Player number must be between 1 and 99');
       return;
     }
 
     // Check if number is already in use by another player on this team
-    if (teamRosters.some(r => r.teamId === rosterForm.editing!.teamId && r.playerNumber === num && r.id !== rosterForm.editing!.id)) {
+    if (!isPlayerNumberUnique(num, rosterForm.editing.teamId, teamRosters, rosterForm.editing.id)) {
       showWarning('This player number is already in use on this team');
       return;
     }
@@ -653,7 +724,7 @@ export function Management() {
       // Update roster entry
       await client.models.TeamRoster.update({
         id: rosterForm.editing.id,
-        playerNumber: num,
+        playerNumber: num ?? null,
         preferredPositions: rosterForm.preferredPositions.length > 0
           ? rosterForm.preferredPositions.join(', ')
           : undefined,
@@ -1371,7 +1442,7 @@ export function Management() {
                                         if (!player) return null;
                                         return (
                                           <div key={roster.id} className="position-player-tag">
-                                            <span>#{roster.playerNumber} {player.firstName} {player.lastName}</span>
+                                            <span>{formatJerseyPrefix(roster.playerNumber)}{player.firstName} {player.lastName}{roster.isGuest && <GuestBadge compact />}</span>
                                             <button
                                               type="button"
                                               onClick={() => handleTogglePlayerPosition(roster.id, position.id, false)}
@@ -1401,7 +1472,7 @@ export function Management() {
                                         if (!player) return null;
                                         return (
                                           <option key={roster.id} value={roster.id}>
-                                            #{roster.playerNumber} {player.firstName} {player.lastName}
+                                            {formatJerseyPrefix(roster.playerNumber)}{player.firstName} {player.lastName}{roster.isGuest ? ' (Guest)' : ''}
                                           </option>
                                         );
                                       })}
@@ -1426,6 +1497,53 @@ export function Management() {
                         {rosterForm.isAdding && (
                           <div className="create-form" style={{ marginBottom: '1rem' }}>
                             <h5>Add Player to Roster</h5>
+                            <div className="roster-add-mode" role="radiogroup" aria-label="Add player type">
+                              <button
+                                type="button"
+                                role="radio"
+                                aria-checked={rosterForm.mode === 'existing'}
+                                className={rosterForm.mode === 'existing' ? 'active' : ''}
+                                onClick={() => rosterDispatch({ type: 'SET_MODE', mode: 'existing' })}
+                              >
+                                Existing player
+                              </button>
+                              <button
+                                type="button"
+                                role="radio"
+                                aria-checked={rosterForm.mode === 'guest'}
+                                className={rosterForm.mode === 'guest' ? 'active' : ''}
+                                onClick={() => rosterDispatch({ type: 'SET_MODE', mode: 'guest' })}
+                              >
+                                New guest player
+                              </button>
+                            </div>
+                            {rosterForm.mode === 'guest' ? (
+                              <GuestPlayerFields
+                                idPrefix={`mgmt-guest-${team.id}`}
+                                values={{
+                                  firstName: rosterForm.guestFirstName,
+                                  lastName: rosterForm.guestLastName,
+                                  birthYear: rosterForm.guestBirthYear,
+                                  jerseyNumber: rosterForm.playerNumber,
+                                  preferredPositionIds: rosterForm.preferredPositions,
+                                }}
+                                positions={getTeamFormationPositions(team.id)}
+                                disabled={isSubmittingGuest}
+                                firstNameRef={guestFirstNameRef}
+                                onFieldChange={(field, value) =>
+                                  rosterDispatch({
+                                    type: 'SET_FIELD',
+                                    field: field === 'firstName' ? 'guestFirstName'
+                                      : field === 'lastName' ? 'guestLastName'
+                                      : field === 'birthYear' ? 'guestBirthYear'
+                                      : 'playerNumber',
+                                    value,
+                                  })
+                                }
+                                onPositionsChange={(positions) => rosterDispatch({ type: 'SET_PREFERRED_POSITIONS', positions })}
+                              />
+                            ) : (
+                            <>
                             {(() => {
                               const availablePlayers = players.filter(p => !teamRosterList.some(r => r.playerId === p.id));
                               const years = getAvailableBirthYears(availablePlayers);
@@ -1478,12 +1596,20 @@ export function Management() {
                             </select>
                             <input
                               type="number"
-                              placeholder="Player Number *"
+                              placeholder={rosterForm.markExistingAsGuest ? 'Player Number (optional)' : 'Player Number *'}
                               value={rosterForm.playerNumber}
                               onChange={(e) => rosterDispatch({ type: 'SET_FIELD', field: 'playerNumber', value: e.target.value })}
                               min="1"
                               max="99"
                             />
+                            <label className="checkbox-label">
+                              <input
+                                type="checkbox"
+                                checked={rosterForm.markExistingAsGuest}
+                                onChange={(e) => rosterDispatch({ type: 'SET_MARK_EXISTING_AS_GUEST', value: e.target.checked })}
+                              />
+                              Mark as guest
+                            </label>
                             {getTeamFormationPositions(team.id).length > 0 && (
                               <div className="checkbox-group">
                                 <label className="group-label">Preferred Positions (optional)</label>
@@ -1505,8 +1631,14 @@ export function Management() {
                                 ))}
                               </div>
                             )}
+                            </>
+                            )}
                             <div className="form-actions">
-                              <button onClick={() => handleAddPlayerToRoster(team.id)} className="btn-primary">
+                              <button
+                                onClick={() => rosterForm.mode === 'guest' ? handleAddGuestToRoster(team.id) : handleAddPlayerToRoster(team.id)}
+                                className="btn-primary"
+                                disabled={isSubmittingGuest}
+                              >
                                 Add
                               </button>
                               <button
@@ -1532,7 +1664,7 @@ export function Management() {
                               if (isEditingRoster) {
                                 return (
                                   <div key={roster.id} className="create-form" style={{ marginBottom: '0.25rem' }}>
-                                    <h5>Edit Roster Entry</h5>
+                                    <h5>Edit Roster Entry {roster.isGuest && <GuestBadge />}</h5>
                                     <label>
                                       First Name *
                                       <input
@@ -1552,7 +1684,7 @@ export function Management() {
                                       />
                                     </label>
                                     <label>
-                                      Player Number *
+                                      {roster.isGuest ? 'Player Number (optional)' : 'Player Number *'}
                                       <input
                                         type="number"
                                         placeholder="Player Number"
@@ -1605,7 +1737,8 @@ export function Management() {
                                   borderRadius: '4px'
                                 }}>
                                   <span>
-                                    #{roster.playerNumber} {player.firstName} {player.lastName}
+                                    {formatJerseyPrefix(roster.playerNumber)}{player.firstName} {player.lastName}
+                                    {roster.isGuest && <> <GuestBadge /></>}
                                   </span>
                                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                                     <button
@@ -1999,7 +2132,7 @@ export function Management() {
                 const playerRosters = teamRosters.filter(r => r.playerId === player.id);
                 const teamsList = playerRosters.map(r => {
                   const team = teams.find(t => t.id === r.teamId);
-                  return team ? `${team.name} #${r.playerNumber}` : '';
+                  return team ? `${team.name} ${formatJerseyNumber(r.playerNumber)}`.trim() : '';
                 }).filter(Boolean).join(', ');
                 const isSwiped = swipedItemId === player.id;
                 const isEditing = playerForm.editing?.id === player.id;

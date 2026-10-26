@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { PlayerAvailabilityGrid } from "../PlayerAvailabilityGrid";
 import { PlannerLineupView } from "./PlannerLineupView";
+import { AddGuestPlayerButton, type GuestPlayerAction } from "./AddGuestPlayerButton";
 import { useGamePlanner } from "./hooks/useGamePlanner";
 import { useConfirm } from "../ConfirmModal";
 import { generateCanonicalKey } from "../../utils/plannerKeyUtils";
@@ -138,6 +139,8 @@ interface PlanTabProps {
   onCloseCopyModal?: () => void;
   onCopyFromGame?: (sourceGameId: string) => Promise<void>;
   isCopyingPlan?: boolean;
+  /** Pregame-only entry point for adding a guest player. */
+  guestPlayerAction?: GuestPlayerAction;
 }
 
 export function PlanTab({
@@ -168,6 +171,7 @@ export function PlanTab({
   onCloseCopyModal,
   onCopyFromGame,
   isCopyingPlan = false,
+  guestPlayerAction,
 }: PlanTabProps) {
   const lineupPlayerIds = lineup.filter(l => l.isStarter).map(l => l.playerId);
   const isScheduled = game.status === "scheduled";
@@ -1261,7 +1265,10 @@ export function PlanTab({
         >
           {isStartingSelected ? (
             <div className="plan-tab__rotation-details">
-              <h4>Starting Formation</h4>
+              <div className="plan-tab__starting-header">
+                <h4>Starting Formation</h4>
+                {!readOnly && isScheduled && <AddGuestPlayerButton action={guestPlayerAction} />}
+              </div>
               <PlannerLineupView
                 displayLineup={planner.draft.startingLineup}
                 positions={positions}

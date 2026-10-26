@@ -3,6 +3,7 @@ import {
   isPlayerNumberUnique,
   isValidPlayerNumber,
   parseBirthYear,
+  parseJerseyNumber,
   validateTeamFormData,
   validateFormationFormData,
   BIRTH_YEAR_MIN,
@@ -131,6 +132,25 @@ describe('parseBirthYear', () => {
 // ---------------------------------------------------------------------------
 // validateTeamFormData
 // ---------------------------------------------------------------------------
+
+describe('parseJerseyNumber', () => {
+  it('returns undefined for blank input (never NaN)', () => {
+    expect(parseJerseyNumber('')).toBeUndefined();
+    expect(parseJerseyNumber('   ')).toBeUndefined();
+  });
+
+  it('parses a valid number', () => {
+    expect(parseJerseyNumber('7')).toBe(7);
+    expect(parseJerseyNumber('99')).toBe(99);
+  });
+
+  it('returns null for invalid input', () => {
+    expect(parseJerseyNumber('0')).toBeNull();
+    expect(parseJerseyNumber('100')).toBeNull();
+    expect(parseJerseyNumber('4.5')).toBeNull();
+    expect(parseJerseyNumber('abc')).toBeNull();
+  });
+});
 
 describe('validateTeamFormData', () => {
   const valid = { name: 'Eagles', maxPlayers: '7', halfLength: '25' };

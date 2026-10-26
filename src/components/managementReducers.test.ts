@@ -392,13 +392,71 @@ describe('rosterFormReducer', () => {
   it('returns initial state', () => {
     expect(initialRosterForm).toEqual({
       isAdding: false,
+      mode: 'existing',
       editing: null,
       selectedPlayer: '',
+      markExistingAsGuest: false,
       playerNumber: '',
       preferredPositions: [],
+      guestFirstName: '',
+      guestLastName: '',
+      guestBirthYear: '',
       editFirstName: '',
       editLastName: '',
     });
+  });
+
+  it('SET_MODE switches mode and clears the other mode\'s fields', () => {
+    const dirty = {
+      ...initialRosterForm,
+      isAdding: true,
+      selectedPlayer: 'p-1',
+      markExistingAsGuest: true,
+      playerNumber: '9',
+      preferredPositions: ['GK'],
+    };
+    const result = rosterFormReducer(dirty, { type: 'SET_MODE', mode: 'guest' });
+    expect(result).toEqual({ ...initialRosterForm, isAdding: true, mode: 'guest' });
+
+    const dirtyGuest = { ...result, guestFirstName: 'Gus', guestLastName: 'Guest', guestBirthYear: '2015', playerNumber: '4' };
+    expect(rosterFormReducer(dirtyGuest, { type: 'SET_MODE', mode: 'existing' })).toEqual({
+      ...initialRosterForm,
+      isAdding: true,
+      mode: 'existing',
+    });
+  });
+
+  it('SET_MARK_EXISTING_AS_GUEST toggles the flag', () => {
+    const result = rosterFormReducer(initialRosterForm, { type: 'SET_MARK_EXISTING_AS_GUEST', value: true });
+    expect(result.markExistingAsGuest).toBe(true);
+  });
+
+  it('SET_FIELD updates the guest sub-form fields', () => {
+    let state = rosterFormReducer(initialRosterForm, { type: 'SET_FIELD', field: 'guestFirstName', value: 'Gus' });
+    state = rosterFormReducer(state, { type: 'SET_FIELD', field: 'guestLastName', value: 'Guest' });
+    state = rosterFormReducer(state, { type: 'SET_FIELD', field: 'guestBirthYear', value: '2015' });
+    expect(state).toMatchObject({ guestFirstName: 'Gus', guestLastName: 'Guest', guestBirthYear: '2015' });
+  });
+
+  it('EDIT_ROSTER resets add mode and guest fields', () => {
+    const dirty = {
+      ...initialRosterForm,
+      isAdding: true,
+      mode: 'guest' as const,
+      markExistingAsGuest: true,
+      guestFirstName: 'Gus',
+      guestLastName: 'Guest',
+      guestBirthYear: '2015',
+    };
+    const roster = { playerNumber: null, preferredPositions: null, playerId: 'p-1' } as any;
+    const result = rosterFormReducer(dirty, { type: 'EDIT_ROSTER', roster, firstName: 'Gus', lastName: 'Guest' });
+    expect(result.mode).toBe('existing');
+    expect(result.markExistingAsGuest).toBe(false);
+    expect(result.guestFirstName).toBe('');
+    expect(result.guestLastName).toBe('');
+    expect(result.guestBirthYear).toBe('');
+    expect(result.playerNumber).toBe('');
+    expect(result.isAdding).toBe(false);
   });
 
   it('START_ADD sets isAdding and resets fields', () => {
