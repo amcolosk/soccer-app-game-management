@@ -5,6 +5,7 @@ import { createGitHubIssue } from "../functions/create-github-issue/resource";
 import { createGameNote } from "../functions/create-game-note/resource";
 import { updateGameNote } from "../functions/update-game-note/resource";
 import { deleteGameNote } from "../functions/delete-game-note/resource";
+import { rescindSendOff } from "../functions/rescind-send-off/resource";
 import { upsertCoachProfile } from "../functions/upsert-coach-profile/resource";
 import { getTeamCoachProfiles } from "../functions/get-team-coach-profiles/resource";
 import { deleteFormationSafe } from "../functions/delete-formation-safe/resource";
@@ -455,6 +456,12 @@ const schema = a.schema({
       notes: a.string(), // The actual note text (max 500 chars — see comment above)
       editedAt: a.datetime(),
       editedById: a.string(),
+      // Red-card send-offs only. positionId is the FormationPosition the player vacated
+      // (server-validated in createSecureGameNote); rescinded* are set only by
+      // rescindSendOff, which never touches any other field on the note.
+      positionId: a.string(),
+      rescindedAt: a.datetime(),
+      rescindedById: a.string(),
       timestamp: a.datetime().required(), // Real-world timestamp when note was created
       coaches: a.string().array(), // Team coaches who can access this note
     })
@@ -471,6 +478,7 @@ const schema = a.schema({
       gameId: a.string().required(),
       noteType: a.string().required(), // required — validated in Lambda
       playerId: a.string(),
+      positionId: a.string(), // red-card only; validated server-side
       // Optional argument accepted for backward compatibility; ignored server-side.
       authorId: a.string(),
       gameSeconds: a.integer(),
@@ -505,6 +513,17 @@ const schema = a.schema({
     .returns(a.json())
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(deleteGameNote)),
+
+  // Undo a red-card send-off. Distinct from delete/edit: the card note stays in the
+  // game record, annotated with who rescinded it and when.
+  rescindSendOff: a
+    .mutation()
+    .arguments({
+      id: a.string().required(),
+    })
+    .returns(a.ref('GameNote'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(rescindSendOff)),
 
   TeamInvitation: a
     .model({

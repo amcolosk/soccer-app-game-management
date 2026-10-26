@@ -11,6 +11,7 @@ import { useConfirm } from "../ConfirmModal";
 import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { isMissingRecordError } from "../../services/amplifyMutationResult";
 import { cleanupDuplicateAssignmentsForPosition } from "../../services/lineupCleanupService";
+import { getLockedPositionIds, getSentOffPlayerIds } from "../../utils/sendOffCalculations";
 import { planHalftimeLineupChanges } from "../../utils/halftimeSubstitutionUtils";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, copyGamePlan, type PlannedSubstitution } from "../../services/rotationPlannerService";
@@ -499,6 +500,14 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     // (and null once resolved), so this effect fires exactly once per proposal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingGapCorrection]);
+
+  // Red-card send-offs: positions that stay empty and players who cannot return this game.
+  const lockedPositionIds = useMemo(() => getLockedPositionIds(gameNotes, positions), [gameNotes, positions]);
+  const sentOffPlayerIds = useMemo(() => getSentOffPlayerIds(gameNotes), [gameNotes]);
+  const eligiblePlayers = useMemo(
+    () => (sentOffPlayerIds.size === 0 ? players : players.filter((player) => !sentOffPlayerIds.has(player.id))),
+    [players, sentOffPlayerIds],
+  );
 
   // Merged substitution queue: backend records (FIFO) plus optimistic adds, minus optimistic removes
   const substitutionQueue = useMemo<SubQueue[]>(() => {
@@ -1736,7 +1745,13 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     if (halftimeSubsInProgressRef.current) return;
     halftimeSubsInProgressRef.current = true;
     try {
-      const changes = planHalftimeLineupChanges(lineup, subs);
+      const allowedSubs = subs.filter(
+        (sub) => !lockedPositionIds.has(sub.positionId) && !sentOffPlayerIds.has(sub.playerInId),
+      );
+      if (allowedSubs.length < subs.length) {
+        showWarning('Skipped planned substitutions that target a sent-off player or a position locked by a red card.');
+      }
+      const changes = planHalftimeLineupChanges(lineup, allowedSubs);
       if (changes.skipped.length > 0) {
         showWarning('Some planned halftime substitutions conflict with each other and were not applied.');
       }
@@ -2077,8 +2092,22 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     }
   }, [gameState.status, activeTab, refetchCoachProfiles]);
 
-  const handleSubstitute = (position: FormationPosition) => {
+  const requestSubstitution = async (position: FormationPosition) => {
+    if (lockedPositionIds.has(position.id)) {
+      const overrideConfirmed = await confirm({
+        title: 'Position locked',
+        message: `${position.positionName} is locked because its player was sent off, so the team plays a player down. Assign a player anyway?`,
+        confirmText: 'Assign anyway',
+        cancelText: 'Keep it empty',
+        variant: 'warning',
+      });
+      if (!overrideConfirmed) return;
+    }
     setSubstitutionRequest(position);
+  };
+
+  const handleSubstitute = (position: FormationPosition) => {
+    void requestSubstitution(position);
   };
 
   const handleQueueSubstitution = (playerId: string, positionId: string) => {
@@ -2325,7 +2354,8 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     gameState,
     game,
     team,
-    players,
+    players: gameState.status === 'completed' ? players : eligiblePlayers,
+    lockedPositionIds,
     positions,
     lineup,
     playTimeRecords,
@@ -2363,6 +2393,9 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     mutations,
     currentUserId: userId,
     profileMap,
+    lineup,
+    playTimeRecords,
+    positions,
     onNoteSaved: () => setNotesRefreshKey(k => k + 1),
   };
 
@@ -2417,7 +2450,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
           gameState={gameState}
           game={game}
           team={team}
-          players={players}
+          players={eligiblePlayers}
           positions={positions}
           lineup={lineup}
           playTimeRecords={playTimeRecords}
@@ -2571,7 +2604,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                 tabIndex={0}
               >
                 <BenchTab
-                  players={players}
+                  players={eligiblePlayers}
                   lineup={lineup}
                   playTimeRecords={playTimeRecords}
                   currentTime={currentTime}
@@ -2750,7 +2783,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                   isOnline={isOnline}
                   onSelectPlayer={() => {
                     const emptyPosition = positions.find(
-                      pos => !lineup.some(l => l.positionId === pos.id && l.isStarter)
+                      pos => !lockedPositionIds.has(pos.id) && !lineup.some(l => l.positionId === pos.id && l.isStarter)
                     );
                     const targetPosition = emptyPosition ?? positions[0];
                     if (targetPosition) setSubstitutionRequest(targetPosition);

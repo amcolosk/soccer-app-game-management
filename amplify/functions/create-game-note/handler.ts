@@ -137,6 +137,30 @@ export const handler: Handler = async (event) => {
     }
   }
 
+  if (args.positionId) {
+    if (noteType !== 'red-card') {
+      throw new Error('positionId is only allowed on red-card notes');
+    }
+    if (!args.playerId) {
+      throw new Error('positionId requires a playerId');
+    }
+
+    const formationPositionTable = process.env.FORMATION_POSITION_TABLE;
+    if (!formationPositionTable) {
+      throw new Error('Required environment variable FORMATION_POSITION_TABLE is not set');
+    }
+
+    const positionResponse = await docClient.send(new GetCommand({
+      TableName: formationPositionTable,
+      Key: { id: args.positionId },
+      ProjectionExpression: 'id, coaches',
+    }));
+    const position = positionResponse.Item as { id: string; coaches?: string[] } | undefined;
+    if (!position || !position.coaches?.includes(authorId)) {
+      throw new Error('positionId must be a position the caller can access');
+    }
+  }
+
   const now = new Date().toISOString();
   const id = randomUUID();
 
@@ -146,6 +170,7 @@ export const handler: Handler = async (event) => {
     gameId: args.gameId,
     noteType,
     ...(args.playerId ? { playerId: args.playerId } : {}),
+    ...(args.positionId ? { positionId: args.positionId } : {}),
     authorId,
     gameSeconds: args.gameSeconds ?? null,
     half: args.half ?? null,

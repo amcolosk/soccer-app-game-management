@@ -183,4 +183,47 @@ describe('create-game-note handler', () => {
     const item = putCall?.[0].input.Item as Record<string, unknown>;
     expect(Object.prototype.hasOwnProperty.call(item, 'playerId')).toBe(false);
   });
+  describe('positionId (red-card send-off)', () => {
+    const redCard = (overrides: Partial<HandlerEvent['arguments']> = {}) =>
+      createEvent({ noteType: 'red-card', gameSeconds: 600, half: 1, playerId: 'player-1', positionId: 'pos-1', ...overrides });
+
+    const mockWithPosition = (position: unknown) => {
+      process.env.FORMATION_POSITION_TABLE = 'FormationPositionTable';
+      mockSend.mockImplementation(async (command: { __type: string; input: Record<string, unknown> }) => {
+        if (command.__type === 'GetCommand') {
+          if (command.input.TableName === 'FormationPositionTable') return { Item: position };
+          return { Item: { id: 'game-1', teamId: 'team-1', coaches: ['coach-1'] } };
+        }
+        if (command.__type === 'ScanCommand') return { Items: [{ id: 'roster-1' }] };
+        return {};
+      });
+    };
+
+    it('stores positionId on a red-card note when the caller can access the position', async () => {
+      mockWithPosition({ id: 'pos-1', coaches: ['coach-1'] });
+      await invoke(redCard());
+      const putCall = mockSend.mock.calls.find(([command]) => command.__type === 'PutCommand');
+      expect((putCall?.[0].input.Item as { positionId?: string }).positionId).toBe('pos-1');
+    });
+
+    it('rejects positionId on a non red-card note', async () => {
+      mockWithPosition({ id: 'pos-1', coaches: ['coach-1'] });
+      await expect(invoke(redCard({ noteType: 'yellow-card' }))).rejects.toThrow('positionId is only allowed on red-card notes');
+    });
+
+    it('rejects positionId without a playerId', async () => {
+      mockWithPosition({ id: 'pos-1', coaches: ['coach-1'] });
+      await expect(invoke(redCard({ playerId: undefined }))).rejects.toThrow('positionId requires a playerId');
+    });
+
+    it('rejects a positionId the caller cannot access', async () => {
+      mockWithPosition({ id: 'pos-1', coaches: ['someone-else'] });
+      await expect(invoke(redCard())).rejects.toThrow('positionId must be a position the caller can access');
+    });
+
+    it('rejects a positionId that does not exist', async () => {
+      mockWithPosition(undefined);
+      await expect(invoke(redCard())).rejects.toThrow('positionId must be a position the caller can access');
+    });
+  });
 });

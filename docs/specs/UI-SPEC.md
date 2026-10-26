@@ -399,7 +399,13 @@ Active game cards: left-border accent treatment.
 | **Field** | `LineupPanel` with `hideAvailablePlayers=true`; shows current field positions |
 | **Bench** | `BenchTab` — bench players with play time, sorted by least time |
 | **Goals** | `ShotOutcomeEntry`'s two entry buttons ("Log Shot – Us" / "Log Shot – {opponent}", see §13.2) mounted once above a `StatsSubViewTabs` segmented control (Goals / Shots / Saves, `aria-label="Goals sub-view"`), which switches between `GoalTracker` and `ShotSaveTracker` below it. Both trackers are now **list/edit/delete only** — creating a Goal, Shot, or Save always goes through the one shared `ShotOutcomeEntry` flow regardless of which sub-view is currently selected; the segmented control only changes which list is shown underneath. `ShotSaveTracker` renders a color-coded outcome badge per row (Goal/Saved/Blocked/Wide); its Edit action exposes an editable outcome control only when the row's current outcome is `BLOCKED`/`WIDE` (a read-only label otherwise) and is suppressed entirely on opponent-attributed rows (`Shot`/`Save` carry no `notes` field) — Delete remains available on every row. |
-| **Notes** | `PlayerNotesPanel` — per-player annotations: ⭐ gold star, 🟨 yellow card, 🟥 red card, other |
+| **Notes** | `PlayerNotesPanel` — per-player annotations: ⭐ gold star, 🟨 yellow card, 🟥 red card, other. Saving a 🟥 red card against a player opens the shared confirm modal (§5.6, danger variant, "Send off") naming the position that will stay empty; confirming records the card, closes the player's play time and clears their lineup slot. A sent-off goalkeeper's confirm copy explains a field player must cover goal and the position they leave stays empty. |
+
+#### Red-card send-off (locked position)
+- A position vacated by a sent-off player renders as a red-bordered slot labelled "🟥 Sent off" (list view and shape view), visually distinct from a neutral gray "Empty" slot, and is never offered to the sub/assign pickers by default. At halftime a coach can still tap it; a confirm ("Position locked… Assign anyway?") guards the override for unusual rules. Mid-game, empty slots are not tappable (unchanged).
+- A sent-off goalkeeper's position is not locked (a keeper is still required); the position the covering player leaves is the gap.
+- Sent-off players are removed from the bench list, shape-view bench strip and every substitution picker until the send-off is rescinded.
+- Planned halftime substitutions that target a locked position or a sent-off player are skipped with a warning.
 
 #### Always-Mounted Modals (not in tabs)
 - `RotationWidget` — slide-up modal for next planned rotation preview
@@ -1262,7 +1268,7 @@ A separate **Help Content Specification** document will define the help content,
 ### 13.2 Unified Action Contract
 
 - Notes, goals, shots, and saves share one action renderer (`GameActionRow`/`actionContract`) and action ordering.
-- Order is always Edit then Delete.
+- Order is always Edit, then Rescind (red-card send-offs only), then Delete.
 - Action buttons are trailing-aligned across phone, tablet, and desktop.
 - Tap targets are at least 44x44 px.
 - **Shot/Save exception**: neither model carries a `notes` field, so an opponent-attributed row with nothing else meaningful to edit suppresses Edit; Delete always remains available regardless of attribution or outcome. The two models now differ in exactly where that line falls:
@@ -1297,6 +1303,7 @@ A separate **Help Content Specification** document will define the help content,
 - Any team coach can edit note text.
 - Only original author can delete for gold-star and other note types.
 - Yellow-card and red-card notes are editable but non-deletable for all users.
+- A red-card note against a player can be **rescinded** by any team coach (not author-only), from the same action row. Rescinding never edits or removes the card: the note stays in the timeline with a "Rescinded" badge, muted styling and struck-through text, and its position unlocks. Uses the shared confirm modal (§5.6, danger variant) with a "Keep send-off" cancel label. Rescind is online-only (it is confirmed by the server, never queued).
 - Disabled delete controls must surface clear helper copy:
   - Only the author can delete this note.
   - Yellow card notes cannot be deleted.

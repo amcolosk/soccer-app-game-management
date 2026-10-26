@@ -9018,3 +9018,48 @@
   background: var(--primary-green);
   color: #fff;
 }
+
+/* ── Red card send-off ───────────────────────────────────────────── */
+.empty-slot.empty-slot--locked {
+  border: 2px solid var(--danger-red);
+  background: rgba(211, 47, 47, 0.1);
+  color: var(--danger-red);
+  font-style: normal;
+  font-weight: 700;
+}
+
+.lineup-shape-node--locked .lineup-shape-node__tap-target {
+  border-color: var(--danger-red);
+  background: rgba(211, 47, 47, 0.12);
+}
+
+.lineup-shape-node--locked .lineup-shape-node__player {
+  color: var(--danger-red);
+  font-weight: 700;
+}
+
+.lineup-shape-node--locked .lineup-shape-node__player::before {
+  content: "\1F7E5\00a0";
+}
+
+.note-card.note-rescinded {
+  opacity: 0.65;
+  border-left-color: var(--text-secondary);
+  background: transparent;
+}
+
+.note-card.note-rescinded .note-text,
+.note-card.note-rescinded .note-player {
+  text-decoration: line-through;
+}
+
+.note-rescinded-badge {
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--text-secondary);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}

@@ -755,6 +755,35 @@ describe('LineupPanel', () => {
     expect(onSubstitute).toHaveBeenCalledWith(pos1);
   });
 
+  // ── Red-card locked position ------------------------------------------------
+
+  it('shows a locked position as "Sent off" (not "Empty") and still routes the tap to onSubstitute for the override confirm', async () => {
+    const user = userEvent.setup();
+    const onSubstitute = vi.fn();
+    render(
+      <LineupPanel
+        {...defaultProps}
+        gameState={makeGame('halftime')}
+        game={makeGame('halftime')}
+        lineup={[]}
+        lockedPositionIds={new Set(['pos-1'])}
+        onSubstitute={onSubstitute}
+      />,
+    );
+
+    const locked = screen.getByText(/Sent off/);
+    expect(locked).toHaveClass('empty-slot--locked');
+    expect(screen.getAllByText('Empty')).toHaveLength(1);
+
+    await user.click(locked);
+    expect(onSubstitute).toHaveBeenCalledWith(pos1);
+  });
+
+  it('does not mark an occupied position as locked', () => {
+    render(<LineupPanel {...defaultProps} lockedPositionIds={new Set(['pos-1'])} />);
+    expect(screen.queryByText(/Sent off/)).not.toBeInTheDocument();
+  });
+
   // ── Position picker (available-player click) -------------------------------
   // Same as above: the header claimed "Position picker: opens on
   // available-player click, assigns on pick, cancels" with no backing test.

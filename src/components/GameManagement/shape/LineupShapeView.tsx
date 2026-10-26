@@ -35,6 +35,7 @@ interface LineupShapeViewProps {
   onQuickReplace: (params: { assignmentId: string; playerId: string; positionId: string }) => Promise<"success" | "conflict" | "error">;
   onClearSlot: (params: { assignmentId: string; positionName: string; playerName: string }) => Promise<"success" | "conflict" | "error" | "cancelled">;
   isReadOnly?: boolean;
+  lockedPositionIds?: ReadonlySet<string>;
 }
 
 type QuickReplaceStatus = "idle" | "loading" | "success" | "error" | "conflict";
@@ -83,6 +84,7 @@ export function LineupShapeView({
   onQuickReplace,
   onClearSlot,
   isReadOnly = false,
+  lockedPositionIds,
 }: LineupShapeViewProps) {
   const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
   const [quickReplaceTarget, setQuickReplaceTarget] = useState<QuickReplaceTarget | null>(null);
@@ -139,8 +141,9 @@ export function LineupShapeView({
         setQuickReplaceStatus("idle");
       },
       onStarterLimitReached: (message) => showError(message),
+      lockedPositionIds,
     });
-  }, [gameState.status, lineupByPosition, onSubstitute, playersById, startersCount, teamMaxPlayersOnField]);
+  }, [gameState.status, lineupByPosition, lockedPositionIds, onSubstitute, playersById, startersCount, teamMaxPlayersOnField]);
 
   const benchPlayers = useMemo(() => {
     const bench = players.filter((player) => !lineup.some((entry) => entry.playerId === player.id && entry.isStarter));
@@ -435,9 +438,12 @@ export function LineupShapeView({
           const assignment = lineupByPosition.get(node.positionId);
           const player = assignment?.playerId ? playersById.get(assignment.playerId) : undefined;
           const playerName = getPlayerName(player);
+          const isLocked = !assignment && (lockedPositionIds?.has(node.positionId) ?? false);
           const nodePlayerLabel = assignment
             ? formatPlayerShortLabel(player)
-            : "Empty";
+            : isLocked
+              ? "Sent off"
+              : "Empty";
           const nodePlayerTitle = assignment && player
             ? `${player.playerNumber ? `#${player.playerNumber} ` : ""}${playerName}`
             : nodePlayerLabel;
@@ -451,14 +457,14 @@ export function LineupShapeView({
           return (
             <div
               key={node.positionId}
-              className={`lineup-shape-node ${assignment ? "lineup-shape-node--assigned" : "lineup-shape-node--empty"} ${selectedPositionId === node.positionId ? "lineup-shape-node--selected" : ""}`}
+              className={`lineup-shape-node ${assignment ? "lineup-shape-node--assigned" : "lineup-shape-node--empty"} ${isLocked ? "lineup-shape-node--locked" : ""} ${selectedPositionId === node.positionId ? "lineup-shape-node--selected" : ""}`}
               style={{ "--lineup-shape-node-x": `${node.xPct}%`, top: `${node.yPct}%` } as CSSProperties}
             >
               <button
                 type="button"
                 className="lineup-shape-node__tap-target"
                 onClick={() => handleNodeTap(node, assignment)}
-                aria-label={`${node.positionName}: ${assignment ? playerName : "empty"}`}
+                aria-label={`${node.positionName}: ${assignment ? playerName : isLocked ? "sent off, position locked" : "empty"}`}
                 title={interaction?.title ?? "Unavailable"}
                 disabled={isReadOnly || !interaction?.canTap}
               >

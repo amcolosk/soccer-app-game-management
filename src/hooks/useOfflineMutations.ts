@@ -139,6 +139,8 @@ export interface GameNoteCreateFields {
   gameId: string;
   noteType: 'coaching-point' | 'gold-star' | 'yellow-card' | 'red-card' | 'other';
   playerId?: string | null;
+  // Red-card send-offs only: the FormationPosition the player vacated.
+  positionId?: string | null;
   // authorId is intentionally excluded — always derived from the authenticated session
   // in createGameNote() so callers cannot inject an arbitrary author identity.
   gameSeconds?: number | null;
@@ -218,6 +220,8 @@ export interface GameMutationInput {
   createGameNote: (fields: GameNoteCreateFields) => Promise<void>;
   updateGameNote: (id: string, fields: GameNoteUpdateFields) => Promise<void>;
   deleteGameNote: (id: string) => Promise<void>;
+  /** Online-only on purpose: a rescind must be confirmed by the server, never silently queued. */
+  rescindSendOff: (id: string) => Promise<void>;
   createPlayerAvailability: (fields: PlayerAvailabilityCreateFields) => Promise<void>;
   updatePlayerAvailability: (id: string, fields: PlayerAvailabilityUpdateFields) => Promise<void>;
   createQueuedSubstitution: (fields: QueuedSubstitutionCreateFields) => Promise<void>;
@@ -259,6 +263,8 @@ const CANONICAL_GAME_NOTE_ERRORS: Record<string, string> = {
   AUTH_COACH_REQUIRED: 'Only team coaches can perform this action.',
   AUTH_DELETE_AUTHOR_REQUIRED: 'Only the original author can delete this note.',
   RULE_DELETE_DISALLOWED_NOTE_TYPE: 'Yellow and red card notes cannot be deleted.',
+  RULE_RESCIND_NOT_RED_CARD: 'Only red card notes can be rescinded.',
+  RULE_ALREADY_RESCINDED: 'This send-off was already rescinded.',
   VALIDATION_NOTES_ONLY_EDIT: 'Only note text can be edited for this note.',
   VALIDATION_NOTES_TOO_LONG: 'Notes must be 500 characters or fewer.',
   VALIDATION_INVALID_DELETE_PAYLOAD: 'Stored offline note delete payload is invalid.',
@@ -427,6 +433,13 @@ async function executeSecureDeleteGameNote(payload: { id: string }): Promise<voi
   const result = await client.mutations.deleteSecureGameNote({ id: payload.id });
   if (result.errors && result.errors.length > 0) {
     throw new Error(mapCanonicalGameNoteError(getGraphQLErrorMessage(result, 'Failed to delete game note')));
+  }
+}
+
+async function executeSecureRescindSendOff(id: string): Promise<void> {
+  const result = await client.mutations.rescindSendOff({ id });
+  if (result.errors && result.errors.length > 0) {
+    throw new Error(mapCanonicalGameNoteError(getGraphQLErrorMessage(result, 'Failed to rescind send-off')));
   }
 }
 
@@ -937,6 +950,11 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
     [enqueueOrRun]
   );
 
+  const rescindSendOff = useCallback(
+    (id: string): Promise<void> => executeSecureRescindSendOff(id),
+    []
+  );
+
   const createPlayerAvailability = useCallback(
     async (fields: PlayerAvailabilityCreateFields): Promise<void> => {
       await enqueueOrRun(
@@ -1015,6 +1033,7 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       createGameNote,
       updateGameNote,
       deleteGameNote,
+      rescindSendOff,
       createPlayerAvailability,
       updatePlayerAvailability,
       createQueuedSubstitution,
@@ -1026,7 +1045,7 @@ export function useOfflineMutations(): UseOfflineMutationsResult {
       createGoal, deleteGoal, updateGoal,
       createShot, deleteShot, updateShot,
       createSave, deleteSave, updateSave,
-      createGameNote, updateGameNote, deleteGameNote,
+      createGameNote, updateGameNote, deleteGameNote, rescindSendOff,
       createPlayerAvailability, updatePlayerAvailability,
       createQueuedSubstitution, deleteQueuedSubstitution,
     ]

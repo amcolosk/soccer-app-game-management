@@ -12,12 +12,15 @@ interface InteractionAdapterConfig {
   onSubstitute: (position: FormationPosition) => void;
   onQuickReplace: (position: FormationPosition) => void;
   onStarterLimitReached: (message: string) => void;
+  /** Positions left empty after a red-card send-off. */
+  lockedPositionIds?: ReadonlySet<string>;
 }
 
 export interface PositionInteraction {
   canTap: boolean;
   title: string;
   onTap: () => void;
+  locked?: boolean;
 }
 
 function isStatusSupported(status: string): status is SupportedShapeStatus {
@@ -32,6 +35,7 @@ export function createLineupInteractionAdapter(config: InteractionAdapterConfig)
     onSubstitute,
     onQuickReplace,
     onStarterLimitReached,
+    lockedPositionIds,
   } = config;
 
   const getEmptyNodeInteraction = (position: FormationPosition): PositionInteraction => {
@@ -44,16 +48,20 @@ export function createLineupInteractionAdapter(config: InteractionAdapterConfig)
     }
 
     if (gameStatus === "in-progress") {
+      const locked = lockedPositionIds?.has(position.id) ?? false;
       return {
         canTap: false,
-        title: "Assign players in scheduled or halftime",
+        locked,
+        title: locked ? "Sent off. Position stays empty" : "Assign players in scheduled or halftime",
         onTap: () => undefined,
       };
     }
 
+    const locked = lockedPositionIds?.has(position.id) ?? false;
     return {
       canTap: true,
-      title: "Tap to assign player",
+      locked,
+      title: locked ? "Locked after a red card. Tap to assign anyway" : "Tap to assign player",
       onTap: () => {
         if (startersCount >= maxStarters) {
           onStarterLimitReached(`Maximum ${maxStarters} starters allowed`);

@@ -12,6 +12,7 @@ import { createGitHubIssue } from './functions/create-github-issue/resource';
 import { createGameNote } from './functions/create-game-note/resource';
 import { updateGameNote } from './functions/update-game-note/resource';
 import { deleteGameNote } from './functions/delete-game-note/resource';
+import { rescindSendOff } from './functions/rescind-send-off/resource';
 import { upsertCoachProfile } from './functions/upsert-coach-profile/resource';
 import { getTeamCoachProfiles } from './functions/get-team-coach-profiles/resource';
 import { deleteFormationSafe } from './functions/delete-formation-safe/resource';
@@ -43,6 +44,7 @@ const backend = defineBackend({
   createGameNote,
   updateGameNote,
   deleteGameNote,
+  rescindSendOff,
   upsertCoachProfile,
   getTeamCoachProfiles,
   deleteFormationSafe,
@@ -211,6 +213,8 @@ const gameNoteTable = backend.data.resources.tables['GameNote'];
 gameNoteTable.grantReadWriteData(backend.createGameNote.resources.lambda);
 gameTable.grantReadData(backend.createGameNote.resources.lambda);
 teamRosterTable.grantReadData(backend.createGameNote.resources.lambda);
+formationPositionTable.grantReadData(backend.createGameNote.resources.lambda);
+backend.createGameNote.addEnvironment('FORMATION_POSITION_TABLE', formationPositionTable.tableName);
 backend.createGameNote.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
 backend.createGameNote.addEnvironment('GAME_TABLE', gameTable.tableName);
 backend.createGameNote.addEnvironment('TEAM_ROSTER_TABLE', teamRosterTable.tableName);
@@ -232,6 +236,14 @@ teamTable.grantReadData(backend.deleteGameNote.resources.lambda);
 backend.deleteGameNote.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
 backend.deleteGameNote.addEnvironment('GAME_TABLE', gameTable.tableName);
 backend.deleteGameNote.addEnvironment('TEAM_TABLE', teamTable.tableName);
+
+// Grant table access for rescindSendOff Lambda (red-card send-off undo)
+gameNoteTable.grantReadWriteData(backend.rescindSendOff.resources.lambda);
+gameTable.grantReadData(backend.rescindSendOff.resources.lambda);
+teamTable.grantReadData(backend.rescindSendOff.resources.lambda);
+backend.rescindSendOff.addEnvironment('GAME_NOTE_TABLE', gameNoteTable.tableName);
+backend.rescindSendOff.addEnvironment('GAME_TABLE', gameTable.tableName);
+backend.rescindSendOff.addEnvironment('TEAM_TABLE', teamTable.tableName);
 
 // Grant table access for upsertCoachProfile Lambda (least-privilege: CoachProfile only)
 const coachProfileTable = backend.data.resources.tables['CoachProfile'];
