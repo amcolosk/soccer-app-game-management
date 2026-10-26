@@ -130,7 +130,7 @@ describe('StatTrackerView', () => {
   });
 
   describe('tap-to-submit flow', () => {
-    it('Us Goal: player -> outcome -> assist -> confirm -> submit, with expectedGameId echoed', async () => {
+    it('Us Goal: player -> outcome -> assist, submits directly on the assist tap, with expectedGameId echoed', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
       render(<StatTrackerView />);
       await flush();
@@ -142,8 +142,6 @@ describe('StatTrackerView', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Goal' }));
       await flush();
       fireEvent.click(screen.getByRole('button', { name: 'No assist' }));
-      await flush();
-      fireEvent.click(screen.getByRole('button', { name: /Log Goal/ }));
       await flush();
 
       expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
@@ -205,7 +203,7 @@ describe('StatTrackerView', () => {
       }), { authMode: 'identityPool' });
     });
 
-    it('Us Saved: outcome -> confirm directly (no keeper attribution on our own side)', async () => {
+    it('Us Saved: outcome tap submits immediately, no confirm step (no keeper attribution on our own side)', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
       render(<StatTrackerView />);
       await flush();
@@ -219,9 +217,7 @@ describe('StatTrackerView', () => {
 
       expect(screen.queryByText(/made the save\?/)).not.toBeInTheDocument();
       expect(screen.queryByText('Which keeper?')).not.toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: /Log Save/ }));
-      await flush();
-
+      expect(screen.queryByRole('button', { name: /Log Save/ })).not.toBeInTheDocument();
       expect(screen.getByRole('status')).toHaveTextContent(/logged/i);
       expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
         outcome: 'SAVED', forUs: true, playerId: 'p1', keeperPlayerId: undefined,
@@ -230,7 +226,7 @@ describe('StatTrackerView', () => {
   });
 
   describe('duplicate-tap guard', () => {
-    it('a rapid double-tap on the confirm button produces one submission', async () => {
+    it('a rapid double-tap on the keeper picker produces one submission', async () => {
       let resolveSubmit: (value: unknown) => void = () => {};
       mockSubmitStatEvent.mockReturnValue(new Promise((resolve) => { resolveSubmit = resolve; }));
 
@@ -242,11 +238,9 @@ describe('StatTrackerView', () => {
       await flush();
       fireEvent.click(screen.getByRole('button', { name: 'Saved' }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: '#7 Sam Jones' })); // keeper picker (no auto-prefill)
-      await flush();
-      const confirmButton = screen.getByRole('button', { name: /Log Save/ });
-      fireEvent.click(confirmButton);
-      fireEvent.click(confirmButton); // second tap while the first is in flight
+      const keeperButton = screen.getByRole('button', { name: '#7 Sam Jones' }); // keeper picker (no auto-prefill); choosing submits directly
+      fireEvent.click(keeperButton);
+      fireEvent.click(keeperButton); // second tap while the first is in flight
       await flush();
 
       expect(mockSubmitStatEvent).toHaveBeenCalledTimes(1);
@@ -266,16 +260,14 @@ describe('StatTrackerView', () => {
       await flush();
       fireEvent.click(screen.getByRole('button', { name: '#7 Sam Jones' }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: /Log Save/ }));
-      await flush();
 
       expect(screen.getByRole('alert')).toHaveTextContent(/no longer in progress/i);
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
-      // Target re-enabled -- can retry.
-      expect(screen.getByRole('button', { name: /Log Save/ })).not.toBeDisabled();
+      // Target re-enabled -- can retry via the same keeper button.
+      expect(screen.getByRole('button', { name: '#7 Sam Jones' })).not.toBeDisabled();
     });
 
-    it('on a PARTIAL_WRITE result, shows retry-steering copy and keeps the SAME clientEventId across the retry tap', async () => {
+    it('on a PARTIAL_WRITE result, locks the keeper picker to a single retry with the SAME attribution and clientEventId', async () => {
       mockSubmitStatEvent.mockResolvedValueOnce(result({ ok: false, reason: 'PARTIAL_WRITE' }));
       mockSubmitStatEvent.mockResolvedValueOnce(result({ ok: true, reason: null }));
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
@@ -288,12 +280,15 @@ describe('StatTrackerView', () => {
       await flush();
       fireEvent.click(screen.getByRole('button', { name: '#7 Sam Jones' }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: /Log Save/ }));
-      await flush();
 
       expect(screen.getByRole('alert')).toHaveTextContent(/almost done/i);
-      // Sheet stays open at the same confirm step for a retry tap.
-      const retryButton = screen.getByRole('button', { name: /Log Save/ });
+      // The Shot already persisted server-side attributed to Sam Jones -- a
+      // resume retry can't change that, so the live roster picker is
+      // replaced by a locked retry control naming that same attribution,
+      // not left open to tap a DIFFERENT keeper.
+      expect(screen.queryByRole('button', { name: '#23 Ana Cruz' })).not.toBeInTheDocument();
+      expect(screen.getByText(/already logged for #7 Sam Jones/)).toBeInTheDocument();
+      const retryButton = screen.getByRole('button', { name: /Tap to finish/ });
       expect(retryButton).toBeInTheDocument();
 
       fireEvent.click(retryButton);
@@ -303,6 +298,7 @@ describe('StatTrackerView', () => {
       const [firstCallArgs] = mockSubmitStatEvent.mock.calls[0];
       const [secondCallArgs] = mockSubmitStatEvent.mock.calls[1];
       expect(secondCallArgs.clientEventId).toBe(firstCallArgs.clientEventId);
+      expect(secondCallArgs.keeperPlayerId).toBe(firstCallArgs.keeperPlayerId);
       expect(screen.getByRole('status')).toHaveTextContent(/logged/i);
     });
   });
@@ -379,7 +375,7 @@ describe('StatTrackerView', () => {
       expect(screen.queryByText(/made the save\?/)).not.toBeInTheDocument();
     });
 
-    it('Us-side Saved flow is unaffected by activeGoalkeeperId being set (still outcome -> confirm, no keeper step)', async () => {
+    it('Us-side Saved flow is unaffected by activeGoalkeeperId being set (submits immediately, no keeper step)', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData({ activeGoalkeeperId: 'p1' })));
       render(<StatTrackerView />);
       await flush();
@@ -393,9 +389,6 @@ describe('StatTrackerView', () => {
 
       expect(screen.queryByText(/made the save\?/)).not.toBeInTheDocument();
       expect(screen.queryByText('Which keeper?')).not.toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: /Log Save/ }));
-      await flush();
-
       expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
         outcome: 'SAVED', forUs: true, keeperPlayerId: undefined,
       }), { authMode: 'identityPool' });

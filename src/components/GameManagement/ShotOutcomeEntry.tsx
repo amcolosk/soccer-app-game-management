@@ -26,8 +26,7 @@ type FlowStep =
   | 'shooter'
   | 'outcome'
   | 'assist'
-  | 'keeperPicker'
-  | 'confirm';
+  | 'keeperPicker';
 
 interface FlowState {
   step: FlowStep;
@@ -36,12 +35,6 @@ interface FlowState {
   outcome: ShotOutcome | null;
   assistId: string;
   keeperId: string;
-  // Which step the 'confirm' step's "Back" action returns to -- set at the
-  // moment 'confirm' is entered, since different outcome/side combinations
-  // reach it from different prior steps (assist for "Us"+Goal, outcome for
-  // everything else that skips straight to confirm, keeperPicker for a
-  // "Them"+Saved with no known keeper).
-  confirmBackStep: FlowStep;
 }
 
 const CLOSED_FLOW: FlowState = {
@@ -51,7 +44,6 @@ const CLOSED_FLOW: FlowState = {
   outcome: null,
   assistId: '',
   keeperId: '',
-  confirmBackStep: 'outcome',
 };
 
 interface PendingRetry {
@@ -141,8 +133,8 @@ export function ShotOutcomeEntry({
     // outcome === 'SAVED'
     if (flow.forUs) {
       // "Us" + Saved: no keeper attribution possible (no opponent roster) --
-      // plain confirm.
-      setFlow({ ...flow, outcome, step: 'confirm', confirmBackStep: 'outcome' });
+      // nothing to confirm, submit immediately like BLOCKED/WIDE.
+      void performSubmit({ ...flow, outcome });
       return;
     }
 
@@ -162,16 +154,15 @@ export function ShotOutcomeEntry({
     }
   }
 
+  // Both of these used to route to a separate 'confirm' screen before
+  // submitting; there's nothing left to review there once the picker on
+  // this step is filled in, so the "Continue" tap submits directly now.
   function continueFromAssist() {
-    setFlow({ ...flow, step: 'confirm', confirmBackStep: 'assist' });
+    void performSubmit(flow);
   }
 
   function continueFromKeeperPicker() {
-    setFlow({ ...flow, step: 'confirm', confirmBackStep: 'keeperPicker' });
-  }
-
-  function confirmBack() {
-    setFlow({ ...flow, step: flow.confirmBackStep });
+    void performSubmit(flow);
   }
 
   function handleWriteSuccess(outcome: ShotOutcome, forUs: boolean, keeperId?: string) {
@@ -281,23 +272,6 @@ export function ShotOutcomeEntry({
   }
 
   const opponentName = gameState.opponent ?? 'Opponent';
-  const outcomeVerb = flow.outcome === 'GOAL' ? 'Goal' : 'Save';
-
-  function confirmSummary(): string {
-    const side = flow.forUs ? 'Us' : opponentName;
-    const parts = [`${outcomeVerb} — ${side}`];
-    if (flow.forUs && flow.outcome === 'GOAL') {
-      const shooter = flow.shooterId ? players.find(p => p.id === flow.shooterId) : null;
-      if (shooter) parts.push(`#${shooter.playerNumber}`);
-      const assist = flow.assistId ? players.find(p => p.id === flow.assistId) : null;
-      if (assist) parts.push(`assist #${assist.playerNumber}`);
-    }
-    if (!flow.forUs && flow.outcome === 'SAVED') {
-      const keeper = flow.keeperId ? players.find(p => p.id === flow.keeperId) : null;
-      if (keeper) parts.push(`keeper #${keeper.playerNumber}`);
-    }
-    return parts.join(', ');
-  }
 
   return (
     <>
@@ -391,8 +365,8 @@ export function ShotOutcomeEntry({
                       onFieldPlayerIds={onFieldPlayerIds}
                     />
                     <div className="form-actions">
-                      <button type="button" className="btn-primary" onClick={continueFromAssist}>
-                        Continue
+                      <button type="button" className="btn-primary" onClick={continueFromAssist} disabled={isSubmitting}>
+                        {isSubmitting ? 'Logging…' : 'Log Goal'}
                       </button>
                     </div>
                   </div>
@@ -411,25 +385,8 @@ export function ShotOutcomeEntry({
                       onFieldPlayerIds={onFieldPlayerIds}
                     />
                     <div className="form-actions">
-                      <button type="button" className="btn-primary" onClick={continueFromKeeperPicker}>
-                        Continue
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {flow.step === 'confirm' && (
-                  <div className="form-group">
-                    <p className="modal-subtitle">{confirmSummary()}</p>
-                    <div className="form-actions">
-                      {/* Q1: the final confirm/submit control reads
-                          "Log Goal"/"Log Save" specifically -- this step is
-                          only ever reached for GOAL/SAVED outcomes. */}
-                      <button type="button" className="btn-primary" onClick={() => void performSubmit(flow)} disabled={isSubmitting}>
-                        {isSubmitting ? 'Logging…' : `Log ${outcomeVerb}`}
-                      </button>
-                      <button type="button" className="btn-secondary" onClick={confirmBack} disabled={isSubmitting}>
-                        Back
+                      <button type="button" className="btn-primary" onClick={continueFromKeeperPicker} disabled={isSubmitting}>
+                        {isSubmitting ? 'Logging…' : 'Log Save'}
                       </button>
                     </div>
                   </div>
