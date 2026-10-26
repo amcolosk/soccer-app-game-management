@@ -85,10 +85,151 @@
   --fve-layer-nested-overlay: 1010;
   --fve-layer-nested-modal: 1011;
 
+  /* Status/semantic surface tokens shared by badges, banners and messages
+     across App.css. Light values here; dark equivalents are defined in the
+     dark theme block below. */
+  --status-success-bg: #e8f5e9;
+  --status-success-text: #2e7d32;
+  --status-success-border: #4caf50;
+  --status-error-bg: #ffebee;
+  --status-error-text: #c62828;
+  --status-error-border: #ef9a9a;
+  --status-warning-bg: #fff3e0;
+  --status-warning-text: #e65100;
+  --status-warning-border: #ffcc80;
+  --status-info-bg: #e3f2fd;
+  --status-info-text: #1565c0;
+  --status-info-border: #90caf9;
+  --status-success-bg-hover: #f0f9f4;
+  --status-warning-solid: #ff9800;
+  --status-warning-hover: #f57c00;
+  --status-info-solid: #1976d2;
+  --status-info-hover: #0d47a1;
+  --danger-red-hover: #b71c1c;
+  --accent-purple: #667eea;
+  --accent-purple-dark: #764ba2;
+
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Dark theme ───
+   Resolved by ThemeContext (src/contexts/ThemeContext.tsx), which sets
+   data-theme="light" | "dark" on <html> based on the user's explicit choice,
+   or leaves it unset to defer to the OS's prefers-color-scheme when the
+   user has picked "system" (the default). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --primary-green: #3ba55d;
+    --light-green: #4caf50;
+    --accent-green: #66bb6a;
+    --background: #121418;
+    --card-background: #1c1f26;
+    --text-primary: #e8e8ea;
+    --text-secondary: #a0a4ab;
+    --border-color: #333842;
+    --danger-red: #ef5350;
+    --hover-background: #262a33;
+    --color-strategy: #4fc3f7;
+    --color-strategy-light: rgba(79, 195, 247, 0.12);
+    --color-surface-light: #20242c;
+    --color-surface-disabled: #1a1d23;
+    --color-surface-hover: #262a33;
+    --color-text-muted: #80848c;
+    --color-border-subtle: #2a2e37;
+
+    --shared-shape-node-bg: rgba(102, 187, 106, 0.22);
+    --shared-shape-node-border: rgba(102, 187, 106, 0.4);
+    --shared-shape-node-text: #c8e6c9;
+    --shared-shape-node-focus-ring-color: #64b5f6;
+    --shared-shape-node-disabled-bg: #20242c;
+    --shared-shape-node-disabled-text: #70747c;
+
+    --fve-conflict-banner-bg: #3d2e0a;
+    --fve-conflict-banner-text: #fcd34d;
+    --fve-conflict-banner-border: #92400e;
+    --fve-error-banner-bg: #3a1414;
+    --fve-error-banner-text: #f87171;
+    --fve-error-banner-border: #b91c1c;
+
+    --status-success-bg: rgba(76, 175, 80, 0.16);
+    --status-success-text: #81c784;
+    --status-success-border: #4caf50;
+    --status-error-bg: rgba(239, 83, 80, 0.16);
+    --status-error-text: #ef9a9a;
+    --status-error-border: #c62828;
+    --status-warning-bg: rgba(255, 167, 38, 0.16);
+    --status-warning-text: #ffb74d;
+    --status-warning-border: #e65100;
+    --status-info-bg: rgba(79, 195, 247, 0.16);
+    --status-info-text: #4fc3f7;
+    --status-info-border: #1565c0;
+    --status-success-bg-hover: rgba(76, 175, 80, 0.24);
+    --status-warning-solid: #ffa726;
+    --status-warning-hover: #ffb74d;
+    --status-info-solid: #42a5f5;
+    --status-info-hover: #64b5f6;
+    --danger-red-hover: #f87171;
+    --accent-purple: #818cf8;
+    --accent-purple-dark: #9f7aea;
+  }
+}
+
+:root[data-theme="dark"] {
+  --primary-green: #3ba55d;
+  --light-green: #4caf50;
+  --accent-green: #66bb6a;
+  --background: #121418;
+  --card-background: #1c1f26;
+  --text-primary: #e8e8ea;
+  --text-secondary: #a0a4ab;
+  --border-color: #333842;
+  --danger-red: #ef5350;
+  --hover-background: #262a33;
+  --color-strategy: #4fc3f7;
+  --color-strategy-light: rgba(79, 195, 247, 0.12);
+  --color-surface-light: #20242c;
+  --color-surface-disabled: #1a1d23;
+  --color-surface-hover: #262a33;
+  --color-text-muted: #80848c;
+  --color-border-subtle: #2a2e37;
+
+  --shared-shape-node-bg: rgba(102, 187, 106, 0.22);
+  --shared-shape-node-border: rgba(102, 187, 106, 0.4);
+  --shared-shape-node-text: #c8e6c9;
+  --shared-shape-node-focus-ring-color: #64b5f6;
+  --shared-shape-node-disabled-bg: #20242c;
+  --shared-shape-node-disabled-text: #70747c;
+
+  --fve-conflict-banner-bg: #3d2e0a;
+  --fve-conflict-banner-text: #fcd34d;
+  --fve-conflict-banner-border: #92400e;
+  --fve-error-banner-bg: #3a1414;
+  --fve-error-banner-text: #f87171;
+  --fve-error-banner-border: #b91c1c;
+
+  --status-success-bg: rgba(76, 175, 80, 0.16);
+  --status-success-text: #81c784;
+  --status-success-border: #4caf50;
+  --status-error-bg: rgba(239, 83, 80, 0.16);
+  --status-error-text: #ef9a9a;
+  --status-error-border: #c62828;
+  --status-warning-bg: rgba(255, 167, 38, 0.16);
+  --status-warning-text: #ffb74d;
+  --status-warning-border: #e65100;
+  --status-info-bg: rgba(79, 195, 247, 0.16);
+  --status-info-text: #4fc3f7;
+  --status-info-border: #1565c0;
+  --status-success-bg-hover: rgba(76, 175, 80, 0.24);
+  --status-warning-solid: #ffa726;
+  --status-warning-hover: #ffb74d;
+  --status-info-solid: #42a5f5;
+  --status-info-hover: #64b5f6;
+  --danger-red-hover: #f87171;
+  --accent-purple: #818cf8;
+  --accent-purple-dark: #9f7aea;
 }
 
 * {

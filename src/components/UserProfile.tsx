@@ -14,6 +14,7 @@ import {
 import { useConfirm } from './ConfirmModal';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { useHelpFab } from '../contexts/HelpFabContext';
+import { useTheme, type ThemeMode } from '../contexts/ThemeContext';
 import { buildFlatDebugSnapshot } from '../utils/debugUtils';
 import type { UserProfileDebugContext } from '../types/debug';
 
@@ -26,11 +27,18 @@ function normalizeName(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+const THEME_OPTIONS: { mode: ThemeMode; label: string }[] = [
+  { mode: 'light', label: 'Light' },
+  { mode: 'dark', label: 'Dark' },
+  { mode: 'system', label: 'System' },
+];
+
 export function UserProfile() {
   const confirm = useConfirm();
   const { user } = useAuthenticator();
   const { signOut } = useOutletContext<{ signOut: () => void }>();
   const { setHelpContext, setDebugContext } = useHelpFab();
+  const { mode: themeMode, setMode: setThemeMode } = useTheme();
 
   // Register 'profile' help context while this screen is mounted.
   // @help-content: profile
@@ -470,6 +478,24 @@ export function UserProfile() {
       )}
 
       <div className="profile-section">
+        <h3>Appearance</h3>
+        <p className="section-hint">Choose how TeamTrack looks on this device.</p>
+        <div className="theme-toggle" role="group" aria-label="Theme">
+          {THEME_OPTIONS.map(({ mode, label }) => (
+            <button
+              key={mode}
+              type="button"
+              className={`theme-toggle__option${themeMode === mode ? ' theme-toggle__option--active' : ''}`}
+              aria-pressed={themeMode === mode}
+              onClick={() => setThemeMode(mode)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="profile-section">
         <h3>Account Information</h3>
         <div className="info-row">
           <label>Email Address</label>
@@ -555,7 +581,7 @@ export function UserProfile() {
       </div>
 
       <div className="profile-section version-info">
-        <small style={{ color: '#666', fontSize: '0.85rem' }}>
+        <small style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
           Version {import.meta.env.VITE_APP_VERSION || '1.1.0'}
         </small>
       </div>

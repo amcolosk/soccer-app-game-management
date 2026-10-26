@@ -479,12 +479,12 @@ export function SubstitutionPanel({
                     </p>
                   )}
                   {!isEmptyPosition && (
-                    <p style={{ fontSize: '0.9em', color: '#666', marginBottom: '1rem' }}>
+                    <p style={{ fontSize: '0.9em', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
                       Queue players when ready, execute when referee allows
                     </p>
                   )}
                   {isEmptyPosition && (
-                    <p style={{ fontSize: '0.9em', color: '#666', marginBottom: '1rem' }}>
+                    <p style={{ fontSize: '0.9em', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
                       Select a player to assign to this position
                     </p>
                   )}

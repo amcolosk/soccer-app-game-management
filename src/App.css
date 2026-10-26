@@ -43,7 +43,7 @@
   bottom: 0;
   left: 0;
   right: 0;
-  background: white;
+  background: var(--card-background);
   border-top: 2px solid var(--border-color);
   display: flex;
   justify-content: space-around;
@@ -184,7 +184,7 @@
 }
 
 .update-prompt {
-  background: white;
+  background: var(--card-background);
   border-radius: 12px;
   padding: 2rem;
   max-width: 400px;
@@ -246,7 +246,7 @@
 }
 
 .confirm-modal {
-  background: white;
+  background: var(--card-background);
   border-radius: 12px;
   padding: 1.5rem;
   max-width: 400px;
@@ -259,27 +259,27 @@
   margin: 0 0 0.5rem 0;
   font-size: 1.1rem;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 
 .confirm-modal--danger .confirm-title {
-  color: #dc3545;
+  color: var(--danger-red);
 }
 
 .confirm-modal--warning .confirm-title {
-  color: #e67e22;
+  color: var(--status-warning-solid);
 }
 
 .confirm-message {
   margin: 0 0 1.25rem 0;
-  color: #555;
+  color: var(--text-secondary);
   font-size: 0.95rem;
   line-height: 1.5;
   white-space: pre-line;
 }
 
 .confirm-message--secondary {
-  color: #777;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 
@@ -304,39 +304,39 @@
 }
 
 .confirm-btn--cancel {
-  background: #f0f0f0;
-  color: #333;
+  background: var(--hover-background);
+  color: var(--text-primary);
 }
 
 .confirm-btn--cancel:hover {
-  background: #e0e0e0;
+  background: var(--border-color);
 }
 
 .confirm-btn--confirm.confirm-btn--danger {
-  background: #dc3545;
+  background: var(--danger-red);
   color: white;
 }
 
 .confirm-btn--confirm.confirm-btn--danger:hover {
-  background: #c82333;
+  background: var(--danger-red-hover);
 }
 
 .confirm-btn--confirm.confirm-btn--warning {
-  background: #e67e22;
+  background: var(--status-warning-solid);
   color: white;
 }
 
 .confirm-btn--confirm.confirm-btn--warning:hover {
-  background: #d35400;
+  background: var(--status-warning-hover);
 }
 
 .confirm-btn--confirm.confirm-btn--default {
-  background: #007bff;
+  background: var(--status-info-solid);
   color: white;
 }
 
 .confirm-btn--confirm.confirm-btn--default:hover {
-  background: #0069d9;
+  background: var(--status-info-hover);
 }
 
 @keyframes fadeIn {
@@ -366,7 +366,7 @@
 }
 
 .bug-report-modal {
-  background: white;
+  background: var(--card-background);
   border-radius: 12px;
   width: 100%;
   max-width: 500px;
@@ -428,7 +428,7 @@
 }
 
 .form-group .required {
-  color: #d32f2f;
+  color: var(--danger-red);
 }
 
 .form-group .char-count {
@@ -542,7 +542,7 @@
   color: var(--text-primary);
   font-size: 1rem;
   padding: 0.75rem;
-  background: white;
+  background: var(--card-background);
   border: 1px solid var(--border-color);
   border-radius: 6px;
 }
@@ -643,23 +643,23 @@
 }
 
 .message-success {
-  background: #e8f5e9;
-  color: #2e7d32;
-  border: 1px solid #4caf50;
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+  border: 1px solid var(--accent-green);
 }
 
 .message-error {
-  background: #ffebee;
-  color: #c62828;
-  border: 1px solid #f44336;
+  background: var(--status-error-bg);
+  color: var(--status-error-text);
+  border: 1px solid var(--danger-red);
 }
 
 .danger-zone {
-  border-color: #f44336;
+  border-color: var(--danger-red);
 }
 
 .danger-zone h3 {
-  color: #c62828;
+  color: var(--status-error-text);
 }
 
 .warning-text {
@@ -669,7 +669,7 @@
 }
 
 .btn-danger {
-  background: #f44336;
+  background: var(--danger-red);
   color: white;
   border: none;
   padding: 0.75rem 1.5rem;
@@ -681,7 +681,7 @@
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: #d32f2f;
+  background: var(--danger-red);
 }
 
 .btn-danger:disabled {
@@ -692,7 +692,7 @@
 .btn-signout-profile {
   width: 100%;
   padding: 12px;
-  background: #f44336;
+  background: var(--danger-red);
   color: white;
   border: none;
   border-radius: 8px;
@@ -703,7 +703,7 @@
 }
 
 .btn-signout-profile:hover {
-  background: #d32f2f;
+  background: var(--danger-red);
 }
 
 /* Management */
@@ -779,10 +779,10 @@
 .view-toggle button {
   padding: 0.25rem 0.75rem;
   border: none;
-  background: white;
+  background: var(--card-background);
   font-size: 0.85rem;
   cursor: pointer;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .view-toggle button.active {
@@ -797,7 +797,7 @@
 }
 
 .position-assignment-card {
-  background: #f9f9f9;
+  background: var(--color-surface-light);
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 0.75rem;
@@ -834,7 +834,7 @@
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  background: white;
+  background: var(--card-background);
   border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 0.2rem 0.5rem;
@@ -845,14 +845,14 @@
   background: none;
   border: none;
   cursor: pointer;
-  color: #999;
+  color: var(--color-text-muted);
   font-size: 0.75rem;
   padding: 0;
   line-height: 1;
 }
 
 .btn-remove-tag:hover {
-  color: #d32f2f;
+  color: var(--danger-red);
 }
 
 .position-assignment-card .player-select {
@@ -915,7 +915,7 @@
 
 .item-card.archived {
   opacity: 0.7;
-  background: linear-gradient(135deg, var(--card-background) 0%, #f5f5f5 100%);
+  background: linear-gradient(135deg, var(--card-background) 0%, var(--hover-background) 100%);
 }
 
 .item-info h3 {
@@ -1008,7 +1008,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #dc3545;
+  background: var(--danger-red);
   z-index: 1;
 }
 
@@ -1070,7 +1070,7 @@
 }
 
 .btn-delete-swipe-game:hover {
-  background: #b71c1c;
+  background: var(--danger-red-hover);
 }
 
 .btn-edit-game-trigger {
@@ -1205,7 +1205,7 @@
 .game-card-actions {
   border-top: 2px solid var(--border-color);
   padding: 0.75rem 1.5rem;
-  background: #f9fafb;
+  background: var(--color-surface-light);
   display: flex;
   gap: 0.5rem;
 }
@@ -1213,7 +1213,7 @@
 .plan-button {
   flex: 1;
   padding: 0.5rem 1rem;
-  background: white;
+  background: var(--card-background);
   border: 2px solid var(--primary-green);
   color: var(--primary-green);
   border-radius: 6px;
@@ -1246,7 +1246,7 @@
 
 .game-card.active-game {
   border-color: var(--primary-green);
-  background: linear-gradient(to right, #f0f9f4, var(--card-background));
+  background: linear-gradient(to right, var(--status-success-bg-hover), var(--card-background));
 }
 
 .game-card.completed-game {
@@ -1445,7 +1445,7 @@
   border: none;
   padding: 0;
   font-size: 0.85em;
-  color: var(--primary-green, #1a472a);
+  color: var(--primary-green, var(--primary-green));
   cursor: pointer;
   text-decoration: underline;
   font-weight: 500;
@@ -1477,8 +1477,8 @@
 }
 
 .position-role-select--error {
-  border-color: #f44336;
-  outline: 1px solid #f44336;
+  border-color: var(--danger-red);
+  outline: 1px solid var(--danger-red);
 }
 
 /* Players and Positions */
@@ -1618,7 +1618,7 @@
 
 .location-badge.away {
   background: rgba(33, 150, 243, 0.1);
-  color: #2196f3;
+  color: var(--status-info-solid);
 }
 
 .game-date {
@@ -1641,7 +1641,7 @@
 
 .status-planned {
   background: rgba(102, 126, 234, 0.1);
-  color: #667eea;
+  color: var(--accent-purple);
 }
 
 .status-in-progress {
@@ -1652,12 +1652,12 @@
 
 .status-halftime {
   background: rgba(255, 152, 0, 0.1);
-  color: #ff9800;
+  color: var(--status-warning-solid);
 }
 
 .status-completed {
   background: rgba(33, 150, 243, 0.1);
-  color: #2196f3;
+  color: var(--status-info-solid);
 }
 
 @keyframes pulse {
@@ -1711,22 +1711,22 @@
   margin-bottom: 1.5rem;
   padding: 0.75rem;
   background: rgba(255, 152, 0, 0.1);
-  border: 1px dashed #ff9800;
+  border: 1px dashed var(--status-warning-solid);
   border-radius: 8px;
 }
 
 .testing-label {
   font-size: 0.9em;
   font-weight: 600;
-  color: #f57c00;
+  color: var(--status-warning-hover);
   margin-right: 0.5rem;
 }
 
 .btn-test-time {
   padding: 0.5rem 1rem;
-  background: white;
-  color: #ff9800;
-  border: 2px solid #ff9800;
+  background: var(--card-background);
+  color: var(--status-warning-solid);
+  border: 2px solid var(--status-warning-solid);
   border-radius: 6px;
   font-weight: 600;
   cursor: pointer;
@@ -1735,7 +1735,7 @@
 }
 
 .btn-test-time:hover {
-  background: #ff9800;
+  background: var(--status-warning-solid);
   color: white;
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3);
@@ -1765,12 +1765,12 @@
   padding: 1rem;
   background: rgba(25, 118, 210, 0.1);
   border-radius: 8px;
-  border: 2px solid #1976d2;
+  border: 2px solid var(--status-info-solid);
 }
 
 .halftime-message h3 {
   margin: 0 0 0.5rem 0;
-  color: #1976d2;
+  color: var(--status-info-solid);
   font-size: 1.3em;
 }
 
@@ -1800,7 +1800,7 @@
   background: rgba(25, 118, 210, 0.1);
   padding: 1rem;
   border-radius: 8px;
-  border-left: 4px solid #1976d2;
+  border-left: 4px solid var(--status-info-solid);
   color: var(--text-primary);
   font-weight: 500;
   margin-bottom: 1rem;
@@ -2460,7 +2460,7 @@
 }
 
 .lineup-shape-node__tap-target:focus-visible {
-  outline: 3px solid #0d47a1;
+  outline: 3px solid var(--status-info-hover);
   outline-offset: 2px;
 }
 
@@ -2565,19 +2565,19 @@
 }
 
 .lineup-shape-node--selected .lineup-shape-node__tap-target {
-  border-color: #1976d2;
+  border-color: var(--status-info-solid);
   box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.3);
 }
 
 .lineup-shape-node--assigned.lineup-shape-node--selected .lineup-shape-node__jersey,
 .lineup-shape-node--assigned.lineup-shape-node--selected .lineup-shape-node__name-strip {
-  border-color: #1976d2;
+  border-color: var(--status-info-solid);
   box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.28);
 }
 
 .lineup-shape-node--empty .lineup-shape-node__tap-target {
   border-style: dashed;
-  color: #2e7d32;
+  color: var(--status-success-text);
 }
 
 .lineup-shape-view__bench-strip {
@@ -2639,7 +2639,7 @@
 }
 
 .lineup-shape-view__quick-replace-status--loading {
-  color: #0d47a1;
+  color: var(--status-info-hover);
 }
 
 .lineup-shape-view__quick-replace-status--success {
@@ -2703,9 +2703,9 @@
 
 .btn-clear-lineup {
   padding: 0.75rem 1.5rem;
-  background: white;
-  color: #d32f2f;
-  border: 2px solid #d32f2f;
+  background: var(--card-background);
+  color: var(--danger-red);
+  border: 2px solid var(--danger-red);
   border-radius: 8px;
   font-weight: 600;
   cursor: pointer;
@@ -2714,7 +2714,7 @@
 }
 
 .btn-clear-lineup:hover {
-  background: #d32f2f;
+  background: var(--danger-red);
   color: white;
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(211, 47, 47, 0.3);
@@ -3214,7 +3214,7 @@
 }
 
 .btn-substitute:hover {
-  background: #155f2e;
+  background: var(--status-success-text);
 }
 
 .assigned-player-slot {
@@ -3328,18 +3328,18 @@
 }
 
 .btn-goal-us:hover {
-  background: #155f2e;
+  background: var(--status-success-text);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(26, 71, 42, 0.3);
 }
 
 .btn-goal-opponent {
-  background: #d32f2f;
+  background: var(--danger-red);
   color: white;
 }
 
 .btn-goal-opponent:hover {
-  background: #b71c1c;
+  background: var(--danger-red-hover);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);
 }
@@ -3380,7 +3380,7 @@
 
 .goal-card.goal-opponent {
   background: rgba(211, 47, 47, 0.05);
-  border-left-color: #d32f2f;
+  border-left-color: var(--danger-red);
 }
 
 .goal-icon {
@@ -3448,7 +3448,7 @@
 
 .goal-opponent-label {
   font-weight: 600;
-  color: #d32f2f;
+  color: var(--danger-red);
 }
 
 .goal-notes {
@@ -3481,7 +3481,7 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  background: white;
+  background: var(--card-background);
 }
 
 .btn-note-gold {
@@ -3498,7 +3498,7 @@
 
 .btn-note-yellow {
   border-color: #ffc107;
-  color: #f57c00;
+  color: var(--status-warning-hover);
 }
 
 .btn-note-yellow:hover {
@@ -3509,24 +3509,24 @@
 }
 
 .btn-note-red {
-  border-color: #d32f2f;
-  color: #b71c1c;
+  border-color: var(--danger-red);
+  color: var(--danger-red-hover);
 }
 
 .btn-note-red:hover {
-  background: #d32f2f;
+  background: var(--danger-red);
   color: white;
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);
 }
 
 .btn-note-other {
-  border-color: #1976d2;
-  color: #0d47a1;
+  border-color: var(--status-info-solid);
+  color: var(--status-info-hover);
 }
 
 .btn-note-other:hover {
-  background: #1976d2;
+  background: var(--status-info-solid);
   color: white;
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(25, 118, 210, 0.3);
@@ -3579,12 +3579,12 @@
 }
 
 .note-card.note-red-card {
-  border-left-color: #d32f2f;
+  border-left-color: var(--danger-red);
   background: rgba(211, 47, 47, 0.05);
 }
 
 .note-card.note-other {
-  border-left-color: #1976d2;
+  border-left-color: var(--status-info-solid);
   background: rgba(25, 118, 210, 0.05);
 }
 
@@ -3759,7 +3759,7 @@
   margin: 1.5rem 0;
   padding: 1.5rem;
   background: var(--card-background);
-  border: 2px solid #ff9800;
+  border: 2px solid var(--status-warning-solid);
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(255, 152, 0, 0.1);
 }
@@ -3773,7 +3773,7 @@
 
 .sub-queue-section h3 {
   margin: 0;
-  color: #f57c00;
+  color: var(--status-warning-hover);
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -3781,7 +3781,7 @@
 
 .btn-sub-all {
   padding: 0.75rem 1.5rem;
-  background: #4caf50;
+  background: var(--accent-green);
   color: white;
   border: none;
   border-radius: 8px;
@@ -3796,7 +3796,7 @@
 }
 
 .btn-sub-all:hover {
-  background: #388e3c;
+  background: var(--light-green);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
 }
@@ -3819,9 +3819,9 @@
   justify-content: space-between;
   gap: 1rem;
   padding: 1rem;
-  background: white;
+  background: var(--card-background);
   border-radius: 8px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--border-color);
 }
 
 .sub-queue-info {
@@ -3843,7 +3843,7 @@
 }
 
 .player-out {
-  color: #d32f2f;
+  color: var(--danger-red);
   font-weight: 500;
 }
 
@@ -3853,7 +3853,7 @@
 }
 
 .player-in {
-  color: #1976d2;
+  color: var(--status-info-solid);
   font-weight: 600;
 }
 
@@ -3864,7 +3864,7 @@
 
 .btn-execute-sub {
   padding: 0.5rem 1rem;
-  background: #4caf50;
+  background: var(--accent-green);
   color: white;
   border: none;
   border-radius: 6px;
@@ -3874,16 +3874,16 @@
 }
 
 .btn-execute-sub:hover {
-  background: #388e3c;
+  background: var(--light-green);
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
 }
 
 .btn-remove-queue {
   padding: 0.5rem 0.75rem;
-  background: white;
-  color: #d32f2f;
-  border: 2px solid #d32f2f;
+  background: var(--card-background);
+  color: var(--danger-red);
+  border: 2px solid var(--danger-red);
   border-radius: 6px;
   font-weight: 600;
   cursor: pointer;
@@ -3891,7 +3891,7 @@
 }
 
 .btn-remove-queue:hover {
-  background: #d32f2f;
+  background: var(--danger-red);
   color: white;
   transform: translateY(-1px);
 }
@@ -3925,8 +3925,8 @@
   justify-content: space-between;
   padding: 0.75rem;
   border-radius: 6px;
-  background: white;
-  border: 1px solid #e0e0e0;
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
   margin-bottom: 0.5rem;
 }
 
@@ -3951,9 +3951,9 @@
 
 .btn-queue {
   padding: 0.5rem 0.75rem;
-  background: white;
-  color: #ff9800;
-  border: 2px solid #ff9800;
+  background: var(--card-background);
+  color: var(--status-warning-solid);
+  border: 2px solid var(--status-warning-solid);
   border-radius: 6px;
   font-weight: 600;
   cursor: pointer;
@@ -3962,7 +3962,7 @@
 }
 
 .btn-queue:hover {
-  background: #ff9800;
+  background: var(--status-warning-solid);
   color: white;
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3);
@@ -3970,9 +3970,9 @@
 
 .btn-sub-now {
   padding: 0.5rem 0.75rem;
-  background: #4caf50;
+  background: var(--accent-green);
   color: white;
-  border: 2px solid #4caf50;
+  border: 2px solid var(--accent-green);
   border-radius: 6px;
   font-weight: 600;
   cursor: pointer;
@@ -3981,15 +3981,15 @@
 }
 
 .btn-sub-now:hover {
-  background: #388e3c;
+  background: var(--light-green);
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
 }
 
 .queued-indicator {
   padding: 0.5rem 0.75rem;
-  background: #e8f5e9;
-  color: #2e7d32;
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
   border-radius: 6px;
   font-weight: 600;
   font-size: 0.9em;
@@ -4018,7 +4018,7 @@
 }
 
 .btn-delete-game:hover {
-  background: #c62828;
+  background: var(--status-error-text);
   transform: translateY(-2px);
   box-shadow: 0 4px 8px rgba(211, 47, 47, 0.3);
 }
@@ -4183,7 +4183,7 @@
 }
 
 .stats-table tbody tr:hover td.player-name {
-  background: #e8f5e9;
+  background: var(--status-success-bg);
 }
 
 .player-name {
@@ -4222,7 +4222,7 @@
 }
 
 .stats-table tbody tr:hover th.sticky-first-col {
-  background: #e8f5e9;
+  background: var(--status-success-bg);
 }
 
 /* Team-level Goals & Assists by Position section */
@@ -4303,7 +4303,7 @@
 }
 
 .stat-assists {
-  color: #2196f3;
+  color: var(--status-info-solid);
 }
 
 .stat-stars {
@@ -4334,7 +4334,7 @@
 }
 
 .stat-goals-against {
-  color: #f44336;
+  color: var(--danger-red);
 }
 
 .stat-save-percent {
@@ -4591,14 +4591,14 @@
 }
 /* Invitation Cards in Profile */
 .invitations-section {
-  background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
-  border: 2px solid #667eea;
+  background: linear-gradient(135deg, var(--accent-purple)15 0%, var(--accent-purple-dark)15 100%);
+  border: 2px solid var(--accent-purple);
   padding: 20px;
 }
 
 .invitations-section h3 {
   margin-top: 0;
-  color: #667eea;
+  color: var(--accent-purple);
 }
 
 .section-hint {
@@ -4607,11 +4607,11 @@
 }
 
 .invitation-card {
-  background: white;
+  background: var(--card-background);
   padding: 15px;
   border-radius: 8px;
   margin-bottom: 15px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-color);
 }
 
 .invitation-card:last-child {
@@ -4631,7 +4631,7 @@
 }
 
 .invitation-role {
-  background: #667eea;
+  background: var(--accent-purple);
   color: white;
   padding: 4px 12px;
   border-radius: 12px;
@@ -4703,7 +4703,7 @@
 }
 
 .planner-section {
-  background: white;
+  background: var(--card-background);
   border: 2px solid var(--border-color);
   border-radius: 8px;
   padding: 1.5rem;
@@ -4740,7 +4740,7 @@
   padding: 0.75rem;
   border: 3px solid;
   border-radius: 8px;
-  background: white;
+  background: var(--card-background);
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -4818,13 +4818,13 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  background: #f9fafb;
+  background: var(--color-surface-light);
   transition: all 0.2s;
 }
 
 .position-slot:hover {
   border-color: var(--primary-green);
-  background: #f0f9f4;
+  background: var(--status-success-bg-hover);
 }
 
 .position-label {
@@ -4840,7 +4840,7 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.4rem 0.6rem;
-  background: white;
+  background: var(--card-background);
   border: 2px solid var(--primary-green);
   border-radius: 6px;
   cursor: move;
@@ -4878,13 +4878,13 @@
 }
 
 .remove-player:hover {
-  background: #f5f5f5;
+  background: var(--hover-background);
   color: var(--danger-red);
 }
 
 .assigned-player.unavailable {
-  border-color: #f44336;
-  background: #fff3f3;
+  border-color: var(--danger-red);
+  background: var(--status-error-bg);
   opacity: 0.85;
 }
 
@@ -4896,17 +4896,17 @@
   margin-top: -2px;
   font-size: 0.78rem;
   font-weight: 600;
-  color: #d32f2f;
-  background: #fff3f3;
-  border-left: 3px solid #f44336;
+  color: var(--danger-red);
+  background: var(--status-error-bg);
+  border-left: 3px solid var(--danger-red);
   border-radius: 0 0 6px 6px;
 }
 
 /* Plan conflict banner */
 .plan-conflict-banner {
-  background: #fff3f3;
-  border: 1px solid #f44336;
-  border-left: 4px solid #f44336;
+  background: var(--status-error-bg);
+  border: 1px solid var(--danger-red);
+  border-left: 4px solid var(--danger-red);
   border-radius: 8px;
   padding: 1rem 1.25rem;
   margin-bottom: 1rem;
@@ -4914,14 +4914,14 @@
 
 .plan-conflict-banner h4 {
   margin: 0 0 0.5rem 0;
-  color: #d32f2f;
+  color: var(--danger-red);
   font-size: 1rem;
 }
 
 .plan-conflict-banner p {
   margin: 0 0 0.5rem 0;
   font-size: 0.9rem;
-  color: #555;
+  color: var(--text-secondary);
 }
 
 .plan-conflict-banner ul {
@@ -4932,12 +4932,12 @@
 .plan-conflict-banner li {
   font-size: 0.9rem;
   margin-bottom: 0.25rem;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .plan-conflict-banner .conflict-hint {
   font-style: italic;
-  color: #888;
+  color: var(--color-text-muted);
   font-size: 0.85rem;
   margin-bottom: 0;
 }
@@ -4947,7 +4947,7 @@
   border: 2px solid var(--border-color);
   border-radius: 6px;
   font-size: 0.9rem;
-  background: white;
+  background: var(--card-background);
 }
 
 .bench-area {
@@ -4955,7 +4955,7 @@
   border-radius: 8px;
   padding: 1rem;
   min-height: 150px;
-  background: #fafafa;
+  background: var(--color-surface-light);
 }
 
 .bench-area h4 {
@@ -4975,7 +4975,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
-  background: white;
+  background: var(--card-background);
   border: 2px solid var(--border-color);
   border-radius: 6px;
   cursor: move;
@@ -5003,7 +5003,7 @@
 
 .bench-player.unavailable {
   opacity: 0.6;
-  background: #fff3f3;
+  background: var(--status-error-bg);
 }
 
 .bench-player.unavailable .player-name {
@@ -5018,7 +5018,7 @@
 /* Rotation Timeline */
 .timeline-container {
   overflow-x: auto;
-  background: #f9fafb;
+  background: var(--color-surface-light);
   border: 2px solid var(--border-color);
   border-radius: 8px;
   padding: 1rem;
@@ -5048,7 +5048,7 @@
 }
 
 .halftime-marker {
-  background: #ff9800;
+  background: var(--status-warning-solid);
 }
 
 .timeline-rotations {
@@ -5068,7 +5068,7 @@
 
 .rotation-button {
   padding: 0.75rem;
-  background: white;
+  background: var(--card-background);
   border: 2px solid var(--border-color);
   border-radius: 6px;
   cursor: pointer;
@@ -5079,23 +5079,23 @@
 
 .rotation-button:hover, .rotation-button.active {
   border-color: var(--primary-green);
-  background: #f0f9f4;
+  background: var(--status-success-bg-hover);
 }
 
 .halftime-column .rotation-button {
-  background: #fff3e0;
-  border-color: #ff9800;
+  background: var(--status-warning-bg);
+  border-color: var(--status-warning-solid);
 }
 
 .halftime-column .rotation-button:hover, .halftime-column .rotation-button.active {
   background: #ffe0b2;
-  border-color: #f57c00;
+  border-color: var(--status-warning-hover);
 }
 
 /* New Details Panel */
 .rotation-details-panel {
   margin-top: 1rem;
-  background: white;
+  background: var(--card-background);
   border: 2px solid var(--primary-green);
   border-radius: 8px;
   padding: 1.5rem;
@@ -5161,7 +5161,7 @@
 }
 
 .lineup-position-card {
-  background: #f9fafb;
+  background: var(--color-surface-light);
   border: 1px solid var(--border-color);
   border-radius: 6px;
   overflow: hidden;
@@ -5169,17 +5169,17 @@
 }
 
 .lineup-position-card.subbing-out {
-  border-color: #f44336;
-  background: #fff5f5;
+  border-color: var(--danger-red);
+  background: var(--status-error-bg);
 }
 
 .lineup-position-card.subbing-in {
   border-color: var(--primary-green);
-  background: #f0f9f4;
+  background: var(--status-success-bg-hover);
 }
 
 .position-header {
-  background: #e0e0e0;
+  background: var(--border-color);
   padding: 0.25rem 0.5rem;
   font-weight: bold;
   font-size: 0.85rem;
@@ -5188,13 +5188,13 @@
 }
 
 .lineup-position-card.subbing-out .position-header {
-  background: #ffcdd2;
-  color: #c62828;
+  background: var(--status-error-border);
+  color: var(--status-error-text);
 }
 
 .lineup-position-card.subbing-in .position-header {
-  background: #c8e6c9;
-  color: #2e7d32;
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
 }
 
 .player-content {
@@ -5221,7 +5221,7 @@
 }
 
 .status-badge.out {
-  background: #f44336;
+  background: var(--danger-red);
   color: white;
 }
 
@@ -5257,13 +5257,13 @@
   border: 1px solid var(--border-color);
   border-radius: 4px;
   font-size: 0.85rem;
-  background: white;
+  background: var(--card-background);
 }
 
 /* Remove old styles */
 /*
 .rotation-details {
-  background: white;
+  background: var(--card-background);
   border: 2px solid var(--primary-green);
   border-radius: 6px;
   padding: 0.75rem;
@@ -5277,7 +5277,7 @@
   left: 0;
   right: 0;
   top: calc(100% + 0.5rem);
-  background: white;
+  background: var(--card-background);
   border: 2px solid var(--primary-green);
   border-radius: 6px;
   padding: 1rem;
@@ -5292,7 +5292,7 @@
   align-items: center;
   gap: 1rem;
   padding: 0.75rem;
-  background: #f9fafb;
+  background: var(--color-surface-light);
   border-radius: 6px;
   border: 1px solid var(--border-color);
 }
@@ -5311,15 +5311,15 @@
 }
 
 .player-in-position.subbing-out {
-  color: #f44336;
-  background: #ffebee;
+  color: var(--danger-red);
+  background: var(--status-error-bg);
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
 }
 
 .player-in-position.subbing-in {
   color: var(--primary-green);
-  background: #e8f5e9;
+  background: var(--status-success-bg);
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
 }
@@ -5373,7 +5373,7 @@
 
 .playtime-bar-wrapper {
   flex: 1;
-  background: #e0e0e0;
+  background: var(--border-color);
   border-radius: 4px;
   height: 28px;
   overflow: hidden;
@@ -5381,7 +5381,7 @@
 
 .playtime-bar {
   height: 100%;
-  background: linear-gradient(90deg, var(--primary-green), #4caf50);
+  background: linear-gradient(90deg, var(--primary-green), var(--accent-green));
   border-radius: 4px;
   transition: width 0.3s ease;
 }
@@ -5396,8 +5396,8 @@
 }
 
 .validation-errors {
-  background: #ffebee;
-  border: 2px solid #f44336;
+  background: var(--status-error-bg);
+  border: 2px solid var(--danger-red);
   border-radius: 8px;
   padding: 1rem;
   margin-bottom: 1.5rem;
@@ -5405,7 +5405,7 @@
 
 .validation-errors h4 {
   margin-top: 0;
-  color: #f44336;
+  color: var(--danger-red);
 }
 
 .validation-errors ul {
@@ -5414,7 +5414,7 @@
 }
 
 .validation-errors li {
-  color: #d32f2f;
+  color: var(--danger-red);
   margin-bottom: 0.25rem;
 }
 
@@ -5429,7 +5429,7 @@
 
 .game-option {
   padding: 1rem;
-  background: white;
+  background: var(--card-background);
   border: 2px solid var(--border-color);
   border-radius: 8px;
   cursor: pointer;
@@ -5439,7 +5439,7 @@
 
 .game-option:hover {
   border-color: var(--primary-green);
-  background: #f0f9f4;
+  background: var(--status-success-bg-hover);
 }
 
 .game-option .game-info {
@@ -5460,7 +5460,7 @@
 
 /* Game Management - Rotation Integration */
 .rotation-countdown-banner {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-purple-dark) 100%);
   color: white;
   padding: 1rem 1.5rem;
   border-radius: 12px;
@@ -5493,8 +5493,8 @@
 }
 
 .btn-view-rotation {
-  background: white;
-  color: #667eea;
+  background: var(--card-background);
+  color: var(--accent-purple);
   border: none;
   padding: 0.5rem 1rem;
   border-radius: 6px;
@@ -5504,7 +5504,7 @@
 }
 
 .btn-view-rotation:hover {
-  background: #f0f0f0;
+  background: var(--hover-background);
   transform: translateY(-1px);
 }
 
@@ -5519,7 +5519,7 @@
 }
 
 .rotation-countdown-banner.has-conflicts {
-  background: linear-gradient(135deg, #e65100 0%, #bf360c 100%);
+  background: linear-gradient(135deg, var(--status-warning-text) 0%, #bf360c 100%);
   box-shadow: 0 4px 12px rgba(230, 81, 0, 0.3);
 }
 
@@ -5536,7 +5536,7 @@
 
 .btn-mark-injured {
   padding: 0.25rem 0.5rem;
-  background: #ff9800;
+  background: var(--status-warning-solid);
   border: none;
   border-radius: 4px;
   cursor: pointer;
@@ -5545,7 +5545,7 @@
 }
 
 .btn-mark-injured:hover {
-  background: #f57c00;
+  background: var(--status-warning-hover);
   transform: scale(1.1);
 }
 
@@ -5575,7 +5575,7 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
-  background: #f9fafb;
+  background: var(--color-surface-light);
   border-radius: 8px;
 }
 
@@ -5618,7 +5618,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.4rem 0.6rem;
-  background: #f9fafb;
+  background: var(--color-surface-light);
   border: 2px solid var(--border-color);
   border-radius: 8px;
   flex-wrap: wrap;
@@ -5663,7 +5663,7 @@
 }
 
 .sub-out {
-  color: #f44336;
+  color: var(--danger-red);
 }
 
 .sub-in {
@@ -5692,7 +5692,7 @@
 
 .availability-badge.unavailable {
   background: rgba(244, 67, 54, 0.1);
-  color: #f44336;
+  color: var(--danger-red);
 }
 
 .availability-badge.late {
@@ -5721,13 +5721,13 @@
 }
 
 .btn-queue-sub:disabled {
-  background: #ccc;
+  background: var(--border-color);
   cursor: not-allowed;
   opacity: 0.7;
 }
 
 .btn-queue-sub.queued {
-  background: #e8f5e9;
+  background: var(--status-success-bg);
   color: var(--accent-green);
   border: 2px solid var(--accent-green);
 }
@@ -5761,22 +5761,22 @@
 }
 
 .sub-direction-pill--out {
-  background: #fde8e8;
-  color: #c62828;
-  border: 1px solid #ef9a9a;
+  background: var(--status-error-bg);
+  color: var(--status-error-text);
+  border: 1px solid var(--status-error-border);
 }
 
 .sub-direction-pill--in {
-  background: #e8f5e9;
-  color: #2e7d32;
-  border: 1px solid #a5d6a7;
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+  border: 1px solid var(--status-success-border);
 }
 
 .sub-player-row--out .player-number,
-.sub-player-row--out .player-name { color: #c62828; }
+.sub-player-row--out .player-name { color: var(--status-error-text); }
 
 .sub-player-row--in .player-number,
-.sub-player-row--in .player-name { color: #1565c0; }
+.sub-player-row--in .player-name { color: var(--status-info-text); }
 
 .sub-availability-slot {
   margin-left: auto;
@@ -5788,7 +5788,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #1565c0;
+  background: var(--status-info-text);
   color: #ffffff;
   font-weight: 800;
   font-size: 0.8rem;
@@ -5811,7 +5811,7 @@
 
 .sub-queue-position-abbr {
   display: inline-block;
-  background: #1565c0;
+  background: var(--status-info-text);
   color: #fff;
   font-weight: 800;
   font-size: 0.8rem;
@@ -5821,7 +5821,7 @@
 
 .sub-queue-position-full {
   font-size: 0.8rem;
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary, var(--text-secondary));
 }
 
 /* === On-field conflict banner === */
@@ -5857,7 +5857,7 @@
   align-items: center;
   gap: 1rem;
   padding: 1rem;
-  background: white;
+  background: var(--card-background);
   border: 2px solid var(--border-color);
   border-radius: 8px;
   cursor: pointer;
@@ -5867,7 +5867,7 @@
 
 .late-arrival-option:hover {
   border-color: var(--primary-green);
-  background: #f0f9f4;
+  background: var(--status-success-bg-hover);
   transform: translateY(-1px);
 }
 
@@ -6169,12 +6169,12 @@
 
 .command-band__status-halftime {
   background: rgba(255, 152, 0, 0.3);
-  border-color: #ff9800;
+  border-color: var(--status-warning-solid);
 }
 
 .command-band__status-final {
   background: rgba(33, 150, 243, 0.3);
-  border-color: #2196f3;
+  border-color: var(--status-info-solid);
 }
 
 .command-band__status-pregame {
@@ -6557,11 +6557,11 @@
 }
 
 .bench-tab__progress-fill--red {
-  background: #f44336;
+  background: var(--danger-red);
 }
 
 .bench-tab__progress-fill--orange {
-  background: #ff9800;
+  background: var(--status-warning-solid);
 }
 
 .bench-tab__progress-fill--green {
@@ -6616,7 +6616,7 @@
   border: 1px solid var(--border-color);
   border-radius: 999px;
   padding: 0.45rem 0.8rem;
-  background: white;
+  background: var(--card-background);
   cursor: pointer;
   font-size: 0.9rem;
 }
@@ -6954,13 +6954,13 @@
 }
 
 .rotation-subs-list__label--out {
-  color: #7f1d1d;
-  background: #fee2e2;
+  color: var(--status-error-text);
+  background: var(--status-error-bg);
 }
 
 .rotation-subs-list__label--in {
-  color: #14532d;
-  background: #dcfce7;
+  color: var(--status-success-text);
+  background: var(--status-success-bg);
 }
 
 .rotation-subs-list__out {
@@ -7114,7 +7114,7 @@
   position: absolute;
   right: 0;
   top: calc(100% + 4px);
-  background: white;
+  background: var(--card-background);
   border: 1px solid var(--border-color);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
@@ -7132,7 +7132,7 @@
   cursor: pointer;
   font-size: 0.95rem;
 }
-.planner-overflow-item:hover { background: #f5f5f5; }
+.planner-overflow-item:hover { background: var(--hover-background); }
 
 /* Planner Tab Nav */
 .planner-tab-nav {
@@ -7278,7 +7278,7 @@
 }
 
 .cgt-halftime-divider--header {
-  background: var(--text-secondary, #757575);
+  background: var(--text-secondary, var(--text-secondary));
   opacity: 0.6;
 }
 
@@ -7287,7 +7287,7 @@
   position: absolute;
   bottom: 4px;
   font-size: 0.62rem;
-  color: var(--text-secondary, #757575);
+  color: var(--text-secondary, var(--text-secondary));
   transform: translateX(-50%);
   white-space: nowrap;
   user-select: none;
@@ -7354,7 +7354,7 @@
 
 /* Setup Card */
 .planner-setup-card {
-  background: white;
+  background: var(--card-background);
   border: 2px solid var(--border-color);
   border-radius: 12px;
   padding: 1.25rem;
@@ -7476,7 +7476,7 @@
   padding: 0 0.75rem;
   border: 2px solid var(--border-color);
   border-radius: 10px;
-  background: white;
+  background: var(--card-background);
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -7498,10 +7498,10 @@
   outline-offset: 2px;
 }
 .planner-timeline-pill--halftime {
-  border-color: #f59e0b;
+  border-color: var(--status-warning-solid);
 }
 .planner-timeline-pill--halftime.planner-timeline-pill--active {
-  background: #f59e0b;
+  background: var(--status-warning-solid);
 }
 .planner-sub-badge {
   font-size: 0.7rem;
@@ -7514,21 +7514,21 @@
   text-align: center;
 }
 .planner-timeline-pill--active .planner-sub-badge {
-  background: white;
+  background: var(--card-background);
   color: var(--primary-green);
 }
 .planner-timeline-pill--halftime .planner-sub-badge {
-  background: #f59e0b;
+  background: var(--status-warning-solid);
 }
 .planner-timeline-pill--halftime.planner-timeline-pill--active .planner-sub-badge {
-  background: white;
-  color: #f59e0b;
+  background: var(--card-background);
+  color: var(--status-warning-solid);
 }
 .assigned-player--readonly {
   cursor: default;
 }
 .assigned-player--readonly:hover {
-  background: white;
+  background: var(--card-background);
   border-color: var(--primary-green);
 }
 .bench-player--readonly {
@@ -7544,7 +7544,7 @@
   border-radius: 6px;
   color: var(--text-secondary);
   font-size: 0.9rem;
-  background: white;
+  background: var(--card-background);
 }
 
 /* Collapsible Play Time */
@@ -7582,7 +7582,7 @@
   width: 100%;
   max-width: min(900px, 100vw);
   max-height: 85vh;
-  background: white;
+  background: var(--card-background);
   border-radius: 16px 16px 0 0;
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.2);
   z-index: 300;
@@ -7596,7 +7596,7 @@
 .planner-sheet-handle {
   width: 40px;
   height: 4px;
-  background: #d1d5db;
+  background: var(--border-color);
   border-radius: 2px;
   margin: 0.75rem auto 0.5rem;
   flex-shrink: 0;
@@ -7664,7 +7664,7 @@
   align-items: center;
   gap: 0.75rem;
   margin: 1.5rem 0;
-  color: #ff9800;
+  color: var(--status-warning-solid);
   font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -7675,17 +7675,17 @@
   content: '';
   flex: 1;
   height: 2px;
-  background: #ff9800;
+  background: var(--status-warning-solid);
   border-radius: 1px;
   opacity: 0.4;
 }
 .planner-section--second-half {
-  border-left: 4px solid #ff9800;
+  border-left: 4px solid var(--status-warning-solid);
   padding-left: 0.75rem;
   background: #fffdf7;
 }
 .planner-section--second-half .panel-header h4 {
-  color: #e65100;
+  color: var(--status-warning-text);
 }
 .planner-section-subtitle {
   font-size: 0.8rem;
@@ -7697,9 +7697,9 @@
 .ht-edit-link {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #e65100;
-  background: #fff3e0;
-  border: 1px solid #ffcc80;
+  color: var(--status-warning-text);
+  background: var(--status-warning-bg);
+  border: 1px solid var(--status-warning-border);
   border-radius: 6px;
   padding: 0.25rem 0.65rem;
   min-height: 44px;
@@ -8390,13 +8390,13 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background: #fff3e0;
-  border: 1px solid #ffcc80;
+  background: var(--status-warning-bg);
+  border: 1px solid var(--status-warning-border);
   border-left: 4px solid #ffa726;
   border-radius: 8px;
   padding: 0.75rem 1rem;
   margin: 0 0 0.75rem;
-  color: #e65100;
+  color: var(--status-warning-text);
   font-size: 0.9rem;
   font-weight: 600;
 }
@@ -8504,7 +8504,7 @@
 
 .status-unverified-home-away {
   background: rgba(255, 152, 0, 0.12);
-  color: #e65100;
+  color: var(--status-warning-text);
 }
 
 .import-adopted-tag {
@@ -8665,18 +8665,18 @@
 }
 
 .btn-stat-us:hover {
-  background: #155f2e;
+  background: var(--status-success-text);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(26, 71, 42, 0.3);
 }
 
 .btn-stat-opponent {
-  background: #d32f2f;
+  background: var(--danger-red);
   color: white;
 }
 
 .btn-stat-opponent:hover {
-  background: #b71c1c;
+  background: var(--danger-red-hover);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);
 }
@@ -8722,7 +8722,7 @@
 
 .stat-card.stat-opponent {
   background: rgba(211, 47, 47, 0.05);
-  border-left-color: #d32f2f;
+  border-left-color: var(--danger-red);
 }
 
 .stat-icon {
@@ -8815,12 +8815,12 @@
 }
 
 .shot-outcome-btn--goal:hover {
-  background: #155f2e;
+  background: var(--status-success-text);
   box-shadow: 0 4px 12px rgba(26, 71, 42, 0.3);
 }
 
 .shot-outcome-btn--saved {
-  background: #2196f3;
+  background: var(--status-info-solid);
 }
 
 .shot-outcome-btn--saved:hover {
@@ -8830,12 +8830,12 @@
 
 .shot-outcome-btn--blocked,
 .shot-outcome-btn--wide {
-  background: #6c6c6c;
+  background: var(--text-secondary);
 }
 
 .shot-outcome-btn--blocked:hover,
 .shot-outcome-btn--wide:hover {
-  background: #575757;
+  background: var(--text-secondary);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
@@ -8868,7 +8868,7 @@
 
 .shot-outcome-badge--saved {
   background: rgba(33, 150, 243, 0.1);
-  color: #2196f3;
+  color: var(--status-info-solid);
 }
 
 .shot-outcome-badge--neutral {
@@ -8992,4 +8992,29 @@
   font-size: 1.1em;
   font-weight: 700;
   color: var(--text-primary);
+}
+
+/* ===== Theme Toggle (Appearance, UserProfile) ===== */
+.theme-toggle {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.theme-toggle__option {
+  flex: 1;
+  min-width: 80px;
+  padding: 0.6em 1em;
+  background: var(--hover-background);
+  color: var(--text-secondary);
+  border: 2px solid transparent;
+}
+
+.theme-toggle__option:hover:not(.theme-toggle__option--active) {
+  background: var(--border-color);
+}
+
+.theme-toggle__option--active {
+  background: var(--primary-green);
+  color: #fff;
 }
