@@ -182,14 +182,13 @@ describe("ShotOutcomeEntry", () => {
       await waitFor(() => expect(mockCreateShot).toHaveBeenCalledWith(expect.objectContaining({ takenByUs: false, outcome: "WIDE" })));
     });
 
-    it("GOAL requires confirm, carries no scorer/assist", async () => {
+    it("GOAL submits immediately with no confirm step, carries no scorer/assist", async () => {
       const user = userEvent.setup();
       render(<ShotOutcomeEntry {...defaultProps} />);
       await user.click(screen.getByText(/Log Shot – Eagles/));
       await user.click(screen.getByRole("button", { name: "Goal" }));
-      expect(mockCreateShot).not.toHaveBeenCalled();
-      await user.click(screen.getByRole("button", { name: /Log Goal/ }));
       await waitFor(() => expect(mockCreateGoal).toHaveBeenCalledWith(expect.objectContaining({ scoredByUs: false, scorerId: null, assistId: null })));
+      expect(screen.queryByRole("button", { name: /Log Goal/ })).not.toBeInTheDocument();
     });
 
     it("SAVED with no resolvable current goalkeeper goes to a keeper picker, then confirm", async () => {
@@ -243,7 +242,6 @@ describe("ShotOutcomeEntry", () => {
       render(<ShotOutcomeEntry {...defaultProps} />);
       await user.click(screen.getByText(/Log Shot – Eagles/));
       await user.click(screen.getByRole("button", { name: "Goal" }));
-      await user.click(screen.getByRole("button", { name: /Log Goal/ }));
       await waitFor(() => expect(trackEvent).toHaveBeenCalledWith("GameDay", "Goal Recorded", "opponent"));
     });
   });

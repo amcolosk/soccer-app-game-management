@@ -156,7 +156,7 @@ describe('StatTrackerView', () => {
       }), { authMode: 'identityPool' });
     });
 
-    it('Opponent Goal: outcome -> confirm submit, no player/assist picker', async () => {
+    it('Opponent Goal: outcome tap submits immediately, no confirm step or player/assist picker', async () => {
       mockGetStatTrackerView.mockResolvedValue(result(baseLiveData()));
       render(<StatTrackerView />);
       await flush();
@@ -166,12 +166,11 @@ describe('StatTrackerView', () => {
       expect(screen.queryByRole('button', { name: '#7 Sam Jones' })).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'Goal' }));
       await flush();
-      fireEvent.click(screen.getByRole('button', { name: /Log Goal/ }));
-      await flush();
 
       expect(mockSubmitStatEvent).toHaveBeenCalledWith(expect.objectContaining({
         outcome: 'GOAL', forUs: false, playerId: undefined, assistPlayerId: undefined,
       }), { authMode: 'identityPool' });
+      expect(screen.queryByRole('button', { name: /Log Goal/ })).not.toBeInTheDocument();
     });
 
     it('Us Blocked shot: outcome tap submits immediately, no confirm step, skipped-player affordance honored', async () => {

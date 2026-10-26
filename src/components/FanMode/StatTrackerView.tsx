@@ -302,8 +302,9 @@ export function StatTrackerView() {
       if (flow.forUs) {
         setFlow({ ...flow, outcome, step: 'assist' });
       } else {
-        // Opponent goals carry no scorer/assist attribution.
-        setFlow({ ...flow, outcome, step: 'confirm' });
+        // Opponent goals carry no scorer/assist attribution -- nothing left
+        // to confirm, so submit immediately like BLOCKED/WIDE.
+        void submit({ ...flow, outcome });
       }
       return;
     }
