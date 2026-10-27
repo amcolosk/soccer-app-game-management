@@ -3809,4 +3809,51 @@ describe("GameManagement – red card send-off enforcement", () => {
     expect(props.positions).toEqual(defenderPositions);
     expect(Array.isArray(props.playTimeRecords)).toBe(true);
   });
+
+  it("recalculates rotations a player down: sent-off player excluded, smaller field, invalid subs dropped", async () => {
+    const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
+    const mockedFn = vi.mocked(mockedCalc);
+    mockedFn.mockReturnValue({
+      rotations: [{
+        substitutions: [
+          { playerOutId: "p1", playerInId: "p3", positionId: "pos1" },
+          { playerOutId: "p1", playerInId: "p3", positionId: "pos2" },
+        ],
+      }],
+      warnings: [],
+    });
+    mockUseTeamData.mockReturnValue({
+      players: [
+        { id: "p1", playerNumber: 1, firstName: "Al", lastName: "A", isActive: true },
+        { id: "p2", playerNumber: 2, firstName: "Bo", lastName: "B", isActive: true },
+        { id: "p3", playerNumber: 3, firstName: "Cy", lastName: "C", isActive: true },
+      ],
+      positions: defenderPositions,
+    });
+    withNotes([redCard({ playerId: "p2", positionId: "pos1" })], {
+      gameState: { ...mockGame, status: "in-progress" },
+      gamePlan: { id: "gp-1", rotationIntervalMinutes: 10, startingLineup: "[]" } as never,
+      plannedRotations: [
+        { id: "rot-1", rotationNumber: 1, gameMinute: 40, half: 2, plannedSubstitutions: "[]" } as never,
+      ],
+    });
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: "in-progress" }} team={mockTeam} onBack={vi.fn()} />);
+
+    await act(async () => {
+      await mockCaptures.rotationWidgetProps?.onRecalculateRotations?.();
+    });
+
+    await waitFor(() => expect(mockedFn).toHaveBeenCalledTimes(1));
+    const args = mockedFn.mock.calls[0];
+    expect((args[0] as Array<{ playerId: string }>).map((r) => r.playerId)).not.toContain("p2");
+    expect(args[4]).toBe(((mockTeam as { maxPlayersOnField?: number }).maxPlayersOnField || defenderPositions.length) - 1);
+
+    await waitFor(() => expect(mockPlannedRotationUpdate).toHaveBeenCalled());
+    const subUpdate = mockPlannedRotationUpdate.mock.calls
+      .map(([payload]: [Record<string, unknown>]) => payload)
+      .find((c) => "plannedSubstitutions" in c);
+    expect(JSON.parse(subUpdate!.plannedSubstitutions as string)).toEqual([
+      { playerOutId: "p1", playerInId: "p3", positionId: "pos2" },
+    ]);
+  });
 });

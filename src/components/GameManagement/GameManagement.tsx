@@ -11,7 +11,14 @@ import { useConfirm } from "../ConfirmModal";
 import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { isMissingRecordError } from "../../services/amplifyMutationResult";
 import { cleanupDuplicateAssignmentsForPosition } from "../../services/lineupCleanupService";
-import { getLockedPositionIds, getSentOffPlayerIds, withPendingSendOffs, type PendingSendOff } from "../../utils/sendOffCalculations";
+import {
+  filterPlannedSubstitutions,
+  filterRotationsForSendOffs,
+  getLockedPositionIds,
+  getSentOffPlayerIds,
+  withPendingSendOffs,
+  type PendingSendOff,
+} from "../../utils/sendOffCalculations";
 import { planHalftimeLineupChanges } from "../../utils/halftimeSubstitutionUtils";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, copyGamePlan, type PlannedSubstitution } from "../../services/rotationPlannerService";
@@ -510,6 +517,11 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   const sendOffNotes = useMemo(() => withPendingSendOffs(gameNotes, pendingSendOffs), [gameNotes, pendingSendOffs]);
   const lockedPositionIds = useMemo(() => getLockedPositionIds(sendOffNotes, positions), [sendOffNotes, positions]);
   const sentOffPlayerIds = useMemo(() => getSentOffPlayerIds(sendOffNotes), [sendOffNotes]);
+  // What the countdown and rotation modal show: planned subs a send-off has made impossible are dropped.
+  const visibleRotations = useMemo(
+    () => filterRotationsForSendOffs(plannedRotations, lockedPositionIds, sentOffPlayerIds),
+    [plannedRotations, lockedPositionIds, sentOffPlayerIds],
+  );
   const eligiblePlayers = useMemo(
     () => (sentOffPlayerIds.size === 0 ? players : players.filter((player) => !sentOffPlayerIds.has(player.id))),
     [players, sentOffPlayerIds],
@@ -999,6 +1011,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       // Build available roster from players who are available or late-arrival
       const availableRoster = players
         .filter(p => {
+          if (sentOffPlayerIds.has(p.id)) return false;
           const status = getPlayerAvailability(p.id);
           return status === 'available' || status === 'late-arrival';
         })
@@ -1048,6 +1061,13 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
             });
         }
       }
+
+      // A send-off leaves the team a player down: the card holder and the locked position are out of
+      // the seed lineup, and the algorithm is told the smaller field size so it doesn't refill the gap.
+      lineupArray = lineupArray.filter(
+        entry => !sentOffPlayerIds.has(entry.playerId) && !lockedPositionIds.has(entry.positionId),
+      );
+      const maxPlayersForPlan = Math.max(1, (team.maxPlayersOnField || positions.length) - lockedPositionIds.size);
 
       if (lineupArray.length === 0) {
         showWarning('No available players in the starting lineup. Adjust the lineup in the Game Planner first.');
@@ -1127,7 +1147,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         lineupArray,
         rotationsToGenerate.length,
         effectiveRotationsPerHalf,
-        team.maxPlayersOnField || positions.length,
+        maxPlayersForPlan,
         goaliePositionId,
         halftimeLineupForAlgorithm,
         { rotationIntervalMinutes, halfLengthMinutes, positions, playerAvailabilities, initialPlayTimeMinutes },
@@ -1147,7 +1167,13 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         .map(({ rotation, generatedIndex }) => {
           return client.models.PlannedRotation.update({
             id: rotation.id,
-            plannedSubstitutions: JSON.stringify(generatedRotations[generatedIndex]?.substitutions || []),
+            plannedSubstitutions: JSON.stringify(
+              filterPlannedSubstitutions(
+                generatedRotations[generatedIndex]?.substitutions || [],
+                lockedPositionIds,
+                sentOffPlayerIds,
+              ),
+            ),
           });
         });
 
@@ -2435,7 +2461,8 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
           isRunning={isRunning}
           halfLengthSeconds={halfLengthSeconds}
           gamePlan={gamePlan}
-          plannedRotations={plannedRotations}
+          plannedRotations={visibleRotations}
+          playersDown={lockedPositionIds.size}
           onPauseTimer={handlePauseTimer}
           onResumeTimer={handleResumeTimer}
           onShowRotationModal={() => { setRotationModalOpen(true); trackEvent(AnalyticsEvents.ROTATION_WIDGET_OPENED.category, AnalyticsEvents.ROTATION_WIDGET_OPENED.action); }}
@@ -2450,7 +2477,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
           players={players}
           positions={positions}
           gamePlan={gamePlan}
-          plannedRotations={plannedRotations}
+          plannedRotations={visibleRotations}
           currentTime={currentTime}
           lineup={lineup}
           playTimeRecords={playTimeRecords}

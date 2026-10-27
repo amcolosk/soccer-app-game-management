@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getLockedPositionIds, getSentOffPlayerIds, isActiveSendOff, withPendingSendOffs } from "./sendOffCalculations";
+import { filterPlannedSubstitutions, filterRotationsForSendOffs, getLockedPositionIds, getSentOffPlayerIds, isActiveSendOff, withPendingSendOffs } from "./sendOffCalculations";
 
 const positions = [
   { id: "gk", role: "GOALKEEPER" as const },
@@ -61,5 +61,57 @@ describe("sendOffCalculations", () => {
 
   it("ignores red cards without a vacated position", () => {
     expect(getLockedPositionIds([note({ positionId: null })], positions).size).toBe(0);
+  });
+});
+
+describe("filterPlannedSubstitutions", () => {
+  const subs = [
+    { playerOutId: "a", playerInId: "b", positionId: "cb" },
+    { playerOutId: "c", playerInId: "d", positionId: "st" },
+    { playerOutId: "e", playerInId: "f", positionId: "mid" },
+  ];
+
+  it("drops subs into a locked position", () => {
+    const out = filterPlannedSubstitutions(subs, new Set(["cb"]), new Set());
+    expect(out.map((s) => s.positionId)).toEqual(["st", "mid"]);
+  });
+
+  it("drops subs where the sent-off player comes in or goes out", () => {
+    const out = filterPlannedSubstitutions(subs, new Set(), new Set(["d", "e"]));
+    expect(out.map((s) => s.positionId)).toEqual(["cb"]);
+  });
+
+  it("keeps everything when nothing is sent off", () => {
+    expect(filterPlannedSubstitutions(subs, new Set(), new Set())).toEqual(subs);
+  });
+});
+
+describe("filterRotationsForSendOffs", () => {
+  const rotation = (id: string, subs: unknown) => ({ id, plannedSubstitutions: typeof subs === "string" ? subs : JSON.stringify(subs) });
+  const cbSub = { playerOutId: "a", playerInId: "b", positionId: "cb" };
+  const stSub = { playerOutId: "c", playerInId: "d", positionId: "st" };
+
+  it("returns the same array when nobody is sent off", () => {
+    const rotations = [rotation("r1", [cbSub])];
+    expect(filterRotationsForSendOffs(rotations, new Set(), new Set())).toBe(rotations);
+  });
+
+  it("trims invalid subs and drops rotations that become empty", () => {
+    const out = filterRotationsForSendOffs(
+      [rotation("r1", [cbSub, stSub]), rotation("r2", [cbSub])],
+      new Set(["cb"]),
+      new Set(),
+    );
+    expect(out.map((r) => r.id)).toEqual(["r1"]);
+    expect(JSON.parse(out[0].plannedSubstitutions)).toEqual([stSub]);
+  });
+
+  it("keeps rotations that were already empty or unparseable", () => {
+    const out = filterRotationsForSendOffs(
+      [rotation("r1", []), rotation("r2", "not json")],
+      new Set(["cb"]),
+      new Set(),
+    );
+    expect(out.map((r) => r.id)).toEqual(["r1", "r2"]);
   });
 });

@@ -58,3 +58,57 @@ export function getLockedPositionIds(
   }
   return ids;
 }
+
+interface SubLike {
+  playerOutId: string;
+  playerInId: string;
+  positionId: string;
+}
+
+/**
+ * Drops planned subs that can no longer happen once someone is sent off: the
+ * incoming or outgoing player is carded, or the target position is locked.
+ */
+export function filterPlannedSubstitutions<T extends SubLike>(
+  subs: readonly T[],
+  lockedPositionIds: ReadonlySet<string>,
+  sentOffPlayerIds: ReadonlySet<string>,
+): T[] {
+  return subs.filter(
+    (sub) =>
+      !lockedPositionIds.has(sub.positionId)
+      && !sentOffPlayerIds.has(sub.playerInId)
+      && !sentOffPlayerIds.has(sub.playerOutId),
+  );
+}
+
+/**
+ * Planned rotations as the coach should see them after a send-off: invalid subs
+ * removed, and rotations that only held invalid subs dropped so the countdown and
+ * rotation modal don't point at a rotation with nothing left to do.
+ */
+export function filterRotationsForSendOffs<T extends { plannedSubstitutions?: unknown }>(
+  rotations: readonly T[],
+  lockedPositionIds: ReadonlySet<string>,
+  sentOffPlayerIds: ReadonlySet<string>,
+): T[] {
+  if (lockedPositionIds.size === 0 && sentOffPlayerIds.size === 0) return rotations as T[];
+  const result: T[] = [];
+  for (const rotation of rotations) {
+    let subs: SubLike[];
+    try {
+      subs = JSON.parse(rotation.plannedSubstitutions as string);
+    } catch {
+      result.push(rotation);
+      continue;
+    }
+    if (!Array.isArray(subs) || subs.length === 0) {
+      result.push(rotation);
+      continue;
+    }
+    const kept = filterPlannedSubstitutions(subs, lockedPositionIds, sentOffPlayerIds);
+    if (kept.length === 0) continue;
+    result.push(kept.length === subs.length ? rotation : { ...rotation, plannedSubstitutions: JSON.stringify(kept) });
+  }
+  return result;
+}

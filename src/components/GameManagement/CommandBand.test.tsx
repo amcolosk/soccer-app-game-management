@@ -259,4 +259,15 @@ describe("CommandBand", () => {
     );
     expect(screen.getByText(/10' to sub/)).toBeInTheDocument();
   });
+
+  // ── Red card: players down ───────────────────────────────────────────────
+  it("shows a players-down badge while a position is locked", () => {
+    render(<CommandBand {...baseProps} playersDown={1} />);
+    expect(screen.getByText(/1 down/)).toBeInTheDocument();
+  });
+
+  it("shows no players-down badge by default", () => {
+    render(<CommandBand {...baseProps} />);
+    expect(screen.queryByText(/down/)).not.toBeInTheDocument();
+  });
 });

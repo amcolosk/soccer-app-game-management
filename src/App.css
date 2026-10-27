@@ -9074,3 +9074,15 @@
   font-weight: 700;
   text-transform: uppercase;
 }
+
+/* ── Red card: players-down badge in the command band ───────────── */
+.command-band__down-badge {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--danger-red);
+  background: rgba(211, 47, 47, 0.12);
+  color: var(--danger-red);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}

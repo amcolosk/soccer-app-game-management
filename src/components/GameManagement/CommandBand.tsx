@@ -12,6 +12,8 @@ interface CommandBandProps {
   onPauseTimer: () => void;
   onResumeTimer: () => void;
   onShowRotationModal: () => void;
+  /** Positions left empty by red cards; shown as a "N down" badge. */
+  playersDown?: number;
   onAddNote?: (trigger: HTMLElement | null) => void;
   onStartGame?: () => void;
   isStartPending?: boolean;
@@ -28,6 +30,7 @@ export function CommandBand({
   onPauseTimer,
   onResumeTimer,
   onShowRotationModal,
+  playersDown = 0,
   onAddNote,
   onStartGame,
   isStartPending = false,
@@ -75,9 +78,19 @@ export function CommandBand({
         </button>
       );
 
+      const downBadge = playersDown > 0 ? (
+        <span
+          className="command-band__down-badge"
+          title={`${playersDown} player${playersDown === 1 ? "" : "s"} down after a red card`}
+        >
+          🟥 {playersDown} down
+        </span>
+      ) : null;
+
       if (gamePlan && nextRotation) {
         return (
           <>
+            {downBadge}
             {noteButton}
             <button
               className="command-band__rotation-badge"
@@ -98,6 +111,7 @@ export function CommandBand({
       }
       return (
         <>
+          {downBadge}
           {noteButton}
           <span className="command-band__status-badge command-band__status-live">
             ● Live
