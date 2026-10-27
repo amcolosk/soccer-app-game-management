@@ -2172,7 +2172,7 @@ export function Management() {
                     href="https://github.com/amcolosk/soccer-app-game-management" 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    style={{ color: '#2e8555', textDecoration: 'underline' }}
+                    style={{ color: 'var(--primary-green)', textDecoration: 'underline' }}
                   >
                     GitHub Repository
                   </a>

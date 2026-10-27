@@ -3,6 +3,7 @@ import { Authenticator, useAuthenticator } from '@aws-amplify/ui-react';
 import App from "./App.tsx";
 import { LandingPage } from "./components/LandingPage.tsx";
 import { UpdatePrompt } from "./components/UpdatePrompt.tsx";
+import { ThemeProvider } from "./contexts/ThemeContext.tsx";
 import '@aws-amplify/ui-react/styles.css';
 
 // Extracted from main.tsx (routing restructure, Milestone B1 — Fan Mode):
@@ -76,8 +77,10 @@ function Root() {
 
 export default function AppRoot() {
   return (
-    <Authenticator.Provider>
-      <Root />
-    </Authenticator.Provider>
+    <ThemeProvider>
+      <Authenticator.Provider>
+        <Root />
+      </Authenticator.Provider>
+    </ThemeProvider>
   );
 }
