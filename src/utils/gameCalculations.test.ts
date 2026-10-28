@@ -107,6 +107,14 @@ describe('Player Note Calculations', () => {
     expect(calculatePlayerRedCards('player-3', mockNotes)).toBe(1);
   });
 
+  it('should not count a rescinded red card', () => {
+    const notes = [
+      { playerId: 'player-5', noteType: 'red-card', rescindedAt: '2026-10-27T00:00:00Z' },
+      { playerId: 'player-5', noteType: 'red-card', rescindedAt: null },
+    ] as unknown as typeof mockNotes;
+    expect(calculatePlayerRedCards('player-5', notes)).toBe(1);
+  });
+
   it('should return 0 for player with no notes', () => {
     expect(calculatePlayerGoldStars('player-4', mockNotes)).toBe(0);
     expect(calculatePlayerYellowCards('player-4', mockNotes)).toBe(0);

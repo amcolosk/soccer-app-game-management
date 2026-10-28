@@ -15,6 +15,7 @@ import {
   filterPlannedSubstitutions,
   filterRotationsForSendOffs,
   getLockedPositionIds,
+  getSendOffSummaries,
   getSentOffPlayerIds,
   withPendingSendOffs,
   type PendingSendOff,
@@ -517,6 +518,18 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   const sendOffNotes = useMemo(() => withPendingSendOffs(gameNotes, pendingSendOffs), [gameNotes, pendingSendOffs]);
   const lockedPositionIds = useMemo(() => getLockedPositionIds(sendOffNotes, positions), [sendOffNotes, positions]);
   const sentOffPlayerIds = useMemo(() => getSentOffPlayerIds(sendOffNotes), [sendOffNotes]);
+  const completedSendOffs = useMemo(
+    () => getSendOffSummaries(gameNotes, gameState.elapsedSeconds ?? 0).map((summary) => {
+      const player = players.find((p) => p.id === summary.playerId);
+      return {
+        ...summary,
+        playerLabel: player
+          ? `${player.playerNumber != null ? `#${player.playerNumber} ` : ''}${player.firstName} ${player.lastName}`
+          : 'A player',
+      };
+    }),
+    [gameNotes, gameState.elapsedSeconds, players],
+  );
   // What the countdown and rotation modal show: planned subs a send-off has made impossible are dropped.
   const visibleRotations = useMemo(
     () => filterRotationsForSendOffs(plannedRotations, lockedPositionIds, sentOffPlayerIds),
@@ -2941,6 +2954,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
             <CompletedGameStats
               shots={shots}
               opponentName={gameState.opponent ?? 'Opponent'}
+              sendOffs={completedSendOffs}
             />
             <CompletedPlayTimeSummary
               players={players}

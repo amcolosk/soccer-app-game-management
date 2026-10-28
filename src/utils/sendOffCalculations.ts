@@ -112,3 +112,29 @@ export function filterRotationsForSendOffs<T extends { plannedSubstitutions?: un
   }
   return result;
 }
+
+export interface SendOffSummary {
+  playerId: string;
+  /** Game-clock seconds at which the card was shown. */
+  sentOffSeconds: number;
+  /** Seconds the team played a player down, from the card to the final whistle. */
+  playedDownSeconds: number;
+}
+
+/** One entry per active (non-rescinded) send-off, in the order they happened. */
+export function getSendOffSummaries(
+  gameNotes: ReadonlyArray<SendOffNote & Pick<GameNote, "gameSeconds">>,
+  gameEndSeconds: number,
+): SendOffSummary[] {
+  return gameNotes
+    .filter((note) => isActiveSendOff(note))
+    .map((note) => {
+      const sentOffSeconds = Math.max(0, note.gameSeconds ?? 0);
+      return {
+        playerId: note.playerId as string,
+        sentOffSeconds,
+        playedDownSeconds: Math.max(0, gameEndSeconds - sentOffSeconds),
+      };
+    })
+    .sort((a, b) => a.sentOffSeconds - b.sentOffSeconds);
+}

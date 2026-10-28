@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterPlannedSubstitutions, filterRotationsForSendOffs, getLockedPositionIds, getSentOffPlayerIds, isActiveSendOff, withPendingSendOffs } from "./sendOffCalculations";
+import { getSendOffSummaries, filterPlannedSubstitutions, filterRotationsForSendOffs, getLockedPositionIds, getSentOffPlayerIds, isActiveSendOff, withPendingSendOffs } from "./sendOffCalculations";
 
 const positions = [
   { id: "gk", role: "GOALKEEPER" as const },
@@ -113,5 +113,23 @@ describe("filterRotationsForSendOffs", () => {
       new Set(),
     );
     expect(out.map((r) => r.id)).toEqual(["r1", "r2"]);
+  });
+});
+
+describe("getSendOffSummaries", () => {
+  it("reports minutes played a player down and skips rescinded cards", () => {
+    const out = getSendOffSummaries(
+      [
+        { ...note({ playerId: "late" }), gameSeconds: 2400 },
+        { ...note({ playerId: "early" }), gameSeconds: 600 },
+        { ...note({ playerId: "typo", rescindedAt: "2026-10-27T00:00:00Z" }), gameSeconds: 900 },
+        { ...note({ noteType: "yellow-card", playerId: "yellow" }), gameSeconds: 100 },
+      ],
+      3600,
+    );
+    expect(out).toEqual([
+      { playerId: "early", sentOffSeconds: 600, playedDownSeconds: 3000 },
+      { playerId: "late", sentOffSeconds: 2400, playedDownSeconds: 1200 },
+    ]);
   });
 });
