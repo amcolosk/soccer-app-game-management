@@ -292,7 +292,7 @@ export function PlayerNotesPanel({
     if (!target) {
       message = `${label} is not on the field. The red card is recorded and they cannot be subbed on for the rest of the game.`;
     } else if (isGoalkeeper) {
-      message = `Goalkeeper sent off: ${label}. Put a field player in goal. That player's old position will stay empty for the rest of the game.`;
+      message = `Goalkeeper sent off: ${label}. Put a field player in goal; the team stays one player short for the rest of the game.`;
     } else {
       message = `${label} will be sent off. ${position?.positionName ?? 'Their position'} stays empty for the rest of the game and no substitute can fill it.`;
     }

@@ -114,7 +114,7 @@ describe("PlayerNotesPanel red card send-off", () => {
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent("Goalkeeper sent off: #9 Bea Jones");
     expect(dialog).toHaveTextContent("Put a field player in goal");
-    expect(dialog).toHaveTextContent("old position will stay empty");
+    expect(dialog).toHaveTextContent("one player short");
   });
 
   it("tells the coach when the card was recorded but the lineup could not be cleared", async () => {

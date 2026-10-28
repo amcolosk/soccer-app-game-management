@@ -3856,4 +3856,37 @@ describe("GameManagement – red card send-off enforcement", () => {
       { playerOutId: "p1", playerInId: "p3", positionId: "pos2" },
     ]);
   });
+
+  describe("goalkeeper sent off: the team stays a player down", () => {
+    const gkPositions = [
+      { id: "gk", positionName: "Goalkeeper", abbreviation: "GK", role: "GOALKEEPER" },
+      { id: "pos2", positionName: "Striker", abbreviation: "ST", role: "FORWARD" },
+    ];
+
+    const renderWithGoalkeeperCard = async (maxPlayersOnField: number) => {
+      mockUseTeamData.mockReturnValue({ players: [], positions: gkPositions });
+      withNotes([redCard({ playerId: "keeper", positionId: "gk" })]);
+      renderWithRouter(
+        <GameManagement game={mockGame} team={{ ...mockTeam, maxPlayersOnField }} onBack={vi.fn()} />,
+      );
+      const { LineupPanel } = await import("./LineupPanel");
+      const props = vi.mocked(LineupPanel).mock.calls.at(-1)![0] as unknown as {
+        onSubstitute: (position: unknown) => void;
+      };
+      await act(async () => {
+        props.onSubstitute(gkPositions[0]);
+      });
+    };
+
+    it("asks before filling an empty slot that would put the field back to full strength", async () => {
+      // 2-player field, keeper sent off, one starter left: only 1 may be on the field.
+      await renderWithGoalkeeperCard(2);
+      expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ title: "Field is full" }));
+    });
+
+    it("does not ask while the field has room for the covering player", async () => {
+      await renderWithGoalkeeperCard(3);
+      expect(mockConfirm).not.toHaveBeenCalledWith(expect.objectContaining({ title: "Field is full" }));
+    });
+  });
 });

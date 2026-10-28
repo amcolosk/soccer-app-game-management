@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getSendOffSummaries, filterPlannedSubstitutions, filterRotationsForSendOffs, getLockedPositionIds, getSentOffPlayerIds, isActiveSendOff, withPendingSendOffs } from "./sendOffCalculations";
+import { exceedsPlayersDownCap, getPlayersDownCount, getSendOffSummaries, filterPlannedSubstitutions, filterRotationsForSendOffs, getLockedPositionIds, getSentOffPlayerIds, isActiveSendOff, withPendingSendOffs } from "./sendOffCalculations";
 
 const positions = [
   { id: "gk", role: "GOALKEEPER" as const },
@@ -131,5 +131,24 @@ describe("getSendOffSummaries", () => {
       { playerId: "early", sentOffSeconds: 600, playedDownSeconds: 3000 },
       { playerId: "late", sentOffSeconds: 2400, playedDownSeconds: 1200 },
     ]);
+  });
+});
+
+describe("players down", () => {
+  it("counts active send-offs of on-field players, goalkeeper included", () => {
+    expect(
+      getPlayersDownCount([
+        note({ playerId: "a", positionId: "gk" }),
+        note({ playerId: "b", positionId: "cb" }),
+        note({ playerId: "bench", positionId: null }),
+        note({ playerId: "typo", positionId: "st", rescindedAt: "2026-10-27T00:00:00Z" }),
+      ]),
+    ).toBe(2);
+  });
+
+  it("caps the field once the team is a player down", () => {
+    expect(exceedsPlayersDownCap(10, 11, 1)).toBe(true);
+    expect(exceedsPlayersDownCap(9, 11, 1)).toBe(false);
+    expect(exceedsPlayersDownCap(11, 11, 0)).toBe(false);
   });
 });

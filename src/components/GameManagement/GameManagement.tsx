@@ -14,7 +14,9 @@ import { cleanupDuplicateAssignmentsForPosition } from "../../services/lineupCle
 import {
   filterPlannedSubstitutions,
   filterRotationsForSendOffs,
+  exceedsPlayersDownCap,
   getLockedPositionIds,
+  getPlayersDownCount,
   getSendOffSummaries,
   getSentOffPlayerIds,
   withPendingSendOffs,
@@ -518,6 +520,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
   const sendOffNotes = useMemo(() => withPendingSendOffs(gameNotes, pendingSendOffs), [gameNotes, pendingSendOffs]);
   const lockedPositionIds = useMemo(() => getLockedPositionIds(sendOffNotes, positions), [sendOffNotes, positions]);
   const sentOffPlayerIds = useMemo(() => getSentOffPlayerIds(sendOffNotes), [sendOffNotes]);
+  const playersDown = useMemo(() => getPlayersDownCount(sendOffNotes), [sendOffNotes]);
   const completedSendOffs = useMemo(
     () => getSendOffSummaries(gameNotes, gameState.elapsedSeconds ?? 0).map((summary) => {
       const player = players.find((p) => p.id === summary.playerId);
@@ -1080,7 +1083,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       lineupArray = lineupArray.filter(
         entry => !sentOffPlayerIds.has(entry.playerId) && !lockedPositionIds.has(entry.positionId),
       );
-      const maxPlayersForPlan = Math.max(1, (team.maxPlayersOnField || positions.length) - lockedPositionIds.size);
+      const maxPlayersForPlan = Math.max(1, (team.maxPlayersOnField || positions.length) - playersDown);
 
       if (lineupArray.length === 0) {
         showWarning('No available players in the starting lineup. Adjust the lineup in the Game Planner first.');
@@ -2150,6 +2153,22 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         variant: 'warning',
       });
       if (!overrideConfirmed) return;
+    } else if (
+      !lineup.some(l => l.positionId === position.id && l.isStarter)
+      && exceedsPlayersDownCap(
+        new Set(lineup.filter(l => l.isStarter).map(l => l.positionId)).size,
+        team.maxPlayersOnField || positions.length,
+        playersDown,
+      )
+    ) {
+      const overrideConfirmed = await confirm({
+        title: 'Field is full',
+        message: `The team is ${playersDown} player${playersDown === 1 ? '' : 's'} down after a red card, so no more players can take the field. Move a player off first (for example, the one covering goal), or add this player anyway?`,
+        confirmText: 'Add anyway',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      });
+      if (!overrideConfirmed) return;
     }
     setSubstitutionRequest(position);
   };
@@ -2475,7 +2494,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
           halfLengthSeconds={halfLengthSeconds}
           gamePlan={gamePlan}
           plannedRotations={visibleRotations}
-          playersDown={lockedPositionIds.size}
+          playersDown={playersDown}
           onPauseTimer={handlePauseTimer}
           onResumeTimer={handleResumeTimer}
           onShowRotationModal={() => { setRotationModalOpen(true); trackEvent(AnalyticsEvents.ROTATION_WIDGET_OPENED.category, AnalyticsEvents.ROTATION_WIDGET_OPENED.action); }}

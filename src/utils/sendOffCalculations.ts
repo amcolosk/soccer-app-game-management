@@ -138,3 +138,18 @@ export function getSendOffSummaries(
     })
     .sort((a, b) => a.sentOffSeconds - b.sentOffSeconds);
 }
+
+/**
+ * How many players the team is down: active send-offs of players who were on the
+ * field. Unlike the locked-position set this includes a sent-off goalkeeper, whose
+ * slot is refilled by a covering player or a new keeper, so the gap shows up as a
+ * smaller field rather than a particular empty position.
+ */
+export function getPlayersDownCount(gameNotes: readonly SendOffNote[]): number {
+  return gameNotes.filter((note) => isActiveSendOff(note) && !!note.positionId).length;
+}
+
+/** True when filling one more empty position would put more players on the field than a team a player down may have. */
+export function exceedsPlayersDownCap(starterCount: number, fieldSize: number, playersDown: number): boolean {
+  return playersDown > 0 && starterCount >= fieldSize - playersDown;
+}
