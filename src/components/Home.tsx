@@ -860,7 +860,11 @@ export function Home() {
     return status === 'in-progress' || status === 'halftime';
   });
   const scheduledGames = gamesForDisplay.filter(g => (g.status || 'scheduled') === 'scheduled');
-  const completedGames = gamesForDisplay.filter(g => g.status === 'completed');
+  const completedGames = gamesForDisplay.filter(g => {
+    if (g.status !== 'completed') return false;
+    const team = teams.find(t => t.id === g.teamId);
+    return !!team && isTeamActive(team);
+  });
 
   // Calendar Feed Import CTA state (Phase 3+ relabeling rule): once at least
   // one active team has a saved feed, the trigger becomes "Sync now"; the
@@ -1310,6 +1314,9 @@ export function Home() {
                   <p className="game-meta">
                     {game.isHome ? '🏠 Home' : '✈️ Away'}
                     {game.gameDate && ` • ${formatDate(game.gameDate)}`}
+                  </p>
+                  <p className="game-score">
+                    {team.name} {game.ourScore ?? 0} – {game.opponent} {game.opponentScore ?? 0}
                   </p>
                 </div>
               </div>

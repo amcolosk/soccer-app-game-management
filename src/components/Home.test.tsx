@@ -537,6 +537,27 @@ describe('Home — game status grouping (regression guard)', () => {
     expect(screen.queryByText('Active Games')).not.toBeInTheDocument();
   });
 
+  it('shows the final score for a completed game in "Past Games"', () => {
+    teamQueryResult.data = [{ id: 't1', name: 'Eagles', coaches: ['test-user-id'] }];
+    teamQueryResult.isSynced = true;
+    gameQueryResult.data = [
+      {
+        id: 'g1',
+        status: 'completed',
+        teamId: 't1',
+        opponent: 'Rivals FC',
+        isHome: true,
+        ourScore: 3,
+        opponentScore: 1,
+      },
+    ];
+    gameQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    expect(screen.getByText('Eagles 3 – Rivals FC 1')).toBeInTheDocument();
+  });
+
   it('shows an in-progress game in "Active Games", not "Past Games"', () => {
     teamQueryResult.data = [{ id: 't1', name: 'Eagles', coaches: ['test-user-id'] }];
     teamQueryResult.isSynced = true;
@@ -555,7 +576,7 @@ describe('Home — game status grouping (regression guard)', () => {
 describe('Home — archived team filtering (Team Archive Step 5)', () => {
   beforeEach(resetState);
 
-  it('keeps a completed game for an archived team visible in "Past Games" (getTeam intentionally searches the full team list)', () => {
+  it('hides a completed game for an archived team from "Past Games" (getTeam still resolves its name/info elsewhere)', () => {
     teamQueryResult.data = [
       { id: 't1', name: 'Active Eagles', coaches: ['test-user-id'], status: 'active' },
       { id: 't2', name: 'Archived Hawks', coaches: ['test-user-id'], status: 'archived' },
@@ -568,8 +589,27 @@ describe('Home — archived team filtering (Team Archive Step 5)', () => {
 
     render(<Home />);
 
+    expect(screen.queryByText('Past Games')).not.toBeInTheDocument();
+    expect(screen.queryByText('Archived Hawks vs Rivals FC')).not.toBeInTheDocument();
+  });
+
+  it('keeps a completed game for an active team visible in "Past Games" alongside a hidden archived-team game', () => {
+    teamQueryResult.data = [
+      { id: 't1', name: 'Active Eagles', coaches: ['test-user-id'], status: 'active' },
+      { id: 't2', name: 'Archived Hawks', coaches: ['test-user-id'], status: 'archived' },
+    ];
+    teamQueryResult.isSynced = true;
+    gameQueryResult.data = [
+      { id: 'g1', status: 'completed', teamId: 't1', opponent: 'Rivals FC', isHome: true },
+      { id: 'g2', status: 'completed', teamId: 't2', opponent: 'Other FC', isHome: true },
+    ];
+    gameQueryResult.isSynced = true;
+
+    render(<Home />);
+
     expect(screen.getByText('Past Games')).toBeInTheDocument();
-    expect(screen.getByText('Archived Hawks vs Rivals FC')).toBeInTheDocument();
+    expect(screen.getByText('Active Eagles vs Rivals FC')).toBeInTheDocument();
+    expect(screen.queryByText('Archived Hawks vs Other FC')).not.toBeInTheDocument();
   });
 
   it('lists only the active team in the Schedule Game team dropdown, excluding the archived one', () => {
