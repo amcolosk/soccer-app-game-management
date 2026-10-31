@@ -9018,3 +9018,71 @@
   background: var(--primary-green);
   color: #fff;
 }
+
+/* ── Red card send-off ───────────────────────────────────────────── */
+.empty-slot.empty-slot--locked,
+.empty-slot.empty-slot--locked.clickable:hover {
+  border: 2px solid #b71c1c;
+  background: #fff0f0;
+  color: #b71c1c;
+  font-style: normal;
+  font-weight: 700;
+  transform: none;
+}
+
+.position-picker-btn--locked {
+  border-color: #b71c1c;
+}
+
+.position-picker-btn--locked .occupied-by {
+  color: #b71c1c;
+  font-weight: 700;
+}
+
+.lineup-shape-node--locked .lineup-shape-node__tap-target {
+  border-color: #b71c1c;
+  background: #fff0f0;
+}
+
+.lineup-shape-node--locked .lineup-shape-node__player {
+  color: #b71c1c;
+  font-weight: 700;
+}
+
+.lineup-shape-node--locked .lineup-shape-node__player::before {
+  content: "\1F7E5\00a0";
+}
+
+.note-card.note-rescinded {
+  border-left-color: var(--text-secondary);
+  background: transparent;
+}
+
+.note-card.note-rescinded .note-text,
+.note-card.note-rescinded .note-player {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+}
+
+.note-rescinded-badge {
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--text-primary);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+/* ── Red card: players-down badge in the command band ───────────── */
+.command-band__down-badge {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--danger-red);
+  background: rgba(211, 47, 47, 0.12);
+  color: var(--danger-red);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}

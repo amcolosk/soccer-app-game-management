@@ -595,7 +595,7 @@ export function TeamReport({ team }: TeamReportProps) {
         .sort((a, b) => (a.game.gameDate || '').localeCompare(b.game.gameDate || ''));
 
       const redCards = playerNotes
-        .filter(n => n.noteType === 'red-card')
+        .filter(n => n.noteType === 'red-card' && !n.rescindedAt)
         .map(n => ({
           game: allGames.find(game => game.id === n.gameId)!,
           minute: Math.floor((n.gameSeconds || 0) / 60),

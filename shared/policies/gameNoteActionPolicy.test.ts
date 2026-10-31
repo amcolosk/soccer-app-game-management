@@ -3,6 +3,7 @@ import {
   canDeleteGameNote,
   canEditGameNote,
   getGameNoteActionDecision,
+  getRescindSendOffDecision,
   type GameNoteActionContext,
 } from './gameNoteActionPolicy';
 
@@ -57,5 +58,27 @@ describe('gameNoteActionPolicy', () => {
       canDelete: false,
       deleteReason: 'NOTE_TYPE_NON_DELETABLE',
     });
+  });
+});
+
+describe('getRescindSendOffDecision', () => {
+  const ctx = { noteType: 'red-card' as const, isTeamCoach: true, alreadyRescinded: false };
+
+  it('allows any team coach to rescind an active red card', () => {
+    expect(getRescindSendOffDecision(ctx)).toEqual({ canRescind: true, reason: 'OK' });
+  });
+
+  it('blocks non-coaches', () => {
+    expect(getRescindSendOffDecision({ ...ctx, isTeamCoach: false })).toEqual({ canRescind: false, reason: 'NOT_TEAM_COACH' });
+  });
+
+  it('blocks any note type other than red-card', () => {
+    for (const noteType of ['yellow-card', 'gold-star', 'other', 'coaching-point'] as const) {
+      expect(getRescindSendOffDecision({ ...ctx, noteType })).toEqual({ canRescind: false, reason: 'NOT_RED_CARD' });
+    }
+  });
+
+  it('blocks a second rescind', () => {
+    expect(getRescindSendOffDecision({ ...ctx, alreadyRescinded: true })).toEqual({ canRescind: false, reason: 'ALREADY_RESCINDED' });
   });
 });

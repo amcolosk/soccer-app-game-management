@@ -9,7 +9,7 @@ export interface GameActionConfirmDialog {
 }
 
 export interface GameActionDescriptor {
-  id: 'edit' | 'delete';
+  id: 'edit' | 'rescind' | 'delete';
   label: string;
   kind: GameActionKind;
   ariaLabel: string;
@@ -21,6 +21,6 @@ export interface GameActionDescriptor {
 }
 
 export function sortGameActions(actions: GameActionDescriptor[]): GameActionDescriptor[] {
-  const order = ['edit', 'delete'];
+  const order = ['edit', 'rescind', 'delete'];
   return [...actions].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
 }

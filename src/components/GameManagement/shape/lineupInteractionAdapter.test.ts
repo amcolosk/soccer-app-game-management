@@ -147,4 +147,39 @@ describe("lineupInteractionAdapter", () => {
     expect(playerPreferredForPosition(player, "pos-rb")).toBe(true);
     expect(playerPreferredForPosition(player, "pos-gk")).toBe(false);
   });
+  it("flags a locked empty position and keeps the halftime tap routed to substitution", () => {
+    const onSubstitute = vi.fn();
+    const adapter = createLineupInteractionAdapter({
+      gameStatus: "halftime",
+      startersCount: 2,
+      maxStarters: 7,
+      onSubstitute,
+      onQuickReplace: vi.fn(),
+      onStarterLimitReached: vi.fn(),
+      lockedPositionIds: new Set(["cb"]),
+    });
+
+    const locked = adapter.getEmptyNodeInteraction(makePosition("cb"));
+    expect(locked.locked).toBe(true);
+    expect(locked.title).toMatch(/red card/i);
+    locked.onTap();
+    expect(onSubstitute).toHaveBeenCalledTimes(1);
+
+    expect(adapter.getEmptyNodeInteraction(makePosition("st")).locked).toBe(false);
+  });
+
+  it("leaves a locked empty position untappable mid-game", () => {
+    const adapter = createLineupInteractionAdapter({
+      gameStatus: "in-progress",
+      startersCount: 2,
+      maxStarters: 7,
+      onSubstitute: vi.fn(),
+      onQuickReplace: vi.fn(),
+      onStarterLimitReached: vi.fn(),
+      lockedPositionIds: new Set(["cb"]),
+    });
+    const locked = adapter.getEmptyNodeInteraction(makePosition("cb"));
+    expect(locked.canTap).toBe(false);
+    expect(locked.locked).toBe(true);
+  });
 });

@@ -33,7 +33,8 @@ export function calculatePlayerYellowCards(playerId: string, notes: GameNote[]):
  * Calculates red cards for a player
  */
 export function calculatePlayerRedCards(playerId: string, notes: GameNote[]): number {
-  return notes.filter(n => n.playerId === playerId && n.noteType === 'red-card').length;
+  // A rescinded card (e.g. a typo) never counts toward the season totals.
+  return notes.filter(n => n.playerId === playerId && n.noteType === 'red-card' && !n.rescindedAt).length;
 }
 
 /**

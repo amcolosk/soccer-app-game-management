@@ -12,7 +12,8 @@ interface GameActionRowProps {
 export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActionError }: GameActionRowProps) {
   const confirm = useConfirm();
   const sortedActions = useMemo(() => sortGameActions(actions), [actions]);
-  const [isBusy, setIsBusy] = useState(false);
+  const [busyActionId, setBusyActionId] = useState<GameActionDescriptor['id'] | null>(null);
+  const isBusy = busyActionId !== null;
   const invokingButtonRef = useRef<HTMLButtonElement | null>(null);
   /** Ref-based guard so that duplicate invocations are blocked synchronously,
    *  even before a React state update can commit. */
@@ -32,7 +33,7 @@ export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActio
   const scheduleFocusAfterAction = useCallback((actionId?: GameActionDescriptor['id']) => {
     window.setTimeout(() => {
       const restored = focusInvokingButton();
-      if (actionId === 'delete' && headingIdForDeleteSuccessFocus) {
+      if ((actionId === 'delete' || actionId === 'rescind') && headingIdForDeleteSuccessFocus) {
         if (!restored) {
           document.getElementById(headingIdForDeleteSuccessFocus)?.focus();
           invokingButtonRef.current = null;
@@ -84,7 +85,7 @@ export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActio
     }
 
     isInflightRef.current = true;
-    setIsBusy(true);
+    setBusyActionId(action.id);
     const actionId = action.id;
     try {
       await action.onAction();
@@ -100,7 +101,7 @@ export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActio
       }, 0);
     } finally {
       isInflightRef.current = false;
-      setIsBusy(false);
+      setBusyActionId(null);
     }
   };
 
@@ -117,7 +118,7 @@ export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActio
             disabled={action.disabled || isBusy}
             title={action.disabledReason}
           >
-            {isBusy && action.id === 'delete' ? 'Deleting\u2026' : action.label}
+            {busyActionId === action.id && action.id === 'delete' ? 'Deleting\u2026' : busyActionId === action.id && action.id === 'rescind' ? 'Rescinding\u2026' : action.label}
           </button>
         ))}
       </div>
@@ -135,7 +136,7 @@ export function GameActionRow({ actions, headingIdForDeleteSuccessFocus, onActio
       ))}
 
       {isBusy && (
-        <span role="status" className="sr-only">Deleting, please wait\u2026</span>
+        <span role="status" className="sr-only">{busyActionId === 'rescind' ? 'Rescinding, please wait\u2026' : 'Deleting, please wait\u2026'}</span>
       )}
     </>
   );

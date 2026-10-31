@@ -137,6 +137,40 @@ export const handler: Handler = async (event) => {
     }
   }
 
+  if (args.positionId) {
+    if (noteType !== 'red-card') {
+      throw new Error('positionId is only allowed on red-card notes');
+    }
+    if (!args.playerId) {
+      throw new Error('positionId requires a playerId');
+    }
+
+    const formationPositionTable = process.env.FORMATION_POSITION_TABLE;
+    const teamTable = process.env.TEAM_TABLE;
+    if (!formationPositionTable || !teamTable) {
+      throw new Error('Required environment variables FORMATION_POSITION_TABLE and TEAM_TABLE are not set');
+    }
+
+    // Authorize against the game's team, not the position's own coaches array: a co-coach
+    // can be missing from a formation's coaches even though they coach the team.
+    const teamResponse = await docClient.send(new GetCommand({
+      TableName: teamTable,
+      Key: { id: game.teamId },
+      ProjectionExpression: 'id, formationId',
+    }));
+    const team = teamResponse.Item as { id: string; formationId?: string | null } | undefined;
+
+    const positionResponse = await docClient.send(new GetCommand({
+      TableName: formationPositionTable,
+      Key: { id: args.positionId },
+      ProjectionExpression: 'id, formationId',
+    }));
+    const position = positionResponse.Item as { id: string; formationId?: string } | undefined;
+    if (!team?.formationId || !position || position.formationId !== team.formationId) {
+      throw new Error('positionId must be a position in the game team formation');
+    }
+  }
+
   const now = new Date().toISOString();
   const id = randomUUID();
 
@@ -146,6 +180,7 @@ export const handler: Handler = async (event) => {
     gameId: args.gameId,
     noteType,
     ...(args.playerId ? { playerId: args.playerId } : {}),
+    ...(args.positionId ? { positionId: args.positionId } : {}),
     authorId,
     gameSeconds: args.gameSeconds ?? null,
     half: args.half ?? null,
