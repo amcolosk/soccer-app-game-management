@@ -90,6 +90,7 @@ export function Home() {
   const [pendingCreatedGames, setPendingCreatedGames] = useState<Game[]>([]);
   const [gameRefreshKey, setGameRefreshKey] = useState(0);
   const [isSubmittingGame, setIsSubmittingGame] = useState(false);
+  const [gamesTeamFilterId, setGamesTeamFilterId] = useState('');
 
   // Calendar Feed Import (Phase 2: file-upload path). See "Sync interaction
   // flow" in docs/plans/CALENDAR-FEED-GAME-IMPORT-PLAN.md — one CTA slot,
@@ -854,13 +855,27 @@ export function Home() {
     }
   }, [closeSwipe, confirm]);
 
+  // Teams with at least one game to show in the filter dropdown -- archived
+  // teams are included here (labeled) since they can still have in-progress
+  // or scheduled games left over from before archiving.
+  const gamesTeamFilterOptions = useMemo(() => {
+    const teamIdsWithGames = new Set(gamesForDisplay.map(g => g.teamId));
+    return teams
+      .filter(t => teamIdsWithGames.has(t.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [gamesForDisplay, teams]);
+
+  const teamFilteredGames = gamesTeamFilterId
+    ? gamesForDisplay.filter(g => g.teamId === gamesTeamFilterId)
+    : gamesForDisplay;
+
   // Group games by status
-  const inProgressGames = gamesForDisplay.filter(g => {
+  const inProgressGames = teamFilteredGames.filter(g => {
     const status = g.status || 'scheduled';
     return status === 'in-progress' || status === 'halftime';
   });
-  const scheduledGames = gamesForDisplay.filter(g => (g.status || 'scheduled') === 'scheduled');
-  const completedGames = gamesForDisplay.filter(g => {
+  const scheduledGames = teamFilteredGames.filter(g => (g.status || 'scheduled') === 'scheduled');
+  const completedGames = teamFilteredGames.filter(g => {
     if (g.status !== 'completed') return false;
     const team = teams.find(t => t.id === g.teamId);
     return !!team && isTeamActive(team);
@@ -1155,6 +1170,30 @@ export function Home() {
         <div className="empty-state">
           <p>No games scheduled yet.</p>
           <p>Click the button above to schedule your first game, or go to the Manage tab to create seasons and teams.</p>
+        </div>
+      )}
+
+      {gamesTeamFilterOptions.length > 1 && (
+        <div className="games-team-filter">
+          <label htmlFor="games-team-filter-select">Team</label>
+          <select
+            id="games-team-filter-select"
+            value={gamesTeamFilterId}
+            onChange={(e) => setGamesTeamFilterId(e.target.value)}
+          >
+            <option value="">All Teams</option>
+            {gamesTeamFilterOptions.map((team) => (
+              <option key={team.id} value={team.id}>
+                {team.name}{isTeamActive(team) ? '' : ' (Archived)'}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {gamesForDisplay.length > 0 && teamFilteredGames.length === 0 && (
+        <div className="empty-state">
+          <p>No games for this team yet.</p>
         </div>
       )}
 

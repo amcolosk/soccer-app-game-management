@@ -666,6 +666,70 @@ describe('Home — archived team filtering (Team Archive Step 5)', () => {
   });
 });
 
+describe('Home — games list team filter', () => {
+  beforeEach(resetState);
+
+  it('does not render the team filter when games belong to only one team', () => {
+    teamQueryResult.data = [{ id: 't1', name: 'Eagles', coaches: ['test-user-id'] }];
+    teamQueryResult.isSynced = true;
+    gameQueryResult.data = [
+      { id: 'g1', status: 'scheduled', teamId: 't1', opponent: 'Rivals FC', isHome: true },
+    ];
+    gameQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    expect(screen.queryByLabelText('Team')).not.toBeInTheDocument();
+  });
+
+  it('filters the games list down to the selected team', () => {
+    teamQueryResult.data = [
+      { id: 't1', name: 'Eagles', coaches: ['test-user-id'], status: 'active' },
+      { id: 't2', name: 'Hawks', coaches: ['test-user-id'], status: 'active' },
+    ];
+    teamQueryResult.isSynced = true;
+    gameQueryResult.data = [
+      { id: 'g1', status: 'scheduled', teamId: 't1', opponent: 'Rivals FC', isHome: true },
+      { id: 'g2', status: 'scheduled', teamId: 't2', opponent: 'United FC', isHome: true },
+    ];
+    gameQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    expect(screen.getByText('Eagles vs Rivals FC')).toBeInTheDocument();
+    expect(screen.getByText('Hawks vs United FC')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Team'), { target: { value: 't2' } });
+
+    expect(screen.queryByText('Eagles vs Rivals FC')).not.toBeInTheDocument();
+    expect(screen.getByText('Hawks vs United FC')).toBeInTheDocument();
+  });
+
+  it('shows an archived team in the filter and an empty state when it has no remaining games', () => {
+    teamQueryResult.data = [
+      { id: 't1', name: 'Eagles', coaches: ['test-user-id'], status: 'active' },
+      { id: 't2', name: 'Hawks', coaches: ['test-user-id'], status: 'archived' },
+    ];
+    teamQueryResult.isSynced = true;
+    gameQueryResult.data = [
+      { id: 'g1', status: 'scheduled', teamId: 't1', opponent: 'Rivals FC', isHome: true },
+      { id: 'g2', status: 'in-progress', teamId: 't2', opponent: 'United FC', isHome: true },
+    ];
+    gameQueryResult.isSynced = true;
+
+    render(<Home />);
+
+    const select = screen.getByLabelText('Team');
+    const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
+    expect(options).toContain('Hawks (Archived)');
+
+    fireEvent.change(select, { target: { value: 't2' } });
+
+    expect(screen.getByText('Hawks vs United FC')).toBeInTheDocument();
+    expect(screen.queryByText('Eagles vs Rivals FC')).not.toBeInTheDocument();
+  });
+});
+
 describe('Home — Lambda-backed game creation (TEAM-ARCHIVE-STEP11 Part 1)', () => {
   beforeEach(resetState);
 
