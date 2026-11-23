@@ -39,4 +39,18 @@ describe("CompletedGameStats", () => {
     const { container } = render(<CompletedGameStats shots={[]} opponentName="Opponent" />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("shows who was sent off and how long the team played a player down, even with no shots", () => {
+    render(
+      <CompletedGameStats
+        shots={[]}
+        opponentName="Riverside FC"
+        sendOffs={[{ playerId: "p1", playerLabel: "#7 Sam Lee", sentOffSeconds: 1500, playedDownSeconds: 2100 }]}
+      />,
+    );
+    expect(screen.getByText(/Played a player down/)).toBeInTheDocument();
+    expect(screen.getByText(/#7 Sam Lee sent off at 25'/)).toBeInTheDocument();
+    expect(screen.getByText("35'")).toBeInTheDocument();
+    expect(screen.queryByText(/Shots on Goal/)).not.toBeInTheDocument();
+  });
 });

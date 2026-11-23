@@ -7,13 +7,21 @@ import { resolveAttributionLabel, type TeamCoachProfileDTO } from "../../service
 import { PlayerSelect } from "../PlayerSelect";
 import type { GameMutationInput } from "../../hooks/useOfflineMutations";
 import { useSwipeActions } from "../../hooks/useSwipeDelete";
-import { getGameNoteActionDecision } from "../../../shared/policies/gameNoteActionPolicy";
-import type { Game, Team, PlayerWithRoster, GameNote } from "./types";
+import { getGameNoteActionDecision, getRescindSendOffDecision } from "../../../shared/policies/gameNoteActionPolicy";
+import { useConfirm } from "../ConfirmModal";
+import { findSendOffTarget, performSendOff } from "../../services/sendOffService";
+import { getSentOffPlayerIds, type PendingSendOff } from "../../utils/sendOffCalculations";
+import type { Game, Team, PlayerWithRoster, GameNote, FormationPosition, LineupAssignment, PlayTimeRecord } from "./types";
 import { useSpeechToText, type StopReason } from "./hooks/useSpeechToText";
 import type { GameActionDescriptor } from "./actions/actionContract";
 import { GameActionRow } from "./actions/GameActionRow";
 
 const MAX_NOTE_LENGTH = 500;
+
+function formatPlayerLabel(player: Pick<PlayerWithRoster, 'firstName' | 'lastName' | 'playerNumber'>): string {
+  const number = player.playerNumber != null ? `#${player.playerNumber} ` : '';
+  return `${number}${player.firstName} ${player.lastName}`;
+}
 
 export type LiveNoteType = "gold-star" | "yellow-card" | "red-card" | "other";
 export type LiveNoteSource = "notes-tab" | "command-band" | "halftime-action";
@@ -40,6 +48,13 @@ interface PlayerNotesPanelProps {
   onNoteSaved?: () => void;
   currentUserId?: string;
   profileMap?: Map<string, TeamCoachProfileDTO>;
+  /** Live-game data needed to take a red-carded player off the field. When omitted, a red card is just a note. */
+  lineup?: LineupAssignment[];
+  playTimeRecords?: PlayTimeRecord[];
+  positions?: FormationPosition[];
+  /** Includes send-offs recorded on this device that haven't synced yet; falls back to the synced notes. */
+  sentOffPlayerIds?: ReadonlySet<string>;
+  onSendOffRecorded?: (sendOff: PendingSendOff) => void;
 }
 
 export function PlayerNotesPanel({
@@ -59,7 +74,13 @@ export function PlayerNotesPanel({
   onNoteSaved,
   currentUserId,
   profileMap = new Map(),
+  lineup,
+  playTimeRecords,
+  positions,
+  sentOffPlayerIds,
+  onSendOffRecorded,
 }: PlayerNotesPanelProps) {
+  const confirm = useConfirm();
   const isExternallyControlled =
     typeof isNoteModalOpen === "boolean" &&
     typeof onRequestOpenNote === "function" &&
@@ -260,12 +281,76 @@ export function PlayerNotesPanel({
     openNoteModal({ source, defaultType: type }, trigger);
   };
 
+  const confirmSendOff = async (playerId: string): Promise<boolean> => {
+    const player = players.find((p) => p.id === playerId);
+    const label = player ? formatPlayerLabel(player) : 'this player';
+    const target = lineup ? findSendOffTarget(playerId, lineup) : null;
+    const position = target ? positions?.find((p) => p.id === target.positionId) : undefined;
+    const isGoalkeeper = position?.role === 'GOALKEEPER';
+
+    let message: string;
+    if (!target) {
+      message = `${label} is not on the field. The red card is recorded and they cannot be subbed on for the rest of the game.`;
+    } else if (isGoalkeeper) {
+      message = `Goalkeeper sent off: ${label}. Put a field player in goal; the team stays one player short for the rest of the game.`;
+    } else {
+      message = `${label} will be sent off. ${position?.positionName ?? 'Their position'} stays empty for the rest of the game and no substitute can fill it.`;
+    }
+
+    return confirm({
+      title: 'Send off player?',
+      message,
+      confirmText: 'Send off',
+      cancelText: 'Cancel',
+      variant: 'danger',
+    });
+  };
+
   const handleSaveNote = async () => {
     if (isSavingNote) return;
     setIsSavingNote(true);
     try {
       // For completed games, use the total game time; otherwise use current half time
       const timeInSeconds = gameState.status === 'completed' ? currentTime : getCurrentGameTime();
+
+      if (noteType === 'red-card' && notePlayerId && lineup && playTimeRecords && gameState.status !== 'completed') {
+        if ((sentOffPlayerIds ?? getSentOffPlayerIds(gameNotes)).has(notePlayerId)) {
+          showWarning('This player has already been sent off. Rescind the existing red card first if it was a mistake.');
+          return;
+        }
+        const confirmed = await confirmSendOff(notePlayerId);
+        if (!confirmed) return;
+
+        const sentOffPlayer = players.find((p) => p.id === notePlayerId);
+        const target = findSendOffTarget(notePlayerId, lineup);
+        const position = target ? positions?.find((p) => p.id === target.positionId) : undefined;
+        const result = await performSendOff({
+          game,
+          team,
+          playerId: notePlayerId,
+          gameSeconds: timeInSeconds,
+          half: gameState.currentHalf || 2,
+          notes: clampToLimit(noteText.trim()) || undefined,
+          lineup,
+          playTimeRecords,
+          mutations,
+        });
+
+        onSendOffRecorded?.({ playerId: notePlayerId, positionId: target?.positionId ?? null });
+        if (result.vacateFailed) {
+          showWarning('Red card recorded, but the lineup could not be updated. Remove the player from the field manually.');
+        }
+        const who = sentOffPlayer ? formatPlayerLabel(sentOffPlayer) : 'Player';
+        setActionPoliteMessage(
+          target
+            ? `${who} sent off. ${position?.positionName ?? 'Their position'} stays empty for the rest of the game.`
+            : `${who} sent off.`
+        );
+        setActionAssertiveMessage('');
+        closeNoteModal();
+        onNoteSaved?.();
+        return;
+      }
 
       await mutations.createGameNote({
         gameId: game.id,
@@ -465,11 +550,11 @@ export function PlayerNotesPanel({
       )}
 
       {/* Game Notes List */}
+      <div className="sr-only" aria-live="polite">{actionPoliteMessage}</div>
+      <div className="sr-only" aria-live="assertive">{actionAssertiveMessage}</div>
       {inGameNotes.length > 0 && (
         <div className="notes-section" ref={notesSectionRef}>
           <h3 id="game-notes-heading" tabIndex={-1}>Game Notes</h3>
-          <div className="sr-only" aria-live="polite">{actionPoliteMessage}</div>
-          <div className="sr-only" aria-live="assertive">{actionAssertiveMessage}</div>
           <div className="notes-list">
             {inGameNotes.map((note) => {
               const noteTypeValue = (note.noteType ?? 'other') as 'gold-star' | 'yellow-card' | 'red-card' | 'other' | 'coaching-point';
@@ -486,6 +571,13 @@ export function PlayerNotesPanel({
                   : noteTypeValue === 'red-card'
                     ? 'Red card notes cannot be deleted.'
                     : 'Only the author can delete this note.';
+
+              const rescindDecision = getRescindSendOffDecision({
+                noteType: noteTypeValue,
+                isTeamCoach: Boolean(currentUserId && team.coaches?.includes(currentUserId)),
+                alreadyRescinded: Boolean(note.rescindedAt),
+              });
+              const canOfferRescind = noteTypeValue === 'red-card' && Boolean(note.playerId) && rescindDecision.canRescind;
 
               const actionDescriptors: GameActionDescriptor[] = [
                 {
@@ -522,14 +614,39 @@ export function PlayerNotesPanel({
                 },
               ];
 
+              if (canOfferRescind) {
+                actionDescriptors.push({
+                  id: 'rescind',
+                  label: 'Rescind send-off',
+                  kind: 'destructive',
+                  ariaLabel: 'Rescind send-off',
+                  srStatusText: 'Rescind send-off available.',
+                  confirmDialog: {
+                    title: 'Rescind send-off?',
+                    body: notePlayer
+                      ? `Undo sending off ${formatPlayerLabel(notePlayer)}? Their position unlocks and they can be subbed back on. The red card stays in the game record, marked rescinded.`
+                      : 'Undo this send-off? The red card stays in the game record, marked rescinded.',
+                    confirmText: 'Rescind send-off',
+                    cancelText: 'Keep send-off',
+                  },
+                  onAction: async () => {
+                    await mutations.rescindSendOff(note.id);
+                    setActionPoliteMessage('Send-off rescinded. The position is unlocked.');
+                    setActionAssertiveMessage('');
+                    onNoteSaved?.();
+                  },
+                });
+              }
+
               const editedIndicator = getEditedIndicatorText(note);
               return (
                 <div key={note.id} className="swipeable-item-container">
-                  <div className={`note-card note-${noteTypeValue}`} {...getSwipeProps(note.id)} style={getSwipeStyle(note.id)}>
+                  <div className={`note-card note-${noteTypeValue}${note.rescindedAt ? ' note-rescinded' : ''}`} {...getSwipeProps(note.id)} style={getSwipeStyle(note.id)}>
                     <div className="note-icon">{getNoteIcon(noteTypeValue)}</div>
                     <div className="note-info">
                       <div className="note-header">
                         <span className="note-type">{getNoteLabel(noteTypeValue)}</span>
+                        {note.rescindedAt && <span className="note-rescinded-badge">Rescinded</span>}
                         <span className="note-time">{note.gameSeconds != null ? `${Math.floor(note.gameSeconds / 60)}'` : '--'} ({note.half === 1 ? '1st' : '2nd'} Half)</span>
                       </div>
                       {notePlayer && (

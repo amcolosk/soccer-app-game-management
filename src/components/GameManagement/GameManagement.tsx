@@ -11,6 +11,17 @@ import { useConfirm } from "../ConfirmModal";
 import { closeActivePlayTimeRecords } from "../../services/substitutionService";
 import { isMissingRecordError } from "../../services/amplifyMutationResult";
 import { cleanupDuplicateAssignmentsForPosition } from "../../services/lineupCleanupService";
+import {
+  filterPlannedSubstitutions,
+  filterRotationsForSendOffs,
+  exceedsPlayersDownCap,
+  getLockedPositionIds,
+  getPlayersDownCount,
+  getSendOffSummaries,
+  getSentOffPlayerIds,
+  withPendingSendOffs,
+  type PendingSendOff,
+} from "../../utils/sendOffCalculations";
 import { planHalftimeLineupChanges } from "../../utils/halftimeSubstitutionUtils";
 import { deleteGameCascade } from "../../services/cascadeDeleteService";
 import { calculateFairRotations, copyGamePlan, type PlannedSubstitution } from "../../services/rotationPlannerService";
@@ -500,6 +511,38 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingGapCorrection]);
 
+  // Red-card send-offs: positions that stay empty and players who cannot return this game.
+  const [pendingSendOffs, setPendingSendOffs] = useState<PendingSendOff[]>([]);
+  const handleSendOffRecorded = useCallback(
+    (sendOff: PendingSendOff) => setPendingSendOffs((prev) => [...prev, sendOff]),
+    [],
+  );
+  const sendOffNotes = useMemo(() => withPendingSendOffs(gameNotes, pendingSendOffs), [gameNotes, pendingSendOffs]);
+  const lockedPositionIds = useMemo(() => getLockedPositionIds(sendOffNotes, positions), [sendOffNotes, positions]);
+  const sentOffPlayerIds = useMemo(() => getSentOffPlayerIds(sendOffNotes), [sendOffNotes]);
+  const playersDown = useMemo(() => getPlayersDownCount(sendOffNotes), [sendOffNotes]);
+  const completedSendOffs = useMemo(
+    () => getSendOffSummaries(gameNotes, gameState.elapsedSeconds ?? 0).map((summary) => {
+      const player = players.find((p) => p.id === summary.playerId);
+      return {
+        ...summary,
+        playerLabel: player
+          ? `${player.playerNumber != null ? `#${player.playerNumber} ` : ''}${player.firstName} ${player.lastName}`
+          : 'A player',
+      };
+    }),
+    [gameNotes, gameState.elapsedSeconds, players],
+  );
+  // What the countdown and rotation modal show: planned subs a send-off has made impossible are dropped.
+  const visibleRotations = useMemo(
+    () => filterRotationsForSendOffs(plannedRotations, lockedPositionIds, sentOffPlayerIds),
+    [plannedRotations, lockedPositionIds, sentOffPlayerIds],
+  );
+  const eligiblePlayers = useMemo(
+    () => (sentOffPlayerIds.size === 0 ? players : players.filter((player) => !sentOffPlayerIds.has(player.id))),
+    [players, sentOffPlayerIds],
+  );
+
   // Merged substitution queue: backend records (FIFO) plus optimistic adds, minus optimistic removes
   const substitutionQueue = useMemo<SubQueue[]>(() => {
     // Start with backend records, filter optimistic removes
@@ -519,8 +562,11 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       .map(id => pendingOptimisticAddsRef.current.get(id))
       .filter((q): q is SubQueue => q != null);
 
-    return [...backendItems, ...optimisticItems];
-  }, [queuedSubstitutions, optimisticAddIds, optimisticRemoveIds]);
+    // A sub queued before a red card must not bring the sent-off player back on or fill the locked slot.
+    return [...backendItems, ...optimisticItems].filter(
+      (item) => !sentOffPlayerIds.has(item.playerId) && !lockedPositionIds.has(item.positionId),
+    );
+  }, [queuedSubstitutions, optimisticAddIds, optimisticRemoveIds, sentOffPlayerIds, lockedPositionIds]);
 
   // When backend confirms an add (item appears in subscription), clear from optimistic set
   useEffect(() => {
@@ -981,6 +1027,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       // Build available roster from players who are available or late-arrival
       const availableRoster = players
         .filter(p => {
+          if (sentOffPlayerIds.has(p.id)) return false;
           const status = getPlayerAvailability(p.id);
           return status === 'available' || status === 'late-arrival';
         })
@@ -1030,6 +1077,13 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
             });
         }
       }
+
+      // A send-off leaves the team a player down: the card holder and the locked position are out of
+      // the seed lineup, and the algorithm is told the smaller field size so it doesn't refill the gap.
+      lineupArray = lineupArray.filter(
+        entry => !sentOffPlayerIds.has(entry.playerId) && !lockedPositionIds.has(entry.positionId),
+      );
+      const maxPlayersForPlan = Math.max(1, (team.maxPlayersOnField || positions.length) - playersDown);
 
       if (lineupArray.length === 0) {
         showWarning('No available players in the starting lineup. Adjust the lineup in the Game Planner first.');
@@ -1109,7 +1163,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         lineupArray,
         rotationsToGenerate.length,
         effectiveRotationsPerHalf,
-        team.maxPlayersOnField || positions.length,
+        maxPlayersForPlan,
         goaliePositionId,
         halftimeLineupForAlgorithm,
         { rotationIntervalMinutes, halfLengthMinutes, positions, playerAvailabilities, initialPlayTimeMinutes },
@@ -1129,7 +1183,13 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         .map(({ rotation, generatedIndex }) => {
           return client.models.PlannedRotation.update({
             id: rotation.id,
-            plannedSubstitutions: JSON.stringify(generatedRotations[generatedIndex]?.substitutions || []),
+            plannedSubstitutions: JSON.stringify(
+              filterPlannedSubstitutions(
+                generatedRotations[generatedIndex]?.substitutions || [],
+                lockedPositionIds,
+                sentOffPlayerIds,
+              ),
+            ),
           });
         });
 
@@ -1736,7 +1796,13 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     if (halftimeSubsInProgressRef.current) return;
     halftimeSubsInProgressRef.current = true;
     try {
-      const changes = planHalftimeLineupChanges(lineup, subs);
+      const allowedSubs = subs.filter(
+        (sub) => !lockedPositionIds.has(sub.positionId) && !sentOffPlayerIds.has(sub.playerInId),
+      );
+      if (allowedSubs.length < subs.length) {
+        showWarning('Skipped planned substitutions that target a sent-off player or a position locked by a red card.');
+      }
+      const changes = planHalftimeLineupChanges(lineup, allowedSubs);
       if (changes.skipped.length > 0) {
         showWarning('Some planned halftime substitutions conflict with each other and were not applied.');
       }
@@ -2077,11 +2143,49 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     }
   }, [gameState.status, activeTab, refetchCoachProfiles]);
 
-  const handleSubstitute = (position: FormationPosition) => {
+  const requestSubstitution = async (position: FormationPosition) => {
+    if (lockedPositionIds.has(position.id)) {
+      const overrideConfirmed = await confirm({
+        title: 'Position locked',
+        message: `${position.positionName} is locked because its player was sent off, so the team plays a player down. Assign a player anyway?`,
+        confirmText: 'Assign anyway',
+        cancelText: 'Keep it empty',
+        variant: 'warning',
+      });
+      if (!overrideConfirmed) return;
+    } else if (
+      !lineup.some(l => l.positionId === position.id && l.isStarter)
+      && exceedsPlayersDownCap(
+        new Set(lineup.filter(l => l.isStarter).map(l => l.positionId)).size,
+        team.maxPlayersOnField || positions.length,
+        playersDown,
+      )
+    ) {
+      const overrideConfirmed = await confirm({
+        title: 'Field is full',
+        message: `The team is ${playersDown} player${playersDown === 1 ? '' : 's'} down after a red card, so no more players can take the field. Move a player off first (for example, the one covering goal), or add this player anyway?`,
+        confirmText: 'Add anyway',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      });
+      if (!overrideConfirmed) return;
+    }
     setSubstitutionRequest(position);
   };
 
+  const handleSubstitute = (position: FormationPosition) => {
+    void requestSubstitution(position);
+  };
+
   const handleQueueSubstitution = (playerId: string, positionId: string) => {
+    if (sentOffPlayerIds.has(playerId)) {
+      showWarning("This player was sent off and cannot return to the game");
+      return;
+    }
+    if (lockedPositionIds.has(positionId)) {
+      showWarning("That position is locked after a red card");
+      return;
+    }
     // Duplicate check against merged queue
     const alreadyQueued = substitutionQueue.some(
       q => q.playerId === playerId && q.positionId === positionId
@@ -2325,7 +2429,8 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     gameState,
     game,
     team,
-    players,
+    players: gameState.status === 'completed' ? players : eligiblePlayers,
+    lockedPositionIds,
     positions,
     lineup,
     playTimeRecords,
@@ -2363,6 +2468,11 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     mutations,
     currentUserId: userId,
     profileMap,
+    lineup,
+    playTimeRecords,
+    positions,
+    sentOffPlayerIds,
+    onSendOffRecorded: handleSendOffRecorded,
     onNoteSaved: () => setNotesRefreshKey(k => k + 1),
   };
 
@@ -2383,7 +2493,8 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
           isRunning={isRunning}
           halfLengthSeconds={halfLengthSeconds}
           gamePlan={gamePlan}
-          plannedRotations={plannedRotations}
+          plannedRotations={visibleRotations}
+          playersDown={playersDown}
           onPauseTimer={handlePauseTimer}
           onResumeTimer={handleResumeTimer}
           onShowRotationModal={() => { setRotationModalOpen(true); trackEvent(AnalyticsEvents.ROTATION_WIDGET_OPENED.category, AnalyticsEvents.ROTATION_WIDGET_OPENED.action); }}
@@ -2398,7 +2509,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
           players={players}
           positions={positions}
           gamePlan={gamePlan}
-          plannedRotations={plannedRotations}
+          plannedRotations={visibleRotations}
           currentTime={currentTime}
           lineup={lineup}
           playTimeRecords={playTimeRecords}
@@ -2417,7 +2528,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
           gameState={gameState}
           game={game}
           team={team}
-          players={players}
+          players={eligiblePlayers}
           positions={positions}
           lineup={lineup}
           playTimeRecords={playTimeRecords}
@@ -2571,7 +2682,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                 tabIndex={0}
               >
                 <BenchTab
-                  players={players}
+                  players={eligiblePlayers}
                   lineup={lineup}
                   playTimeRecords={playTimeRecords}
                   currentTime={currentTime}
@@ -2750,7 +2861,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
                   isOnline={isOnline}
                   onSelectPlayer={() => {
                     const emptyPosition = positions.find(
-                      pos => !lineup.some(l => l.positionId === pos.id && l.isStarter)
+                      pos => !lockedPositionIds.has(pos.id) && !lineup.some(l => l.positionId === pos.id && l.isStarter)
                     );
                     const targetPosition = emptyPosition ?? positions[0];
                     if (targetPosition) setSubstitutionRequest(targetPosition);
@@ -2862,6 +2973,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
             <CompletedGameStats
               shots={shots}
               opponentName={gameState.opponent ?? 'Opponent'}
+              sendOffs={completedSendOffs}
             />
             <CompletedPlayTimeSummary
               players={players}

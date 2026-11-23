@@ -41,7 +41,7 @@ export const handler: Handler = async (event) => {
   const noteResponse = await docClient.send(new GetCommand({
     TableName: gameNoteTable,
     Key: { id: args.id },
-    ProjectionExpression: 'id, gameId, noteType, authorId, notes, timestamp, gameSeconds, half, playerId, createdAt, coaches, editedAt, editedById',
+    ProjectionExpression: 'id, gameId, noteType, authorId, notes, timestamp, gameSeconds, half, playerId, positionId, rescindedAt, rescindedById, createdAt, coaches, editedAt, editedById',
   }));
 
   const existing = noteResponse.Item as {
@@ -50,6 +50,9 @@ export const handler: Handler = async (event) => {
     gameId?: string;
     noteType?: string;
     playerId?: string | null;
+    positionId?: string | null;
+    rescindedAt?: string | null;
+    rescindedById?: string | null;
     gameSeconds?: number | null;
     half?: number | null;
     notes?: string | null;
@@ -145,6 +148,9 @@ export const handler: Handler = async (event) => {
     gameId: updated?.gameId ?? '',
     noteType: (updated?.noteType ?? existing.noteType) as 'coaching-point' | 'gold-star' | 'yellow-card' | 'red-card' | 'other',
     playerId: updated?.playerId ?? null,
+    positionId: updated?.positionId ?? null,
+    rescindedAt: updated?.rescindedAt ?? null,
+    rescindedById: updated?.rescindedById ?? null,
     authorId: existing.authorId ?? null,
     gameSeconds: updated?.gameSeconds ?? null,
     half: updated?.half ?? null,

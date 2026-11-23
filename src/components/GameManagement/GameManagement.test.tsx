@@ -3701,3 +3701,192 @@ describe("GameManagement – Goals/Shots/Saves segmented control", () => {
     expect(screen.queryByTestId(/shot-save-tracker/)).not.toBeInTheDocument();
   });
 });
+
+describe("GameManagement – red card send-off enforcement", () => {
+  const redCard = (overrides: Record<string, unknown> = {}) => ({
+    id: "note-red", gameId: "game-1", noteType: "red-card", playerId: "p9", positionId: "pos1",
+    gameSeconds: 600, half: 1, rescindedAt: null, ...overrides,
+  });
+  const defenderPositions = [
+    { id: "pos1", positionName: "Center Back", abbreviation: "CB", role: "DEFENDER" },
+    { id: "pos2", positionName: "Striker", abbreviation: "ST", role: "FORWARD" },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCaptures.onApplyHalftimeSubs = undefined;
+    mockCaptures.onQueueSubstitution = undefined;
+    mockCaptures.latestSubstitutionQueue = undefined;
+    mockCaptures.playerNotesPanelProps = undefined;
+    mockUseTeamData.mockReturnValue({ players: [], positions: defenderPositions });
+  });
+
+  const withNotes = (gameNotes: unknown[], extra: Record<string, unknown> = {}) =>
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: mockGame,
+      lineup: makeLineup("p1", "pos2"),
+      gameNotes,
+      ...extra,
+    });
+
+  it("skips planned halftime subs into a locked position", async () => {
+    withNotes([redCard()]);
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    await mockCaptures.onApplyHalftimeSubs!([{ playerOutId: "p1", playerInId: "p2", positionId: "pos1" }]);
+    expect(mockLineupCreate).not.toHaveBeenCalled();
+    const { showWarning } = await import("../../utils/toast");
+    expect(showWarning).toHaveBeenCalledWith(expect.stringContaining("sent-off player or a position locked"));
+  });
+
+  it("skips planned halftime subs that bring a sent-off player back on, but still applies the rest", async () => {
+    withNotes([redCard({ playerId: "p2", positionId: "pos1" })]);
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    await mockCaptures.onApplyHalftimeSubs!([
+      { playerOutId: "p1", playerInId: "p2", positionId: "pos2" },
+    ]);
+    expect(mockLineupCreate).not.toHaveBeenCalled();
+
+    await mockCaptures.onApplyHalftimeSubs!([
+      { playerOutId: "p1", playerInId: "p3", positionId: "pos2" },
+    ]);
+    expect(mockLineupCreate).toHaveBeenCalledWith(expect.objectContaining({ playerId: "p3", positionId: "pos2" }));
+  });
+
+  it("does not lock a position whose send-off was rescinded", async () => {
+    withNotes([redCard({ rescindedAt: "2026-10-26T00:00:00Z" })]);
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    await mockCaptures.onApplyHalftimeSubs!([{ playerOutId: "p1", playerInId: "p2", positionId: "pos1" }]);
+    expect(mockLineupCreate).toHaveBeenCalled();
+  });
+
+  it("refuses to queue a sent-off player or a locked position", async () => {
+    withNotes([redCard()]);
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    const { showWarning } = await import("../../utils/toast");
+
+    act(() => {
+      mockCaptures.onQueueSubstitution!("p9", "pos2");
+      mockCaptures.onQueueSubstitution!("p3", "pos1");
+    });
+    expect(showWarning).toHaveBeenCalledWith("This player was sent off and cannot return to the game");
+    expect(showWarning).toHaveBeenCalledWith("That position is locked after a red card");
+    expect(mockCaptures.latestSubstitutionQueue).toHaveLength(0);
+  });
+
+  it("drops an already-queued sub once its player is sent off or its position locks", () => {
+    withNotes([redCard()], {
+      queuedSubstitutions: [
+        { id: "q1", playerId: "p9", positionId: "pos2" },
+        { id: "q2", playerId: "p3", positionId: "pos1" },
+        { id: "q3", playerId: "p4", positionId: "pos2" },
+      ],
+    });
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    expect(mockCaptures.latestSubstitutionQueue?.map((q) => q.playerId)).toEqual(["p4"]);
+  });
+
+  it("applies a send-off recorded on this device before its note has synced (offline)", () => {
+    withNotes([]);
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+
+    act(() => {
+      (mockCaptures.playerNotesPanelProps as any).onSendOffRecorded({ playerId: "p5", positionId: "pos1" });
+    });
+
+    expect([...(mockCaptures.playerNotesPanelProps as any).sentOffPlayerIds]).toEqual(["p5"]);
+    act(() => {
+      mockCaptures.onQueueSubstitution!("p3", "pos1");
+    });
+    expect(mockCaptures.latestSubstitutionQueue).toHaveLength(0);
+  });
+
+  it("gives the notes panel the live lineup, play time and positions it needs to take a player off the field", () => {
+    withNotes([]);
+    renderWithRouter(<GameManagement game={mockGame} team={mockTeam} onBack={vi.fn()} />);
+    const props = mockCaptures.playerNotesPanelProps as any;
+    expect(props.lineup).toHaveLength(1);
+    expect(props.positions).toEqual(defenderPositions);
+    expect(Array.isArray(props.playTimeRecords)).toBe(true);
+  });
+
+  it("recalculates rotations a player down: sent-off player excluded, smaller field, invalid subs dropped", async () => {
+    const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
+    const mockedFn = vi.mocked(mockedCalc);
+    mockedFn.mockReturnValue({
+      rotations: [{
+        substitutions: [
+          { playerOutId: "p1", playerInId: "p3", positionId: "pos1" },
+          { playerOutId: "p1", playerInId: "p3", positionId: "pos2" },
+        ],
+      }],
+      warnings: [],
+    });
+    mockUseTeamData.mockReturnValue({
+      players: [
+        { id: "p1", playerNumber: 1, firstName: "Al", lastName: "A", isActive: true },
+        { id: "p2", playerNumber: 2, firstName: "Bo", lastName: "B", isActive: true },
+        { id: "p3", playerNumber: 3, firstName: "Cy", lastName: "C", isActive: true },
+      ],
+      positions: defenderPositions,
+    });
+    withNotes([redCard({ playerId: "p2", positionId: "pos1" })], {
+      gameState: { ...mockGame, status: "in-progress" },
+      gamePlan: { id: "gp-1", rotationIntervalMinutes: 10, startingLineup: "[]" } as never,
+      plannedRotations: [
+        { id: "rot-1", rotationNumber: 1, gameMinute: 40, half: 2, plannedSubstitutions: "[]" } as never,
+      ],
+    });
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: "in-progress" }} team={mockTeam} onBack={vi.fn()} />);
+
+    await act(async () => {
+      await mockCaptures.rotationWidgetProps?.onRecalculateRotations?.();
+    });
+
+    await waitFor(() => expect(mockedFn).toHaveBeenCalledTimes(1));
+    const args = mockedFn.mock.calls[0];
+    expect((args[0] as Array<{ playerId: string }>).map((r) => r.playerId)).not.toContain("p2");
+    expect(args[4]).toBe(((mockTeam as { maxPlayersOnField?: number }).maxPlayersOnField || defenderPositions.length) - 1);
+
+    await waitFor(() => expect(mockPlannedRotationUpdate).toHaveBeenCalled());
+    const subUpdate = mockPlannedRotationUpdate.mock.calls
+      .map(([payload]: [Record<string, unknown>]) => payload)
+      .find((c) => "plannedSubstitutions" in c);
+    expect(JSON.parse(subUpdate!.plannedSubstitutions as string)).toEqual([
+      { playerOutId: "p1", playerInId: "p3", positionId: "pos2" },
+    ]);
+  });
+
+  describe("goalkeeper sent off: the team stays a player down", () => {
+    const gkPositions = [
+      { id: "gk", positionName: "Goalkeeper", abbreviation: "GK", role: "GOALKEEPER" },
+      { id: "pos2", positionName: "Striker", abbreviation: "ST", role: "FORWARD" },
+    ];
+
+    const renderWithGoalkeeperCard = async (maxPlayersOnField: number) => {
+      mockUseTeamData.mockReturnValue({ players: [], positions: gkPositions });
+      withNotes([redCard({ playerId: "keeper", positionId: "gk" })]);
+      renderWithRouter(
+        <GameManagement game={mockGame} team={{ ...mockTeam, maxPlayersOnField }} onBack={vi.fn()} />,
+      );
+      const { LineupPanel } = await import("./LineupPanel");
+      const props = vi.mocked(LineupPanel).mock.calls.at(-1)![0] as unknown as {
+        onSubstitute: (position: unknown) => void;
+      };
+      await act(async () => {
+        props.onSubstitute(gkPositions[0]);
+      });
+    };
+
+    it("asks before filling an empty slot that would put the field back to full strength", async () => {
+      // 2-player field, keeper sent off, one starter left: only 1 may be on the field.
+      await renderWithGoalkeeperCard(2);
+      expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ title: "Field is full" }));
+    });
+
+    it("does not ask while the field has room for the covering player", async () => {
+      await renderWithGoalkeeperCard(3);
+      expect(mockConfirm).not.toHaveBeenCalledWith(expect.objectContaining({ title: "Field is full" }));
+    });
+  });
+});

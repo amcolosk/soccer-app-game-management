@@ -43,6 +43,7 @@ interface LineupPanelProps {
   viewMode?: "list" | "shape";
   onViewModeChange?: (mode: "list" | "shape") => void;
   onResetViewPreference?: () => void;
+  lockedPositionIds?: ReadonlySet<string>;
 }
 
 type ShapeActionResult = "success" | "conflict" | "error";
@@ -64,6 +65,7 @@ export function LineupPanel({
   viewMode = "list",
   onViewModeChange,
   onResetViewPreference,
+  lockedPositionIds,
 }: LineupPanelProps) {
   const confirm = useConfirm();
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -92,6 +94,7 @@ export function LineupPanel({
     onSubstitute,
     onQuickReplace: () => undefined,
     onStarterLimitReached: showWarning,
+    lockedPositionIds,
   });
 
   const isInLineup = (playerId: string) => isPlayerInLineup(playerId, visibleLineup);
@@ -422,6 +425,17 @@ export function LineupPanel({
     if (!selectedPlayer) return;
     if (isAssigningRef.current) return;
 
+    if (lockedPositionIds?.has(positionId)) {
+      const overrideConfirmed = await confirm({
+        title: 'Position locked',
+        message: 'This position is locked because its player was sent off, so the team plays a player down. Assign a player anyway?',
+        confirmText: 'Assign anyway',
+        cancelText: 'Keep it empty',
+        variant: 'warning',
+      });
+      if (!overrideConfirmed) return;
+    }
+
     isAssigningRef.current = true;
     setIsAssigningPosition(true);
     try {
@@ -533,6 +547,7 @@ export function LineupPanel({
             onQuickReplace={handleShapeQuickReplace}
             onClearSlot={handleShapeClearSlot}
             isReadOnly={isReadOnly}
+            lockedPositionIds={lockedPositionIds}
           />
         ) : gameState.status === 'scheduled' ? (
           isInteractive ? (
@@ -587,6 +602,7 @@ export function LineupPanel({
             <div className="position-lineup-grid">
               {positions.map((position) => {
                 const assignedPlayer = getPositionPlayer(position.id);
+                const isLocked = !assignedPlayer && (lockedPositionIds?.has(position.id) ?? false);
                 return (
                   <div key={position.id} className="position-slot">
                     <div className="position-header">
@@ -639,11 +655,11 @@ export function LineupPanel({
                       </div>
                     ) : (
                       <div
-                        className={`empty-slot ${isInteractive && (gameState.status === 'halftime' || gameState.status === 'scheduled') ? 'clickable' : ''}`}
+                        className={`empty-slot ${isLocked ? 'empty-slot--locked' : ''} ${isInteractive && (gameState.status === 'halftime' || gameState.status === 'scheduled') ? 'clickable' : ''}`}
                         onClick={isInteractive ? () => handleEmptyPositionClick(position) : undefined}
-                        title={isInteractive && (gameState.status === 'halftime' || gameState.status === 'scheduled') ? 'Click to assign player' : ''}
+                        title={isLocked ? 'Sent off. Position stays empty for the rest of the game.' : isInteractive && (gameState.status === 'halftime' || gameState.status === 'scheduled') ? 'Click to assign player' : ''}
                       >
-                        Empty
+                        {isLocked ? '\u{1F7E5} Sent off' : 'Empty'}
                       </div>
                     )}
                   </div>
@@ -702,10 +718,11 @@ export function LineupPanel({
             <div className="position-picker-grid">
               {positions.map((position) => {
                 const occupied = getPositionPlayer(position.id);
+                const pickerLocked = !occupied && (lockedPositionIds?.has(position.id) ?? false);
                 return (
                   <button
                     key={position.id}
-                    className={`position-picker-btn ${occupied ? 'occupied' : ''}`}
+                    className={`position-picker-btn ${occupied ? 'occupied' : ''} ${pickerLocked ? 'position-picker-btn--locked' : ''}`}
                     onClick={() => handleAssignPosition(position.id)}
                     disabled={!!occupied || isAssigningPosition}
                   >
@@ -720,6 +737,7 @@ export function LineupPanel({
                         #{occupied.playerNumber} {occupied.firstName}
                       </div>
                     )}
+                    {pickerLocked && <div className="occupied-by">{'\u{1F7E5}'} Sent off</div>}
                   </button>
                 );
               })}
