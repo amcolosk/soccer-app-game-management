@@ -45,7 +45,7 @@ type ViewState =
 // outcome -> records mapping this mirrors on the coach side.
 type ShotOutcome = 'GOAL' | 'SAVED' | 'BLOCKED' | 'WIDE';
 
-type FlowStep = 'closed' | 'player' | 'outcome' | 'confirmKeeper' | 'assist' | 'confirm';
+type FlowStep = 'closed' | 'player' | 'outcome' | 'assist';
 
 interface FlowState {
   step: FlowStep;
@@ -53,19 +53,20 @@ interface FlowState {
   outcome: ShotOutcome | null;
   // Dual use, mutually exclusive per-flow (per the plan): shooter/scorer
   // attribution on the "Us" side (populated by the initial 'player' step),
-  // OR our keeper attribution on the "Them"+SAVED override-picker path
-  // (populated by the SAME 'player' step, reached via "pick another
-  // keeper"). One slot suffices since a single flow is never both at once.
+  // OR our keeper attribution on the "Them"+SAVED path (auto-filled from the
+  // current goalkeeper, or chosen in the 'player' step when none is known).
+  // One slot suffices since a single flow is never both at once.
   playerId: string | null;
   assistPlayerId: string | null;
   clientEventId: string | null;
-  // Save Auto-Goalkeeper Attribution: the display name of the keeper shown
-  // (and submitted) for the `confirmKeeper` step, frozen at the same
-  // tap-time as `playerId` in `pickOutcome`. Rendering `confirmKeeper` from
-  // this instead of the live-recomputed `activeGoalkeeperPlayer` keeps what
-  // the helper sees in sync with what actually gets submitted, even if a
-  // poll lands mid-step and changes/clears the live keeper.
-  confirmedKeeperName: string | null;
+  // Set once a PARTIAL_WRITE comes back for this clientEventId: the Shot
+  // already wrote server-side, and a resume retry reconstructs the Goal/Save
+  // from the ORIGINAL attribution regardless of what a later tap sends (see
+  // submit-stat-event's resume-write handling) -- so once this is true, the
+  // picker step must stop accepting a different player/keeper and only offer
+  // a retry of the exact same attribution, or the success banner could name
+  // someone other than who the DB actually credits.
+  partialWriteLock: boolean;
 }
 
 const CLOSED_FLOW: FlowState = {
@@ -75,7 +76,7 @@ const CLOSED_FLOW: FlowState = {
   playerId: null,
   assistPlayerId: null,
   clientEventId: null,
-  confirmedKeeperName: null,
+  partialWriteLock: false,
 };
 
 const OUTCOME_LABELS: Record<ShotOutcome, { verb: string; icon: string }> = {
@@ -278,7 +279,7 @@ export function StatTrackerView() {
       playerId: null,
       assistPlayerId: null,
       clientEventId: crypto.randomUUID(),
-      confirmedKeeperName: null,
+      partialWriteLock: false,
     });
   }
 
@@ -294,18 +295,17 @@ export function StatTrackerView() {
       setFlow({ ...flow, playerId, step: 'outcome' });
       return;
     }
-    // "Them" + SAVED keeper-override picker, reached via "pick another
-    // keeper" below.
-    setFlow({ ...flow, playerId, step: 'confirm' });
-  }
-
-  function pickDifferentKeeper() {
-    setFlow({ ...flow, playerId: null, confirmedKeeperName: null, step: 'player' });
+    // "Them" + SAVED keeper picker, reached when no current keeper is known.
+    // Nothing left to confirm once a keeper is chosen -- submit directly.
+    const next = { ...flow, playerId };
+    setFlow(next);
+    void submit(next);
   }
 
   // Q1 split (UI review): BLOCKED/WIDE submit immediately on tap -- fast,
-  // low-stakes, already correctable via the coach's edit modal (M1). GOAL
-  // and SAVED always route through an explicit confirm step first.
+  // low-stakes, already correctable via the coach's edit modal (M1). Every
+  // other outcome now submits as soon as its (optional) attribution step is
+  // filled in too, except "Us"+GOAL, which still needs an assist tap first.
   function pickOutcome(outcome: ShotOutcome) {
     if (outcome === 'BLOCKED' || outcome === 'WIDE') {
       void submit({ ...flow, outcome });
@@ -316,49 +316,45 @@ export function StatTrackerView() {
       if (flow.forUs) {
         setFlow({ ...flow, outcome, step: 'assist' });
       } else {
-        // Opponent goals carry no scorer/assist attribution.
-        setFlow({ ...flow, outcome, step: 'confirm' });
+        // Opponent goals carry no scorer/assist attribution -- nothing left
+        // to confirm, so submit immediately like BLOCKED/WIDE.
+        void submit({ ...flow, outcome });
       }
       return;
     }
 
     // outcome === 'SAVED'
     if (flow.forUs) {
-      // "Us" + Saved: no keeper attribution possible (no opponent roster).
-      setFlow({ ...flow, outcome, step: 'confirm' });
+      // "Us" + Saved: no keeper attribution possible (no opponent roster) --
+      // nothing to confirm, submit immediately like BLOCKED/WIDE.
+      void submit({ ...flow, outcome });
       return;
     }
 
-    // "Them" + Saved: auto-prefill the current on-field goalkeeper when
-    // unambiguous (Save Auto-Goalkeeper Attribution).
+    // "Them" + Saved: submit immediately with the current on-field goalkeeper
+    // when unambiguous. The keeper id is read here, at tap time, and passed
+    // straight into submit -- a later poll can't change who gets credited.
+    // The helper's success banner names the keeper, and the coach can fix a
+    // wrong attribution from the Saves list.
     if (activeGoalkeeperPlayer) {
-      setFlow({
-        ...flow,
-        outcome,
-        playerId: activeGoalkeeperPlayer.id,
-        confirmedKeeperName: `${activeGoalkeeperPlayer.firstName} ${activeGoalkeeperPlayer.lastName}`,
-        step: 'confirmKeeper',
-      });
+      // After a failed submit the sheet stays here with the same
+      // clientEventId; reuse the keeper from the first tap so a retry can't
+      // pair that id with a keeper who changed in the meantime.
+      const keeperId = flow.outcome === 'SAVED' && flow.playerId ? flow.playerId : activeGoalkeeperPlayer.id;
+      const next = { ...flow, outcome, playerId: keeperId };
+      setFlow(next);
+      void submit(next);
     } else {
       setFlow({ ...flow, outcome, step: 'player' });
     }
   }
 
+  // Nothing left to confirm once an assist is chosen (or skipped) --
+  // submit directly, same as the keeper picker above.
   function chooseAssist(assistPlayerId: string | null) {
-    setFlow({ ...flow, assistPlayerId, step: 'confirm' });
-  }
-
-  // The confirm step's Back action returns to whichever step led here,
-  // without submitting or clearing clientEventId -- distinct from Cancel,
-  // which closes the whole flow.
-  function confirmBack() {
-    if (flow.outcome === 'GOAL' && flow.forUs) {
-      setFlow({ ...flow, step: 'assist' });
-    } else if (flow.outcome === 'SAVED' && !flow.forUs) {
-      setFlow({ ...flow, step: 'player' });
-    } else {
-      setFlow({ ...flow, step: 'outcome' });
-    }
+    const next = { ...flow, assistPlayerId };
+    setFlow(next);
+    void submit(next);
   }
 
   async function submit(f: FlowState) {
@@ -387,7 +383,15 @@ export function StatTrackerView() {
         // never regenerated here, so a subsequent tap on the same control
         // resumes server-side (PARTIAL_WRITE) or retries cleanly (any other
         // reason) instead of starting a fresh, unrelated dedup row.
-        setSubmitError(describeSubmitFailure(outcomeResult?.reason ?? null));
+        const reason = outcomeResult?.reason ?? null;
+        setSubmitError(describeSubmitFailure(reason));
+        // PARTIAL_WRITE means the Shot already persisted server-side with
+        // THIS attribution baked in -- lock it so the picker can't be
+        // re-tapped with a different player/keeper (see partialWriteLock's
+        // doc comment above).
+        if (reason === 'PARTIAL_WRITE') {
+          setFlow({ ...f, partialWriteLock: true });
+        }
         setIsSubmitting(false);
         return;
       }
@@ -395,9 +399,14 @@ export function StatTrackerView() {
       // Success — close the flow and show a brief confirmation. Immediate
       // re-poll so a mid-session game-change/revocation surfaces promptly.
       const label = OUTCOME_LABELS[f.outcome];
+      const keeper = !f.forUs && f.outcome === 'SAVED' && f.playerId
+        ? roster.find((p) => p.id === f.playerId)
+        : null;
       setFlow(CLOSED_FLOW);
       setIsSubmitting(false);
-      setConfirmation(`${label.icon} ${label.verb} logged!`);
+      setConfirmation(
+        `${label.icon} ${label.verb} logged${keeper ? ` for ${keeper.firstName} ${keeper.lastName}` : ''}!`,
+      );
       if (confirmationTimerRef.current) clearTimeout(confirmationTimerRef.current);
       confirmationTimerRef.current = setTimeout(() => setConfirmation(null), 2500);
       void fetchView();
@@ -605,10 +614,8 @@ export function StatTrackerView() {
           submitError={submitError}
           onChoosePlayer={choosePlayer}
           onPickOutcome={pickOutcome}
-          onPickDifferentKeeper={pickDifferentKeeper}
           onChooseAssist={chooseAssist}
-          onConfirmBack={confirmBack}
-          onSubmit={(f) => void submit(f)}
+          onRetry={() => void submit(flow)}
           onClose={closeFlow}
         />
       )}
@@ -663,23 +670,18 @@ interface StatFlowSheetProps {
   submitError: string | null;
   onChoosePlayer: (playerId: string | null) => void;
   onPickOutcome: (outcome: ShotOutcome) => void;
-  onPickDifferentKeeper: () => void;
   onChooseAssist: (assistPlayerId: string | null) => void;
-  onConfirmBack: () => void;
-  onSubmit: (f: FlowState) => void;
+  onRetry: () => void;
   onClose: () => void;
 }
 
 // Sheet-based per-tap question flow — deliberately distinct from the
 // coach-side ShotOutcomeEntry's modal shape; this is a different page with a
 // different interaction model (one shared sheet driving every tap) and
-// stays as designed here. Save Auto-Goalkeeper Attribution's `confirmKeeper`
-// step is a specialized instance of the same review-with-override-before-
-// commit shape the generic `confirm` step below generalizes to every other
-// GOAL/SAVED path (Q1).
+// stays as designed here.
 function StatFlowSheet({
   flow, opponentName, roster, isSubmitting, submitError,
-  onChoosePlayer, onPickOutcome, onPickDifferentKeeper, onChooseAssist, onConfirmBack, onSubmit, onClose,
+  onChoosePlayer, onPickOutcome, onChooseAssist, onRetry, onClose,
 }: StatFlowSheetProps) {
   const titleId = 'tracker-flow-title';
   const sideLabel = flow.forUs ? 'Us' : opponentName;
@@ -689,7 +691,15 @@ function StatFlowSheet({
       <div className="tracker-sheet">
         <h2 id={titleId}>🎯 Log Shot – {sideLabel}</h2>
 
-        {flow.step === 'player' && (
+        {flow.step === 'player' && flow.partialWriteLock && (
+          <LockedRetryStep
+            label={playerLabel(roster, flow.playerId)}
+            isSubmitting={isSubmitting}
+            onRetry={onRetry}
+          />
+        )}
+
+        {flow.step === 'player' && !flow.partialWriteLock && (
           <PlayerPickerStep
             roster={roster}
             heading={flow.outcome === null ? 'Who took the shot?' : 'Which keeper?'}
@@ -716,29 +726,15 @@ function StatFlowSheet({
           </div>
         )}
 
-        {flow.step === 'confirmKeeper' && flow.confirmedKeeperName && (
-          <div className="tracker-sheet-options">
-            <p>{flow.confirmedKeeperName} made the save?</p>
-            <button
-              type="button"
-              className="tracker-sheet-option tracker-sheet-option--primary"
-              onClick={() => onSubmit(flow)}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Logging…' : 'Log Save'}
-            </button>
-            <button
-              type="button"
-              className="tracker-sheet-option tracker-sheet-option--skip"
-              onClick={onPickDifferentKeeper}
-              disabled={isSubmitting}
-            >
-              Not right? Pick another keeper
-            </button>
-          </div>
+        {flow.step === 'assist' && flow.partialWriteLock && (
+          <LockedRetryStep
+            label={playerLabel(roster, flow.assistPlayerId, 'No assist')}
+            isSubmitting={isSubmitting}
+            onRetry={onRetry}
+          />
         )}
 
-        {flow.step === 'assist' && (
+        {flow.step === 'assist' && !flow.partialWriteLock && (
           <PlayerPickerStep
             roster={roster.filter((p) => p.id !== flow.playerId)}
             heading="Assisted by? (optional)"
@@ -748,28 +744,45 @@ function StatFlowSheet({
           />
         )}
 
-        {flow.step === 'confirm' && flow.outcome && (
-          <div className="tracker-sheet-options">
-            <button
-              type="button"
-              className="tracker-sheet-option tracker-sheet-option--primary"
-              onClick={() => onSubmit(flow)}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Logging…' : `Log ${flow.outcome === 'GOAL' ? 'Goal' : 'Save'}`}
-            </button>
-            <button type="button" className="tracker-sheet-option tracker-sheet-option--skip" onClick={onConfirmBack} disabled={isSubmitting}>
-              Back
-            </button>
-          </div>
-        )}
-
         {submitError && <p className="error-message" role="alert">{submitError}</p>}
 
         <button type="button" className="tracker-sheet-cancel" onClick={onClose} disabled={isSubmitting}>
           Cancel
         </button>
       </div>
+    </div>
+  );
+}
+
+function playerLabel(roster: RosterPlayer[], playerId: string | null, skipLabel = 'Skip / unknown player'): string {
+  const player = playerId ? roster.find((p) => p.id === playerId) : null;
+  return player ? `#${player.playerNumber ?? '?'} ${player.firstName} ${player.lastName}` : skipLabel;
+}
+
+// Shown instead of the live player/keeper picker once a PARTIAL_WRITE has
+// come back for this attempt -- the Shot already persisted with THIS
+// attribution, and a resume retry can't change it server-side (see
+// FlowState.partialWriteLock's doc comment), so re-exposing the full
+// tappable roster here would invite a helper to "correct" their pick and
+// get a success banner that doesn't match what the DB actually recorded.
+function LockedRetryStep({
+  label, isSubmitting, onRetry,
+}: {
+  label: string;
+  isSubmitting: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="tracker-sheet-options">
+      <p>Almost done — the shot is already logged for {label}.</p>
+      <button
+        type="button"
+        className="tracker-sheet-option tracker-sheet-option--primary"
+        onClick={onRetry}
+        disabled={isSubmitting}
+      >
+        {isSubmitting ? 'Retrying…' : 'Tap to finish'}
+      </button>
     </div>
   );
 }

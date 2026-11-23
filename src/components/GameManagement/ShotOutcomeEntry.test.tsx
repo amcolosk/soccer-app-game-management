@@ -120,14 +120,13 @@ describe("ShotOutcomeEntry", () => {
       await user.click(screen.getByText(/Log Shot – Us/));
       await user.click(screen.getByRole("button", { name: "Continue" })); // skip shooter
       await user.click(screen.getByRole("button", { name: "Goal" }));
-      await user.click(screen.getByRole("button", { name: "Continue" })); // skip assist
-      await user.click(screen.getByRole("button", { name: /Log Goal/ }));
+      await user.click(screen.getByRole("button", { name: /Log Goal/ })); // skip assist, submit directly
       await waitFor(() => expect(mockCreateGoal).toHaveBeenCalledWith(expect.objectContaining({
         scoredByUs: true, scorerId: null, assistId: null,
       })));
     });
 
-    it("GOAL requires a confirm step (Back returns to assist without submitting)", async () => {
+    it("GOAL submits directly from the assist step once shooter+assist are picked, with no confirm screen", async () => {
       const user = userEvent.setup();
       render(<ShotOutcomeEntry {...defaultProps} />);
       await user.click(screen.getByText(/Log Shot – Us/));
@@ -135,33 +134,24 @@ describe("ShotOutcomeEntry", () => {
       await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: "Goal" }));
       await user.selectOptions(screen.getByTestId("shotAssist"), "p2");
-      await user.click(screen.getByRole("button", { name: "Continue" }));
 
-      // Confirm step reached -- nothing submitted yet.
-      expect(screen.getByRole("button", { name: /Log Goal/ })).toBeInTheDocument();
+      // Nothing submitted until the assist step's own "Log Goal" tap.
       expect(mockCreateShot).not.toHaveBeenCalled();
 
-      await user.click(screen.getByRole("button", { name: "Back" }));
-      // Back to assist step, not submitted.
-      expect(screen.getByTestId("shotAssist")).toBeInTheDocument();
-      expect(mockCreateShot).not.toHaveBeenCalled();
-
-      await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: /Log Goal/ }));
       await waitFor(() => expect(mockCreateShot).toHaveBeenCalledWith(expect.objectContaining({ outcome: "GOAL", playerId: "p1" })));
       await waitFor(() => expect(mockCreateGoal).toHaveBeenCalledWith(expect.objectContaining({ scorerId: "p1", assistId: "p2" })));
     });
 
-    it("Us + Saved skips straight to a plain confirm step reading 'Log Save' (no keeper attribution possible)", async () => {
+    it("Us + Saved submits immediately on tap, no confirm step (no keeper attribution possible)", async () => {
       const user = userEvent.setup();
       render(<ShotOutcomeEntry {...defaultProps} />);
       await user.click(screen.getByText(/Log Shot – Us/));
       await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: "Saved" }));
-      expect(screen.getByRole("button", { name: /Log Save/ })).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: /Log Save/ }));
       await waitFor(() => expect(mockCreateShot).toHaveBeenCalledWith(expect.objectContaining({ outcome: "SAVED", takenByUs: true })));
       await waitFor(() => expect(mockCreateSave).toHaveBeenCalledWith(expect.objectContaining({ byUs: false, playerId: null })));
+      expect(screen.queryByRole("button", { name: /Log Save/ })).not.toBeInTheDocument();
     });
   });
 
@@ -182,53 +172,36 @@ describe("ShotOutcomeEntry", () => {
       await waitFor(() => expect(mockCreateShot).toHaveBeenCalledWith(expect.objectContaining({ takenByUs: false, outcome: "WIDE" })));
     });
 
-    it("GOAL requires confirm, carries no scorer/assist", async () => {
+    it("GOAL submits immediately with no confirm step, carries no scorer/assist", async () => {
       const user = userEvent.setup();
       render(<ShotOutcomeEntry {...defaultProps} />);
       await user.click(screen.getByText(/Log Shot – Eagles/));
       await user.click(screen.getByRole("button", { name: "Goal" }));
-      expect(mockCreateShot).not.toHaveBeenCalled();
-      await user.click(screen.getByRole("button", { name: /Log Goal/ }));
       await waitFor(() => expect(mockCreateGoal).toHaveBeenCalledWith(expect.objectContaining({ scoredByUs: false, scorerId: null, assistId: null })));
+      expect(screen.queryByRole("button", { name: /Log Goal/ })).not.toBeInTheDocument();
     });
 
-    it("SAVED with no resolvable current goalkeeper goes to a keeper picker, then confirm", async () => {
+    it("SAVED with no resolvable current goalkeeper goes to a keeper picker that submits directly, no confirm step", async () => {
       const user = userEvent.setup();
       render(<ShotOutcomeEntry {...defaultProps} />);
       await user.click(screen.getByText(/Log Shot – Eagles/));
       await user.click(screen.getByRole("button", { name: "Saved" }));
       expect(screen.getByTestId("shotKeeper")).toBeInTheDocument();
       await user.selectOptions(screen.getByTestId("shotKeeper"), "gk1");
-      await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: /Log Save/ }));
       await waitFor(() => expect(mockCreateSave).toHaveBeenCalledWith(expect.objectContaining({ byUs: true, playerId: "gk1" })));
     });
 
-    it("SAVED with an auto-resolvable current goalkeeper lands on confirmKeeper with an override escape hatch", async () => {
+    it("SAVED with an auto-resolvable current goalkeeper submits immediately with no confirm step", async () => {
       const user = userEvent.setup();
       const playTimeRecords = [{ id: "ptr1", playerId: "gk1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: null }] as any[];
       const positions = [{ id: "gk-pos", role: "GOALKEEPER" }] as any[];
       render(<ShotOutcomeEntry {...defaultProps} positions={positions} playTimeRecords={playTimeRecords} />);
       await user.click(screen.getByText(/Log Shot – Eagles/));
       await user.click(screen.getByRole("button", { name: "Saved" }));
-      expect(screen.getByText("Gary Keeper made the save?")).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: /Log Save/ }));
       await waitFor(() => expect(mockCreateSave).toHaveBeenCalledWith(expect.objectContaining({ byUs: true, playerId: "gk1" })));
-    });
-
-    it("'pick another keeper' override transitions to the full picker", async () => {
-      const user = userEvent.setup();
-      const playTimeRecords = [{ id: "ptr1", playerId: "gk1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: null }] as any[];
-      const positions = [{ id: "gk-pos", role: "GOALKEEPER" }] as any[];
-      render(<ShotOutcomeEntry {...defaultProps} positions={positions} playTimeRecords={playTimeRecords} />);
-      await user.click(screen.getByText(/Log Shot – Eagles/));
-      await user.click(screen.getByRole("button", { name: "Saved" }));
-      await user.click(screen.getByRole("button", { name: /Not right\? Pick another keeper/ }));
-      expect(screen.getByTestId("shotKeeper")).toBeInTheDocument();
-      await user.selectOptions(screen.getByTestId("shotKeeper"), "p1");
-      await user.click(screen.getByRole("button", { name: "Continue" }));
-      await user.click(screen.getByRole("button", { name: /Log Save/ }));
-      await waitFor(() => expect(mockCreateSave).toHaveBeenCalledWith(expect.objectContaining({ playerId: "p1" })));
+      expect(screen.queryByRole("button", { name: /Log Save/ })).not.toBeInTheDocument();
+      expect(showSuccess).toHaveBeenCalledWith("Save recorded for Gary Keeper.");
     });
   });
 
@@ -239,7 +212,6 @@ describe("ShotOutcomeEntry", () => {
       await user.click(screen.getByText(/Log Shot – Us/));
       await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: "Goal" }));
-      await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: /Log Goal/ }));
       await waitFor(() => expect(showSuccess).toHaveBeenCalledWith(expect.stringContaining("Final score updated to 2–0")));
     });
@@ -250,7 +222,6 @@ describe("ShotOutcomeEntry", () => {
       await user.click(screen.getByText(/Log Shot – Us/));
       await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: "Goal" }));
-      await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: /Log Goal/ }));
       await waitFor(() => expect(trackEvent).toHaveBeenCalledWith("GameDay", "Goal Recorded", "own"));
       unmount();
@@ -258,7 +229,6 @@ describe("ShotOutcomeEntry", () => {
       render(<ShotOutcomeEntry {...defaultProps} />);
       await user.click(screen.getByText(/Log Shot – Eagles/));
       await user.click(screen.getByRole("button", { name: "Goal" }));
-      await user.click(screen.getByRole("button", { name: /Log Goal/ }));
       await waitFor(() => expect(trackEvent).toHaveBeenCalledWith("GameDay", "Goal Recorded", "opponent"));
     });
   });
@@ -271,7 +241,6 @@ describe("ShotOutcomeEntry", () => {
       await user.click(screen.getByText(/Log Shot – Us/));
       await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: "Goal" }));
-      await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: /Log Goal/ }));
       await waitFor(() => expect(mockCreateShot).toHaveBeenCalledTimes(1));
       expect(mockCreateGoal).not.toHaveBeenCalled();
@@ -284,7 +253,6 @@ describe("ShotOutcomeEntry", () => {
       await user.click(screen.getByText(/Log Shot – Us/));
       await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: "Goal" }));
-      await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: /Log Goal/ }));
 
       await waitFor(() => expect(screen.getByRole("button", { name: /Retry saving goal/ })).toBeInTheDocument());
@@ -297,6 +265,24 @@ describe("ShotOutcomeEntry", () => {
       expect(mockCreateShot).toHaveBeenCalledTimes(1);
     });
 
+    it("auto-keeper Saved: a failed Save write offers a working retry that re-sends only the Save with the same keeper", async () => {
+      const user = userEvent.setup();
+      mockCreateSave.mockRejectedValueOnce(new Error("network error"));
+      const playTimeRecords = [{ id: "ptr1", playerId: "gk1", positionId: "gk-pos", startGameSeconds: 0, endGameSeconds: null }] as any[];
+      const positions = [{ id: "gk-pos", role: "GOALKEEPER" }] as any[];
+      render(<ShotOutcomeEntry {...defaultProps} positions={positions} playTimeRecords={playTimeRecords} />);
+      await user.click(screen.getByText(/Log Shot – Eagles/));
+      await user.click(screen.getByRole("button", { name: "Saved" }));
+
+      await waitFor(() => expect(screen.getByRole("button", { name: /Retry saving save/ })).toBeInTheDocument());
+      mockCreateSave.mockResolvedValueOnce(undefined);
+      await user.click(screen.getByRole("button", { name: /Retry saving save/ }));
+      await waitFor(() => expect(mockCreateSave).toHaveBeenCalledTimes(2));
+      expect(mockCreateSave).toHaveBeenLastCalledWith(expect.objectContaining({ byUs: true, playerId: "gk1" }));
+      expect(mockCreateShot).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Save recorded for Gary Keeper."));
+    });
+
     it("backdrop tap is a no-op while a retry is pending", async () => {
       const user = userEvent.setup();
       mockCreateGoal.mockRejectedValueOnce(new Error("network error"));
@@ -304,7 +290,6 @@ describe("ShotOutcomeEntry", () => {
       await user.click(screen.getByText(/Log Shot – Us/));
       await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: "Goal" }));
-      await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: /Log Goal/ }));
 
       await waitFor(() => expect(screen.getByRole("button", { name: /Retry saving goal/ })).toBeInTheDocument());
@@ -322,7 +307,6 @@ describe("ShotOutcomeEntry", () => {
       await user.click(screen.getByText(/Log Shot – Us/));
       await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: "Goal" }));
-      await user.click(screen.getByRole("button", { name: "Continue" }));
       await user.click(screen.getByRole("button", { name: /Log Goal/ }));
 
       await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/delete it from the Shots list/));

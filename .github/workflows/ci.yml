@@ -179,6 +179,27 @@ jobs:
       - name: Build
         run: npm run build
 
+  dependency-audit:
+    name: Dependency Audit
+    needs: [calc-mode]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit shipped dependencies
+        run: npm audit --omit=dev --audit-level=high
+
   smoke-e2e:
     name: Smoke E2E
     needs: [calc-mode, detect-risk, quality]
@@ -576,7 +597,7 @@ jobs:
   ci-policy-gate:
     name: CI Policy Gate
     if: always()
-    needs: [calc-mode, detect-risk, quality, smoke-e2e, full-e2e]
+    needs: [calc-mode, detect-risk, quality, smoke-e2e, full-e2e, dependency-audit]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -588,6 +609,7 @@ jobs:
           quality_result="${{ needs.quality.result }}"
           smoke_result="${{ needs.smoke-e2e.result }}"
           full_result="${{ needs.full-e2e.result }}"
+          dependency_audit_result="${{ needs.dependency-audit.result }}"
 
           is_trusted_pr="${{ needs.calc-mode.outputs.is_trusted_pr }}"
           is_mainline="${{ needs.calc-mode.outputs.is_mainline }}"
@@ -608,6 +630,11 @@ jobs:
 
           if [[ "$quality_result" != "success" ]]; then
             echo 'Quality job is required and did not pass.'
+            exit 1
+          fi
+
+          if [[ "$dependency_audit_result" != "success" ]]; then
+            echo 'Dependency audit job is required and did not pass.'
             exit 1
           fi
 

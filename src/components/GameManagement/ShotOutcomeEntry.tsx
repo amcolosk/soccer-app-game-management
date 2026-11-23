@@ -8,7 +8,6 @@ import { isPlayerInLineup } from "../../utils/lineupUtils";
 import { deriveShotOutcomeWrites, type ShotOutcome } from "../../utils/shotOutcomeMapping";
 import type { GameMutationInput, GoalCreateFields, SaveCreateFields } from "../../hooks/useOfflineMutations";
 import type { Game, Team, PlayerWithRoster, PlayTimeRecord, LineupAssignment, FormationPosition } from "./types";
-import { formatJerseyNumber } from "../../utils/playerUtils";
 
 interface ShotOutcomeEntryProps {
   gameState: Game;
@@ -27,9 +26,7 @@ type FlowStep =
   | 'shooter'
   | 'outcome'
   | 'assist'
-  | 'confirmKeeper'
-  | 'keeperPicker'
-  | 'confirm';
+  | 'keeperPicker';
 
 interface FlowState {
   step: FlowStep;
@@ -38,13 +35,6 @@ interface FlowState {
   outcome: ShotOutcome | null;
   assistId: string;
   keeperId: string;
-  confirmedKeeperName: string | null;
-  // Which step the 'confirm' step's "Back" action returns to -- set at the
-  // moment 'confirm' is entered, since different outcome/side combinations
-  // reach it from different prior steps (assist for "Us"+Goal, outcome for
-  // everything else that skips straight to confirm, keeperPicker for an
-  // overridden "Them"+Saved keeper).
-  confirmBackStep: FlowStep;
 }
 
 const CLOSED_FLOW: FlowState = {
@@ -54,8 +44,6 @@ const CLOSED_FLOW: FlowState = {
   outcome: null,
   assistId: '',
   keeperId: '',
-  confirmedKeeperName: null,
-  confirmBackStep: 'outcome',
 };
 
 interface PendingRetry {
@@ -123,6 +111,7 @@ export function ShotOutcomeEntry({
   }
 
   function pickOutcome(outcome: ShotOutcome) {
+    if (isSubmitting) return;
     if (outcome === 'BLOCKED' || outcome === 'WIDE') {
       // Q1: fast, low-stakes, immediate-submit-on-tap -- already correctable
       // in place via the M1 edit-modal path.
@@ -134,8 +123,9 @@ export function ShotOutcomeEntry({
       if (flow.forUs) {
         setFlow({ ...flow, outcome, step: 'assist' });
       } else {
-        // Opponent goals carry no scorer/assist attribution.
-        setFlow({ ...flow, outcome, step: 'confirm', confirmBackStep: 'outcome' });
+        // Opponent goals carry no scorer/assist attribution -- nothing left
+        // to confirm, so submit immediately like BLOCKED/WIDE.
+        void performSubmit({ ...flow, outcome });
       }
       return;
     }
@@ -143,46 +133,39 @@ export function ShotOutcomeEntry({
     // outcome === 'SAVED'
     if (flow.forUs) {
       // "Us" + Saved: no keeper attribution possible (no opponent roster) --
-      // plain confirm.
-      setFlow({ ...flow, outcome, step: 'confirm', confirmBackStep: 'outcome' });
+      // nothing to confirm, submit immediately like BLOCKED/WIDE.
+      void performSubmit({ ...flow, outcome });
       return;
     }
 
-    // "Them" + Saved: auto-prefill the current on-field goalkeeper when
-    // unambiguous, mirroring StatTrackerView.tsx's existing confirmKeeper
-    // pattern.
+    // "Them" + Saved: submit immediately with the current on-field goalkeeper
+    // when unambiguous (read at tap time). A wrong attribution is fixable from
+    // the Saves list's Edit action, and the success toast names the keeper.
     const autoKeeperId = getCurrentGoalkeeperId(playTimeRecords, positions);
     const autoKeeper = autoKeeperId ? players.find(p => p.id === autoKeeperId) : null;
     if (autoKeeper) {
-      setFlow({
-        ...flow,
-        outcome,
-        keeperId: autoKeeper.id,
-        confirmedKeeperName: `${autoKeeper.firstName} ${autoKeeper.lastName}`,
-        step: 'confirmKeeper',
-      });
+      // Persist the frozen outcome/keeper into flow too: handleRetry reads
+      // flow.outcome if the Save write fails after the Shot succeeds.
+      const next = { ...flow, outcome, keeperId: autoKeeper.id };
+      setFlow(next);
+      void performSubmit(next);
     } else {
       setFlow({ ...flow, outcome, step: 'keeperPicker' });
     }
   }
 
+  // Both of these used to route to a separate 'confirm' screen before
+  // submitting; there's nothing left to review there once the picker on
+  // this step is filled in, so the "Continue" tap submits directly now.
   function continueFromAssist() {
-    setFlow({ ...flow, step: 'confirm', confirmBackStep: 'assist' });
-  }
-
-  function pickDifferentKeeper() {
-    setFlow({ ...flow, keeperId: '', confirmedKeeperName: null, step: 'keeperPicker' });
+    void performSubmit(flow);
   }
 
   function continueFromKeeperPicker() {
-    setFlow({ ...flow, confirmedKeeperName: null, step: 'confirm', confirmBackStep: 'keeperPicker' });
+    void performSubmit(flow);
   }
 
-  function confirmBack() {
-    setFlow({ ...flow, step: flow.confirmBackStep });
-  }
-
-  function handleWriteSuccess(outcome: ShotOutcome, forUs: boolean) {
+  function handleWriteSuccess(outcome: ShotOutcome, forUs: boolean, keeperId?: string) {
     if (outcome === 'GOAL') {
       trackEvent(AnalyticsEvents.GOAL_RECORDED.category, AnalyticsEvents.GOAL_RECORDED.action, forUs ? 'own' : 'opponent');
       // In completed state, GameManagement will auto-reconcile score from
@@ -198,7 +181,8 @@ export function ShotOutcomeEntry({
         showSuccess('Goal recorded.');
       }
     } else if (outcome === 'SAVED') {
-      showSuccess('Save recorded.');
+      const keeper = !forUs && keeperId ? players.find(p => p.id === keeperId) : null;
+      showSuccess(keeper ? `Save recorded for ${keeper.firstName} ${keeper.lastName}.` : 'Save recorded.');
     } else {
       showSuccess('Shot recorded.');
     }
@@ -246,7 +230,7 @@ export function ShotOutcomeEntry({
 
     if (!derived.goal && !derived.save) {
       // BLOCKED/WIDE -- nothing more to write.
-      handleWriteSuccess(f.outcome, f.forUs);
+      handleWriteSuccess(f.outcome, f.forUs, f.keeperId);
       return;
     }
 
@@ -260,7 +244,7 @@ export function ShotOutcomeEntry({
       } else {
         await mutations.createSave(secondWrite.payload as SaveCreateFields);
       }
-      handleWriteSuccess(f.outcome, f.forUs);
+      handleWriteSuccess(f.outcome, f.forUs, f.keeperId);
     } catch (err) {
       // m5: the Shot already succeeded and must not be re-sent -- keep the
       // modal open with a "Retry saving goal/save" action that re-sends only
@@ -280,7 +264,7 @@ export function ShotOutcomeEntry({
       } else {
         await mutations.createSave(pendingRetry.payload as SaveCreateFields);
       }
-      handleWriteSuccess(flow.outcome, flow.forUs);
+      handleWriteSuccess(flow.outcome, flow.forUs, flow.keeperId);
     } catch (err) {
       handleApiError(err, `Failed to record ${pendingRetry.kind}`);
       setIsSubmitting(false);
@@ -288,23 +272,6 @@ export function ShotOutcomeEntry({
   }
 
   const opponentName = gameState.opponent ?? 'Opponent';
-  const outcomeVerb = flow.outcome === 'GOAL' ? 'Goal' : 'Save';
-
-  function confirmSummary(): string {
-    const side = flow.forUs ? 'Us' : opponentName;
-    const parts = [`${outcomeVerb} — ${side}`];
-    if (flow.forUs && flow.outcome === 'GOAL') {
-      const shooter = flow.shooterId ? players.find(p => p.id === flow.shooterId) : null;
-      if (shooter) parts.push(formatJerseyNumber(shooter.playerNumber));
-      const assist = flow.assistId ? players.find(p => p.id === flow.assistId) : null;
-      if (assist) parts.push(`assist ${formatJerseyNumber(assist.playerNumber)}`.trim());
-    }
-    if (!flow.forUs && flow.outcome === 'SAVED') {
-      const keeper = flow.keeperId ? players.find(p => p.id === flow.keeperId) : null;
-      if (keeper) parts.push(`keeper ${formatJerseyNumber(keeper.playerNumber)}`.trim());
-    }
-    return parts.join(', ');
-  }
 
   return (
     <>
@@ -369,16 +336,16 @@ export function ShotOutcomeEntry({
 
                 {flow.step === 'outcome' && (
                   <div className="shot-outcome-picker">
-                    <button type="button" className="shot-outcome-btn shot-outcome-btn--goal" onClick={() => pickOutcome('GOAL')}>
+                    <button type="button" className="shot-outcome-btn shot-outcome-btn--goal" onClick={() => pickOutcome('GOAL')} disabled={isSubmitting}>
                       Goal
                     </button>
-                    <button type="button" className="shot-outcome-btn shot-outcome-btn--saved" onClick={() => pickOutcome('SAVED')}>
+                    <button type="button" className="shot-outcome-btn shot-outcome-btn--saved" onClick={() => pickOutcome('SAVED')} disabled={isSubmitting}>
                       Saved
                     </button>
-                    <button type="button" className="shot-outcome-btn shot-outcome-btn--blocked" onClick={() => pickOutcome('BLOCKED')}>
+                    <button type="button" className="shot-outcome-btn shot-outcome-btn--blocked" onClick={() => pickOutcome('BLOCKED')} disabled={isSubmitting}>
                       Blocked
                     </button>
-                    <button type="button" className="shot-outcome-btn shot-outcome-btn--wide" onClick={() => pickOutcome('WIDE')}>
+                    <button type="button" className="shot-outcome-btn shot-outcome-btn--wide" onClick={() => pickOutcome('WIDE')} disabled={isSubmitting}>
                       Wide
                     </button>
                   </div>
@@ -398,24 +365,10 @@ export function ShotOutcomeEntry({
                       onFieldPlayerIds={onFieldPlayerIds}
                     />
                     <div className="form-actions">
-                      <button type="button" className="btn-primary" onClick={continueFromAssist}>
-                        Continue
+                      <button type="button" className="btn-primary" onClick={continueFromAssist} disabled={isSubmitting}>
+                        {isSubmitting ? 'Logging…' : 'Log Goal'}
                       </button>
                     </div>
-                  </div>
-                )}
-
-                {flow.step === 'confirmKeeper' && (
-                  <div className="form-group">
-                    <p>{flow.confirmedKeeperName} made the save?</p>
-                    <div className="form-actions">
-                      <button type="button" className="btn-primary" onClick={() => void performSubmit(flow)} disabled={isSubmitting}>
-                        {isSubmitting ? 'Logging…' : 'Log Save'}
-                      </button>
-                    </div>
-                    <button type="button" className="btn-secondary" onClick={pickDifferentKeeper} disabled={isSubmitting}>
-                      Not right? Pick another keeper
-                    </button>
                   </div>
                 )}
 
@@ -432,25 +385,8 @@ export function ShotOutcomeEntry({
                       onFieldPlayerIds={onFieldPlayerIds}
                     />
                     <div className="form-actions">
-                      <button type="button" className="btn-primary" onClick={continueFromKeeperPicker}>
-                        Continue
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {flow.step === 'confirm' && (
-                  <div className="form-group">
-                    <p className="modal-subtitle">{confirmSummary()}</p>
-                    <div className="form-actions">
-                      {/* Q1: the final confirm/submit control reads
-                          "Log Goal"/"Log Save" specifically -- this step is
-                          only ever reached for GOAL/SAVED outcomes. */}
-                      <button type="button" className="btn-primary" onClick={() => void performSubmit(flow)} disabled={isSubmitting}>
-                        {isSubmitting ? 'Logging…' : `Log ${outcomeVerb}`}
-                      </button>
-                      <button type="button" className="btn-secondary" onClick={confirmBack} disabled={isSubmitting}>
-                        Back
+                      <button type="button" className="btn-primary" onClick={continueFromKeeperPicker} disabled={isSubmitting}>
+                        {isSubmitting ? 'Logging…' : 'Log Save'}
                       </button>
                     </div>
                   </div>
