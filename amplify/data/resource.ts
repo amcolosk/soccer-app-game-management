@@ -143,9 +143,10 @@ const schema = a.schema({
       team: a.belongsTo('Team', 'teamId'),
       playerId: a.id().required(),
       player: a.belongsTo('Player', 'playerId'),
-      playerNumber: a.integer().required(),
+      playerNumber: a.integer(), // Optional: guest players may not have a jersey number
       preferredPositions: a.string(), // Comma-separated formation position IDs
       isActive: a.boolean().default(true),
+      isGuest: a.boolean().default(false), // Guest on THIS team's roster (a player can be a guest on one team and a regular on another)
       coaches: a.string().array(), // Team coaches who can access this roster entry
     })
     .authorization((allow) => [
@@ -1002,8 +1003,8 @@ const schema = a.schema({
     positionName: a.string(),
     // TeamRoster.playerNumber, echoed through for the field-layout pitch
     // view's jersey-number-forward display and the player-picker sheet.
-    // Nullable at the GraphQL level as a defensive measure even though
-    // TeamRoster.playerNumber is `.required()` in the DB.
+    // Nullable because TeamRoster.playerNumber is optional (guest players
+    // may have no jersey number).
     playerNumber: a.integer(),
     // The full resolved FormationPosition for this player's currently-open
     // PlayTimeRecord, for the pitch layout to place/label this player with

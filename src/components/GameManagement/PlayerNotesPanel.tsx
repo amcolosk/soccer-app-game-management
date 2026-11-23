@@ -12,6 +12,7 @@ import type { Game, Team, PlayerWithRoster, GameNote } from "./types";
 import { useSpeechToText, type StopReason } from "./hooks/useSpeechToText";
 import type { GameActionDescriptor } from "./actions/actionContract";
 import { GameActionRow } from "./actions/GameActionRow";
+import { formatJerseyPrefix } from "../../utils/playerUtils";
 
 const MAX_NOTE_LENGTH = 500;
 
@@ -534,7 +535,7 @@ export function PlayerNotesPanel({
                       </div>
                       {notePlayer && (
                         <div className="note-player">
-                          #{notePlayer.playerNumber} {notePlayer.firstName} {notePlayer.lastName}
+                          {formatJerseyPrefix(notePlayer.playerNumber)}{notePlayer.firstName} {notePlayer.lastName}
                         </div>
                       )}
                       {note.notes && <div className="note-text">{note.notes}</div>}

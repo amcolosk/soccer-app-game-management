@@ -8,6 +8,7 @@ import type { Game, PlayerWithRoster, Shot, Save, PlayTimeRecord, FormationPosit
 import type { StatSubView } from "./StatsSubViewTabs";
 import { GameActionRow } from "./actions/GameActionRow";
 import type { GameActionDescriptor } from "./actions/actionContract";
+import { formatJerseyPrefix } from "../../utils/playerUtils";
 
 type StatItem = Shot | Save;
 
@@ -245,7 +246,7 @@ export function ShotSaveTracker({
                     {isUs ? (
                       player && (
                         <div className="stat-player">
-                          #{player.playerNumber} {player.firstName} {player.lastName}
+                          {formatJerseyPrefix(player.playerNumber)}{player.firstName} {player.lastName}
                         </div>
                       )
                     ) : (

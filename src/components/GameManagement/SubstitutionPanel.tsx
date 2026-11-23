@@ -23,6 +23,7 @@ import type {
   PlayTimeRecord,
   SubQueue,
 } from "./types";
+import { formatJerseyPrefix } from "../../utils/playerUtils";
 
 interface SubstitutionPanelProps {
   gameState: Game;
@@ -421,13 +422,13 @@ export function SubstitutionPanel({
                         <span className="sub-direction-pill sub-direction-pill--out" aria-label="coming off">OFF</span>
                         <span>
                           {currentPlayer
-                            ? `#${currentPlayer.playerNumber} ${currentPlayer.firstName}`
+                            ? `${formatJerseyPrefix(currentPlayer.playerNumber)}${currentPlayer.firstName}`
                             : 'Open Position'}
                         </span>
                       </div>
                       <div className="sub-player-row sub-player-row--in">
                         <span className="sub-direction-pill sub-direction-pill--in" aria-label="coming in">IN</span>
-                        <span>#{player.playerNumber} {player.firstName} {player.lastName}</span>
+                        <span>{formatJerseyPrefix(player.playerNumber)}{player.firstName} {player.lastName}</span>
                       </div>
                     </div>
                   </div>
@@ -475,7 +476,7 @@ export function SubstitutionPanel({
                   </p>
                   {currentPlayer && (
                     <p className="modal-subtitle">
-                      Coming Off: #{currentPlayer.playerNumber} {currentPlayer.firstName}
+                      Coming Off: {formatJerseyPrefix(currentPlayer.playerNumber)}{currentPlayer.firstName}
                     </p>
                   )}
                   {!isEmptyPosition && (
@@ -543,7 +544,7 @@ export function SubstitutionPanel({
                                 return (
                                   <div key={player.id} className="sub-player-item recommended">
                                     <div className="sub-player-info">
-                                      <span>#{player.playerNumber} {player.firstName} {player.lastName}</span>
+                                      <span>{formatJerseyPrefix(player.playerNumber)}{player.firstName} {player.lastName}</span>
                                       <span className="player-play-time">
                                         {formatMinutesSeconds(playTimeSeconds)}
                                       </span>
@@ -596,7 +597,7 @@ export function SubstitutionPanel({
                                 return (
                                   <div key={player.id} className="sub-player-item">
                                     <div className="sub-player-info">
-                                      <span>#{player.playerNumber} {player.firstName} {player.lastName}</span>
+                                      <span>{formatJerseyPrefix(player.playerNumber)}{player.firstName} {player.lastName}</span>
                                       <span className="player-play-time">
                                         {formatMinutesSeconds(playTimeSeconds)}
                                       </span>

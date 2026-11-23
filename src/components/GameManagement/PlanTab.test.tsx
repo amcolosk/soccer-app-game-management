@@ -209,6 +209,18 @@ describe("PlanTab", () => {
     expect(screen.getByText("Rotations / half")).toBeInTheDocument();
   });
 
+  it("offers Add Guest Player beside Starting Formation only when scheduled and editable", () => {
+    const onOpen = vi.fn();
+    const { rerender } = render(<PlanTab {...defaultProps} guestPlayerAction={{ onOpen }} />);
+    expect(screen.getByRole("button", { name: "+ Add Guest Player" })).toBeInTheDocument();
+
+    rerender(<PlanTab {...defaultProps} readOnly guestPlayerAction={{ onOpen }} />);
+    expect(screen.queryByRole("button", { name: "+ Add Guest Player" })).not.toBeInTheDocument();
+
+    rerender(<PlanTab {...defaultProps} game={{ ...mockGame, status: "in-progress" } as any} guestPlayerAction={{ onOpen }} />);
+    expect(screen.queryByRole("button", { name: "+ Add Guest Player" })).not.toBeInTheDocument();
+  });
+
   it("renders projected play time per player from lineup and planned rotations", () => {
     render(<PlanTab {...defaultProps} />);
 

@@ -6,6 +6,7 @@ import type { GameMutationInput, GoalUpdateFields } from "../../hooks/useOffline
 import type { Game, PlayerWithRoster, Goal } from "./types";
 import { GameActionRow } from "./actions/GameActionRow";
 import type { GameActionDescriptor } from "./actions/actionContract";
+import { formatJerseyPrefix } from "../../utils/playerUtils";
 
 interface GoalTrackerProps {
   gameState: Game;
@@ -158,12 +159,12 @@ export function GoalTracker({
                       <>
                         {scorer && (
                           <div className="goal-scorer">
-                            #{scorer.playerNumber} {scorer.firstName} {scorer.lastName}
+                            {formatJerseyPrefix(scorer.playerNumber)}{scorer.firstName} {scorer.lastName}
                           </div>
                         )}
                         {assist && (
                           <div className="goal-assist">
-                            Assist: #{assist.playerNumber} {assist.firstName}
+                            Assist: {formatJerseyPrefix(assist.playerNumber)}{assist.firstName}
                           </div>
                         )}
                       </>

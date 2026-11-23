@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { getStatusColor, getStatusLabel } from './PlayerAvailabilityGrid';
 import { useAvailability } from '../contexts/AvailabilityContext';
+import { formatJerseyPrefix, formatJerseyNumber, NO_JERSEY_SORT_VALUE } from "../utils/playerUtils";
 
 interface Player {
   id: string;
@@ -105,7 +106,7 @@ export function LineupBuilder({
                     draggable={!disabled}
                     onDragStart={() => !disabled && handleDragStart(assignedPlayer)}
                   >
-                    <span className="player-number">#{assignedPlayer.playerNumber || 0}</span>
+                    <span className="player-number">{formatJerseyNumber(assignedPlayer.playerNumber)}</span>
                     <span className="player-name-short">
                       {assignedPlayer.firstName} {assignedPlayer.lastName}
                     </span>
@@ -151,14 +152,14 @@ export function LineupBuilder({
                       if (aPreferred && !bPreferred) return -1;
                       if (!aPreferred && bPreferred) return 1;
                       // Then sort by player number
-                      return (a.playerNumber || 0) - (b.playerNumber || 0);
+                      return (a.playerNumber ?? NO_JERSEY_SORT_VALUE) - (b.playerNumber ?? NO_JERSEY_SORT_VALUE);
                     })
                     .map((player) => {
                       const preferredPos = getPreferredPositionsText(player);
                       const isPreferredForPosition = player.preferredPositions?.split(',').map(s => s.trim()).includes(position.id);
                       return (
                         <option key={player.id} value={player.id}>
-                          {isPreferredForPosition ? '⭐ ' : ''}#{player.playerNumber || 0} {player.firstName} {player.lastName}
+                          {isPreferredForPosition ? '⭐ ' : ''}{formatJerseyPrefix(player.playerNumber)}{player.firstName} {player.lastName}
                           {preferredPos}
                         </option>
                       );
@@ -195,7 +196,7 @@ export function LineupBuilder({
                       {getStatusLabel(status)}
                     </span>
                   )}
-                  <span className="player-number">#{player.playerNumber || 0}</span>
+                  <span className="player-number">{formatJerseyNumber(player.playerNumber)}</span>
                   <span className="player-name">
                     {player.firstName} {player.lastName}
                   </span>

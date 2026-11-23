@@ -15,6 +15,7 @@ import {
   managementFixtures,
   playerFixture,
   teamFixture,
+  teamRosterFixture,
 } from '../test/fixtures/managementFixtures';
 
 describe('Management integration', () => {
@@ -210,6 +211,89 @@ describe('Management integration', () => {
       expect(managementUiMocks.error.handleApiError).toHaveBeenCalledWith(
         expect.any(Error),
         'Failed to add player to roster',
+      );
+    });
+  });
+  it('adds a new guest player to the roster without a jersey number', async () => {
+    const user = userEvent.setup();
+    const team = teamFixture({ id: 'team-1', coaches: ['owner-a', 'coach-b'] });
+
+    managementModelMocks.Player.create.mockResolvedValueOnce({ data: { id: 'guest-player' } });
+    managementModelMocks.TeamRoster.create.mockResolvedValueOnce({ data: { id: 'guest-roster' } });
+
+    renderWithProviders(<Management />, { queryData: managementFixtures({ Team: [team] }) });
+
+    await user.click(screen.getByRole('button', { name: /show roster/i }));
+    await user.click(screen.getByRole('button', { name: /\+ add player to roster/i }));
+    await user.click(screen.getByRole('radio', { name: /new guest player/i }));
+
+    await user.type(screen.getByLabelText(/first name/i), 'Sam');
+    await user.type(screen.getByLabelText(/last name/i), 'Lee');
+    await user.click(screen.getByRole('button', { name: /^add$/i }));
+
+    await waitFor(() => {
+      expect(managementModelMocks.Player.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          firstName: 'Sam',
+          lastName: 'Lee',
+          coaches: expect.arrayContaining(['owner-a', 'coach-b', 'test-user-id']),
+        }),
+      );
+      const rosterArgs = managementModelMocks.TeamRoster.create.mock.calls[0][0];
+      expect(rosterArgs).toEqual(
+        expect.objectContaining({ playerId: 'guest-player', teamId: 'team-1', isGuest: true, coaches: ['owner-a', 'coach-b'] }),
+      );
+      expect(rosterArgs).not.toHaveProperty('playerNumber');
+    });
+  });
+
+  it('marks an existing player as a guest and allows a blank number', async () => {
+    const user = userEvent.setup();
+    const team = teamFixture({ id: 'team-1', coaches: ['test-user-id'] });
+    const player = playerFixture({ id: 'player-1', coaches: ['test-user-id'] });
+
+    managementModelMocks.TeamRoster.create.mockResolvedValueOnce({ data: { id: 'roster-created' } });
+
+    renderWithProviders(<Management />, { queryData: managementFixtures({ Team: [team], Player: [player] }) });
+
+    await user.click(screen.getByRole('button', { name: /show roster/i }));
+    await user.click(screen.getByRole('button', { name: /\+ add player to roster/i }));
+    const addForm = screen.getByRole('heading', { name: /add player to roster/i }).closest('div');
+    if (!addForm) throw new Error('Expected add player form container');
+
+    await user.selectOptions(within(addForm).getByRole('combobox'), 'player-1');
+    await user.click(within(addForm).getByRole('button', { name: /^add$/i }));
+    expect(managementUiMocks.toast.showWarning).toHaveBeenCalledWith('Please select a player and enter a player number');
+
+    await user.click(within(addForm).getByLabelText(/mark as guest/i));
+    await user.click(within(addForm).getByRole('button', { name: /^add$/i }));
+
+    await waitFor(() => {
+      const args = managementModelMocks.TeamRoster.create.mock.calls[0][0];
+      expect(args).toEqual(expect.objectContaining({ playerId: 'player-1', isGuest: true }));
+      expect(args).not.toHaveProperty('playerNumber');
+    });
+  });
+
+  it('lets a guest roster entry be saved with the number cleared', async () => {
+    const user = userEvent.setup();
+    const team = teamFixture({ id: 'team-1', coaches: ['test-user-id'] });
+    const player = playerFixture({ id: 'player-1', firstName: 'Gus', lastName: 'Guest', coaches: ['test-user-id'] });
+    const roster = teamRosterFixture({ id: 'roster-g', teamId: 'team-1', playerId: 'player-1', playerNumber: 7, isGuest: true });
+
+    renderWithProviders(<Management />, {
+      queryData: managementFixtures({ Team: [team], Player: [player], TeamRoster: [roster] }),
+    });
+
+    await user.click(screen.getByRole('button', { name: /show roster/i }));
+    expect(screen.getByText('Guest')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /edit roster entry/i }));
+    await user.clear(screen.getByPlaceholderText('Player Number'));
+    await user.click(screen.getByRole('button', { name: /^update$/i }));
+
+    await waitFor(() => {
+      expect(managementModelMocks.TeamRoster.update).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'roster-g', playerNumber: null }),
       );
     });
   });

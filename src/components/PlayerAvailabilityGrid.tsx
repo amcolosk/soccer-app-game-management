@@ -2,6 +2,7 @@ import { updatePlayerAvailability } from "../services/rotationPlannerService";
 import { useAvailability } from "../contexts/AvailabilityContext";
 import { handleApiError } from "../utils/errorHandler";
 import { trackEvent, AnalyticsEvents } from "../utils/analytics";
+import { formatJerseyNumber } from "../utils/playerUtils";
 
 interface Player {
   id: string;
@@ -129,7 +130,7 @@ export function PlayerAvailabilityGrid({
                 {getStatusLabel(status)}
               </div>
               <div className="player-info">
-                <span className="player-number">#{player.playerNumber}</span>
+                <span className="player-number">{formatJerseyNumber(player.playerNumber)}</span>
                 <span className="player-name">
                   {player.firstName} {player.lastName}
                 </span>

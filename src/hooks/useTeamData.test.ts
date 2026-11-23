@@ -46,7 +46,7 @@ vi.mock('../utils/formationLayoutOverride', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createRosterObservable(rosters: Array<{ playerId: string; playerNumber: number }>) {
+function createRosterObservable(rosters: Array<{ playerId: string; playerNumber: number | null; isGuest?: boolean | null }>) {
   return {
     subscribe: ({ next }: { next: (data: { items: typeof rosters }) => void }) => {
       // Call next immediately to trigger player subscription
@@ -225,6 +225,30 @@ describe('useTeamData', () => {
     expect(result.current.players[0].playerNumber).toBe(3);
     expect(result.current.players[1].playerNumber).toBe(7);
     expect(result.current.players[2].playerNumber).toBe(10);
+  });
+
+  it('normalizes a null jersey number to undefined and sorts it last', async () => {
+    const rosters = [
+      { playerId: 'player-1', playerNumber: null },
+      { playerId: 'player-2', playerNumber: 4 },
+    ];
+    const players = [
+      { id: 'player-1', firstName: 'Gus', lastName: 'Guest' },
+      { id: 'player-2', firstName: 'Alex', lastName: 'B' },
+    ];
+
+    mockTeamRosterObserveQuery.mockReturnValue(createRosterObservable(rosters));
+    mockPlayerObserveQuery.mockReturnValue(createPlayerObservable(players));
+
+    const { result } = renderHook(() => useTeamData('team-1', null));
+
+    await waitFor(() => {
+      expect(result.current.players).toHaveLength(2);
+    });
+
+    expect(result.current.players[0].id).toBe('player-2');
+    expect(result.current.players[1].id).toBe('player-1');
+    expect(result.current.players[1].playerNumber).toBeUndefined();
   });
 
   it('updates players reactively when roster subscription fires new data', async () => {

@@ -29,6 +29,7 @@ export type SubmitStatEventResult = NonNullable<Schema["submitStatEvent"]["retur
 export interface PlayerWithRoster extends Player {
   playerNumber?: number;
   preferredPositions?: string;
+  isGuest?: boolean;
 }
 
 export interface PlannedSubstitution {

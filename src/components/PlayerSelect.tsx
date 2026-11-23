@@ -1,4 +1,5 @@
 import type { PlayerWithRoster } from '../types/schema';
+import { formatJerseyPrefix, NO_JERSEY_SORT_VALUE } from "../utils/playerUtils";
 
 interface PlayerSelectProps {
   players: PlayerWithRoster[];
@@ -15,7 +16,7 @@ interface PlayerSelectProps {
 function renderPlayerOption(player: PlayerWithRoster) {
   return (
     <option key={player.id} value={player.id}>
-      #{player.playerNumber} - {player.firstName} {player.lastName}
+      {formatJerseyPrefix(player.playerNumber)}{player.playerNumber != null ? '- ' : ''}{player.firstName} {player.lastName}
     </option>
   );
 }
@@ -36,7 +37,7 @@ export function PlayerSelect({
     : players;
 
   const sortByNumber = (a: PlayerWithRoster, b: PlayerWithRoster) =>
-    (a.playerNumber ?? 0) - (b.playerNumber ?? 0);
+    (a.playerNumber ?? NO_JERSEY_SORT_VALUE) - (b.playerNumber ?? NO_JERSEY_SORT_VALUE);
 
   if (onFieldPlayerIds !== undefined) {
     const onFieldSet = new Set(onFieldPlayerIds);

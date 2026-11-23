@@ -3,6 +3,7 @@ import { getCurrentUser } from "aws-amplify/auth";
 import type { Game, GameNote, PlayerWithRoster } from "./types";
 import type { TeamCoachProfileDTO } from "../../services/coachDisplayNameService";
 import { resolveAttributionLabel, formatAttributionLine, getAttributionLabelClassName } from "../../services/coachDisplayNameService";
+import { formatJerseyPrefix } from "../../utils/playerUtils";
 
 interface PreGameNotesPanelProps {
   gameStatus: Game['status'];
@@ -19,7 +20,7 @@ function getPlayerLabel(playerId: string | null | undefined, players: PlayerWith
   if (!playerId) return 'General Note';
   const player = players.find((p) => p.id === playerId);
   if (!player) return 'General Note';
-  return `#${player.playerNumber} ${player.firstName} ${player.lastName}`;
+  return `${formatJerseyPrefix(player.playerNumber)}${player.firstName} ${player.lastName}`;
 }
 
 export function PreGameNotesPanel({

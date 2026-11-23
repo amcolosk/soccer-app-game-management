@@ -15,7 +15,7 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 ### Team & Roster Management
 - **Formation Templates**: Define reusable formations with position abbreviations and names (e.g., 4-3-3, 3-3-1)
 - **Global Player Pool**: Manage all players across teams with a central player database
-- **Team Rosters**: Assign players to teams with jersey numbers and preferred positions
+- **Team Rosters**: Assign players to teams with jersey numbers and preferred positions; add permanent roster **guest players** (optional jersey number, flagged "Guest", included in season reports) from Manage or the pregame lineup screen
 - **Birth Year Filtering**: Filter the player pool by one or more birth years when adding players to a roster
 - **Roster Editing**: Edit player details, numbers, and position preferences directly from team rosters
 - **Multi-Coach Sharing**: Invite other coaches to co-manage a team via email invitations; removing a coach cascades server-side, revoking their access to that team's roster, lineup positions, and games, and closing the invitation-reversibility hole for a target with at least one accepted invitation on the team (see `docs/SHARING-PERMISSIONS.md`)
@@ -150,7 +150,7 @@ npm run lint         # Lint TypeScript/TSX files
 - **Formation / FormationPosition**: Reusable position templates
 - **Team**: Configuration, formation reference, and coach list
 - **Player**: Global player pool (name, birth year, active status)
-- **TeamRoster**: Links players to teams with jersey numbers and preferred positions
+- **TeamRoster**: Links players to teams with an optional jersey number (required except for guests), preferred positions, and an `isGuest` flag
 - **PlayerAvailability**: Per-game availability status for each player
 - **Game**: Scheduled matches with opponent, location, timer state, and score — optionally carrying calendar-feed provenance (external UID, venue, arrive-by time, cancelled/adopted flags)
 - **CalendarFeed**: A team's linked calendar feed URL (Lambda-only; never exposed to any client)

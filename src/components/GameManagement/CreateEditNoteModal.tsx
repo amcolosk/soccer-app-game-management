@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { showError } from "../../utils/toast";
 import { isLikelyIOS } from "../../utils/deviceDetect";
 import type { PlayerWithRoster } from "./types";
+import { formatJerseyPrefix } from "../../utils/playerUtils";
 
 type InitialNote = {
   notes?: string | null;
@@ -151,7 +152,7 @@ export function CreateEditNoteModal({
             <option value="">General Note</option>
             {players.map((player) => (
               <option key={player.id} value={player.id}>
-                #{player.playerNumber} {player.firstName} {player.lastName}
+                {formatJerseyPrefix(player.playerNumber)}{player.firstName} {player.lastName}
               </option>
             ))}
           </select>
