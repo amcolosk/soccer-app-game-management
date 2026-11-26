@@ -62,6 +62,7 @@ vi.mock('../../utils/analytics', () => ({
 }));
 
 import { QuickStartChecklist } from './QuickStartChecklist';
+import { UIVersionProvider } from '../../contexts/UIVersionContext';
 import type React_ from 'react';
 
 // ---------------------------------------------------------------------------
@@ -95,6 +96,26 @@ const defaultProps: React_.ComponentProps<typeof QuickStartChecklist> = {
 function renderChecklist(overrides: Partial<typeof defaultProps> = {}) {
   const props = { ...defaultProps, ...overrides, onDismiss: vi.fn(), onExpand: vi.fn(), onNavigate: vi.fn() };
   return { ...props, ...render(<QuickStartChecklist {...props} />) };
+}
+
+/**
+ * Renders the checklist with Interface Mode = 'new' (merged 6-row display,
+ * default-to-next-incomplete-step, "See all steps" expand). Every other test
+ * in this file renders unwrapped and therefore exercises the classic-fallback
+ * (no-`UIVersionProvider`) 7-step behavior per `useUIVersion()`'s documented
+ * fallback — this helper is the only one that opts into 'new'.
+ */
+function renderChecklistNew(overrides: Partial<typeof defaultProps> = {}) {
+  localStorage.setItem('teamtrack-ui-version', 'new');
+  const props = { ...defaultProps, ...overrides, onDismiss: vi.fn(), onExpand: vi.fn(), onNavigate: vi.fn() };
+  return {
+    ...props,
+    ...render(
+      <UIVersionProvider>
+        <QuickStartChecklist {...props} />
+      </UIVersionProvider>
+    ),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -448,5 +469,97 @@ describe('QuickStartChecklist — analytics', () => {
   it('does NOT fire QUICK_START_OPENED on initial render with collapsed=false', () => {
     renderChecklist({ collapsed: false });
     expect(mockTrackEvent).not.toHaveBeenCalledWith('Onboarding', 'Quick Start Opened');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Interface Mode 'new': 6-row merge, default-to-next-incomplete, "See all
+// steps" expand control. Every other describe block above only exercises the
+// classic-fallback 7-step rendering (no UIVersionProvider wrapper).
+// ---------------------------------------------------------------------------
+describe("QuickStartChecklist — Interface Mode 'new'", () => {
+  afterEach(() => localStorage.removeItem('teamtrack-ui-version'));
+
+  it('merges "Create your team" and "Set your formation" into a single 6-row display item, labeled "Create your team & set formation"', async () => {
+    renderChecklistNew();
+
+    // Expand to see the full merged list rather than just the default
+    // next-incomplete-step view (covered separately below).
+    await userEvent.click(screen.getByRole('button', { name: /see all steps/i }));
+
+    expect(screen.getByText('Create your team & set formation')).toBeInTheDocument();
+    expect(screen.queryByText('Create your team')).not.toBeInTheDocument();
+    expect(screen.queryByText('Set your formation')).not.toBeInTheDocument();
+
+    // Exactly 6 step rows (not 7) — merged item plus the other 5 unmerged steps.
+    expect(screen.getAllByRole('button', { name: /./ }).filter(
+      (el) => el.className.includes('quick-start-step') && !el.className.includes('see-all')
+    )).toHaveLength(6);
+  });
+
+  it('merged step is incomplete unless BOTH underlying signals (team AND formation) are complete', () => {
+    // Team exists (step 1 signal true) but no formation (step 4 signal false) — merged step must
+    // still read as incomplete, and so renders as the default next-incomplete-step view.
+    renderChecklistNew({ teams: [team1] });
+
+    const step = screen.getByText('Create your team & set formation').closest('button');
+    expect(step).toHaveAttribute('data-state', 'active');
+  });
+
+  it('merged step is complete once both the team and its formation signals are complete', async () => {
+    renderChecklistNew({ teams: [team1WithFormation] });
+    await userEvent.click(screen.getByRole('button', { name: /see all steps/i }));
+
+    const step = screen.getByText('Create your team & set formation').closest('button');
+    expect(step).toHaveAttribute('data-state', 'completed');
+  });
+
+  it('defaults to showing only the next incomplete step, not the full list', () => {
+    // Nothing complete — next incomplete step is the merged team/formation step.
+    renderChecklistNew();
+
+    expect(screen.getByText('Create your team & set formation')).toBeInTheDocument();
+    // The rest of the (unmerged) steps are not shown by default.
+    expect(screen.queryByText('Complete your profile')).not.toBeInTheDocument();
+    expect(screen.queryByText('Schedule a game')).not.toBeInTheDocument();
+  });
+
+  it('defaults to the first UNcompleted step once earlier ones are done, not always the merged step', () => {
+    // Merged team/formation step complete; profile still incomplete -> that's the default shown step.
+    renderChecklistNew({ teams: [team1WithFormation] });
+
+    expect(screen.getByText('Complete your profile')).toBeInTheDocument();
+    expect(screen.queryByText('Create your team & set formation')).not.toBeInTheDocument();
+  });
+
+  it('renders a "See all steps" expand control when collapsed to the single next-incomplete-step view', () => {
+    renderChecklistNew();
+    expect(screen.getByRole('button', { name: /see all steps/i })).toBeInTheDocument();
+  });
+
+  it('"See all steps" expands to show the full 6-row merged list', async () => {
+    renderChecklistNew();
+
+    await userEvent.click(screen.getByRole('button', { name: /see all steps/i }));
+
+    expect(screen.getByText('Create your team & set formation')).toBeInTheDocument();
+    expect(screen.getByText('Complete your profile')).toBeInTheDocument();
+    expect(screen.getByText('Add players to your roster')).toBeInTheDocument();
+    expect(screen.getByText('Schedule a game')).toBeInTheDocument();
+    expect(screen.getByText('Plan your rotations')).toBeInTheDocument();
+    expect(screen.getByText('Manage a live game')).toBeInTheDocument();
+  });
+
+  it('does NOT render "See all steps" once every step is complete (nothing left to default-collapse to)', () => {
+    renderChecklistNew(allCompleteProps);
+    expect(screen.queryByRole('button', { name: /see all steps/i })).not.toBeInTheDocument();
+  });
+
+  it('classic mode (no UIVersionProvider) never shows "See all steps" and always renders the full 7-step list', () => {
+    renderChecklist();
+    expect(screen.queryByRole('button', { name: /see all steps/i })).not.toBeInTheDocument();
+    expect(screen.getByText('Create your team')).toBeInTheDocument();
+    expect(screen.getByText('Set your formation')).toBeInTheDocument();
+    expect(screen.queryByText('Create your team & set formation')).not.toBeInTheDocument();
   });
 });

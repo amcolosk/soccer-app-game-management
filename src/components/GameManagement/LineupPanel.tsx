@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, type Dispatch, type SetStateAction } from "react";
 import { showWarning } from "../../utils/toast";
 import { handleApiError } from "../../utils/errorHandler";
 import { useConfirm } from "../ConfirmModal";
@@ -43,6 +43,14 @@ interface LineupPanelProps {
   viewMode?: "list" | "shape";
   onViewModeChange?: (mode: "list" | "shape") => void;
   onResetViewPreference?: () => void;
+  // Lifted out of this component into GameManagement.tsx so handleStartSecondHalf
+  // and HalftimeLineupSummary can see which removals are in flight (or queued
+  // offline) and agree with what's optimistically hidden here. Controlled —
+  // GameManagement owns the state and passes its useState setter straight
+  // through, so the optimistic add/rollback/bulk-clear logic below is unchanged
+  // other than reading/writing through this prop instead of a local useState.
+  pendingRemovalIds: Set<string>;
+  onPendingRemovalChange: Dispatch<SetStateAction<Set<string>>>;
 }
 
 type ShapeActionResult = "success" | "conflict" | "error";
@@ -64,6 +72,8 @@ export function LineupPanel({
   viewMode = "list",
   onViewModeChange,
   onResetViewPreference,
+  pendingRemovalIds,
+  onPendingRemovalChange,
 }: LineupPanelProps) {
   const confirm = useConfirm();
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
@@ -73,7 +83,11 @@ export function LineupPanel({
   // the observeQuery subscription yet. Slots referencing these ids are treated as
   // already-empty so the UI updates the instant a coach clicks remove, instead of
   // waiting on network latency and inviting repeat clicks (#172).
-  const [pendingRemovalIds, setPendingRemovalIds] = useState<Set<string>>(new Set());
+  // Controlled by GameManagement.tsx (lifted so handleStartSecondHalf/
+  // HalftimeLineupSummary can see it too) — `setPendingRemovalIds` below is just
+  // the passed-through setter, kept under this name so the rest of this
+  // component's optimistic add/rollback/bulk-clear logic is unchanged.
+  const setPendingRemovalIds = onPendingRemovalChange;
   const isPendingRemoval = (id?: string | null) => !!id && pendingRemovalIds.has(id);
   const visibleLineup = lineup.filter(l => !isPendingRemoval(l.id));
 

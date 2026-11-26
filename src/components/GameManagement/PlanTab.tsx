@@ -3,6 +3,7 @@ import { PlayerAvailabilityGrid } from "../PlayerAvailabilityGrid";
 import { PlannerLineupView } from "./PlannerLineupView";
 import { useGamePlanner } from "./hooks/useGamePlanner";
 import { useConfirm } from "../ConfirmModal";
+import { useUIVersion } from "../../contexts/UIVersionContext";
 import { generateCanonicalKey } from "../../utils/plannerKeyUtils";
 import { calculatePlayTime } from "../../services/rotationPlannerService";
 import type { PlannedSubstitution } from "../../services/rotationPlannerService";
@@ -125,8 +126,13 @@ interface PlanTabProps {
   halftimeLineup?: Map<string, string>;
   /** External handler for halftime lineup changes. Falls back to planner.updateHalftimeLineup. */
   onHalftimeLineupChange?: (lineup: Map<string, string>) => Promise<void>;
-  /** Calls calculateFairRotations and persists PlannedRotations. Status-gated in parent. Scheduled only. */
-  onGenerateRotations?: (options?: GenerateRotationsOptions) => void | Promise<void>;
+  /**
+   * Calls calculateFairRotations and persists PlannedRotations. Status-gated in parent.
+   * Scheduled only. Resolves `true` only after a confirmed, successful write; resolves `false`
+   * for every early-return case (no gamePlan, user cancels the confirm dialog, no available
+   * players) so PlanTab can arm its post-generate summary only on a real write.
+   */
+  onGenerateRotations?: (options?: GenerateRotationsOptions) => Promise<boolean>;
   /** Reconciles rotation schedule rows without computing substitutions. Scheduled only. */
   onEnsureRotationSchedule?: (input: { halfLengthMinutes: number; rotationIntervalMinutes: number }) => Promise<void>;
   /** Canonical parent-owned PlannedRotation mutation entrypoint with precondition check. */
@@ -138,6 +144,19 @@ interface PlanTabProps {
   onCloseCopyModal?: () => void;
   onCopyFromGame?: (sourceGameId: string) => Promise<void>;
   isCopyingPlan?: boolean;
+}
+
+/**
+ * Cheap content fingerprint for a PlannedRotation[] set (rotation number, game minute, and
+ * substitutions), used only to detect when the post-generate summary's underlying data has
+ * actually changed from what was captured at the moment the coach clicked "Generate Rotations" —
+ * not a security/consistency fingerprint (see useGamePlanner's remoteFingerprint for that).
+ */
+function computeRotationsContentFingerprint(rotations: PlannedRotation[]): string {
+  return rotations
+    .map((r) => `${r.rotationNumber ?? 0}:${r.gameMinute ?? 0}:${r.plannedSubstitutions ?? ""}`)
+    .sort()
+    .join("|");
 }
 
 export function PlanTab({
@@ -179,6 +198,7 @@ export function PlanTab({
 
   const planner = useGamePlanner(game, team, gamePlan, plannedRotations, startingLineupAssignments);
   const confirm = useConfirm();
+  const { version } = useUIVersion();
 
   // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ State Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   const [isSavingPlan, setIsSavingPlan] = useState(false);
@@ -186,6 +206,20 @@ export function PlanTab({
   const [rotationErrorMessage, setRotationErrorMessage] = useState<string | null>(null);
   const [cascadeAffectedLabels, setCascadeAffectedLabels] = useState<string[] | null>(null);
   const [localRotationOverrides, setLocalRotationOverrides] = useState<Map<string, PlannedRotation>>(new Map());
+  // `new`-version-only: "Rotation timing (advanced)" collapsible, default closed.
+  const [advancedTimingOpen, setAdvancedTimingOpen] = useState(false);
+  // `new`-version-only: post-generate summary. Armed only on a confirmed, successful
+  // onGenerateRotations resolution; the summary itself only renders once `plannedRotations`'
+  // content fingerprint has moved on from what was captured at click time (see
+  // computeRotationsContentFingerprint above) — never from the handler's boolean return value.
+  const [justGeneratedRotations, setJustGeneratedRotations] = useState(false);
+  const [fingerprintAtGenerateClick, setFingerprintAtGenerateClick] = useState<string | null>(null);
+  // Fresh snapshot taken the moment the post-generate summary is first shown (i.e. once the
+  // generated data has actually landed in `plannedRotations`) — NOT the pre-click snapshot above.
+  // The summary stays visible only while the current fingerprint still equals this baseline, so it
+  // disappears the instant anything changes afterward (a manual edit, another coach's change)
+  // instead of being pinned open forever by a stale pre-click comparison.
+  const [summaryBaselineFingerprint, setSummaryBaselineFingerprint] = useState<string | null>(null);
 
   const derivedHalfLength = (gameState.halfLengthMinutes ?? team.halfLengthMinutes) || 30;
   const [halfLengthInput, setHalfLengthInput] = useState<number>(derivedHalfLength);
@@ -836,6 +870,87 @@ export function PlanTab({
     await saveHalfLength(team.halfLengthMinutes ?? 30);
   }, [saveHalfLength, team.halfLengthMinutes]);
 
+  /**
+   * Triggers rotation generation and, only once it resolves `true` (a confirmed, successful
+   * write), captures the pre-click fingerprint of `plannedRotations` so the post-generate
+   * summary can detect when the server/subscription has actually caught up (`new` version only).
+   */
+  const handleGenerateClick = useCallback(() => {
+    if (!onGenerateRotations) return;
+    const fingerprintBeforeClick = computeRotationsContentFingerprint(plannedRotations);
+    void onGenerateRotations({
+      plannerSnapshot: {
+        startingLineup: new Map(planner.draft.startingLineup),
+        halftimeLineup: new Map(effectiveHalftimeLineup),
+        halfLengthMinutes: halfLengthInput,
+        rotationIntervalMinutes: planner.draft.rotationIntervalMinutes,
+      },
+    }).then((succeeded) => {
+      if (succeeded) {
+        setFingerprintAtGenerateClick(fingerprintBeforeClick);
+        setJustGeneratedRotations(true);
+      }
+    });
+  }, [onGenerateRotations, plannedRotations, planner.draft.startingLineup, effectiveHalftimeLineup, halfLengthInput, planner.draft.rotationIntervalMinutes]);
+
+  const currentRotationsFingerprint = useMemo(
+    () => computeRotationsContentFingerprint(plannedRotations),
+    [plannedRotations]
+  );
+
+  // Once the just-clicked generate's data has landed (current fingerprint has moved on from the
+  // pre-click snapshot), capture that as the new baseline the summary will be compared against
+  // going forward — detecting "arrival" is a one-time transition, not an ongoing comparison.
+  useEffect(() => {
+    if (
+      justGeneratedRotations &&
+      fingerprintAtGenerateClick !== null &&
+      currentRotationsFingerprint !== fingerprintAtGenerateClick
+    ) {
+      setSummaryBaselineFingerprint(currentRotationsFingerprint);
+      setJustGeneratedRotations(false);
+      setFingerprintAtGenerateClick(null);
+    }
+  }, [justGeneratedRotations, fingerprintAtGenerateClick, currentRotationsFingerprint]);
+
+  // Once anything changes the content away from the baseline captured above (a manual edit,
+  // another coach's change), forget the baseline so the summary doesn't reappear by coincidence.
+  useEffect(() => {
+    if (summaryBaselineFingerprint !== null && currentRotationsFingerprint !== summaryBaselineFingerprint) {
+      setSummaryBaselineFingerprint(null);
+    }
+  }, [summaryBaselineFingerprint, currentRotationsFingerprint]);
+
+  const showGeneratedSummary =
+    version === "new" &&
+    summaryBaselineFingerprint !== null &&
+    currentRotationsFingerprint === summaryBaselineFingerprint;
+
+  const generatedSummaryRows = useMemo(() => {
+    if (!showGeneratedSummary) return [];
+    return [...plannedRotations]
+      .sort((a, b) => (a.rotationNumber ?? 0) - (b.rotationNumber ?? 0))
+      .map((rotation) => {
+        let subCount = 0;
+        try {
+          const parsed = JSON.parse((rotation.plannedSubstitutions as string) ?? "[]");
+          if (Array.isArray(parsed)) subCount = parsed.length;
+        } catch {
+          // Leave subCount at 0 for malformed rows.
+        }
+        const timelineItem = timelineItems.find(
+          (item) => item.rotation?.rotationNumber === rotation.rotationNumber
+        );
+        return {
+          rotationNumber: rotation.rotationNumber ?? 0,
+          gameMinute: rotation.gameMinute ?? 0,
+          subCount,
+          timelineKey: timelineItem?.key ?? null,
+          label: timelineItem?.label ?? `R${rotation.rotationNumber ?? 0}`,
+        };
+      });
+  }, [showGeneratedSummary, plannedRotations, timelineItems]);
+
   /** Exports the current rotation plan as a CSV file and triggers a browser download. */
   const handleExportPlan = useCallback(() => {
     if (!gamePlan) return;
@@ -983,179 +1098,322 @@ export function PlanTab({
       {isScheduled && !readOnly && (
         <div className="rotation-settings-card">
           <h3>Rotation Settings</h3>
-          <div className="rotation-stepper-row">
-            <div className="rotation-stepper">
-              <label htmlFor="half-length-input" className="planner-setup-label">
-                Half length (minutes)
-              </label>
-              <div className="rotation-stepper-controls">
-                <button
-                  type="button"
-                  className="rotation-stepper-btn"
-                  aria-label="Decrease half length"
-                  onClick={() => void saveHalfLength(halfLengthInput - 1)}
-                  disabled={halfLengthInput <= 1}
-                >
-                  &minus;
-                </button>
-                <input
-                  id="half-length-input"
-                  type="number"
-                  min="1"
-                  max="99"
-                  inputMode="numeric"
-                  value={halfLengthInput}
-                  className="rotation-stepper-input"
-                  onChange={(e) => {
-                    const val = parseInt(e.currentTarget.value, 10);
-                    if (!isNaN(val)) setHalfLengthInput(val);
-                  }}
-                  onBlur={(e) => {
-                    const val = parseInt(e.currentTarget.value, 10);
-                    if (!isNaN(val)) void saveHalfLength(val);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      halfLengthEditingRef.current = false;
-                      void saveHalfLength(halfLengthInput);
-                      e.currentTarget.blur();
-                    }
-                  }}
-                  onFocus={() => { halfLengthEditingRef.current = true; }}
-                />
-                <button
-                  type="button"
-                  className="rotation-stepper-btn"
-                  aria-label="Increase half length"
-                  onClick={() => void saveHalfLength(halfLengthInput + 1)}
-                  disabled={halfLengthInput >= 99}
-                >
-                  +
-                </button>
-              </div>
-            </div>
-            {halfLengthInput !== (team.halfLengthMinutes ?? 30) && (
+
+          {version === "new" ? (
+            <div className="rotation-advanced-disclosure">
               <button
                 type="button"
-                className="half-length-reset-btn"
-                onClick={handleResetHalfLengthToDefault}
+                className="btn-secondary rotation-advanced-toggle"
+                aria-expanded={advancedTimingOpen}
+                onClick={() => setAdvancedTimingOpen((prev) => !prev)}
               >
-                Reset to team default ({team.halfLengthMinutes ?? 30} min)
+                Rotation timing (advanced) {advancedTimingOpen ? "▲" : "▼"}
               </button>
-            )}
-          </div>
+              {advancedTimingOpen && (
+                <div className="rotation-advanced-content">
+                  <div className="rotation-stepper-row">
+                    <div className="rotation-stepper">
+                      <label htmlFor="half-length-input" className="planner-setup-label">
+                        Half length (minutes)
+                      </label>
+                      <div className="rotation-stepper-controls">
+                        <button
+                          type="button"
+                          className="rotation-stepper-btn"
+                          aria-label="Decrease half length"
+                          onClick={() => void saveHalfLength(halfLengthInput - 1)}
+                          disabled={halfLengthInput <= 1}
+                        >
+                          &minus;
+                        </button>
+                        <input
+                          id="half-length-input"
+                          type="number"
+                          min="1"
+                          max="99"
+                          inputMode="numeric"
+                          value={halfLengthInput}
+                          className="rotation-stepper-input"
+                          onChange={(e) => {
+                            const val = parseInt(e.currentTarget.value, 10);
+                            if (!isNaN(val)) setHalfLengthInput(val);
+                          }}
+                          onBlur={(e) => {
+                            const val = parseInt(e.currentTarget.value, 10);
+                            if (!isNaN(val)) void saveHalfLength(val);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              halfLengthEditingRef.current = false;
+                              void saveHalfLength(halfLengthInput);
+                              e.currentTarget.blur();
+                            }
+                          }}
+                          onFocus={() => { halfLengthEditingRef.current = true; }}
+                        />
+                        <button
+                          type="button"
+                          className="rotation-stepper-btn"
+                          aria-label="Increase half length"
+                          onClick={() => void saveHalfLength(halfLengthInput + 1)}
+                          disabled={halfLengthInput >= 99}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                    {halfLengthInput !== (team.halfLengthMinutes ?? 30) && (
+                      <button
+                        type="button"
+                        className="half-length-reset-btn"
+                        onClick={handleResetHalfLengthToDefault}
+                      >
+                        Reset to team default ({team.halfLengthMinutes ?? 30} min)
+                      </button>
+                    )}
+                  </div>
 
-          <div className="rotation-stepper-row">
-            <div className="rotation-stepper">
-              <label className="planner-setup-label">Rotations / half</label>
-              <div className="rotation-stepper-controls" aria-live="polite">
-                <span className="rotation-derived-value">
-                  {rotationsPerHalf}
-                </span>
-              </div>
-            </div>
+                  <div className="rotation-stepper-row">
+                    <div className="rotation-stepper">
+                      <label className="planner-setup-label">Rotations / half</label>
+                      <div className="rotation-stepper-controls" aria-live="polite">
+                        <span className="rotation-derived-value">
+                          {rotationsPerHalf}
+                        </span>
+                      </div>
+                    </div>
 
-            <div className="rotation-stepper">
-              <label htmlFor="rotation-interval-input" className="planner-setup-label">
-                Every (min)
-              </label>
-              <div className="rotation-stepper-controls">
-                <button
-                  type="button"
-                  className="rotation-stepper-btn"
-                  aria-label="Decrease rotation interval"
-                  onClick={() => void handleRotationIntervalChange(planner.draft.rotationIntervalMinutes - 1)}
-                  disabled={planner.draft.rotationIntervalMinutes <= 1}
-                >
-                  &minus;
-                </button>
-                <input
-                  id="rotation-interval-input"
-                  type="number"
-                  min="1"
-                  max="99"
-                  inputMode="numeric"
-                  value={planner.draft.rotationIntervalMinutes}
-                  className="rotation-stepper-input"
-                  onChange={(e) => {
-                    const val = parseInt(e.currentTarget.value, 10);
-                    if (!isNaN(val)) {
-                      void handleRotationIntervalChange(val);
-                    }
-                  }}
-                  onBlur={(e) => {
-                    const val = parseInt(e.currentTarget.value, 10);
-                    if (!isNaN(val)) void handleRotationIntervalChange(val);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      const val = parseInt(e.currentTarget.value, 10);
-                      if (!isNaN(val)) void handleRotationIntervalChange(val);
-                      e.currentTarget.blur();
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  className="rotation-stepper-btn"
-                  aria-label="Increase rotation interval"
-                  onClick={() => void handleRotationIntervalChange(planner.draft.rotationIntervalMinutes + 1)}
-                  disabled={planner.draft.rotationIntervalMinutes >= 99}
-                >
-                  +
-                </button>
-              </div>
+                    <div className="rotation-stepper">
+                      <label htmlFor="rotation-interval-input" className="planner-setup-label">
+                        Every (min)
+                      </label>
+                      <div className="rotation-stepper-controls">
+                        <button
+                          type="button"
+                          className="rotation-stepper-btn"
+                          aria-label="Decrease rotation interval"
+                          onClick={() => void handleRotationIntervalChange(planner.draft.rotationIntervalMinutes - 1)}
+                          disabled={planner.draft.rotationIntervalMinutes <= 1}
+                        >
+                          &minus;
+                        </button>
+                        <input
+                          id="rotation-interval-input"
+                          type="number"
+                          min="1"
+                          max="99"
+                          inputMode="numeric"
+                          value={planner.draft.rotationIntervalMinutes}
+                          className="rotation-stepper-input"
+                          onChange={(e) => {
+                            const val = parseInt(e.currentTarget.value, 10);
+                            if (!isNaN(val)) {
+                              void handleRotationIntervalChange(val);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const val = parseInt(e.currentTarget.value, 10);
+                            if (!isNaN(val)) void handleRotationIntervalChange(val);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              const val = parseInt(e.currentTarget.value, 10);
+                              if (!isNaN(val)) void handleRotationIntervalChange(val);
+                              e.currentTarget.blur();
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="rotation-stepper-btn"
+                          aria-label="Increase rotation interval"
+                          onClick={() => void handleRotationIntervalChange(planner.draft.rotationIntervalMinutes + 1)}
+                          disabled={planner.draft.rotationIntervalMinutes >= 99}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
+          ) : (
+            // UI-VERSION-CLASSIC: Half length / Every (min) always visible, no disclosure.
+            <>
+              <div className="rotation-stepper-row">
+                <div className="rotation-stepper">
+                  <label htmlFor="half-length-input" className="planner-setup-label">
+                    Half length (minutes)
+                  </label>
+                  <div className="rotation-stepper-controls">
+                    <button
+                      type="button"
+                      className="rotation-stepper-btn"
+                      aria-label="Decrease half length"
+                      onClick={() => void saveHalfLength(halfLengthInput - 1)}
+                      disabled={halfLengthInput <= 1}
+                    >
+                      &minus;
+                    </button>
+                    <input
+                      id="half-length-input"
+                      type="number"
+                      min="1"
+                      max="99"
+                      inputMode="numeric"
+                      value={halfLengthInput}
+                      className="rotation-stepper-input"
+                      onChange={(e) => {
+                        const val = parseInt(e.currentTarget.value, 10);
+                        if (!isNaN(val)) setHalfLengthInput(val);
+                      }}
+                      onBlur={(e) => {
+                        const val = parseInt(e.currentTarget.value, 10);
+                        if (!isNaN(val)) void saveHalfLength(val);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          halfLengthEditingRef.current = false;
+                          void saveHalfLength(halfLengthInput);
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      onFocus={() => { halfLengthEditingRef.current = true; }}
+                    />
+                    <button
+                      type="button"
+                      className="rotation-stepper-btn"
+                      aria-label="Increase half length"
+                      onClick={() => void saveHalfLength(halfLengthInput + 1)}
+                      disabled={halfLengthInput >= 99}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                {halfLengthInput !== (team.halfLengthMinutes ?? 30) && (
+                  <button
+                    type="button"
+                    className="half-length-reset-btn"
+                    onClick={handleResetHalfLengthToDefault}
+                  >
+                    Reset to team default ({team.halfLengthMinutes ?? 30} min)
+                  </button>
+                )}
+              </div>
+
+              <div className="rotation-stepper-row">
+                <div className="rotation-stepper">
+                  <label className="planner-setup-label">Rotations / half</label>
+                  <div className="rotation-stepper-controls" aria-live="polite">
+                    <span className="rotation-derived-value">
+                      {rotationsPerHalf}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="rotation-stepper">
+                  <label htmlFor="rotation-interval-input" className="planner-setup-label">
+                    Every (min)
+                  </label>
+                  <div className="rotation-stepper-controls">
+                    <button
+                      type="button"
+                      className="rotation-stepper-btn"
+                      aria-label="Decrease rotation interval"
+                      onClick={() => void handleRotationIntervalChange(planner.draft.rotationIntervalMinutes - 1)}
+                      disabled={planner.draft.rotationIntervalMinutes <= 1}
+                    >
+                      &minus;
+                    </button>
+                    <input
+                      id="rotation-interval-input"
+                      type="number"
+                      min="1"
+                      max="99"
+                      inputMode="numeric"
+                      value={planner.draft.rotationIntervalMinutes}
+                      className="rotation-stepper-input"
+                      onChange={(e) => {
+                        const val = parseInt(e.currentTarget.value, 10);
+                        if (!isNaN(val)) {
+                          void handleRotationIntervalChange(val);
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const val = parseInt(e.currentTarget.value, 10);
+                        if (!isNaN(val)) void handleRotationIntervalChange(val);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const val = parseInt(e.currentTarget.value, 10);
+                          if (!isNaN(val)) void handleRotationIntervalChange(val);
+                          e.currentTarget.blur();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="rotation-stepper-btn"
+                      aria-label="Increase rotation interval"
+                      onClick={() => void handleRotationIntervalChange(planner.draft.rotationIntervalMinutes + 1)}
+                      disabled={planner.draft.rotationIntervalMinutes >= 99}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
 
           <button
             onClick={handleSavePlan}
             disabled={isSavingPlan || isRecalculating || (!!gamePlan && !planner.isDirty && !hasPendingHalfLengthSave)}
-            className="btn-primary plan-tab__save-btn"
+            className={version === "new" ? "btn-secondary plan-tab__save-btn" : "btn-primary plan-tab__save-btn"}
           >
             {isSavingPlan ? "Saving Plan..." : "Save Plan"}
           </button>
 
-          <p className="rotation-settings-section-label">Populate Rotations</p>
+          {version === "classic" && (
+            // UI-VERSION-CLASSIC: Generate/Copy stay inside the settings card, unchanged order.
+            <>
+              <p className="rotation-settings-section-label">Populate Rotations</p>
 
-          {onGenerateRotations && (
-            <button
-              onClick={() => void onGenerateRotations({
-                plannerSnapshot: {
-                  startingLineup: new Map(planner.draft.startingLineup),
-                  halftimeLineup: new Map(effectiveHalftimeLineup),
-                  halfLengthMinutes: halfLengthInput,
-                  rotationIntervalMinutes: planner.draft.rotationIntervalMinutes,
-                },
-              })}
-              disabled={isRecalculating}
-              className="btn-secondary plan-tab__generate-btn"
-            >
-              {isRecalculating ? "Generating..." : "Generate Rotations"}
-            </button>
-          )}
+              {onGenerateRotations && (
+                <button
+                  onClick={handleGenerateClick}
+                  disabled={isRecalculating}
+                  className="btn-secondary plan-tab__generate-btn"
+                >
+                  {isRecalculating ? "Generating..." : "Generate Rotations"}
+                </button>
+              )}
 
-          {!readOnly && onOpenCopyModal && (
-            <button
-              type="button"
-              onClick={onOpenCopyModal}
-              disabled={isCopyingPlan || isRecalculating}
-              className="btn-secondary plan-tab__generate-btn"
-            >
-              Copy from game
-            </button>
-          )}
+              {!readOnly && onOpenCopyModal && (
+                <button
+                  type="button"
+                  onClick={onOpenCopyModal}
+                  disabled={isCopyingPlan || isRecalculating}
+                  className="btn-secondary plan-tab__generate-btn"
+                >
+                  Copy from game
+                </button>
+              )}
 
-          {hasNoPlans && (
-            <p className="plan-tab__empty-state">
-              No plan yet. Set rotation settings and lineup to create your plan.
-            </p>
-          )}
+              {hasNoPlans && (
+                <p className="plan-tab__empty-state">
+                  No plan yet. Set rotation settings and lineup to create your plan.
+                </p>
+              )}
 
-          {!hasNoPlans && effectivePlannedRotations.length === 0 && (
-            <p className="plan-tab__empty-state">
-              Configure schedule settings and save to create your timeline.
-            </p>
+              {!hasNoPlans && effectivePlannedRotations.length === 0 && (
+                <p className="plan-tab__empty-state">
+                  Configure schedule settings and save to create your timeline.
+                </p>
+              )}
+            </>
           )}
         </div>
       )}
@@ -1211,6 +1469,74 @@ export function PlanTab({
           coaches={team.coaches || []}
           lineupPlayerIds={lineupPlayerIds}
         />
+      )}
+
+      {/*
+        5b. Generate Rotations + Copy (new version only) — a sibling of the availability grid
+        above, NOT nested inside it, so this does not inherit the grid's `players.length > 0`
+        guard. Still carries the `isScheduled && !readOnly` guard and (for the button itself)
+        the `onGenerateRotations &&` guard.
+      */}
+      {version === "new" && isScheduled && !readOnly && (
+        <div className="plan-tab__generate-row">
+          <p className="rotation-settings-section-label">Populate Rotations</p>
+
+          {onGenerateRotations && (
+            <button
+              onClick={handleGenerateClick}
+              disabled={isRecalculating}
+              className="btn-secondary plan-tab__generate-btn"
+            >
+              {isRecalculating ? "Generating..." : "Generate Rotations"}
+            </button>
+          )}
+
+          {!readOnly && onOpenCopyModal && (
+            <button
+              type="button"
+              onClick={onOpenCopyModal}
+              disabled={isCopyingPlan || isRecalculating}
+              className="btn-secondary plan-tab__generate-btn"
+            >
+              Copy from game
+            </button>
+          )}
+
+          {hasNoPlans && (
+            <p className="plan-tab__empty-state">
+              No plan yet. Set rotation settings and lineup to create your plan.
+            </p>
+          )}
+
+          {!hasNoPlans && effectivePlannedRotations.length === 0 && (
+            <p className="plan-tab__empty-state">
+              Configure schedule settings and save to create your timeline.
+            </p>
+          )}
+
+          {showGeneratedSummary && generatedSummaryRows.length > 0 && (
+            <div className="plan-tab__generated-summary" role="status" aria-live="polite">
+              <h4>Rotations generated</h4>
+              <ul className="plan-tab__generated-summary-list">
+                {generatedSummaryRows.map((row) => (
+                  <li key={row.rotationNumber}>
+                    <button
+                      type="button"
+                      className="plan-tab__generated-summary-row"
+                      onClick={() => {
+                        if (row.timelineKey) requestTimelineSelection(row.timelineKey);
+                      }}
+                      disabled={!row.timelineKey}
+                    >
+                      <span>{row.label} &middot; Minute {row.gameMinute}</span>
+                      <span>{row.subCount} sub{row.subCount === 1 ? "" : "s"}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       )}
 
       {/* 6. Timeline pills */}

@@ -9019,6 +9019,37 @@
   color: #fff;
 }
 
+/* ===== Interface Mode Toggle (UserProfile) =====
+   Deliberately distinct from .theme-toggle above: this flag gates behavior
+   (not just color), so it gets a bolder, bordered pair of buttons rather
+   than the softer segmented-pill look used for the theme preference. */
+.ui-version-toggle {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ui-version-toggle__option {
+  flex: 1;
+  min-width: 100px;
+  padding: 0.75em 1em;
+  background: var(--card-background);
+  color: var(--text-primary);
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.ui-version-toggle__option:hover:not(.ui-version-toggle__option--active) {
+  border-color: var(--accent-green);
+}
+
+.ui-version-toggle__option--active {
+  background: var(--accent-green);
+  border-color: var(--accent-green);
+  color: #fff;
+}
+
 .game-score {
   margin: 0.25rem 0 0;
   color: var(--text-primary);
@@ -9055,4 +9086,452 @@
   outline: none;
   border-color: var(--primary-green);
   box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.2);
+}
+
+/* Game Day banner (Phase 1 §3) — pinned CTA above the Active/Upcoming/Past
+   list when a game is scheduled today, or already in-progress/halftime. */
+.game-day-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(76, 175, 80, 0.08);
+  border: 2px solid var(--accent-green);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin: 1rem 0;
+}
+
+.game-day-banner-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.game-day-banner-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--primary-green);
+}
+
+.game-day-banner-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-day-banner-cta {
+  flex-shrink: 0;
+}
+
+@media (max-width: 480px) {
+  .game-day-banner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .game-day-banner-cta {
+    width: 100%;
+  }
+}
+
+/* Teams -> Formations cross-link target highlight (Management.tsx) */
+.item-cross-link {
+  margin-top: 0.25rem;
+}
+
+.item-cross-link .btn-link {
+  font-size: 0.9em;
+}
+
+.formation-row-highlight .item-card {
+  animation: formation-row-flash 1.5s ease-out;
+}
+
+@keyframes formation-row-flash {
+  0% {
+    background-color: var(--light-green);
+    box-shadow: 0 0 0 2px var(--accent-green);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Halftime anomaly summary strip (GameManagement.tsx HalftimeLineupSummary,
+   'new' Interface Mode only) — compact, anomaly-only, sits between
+   LineupPanel and the halftime action buttons. */
+.halftime-lineup-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+}
+
+.halftime-lineup-summary__line {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.halftime-lineup-summary__line--ok {
+  color: var(--text-secondary);
+}
+
+.halftime-lineup-summary__line--warning {
+  color: var(--danger-red);
+  font-weight: 500;
+}
+
+/* Game Planner CTA reorder + post-generate summary (PlanTab.tsx, 'new'
+   Interface Mode only, Phase 1 §6). */
+.rotation-advanced-disclosure {
+  margin: 0.75rem 0;
+}
+
+.rotation-advanced-toggle {
+  width: 100%;
+  text-align: left;
+}
+
+.rotation-advanced-content {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.plan-tab__generate-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.plan-tab__generated-summary {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+}
+
+.plan-tab__generated-summary h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.plan-tab__generated-summary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.plan-tab__generated-summary-row {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.plan-tab__generated-summary-row:hover:not(:disabled) {
+  background: var(--hover-background);
+}
+
+.plan-tab__generated-summary-row:disabled {
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+/* ==========================================================================
+   OnboardingNudge
+   Dismissible "Next: {step} ->" banner mounted on destination screens
+   (Management, UserProfile) in Interface Mode 'new' only. Same component/
+   style on every screen it appears on — see CLAUDE.md onboarding section.
+   ========================================================================== */
+
+.onboarding-nudge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--light-green);
+  border: 1px solid var(--accent-green);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 12px 0;
+}
+
+.onboarding-nudge-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--primary-green);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.onboarding-nudge-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 6px;
+  line-height: 1;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   InvitationManagement (Sharing & Permissions panel)
+   Moved out of a per-component inline <style> block to comply with the
+   "all CSS lives in App.css" convention. Badge sizing/shape follows the
+   existing .status-badge pill convention (UI-SPEC §5.7) rather than
+   inventing a new visual language.
+   ========================================================================== */
+
+.invitation-management {
+  margin-top: 20px;
+}
+
+.invite-form {
+  background: #f5f5f5;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.invite-form h4 {
+  margin-top: 0;
+}
+
+.invite-form input,
+.invite-form select {
+  margin-right: 10px;
+  margin-bottom: 10px;
+}
+
+.permissions-section,
+.invitations-section {
+  margin-top: 20px;
+}
+
+.permissions-list,
+.invitations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.permission-item,
+.invitation-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+
+.permission-info,
+.invitation-info {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.permission-role {
+  font-weight: 600;
+  color: #2196f3;
+}
+
+.invitation-role {
+  background: #667eea;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.permission-date,
+.invitation-expiry {
+  font-size: 0.85em;
+  color: #666;
+}
+
+.permission-user,
+.invitation-email {
+  font-weight: 500;
+}
+
+.invitation-management .message {
+  padding: 10px 15px;
+  border-radius: 4px;
+  margin-top: 10px;
+}
+
+.invitation-management .message-success {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.invitation-management .message-error {
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.invitation-management .empty-message {
+  text-align: center;
+  color: #666;
+  padding: 20px;
+  font-style: italic;
+}
+
+.share-links-divider {
+  margin: 24px 0;
+  border: none;
+  border-top: 1px solid #ddd;
+}
+
+.share-links-section {
+  margin-top: 10px;
+}
+
+.share-links-section h4 {
+  margin-top: 0;
+}
+
+.share-link-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 15px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+
+.share-link-info {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.share-link-label {
+  font-weight: 600;
+}
+
+.share-link-url {
+  font-size: 0.85em;
+  color: #666;
+  word-break: break-all;
+}
+
+.share-link-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sharing-group {
+  margin-bottom: 10px;
+}
+
+.sharing-group-heading {
+  margin-bottom: 4px;
+}
+
+.sharing-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.invite-role-hint {
+  margin-top: 8px;
+  font-size: 0.85em;
+}
+
+.share-link-row {
+  margin-top: 12px;
+}
+
+.share-link-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.share-link-status-text {
+  font-size: 0.85em;
+  color: var(--text-secondary);
+}
+
+/* Per-link-type collapse toggle (§7.9) — one independent toggle for the Fan
+   link and one for the Stat Tracker link, each only rendered while that
+   specific link is active, so collapsing one never hides the other link
+   type's still-unused Generate call-to-action. */
+.share-links-toggle {
+  font-size: 0.85em;
+  padding: 0.3em 0.8em;
+}
+
+/* Badge: reuses .status-badge's pill shape/sizing (padding, radius, font
+   size/weight — UI-SPEC §5.7) with its own success/warning color coding. */
+.badge {
+  display: inline-block;
+  padding: 0.3em 0.8em;
+  border-radius: 6px;
+  font-size: 0.85em;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.badge-success {
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+  border: 1px solid var(--status-success-border);
+}
+
+.badge-warning {
+  background: var(--status-warning-bg);
+  color: var(--status-warning-text);
+  border: 1px solid var(--status-warning-border);
 }

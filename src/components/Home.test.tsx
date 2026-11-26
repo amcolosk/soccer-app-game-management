@@ -14,7 +14,7 @@
  *  - WelcomeModal not rendered while teams are still syncing (prevents flash)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import React from 'react';
 
 // ---------------------------------------------------------------------------
@@ -76,14 +76,19 @@ vi.mock('../hooks/useAmplifyQuery', () => ({
   },
 }));
 
+const { mockSetSignals } = vi.hoisted(() => ({ mockSetSignals: vi.fn() }));
+
 vi.mock('../contexts/OnboardingContext', () => ({
   useOnboarding: () => ({
     ...onboardingState,
+    signals: null,
     markWelcomed: mockMarkWelcomed,
     clearDismissed: mockClearDismissed,
     expand: vi.fn(),
     dismiss: vi.fn(),
     collapse: vi.fn(),
+    setSignals: mockSetSignals,
+    patchSignals: vi.fn(),
   }),
 }));
 
@@ -157,15 +162,16 @@ vi.mock('../utils/debugUtils', () => ({
 }));
 
 vi.mock('./Onboarding/WelcomeModal', () => ({
-  WelcomeModal: () => <div data-testid="welcome-modal" />,
+  WelcomeModal: (props: unknown) => (
+    <div data-testid="welcome-modal" data-user-id={(props as { userId: string }).userId} />
+  ),
 }));
 
 vi.mock('./Onboarding/QuickStartChecklist', () => ({
   QuickStartChecklist: (props: unknown) => (
-    <div
-      data-testid="quick-start-checklist"
-      data-teams={JSON.stringify((props as { teams: unknown[] }).teams)}
-    />
+    <div data-testid="quick-start-checklist" data-teams={JSON.stringify((props as { teams: unknown[] }).teams)}>
+      <button onClick={(props as { onDismiss: () => void }).onDismiss}>mock-dismiss</button>
+    </div>
   ),
 }));
 
@@ -520,6 +526,37 @@ describe('Home — auto-welcome for existing users (issue #22)', () => {
   });
 });
 
+describe('Home — persisted onboarding snapshot stays 7-wide (regression)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    onboardingState.welcomed = true;
+    onboardingState.dismissed = false;
+    teamQueryResult.isSynced = true;
+    teamQueryResult.data = [];
+  });
+
+  it('writes a 7-item onboarding:lastCompletedSteps snapshot on dismiss', async () => {
+    render(<Home />);
+
+    fireEvent.click(screen.getByText('mock-dismiss'));
+
+    const raw = localStorage.getItem('onboarding:lastCompletedSteps');
+    expect(raw).not.toBeNull();
+    expect((JSON.parse(raw as string) as unknown[]).length).toBe(7);
+  });
+
+  it('still writes a 7-item snapshot under Interface Mode "new" (the §7-8 merge is render-only)', async () => {
+    localStorage.setItem('teamtrack-ui-version', 'new');
+    render(<Home />);
+
+    fireEvent.click(screen.getByText('mock-dismiss'));
+
+    const raw = localStorage.getItem('onboarding:lastCompletedSteps');
+    expect(raw).not.toBeNull();
+    expect((JSON.parse(raw as string) as unknown[]).length).toBe(7);
+  });
+});
+
 describe('Home — game status grouping (regression guard)', () => {
   beforeEach(resetState);
 
@@ -570,6 +607,110 @@ describe('Home — game status grouping (regression guard)', () => {
 
     expect(screen.getByText('Active Games')).toBeInTheDocument();
     expect(screen.queryByText('Past Games')).not.toBeInTheDocument();
+  });
+});
+
+describe('Home — WelcomeModal userId threading', () => {
+  beforeEach(resetState);
+
+  it('passes the resolved currentUserId into WelcomeModal', async () => {
+    teamQueryResult.data = [];
+    teamQueryResult.isSynced = true;
+    onboardingState.welcomed = false;
+    mockGetCurrentUser.mockResolvedValue({ userId: 'coach-xyz' });
+
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('welcome-modal')).toHaveAttribute('data-user-id', 'coach-xyz');
+    });
+  });
+});
+
+describe('Home — Game Day banner', () => {
+  beforeEach(resetState);
+
+  function setup(games: object[]) {
+    teamQueryResult.data = [{ id: 't1', name: 'Eagles', coaches: ['test-user-id'] }];
+    teamQueryResult.isSynced = true;
+    onboardingState.welcomed = true;
+    gameQueryResult.data = games;
+    gameQueryResult.isSynced = true;
+  }
+
+  it('renders a "Start Game" banner for a game scheduled today', () => {
+    const today = new Date().toISOString();
+    setup([
+      { id: 'g1', status: 'scheduled', teamId: 't1', opponent: 'Rivals FC', isHome: true, gameDate: today },
+    ]);
+
+    render(<Home />);
+
+    expect(screen.getByText('📅 Game Day')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start Game' })).toBeInTheDocument();
+  });
+
+  it('renders a "Resume Game" banner for an in-progress game', () => {
+    setup([
+      { id: 'g1', status: 'in-progress', teamId: 't1', opponent: 'Rivals FC', isHome: true },
+    ]);
+
+    render(<Home />);
+
+    expect(screen.getByRole('button', { name: 'Resume Game' })).toBeInTheDocument();
+  });
+
+  it('renders a "Resume Game" banner for a halftime game left running since a prior day', () => {
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    setup([
+      { id: 'g1', status: 'halftime', teamId: 't1', opponent: 'Rivals FC', isHome: true, gameDate: yesterday },
+    ]);
+
+    render(<Home />);
+
+    expect(screen.getByRole('button', { name: 'Resume Game' })).toBeInTheDocument();
+  });
+
+  it('does NOT render a banner when there is no game today and nothing in-progress/halftime', () => {
+    const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    setup([
+      { id: 'g1', status: 'scheduled', teamId: 't1', opponent: 'Rivals FC', isHome: true, gameDate: nextWeek },
+    ]);
+
+    render(<Home />);
+
+    expect(screen.queryByText('📅 Game Day')).not.toBeInTheDocument();
+  });
+
+  it('prioritizes an in-progress game over a game scheduled today (live wins)', () => {
+    const today = new Date().toISOString();
+    setup([
+      { id: 'g1', status: 'scheduled', teamId: 't1', opponent: 'Rivals FC', isHome: true, gameDate: today },
+      { id: 'g2', status: 'in-progress', teamId: 't1', opponent: 'United FC', isHome: true },
+    ]);
+
+    render(<Home />);
+
+    const banner = document.querySelector('.game-day-banner') as HTMLElement;
+    expect(within(banner).getByText(/Eagles vs United FC/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Resume Game' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start Game' })).not.toBeInTheDocument();
+  });
+
+  it('navigates via handleGameClick when the banner CTA is clicked', async () => {
+    const today = new Date().toISOString();
+    setup([
+      { id: 'g1', status: 'scheduled', teamId: 't1', opponent: 'Rivals FC', isHome: true, gameDate: today },
+    ]);
+
+    render(<Home />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start Game' }));
+
+    expect(mockNavigate).toHaveBeenCalledWith(
+      '/game/g1',
+      expect.objectContaining({ state: expect.anything() })
+    );
   });
 });
 
@@ -725,7 +866,10 @@ describe('Home — games list team filter', () => {
 
     fireEvent.change(select, { target: { value: 't2' } });
 
-    expect(screen.getByText('Hawks vs United FC')).toBeInTheDocument();
+    // g2 is in-progress, so it now also surfaces in the Game Day banner
+    // (§3) in addition to the "Active Games" list — scope to the list.
+    const activeGamesGroup = screen.getByText('Active Games').closest('.games-group') as HTMLElement;
+    expect(within(activeGamesGroup).getByText('Hawks vs United FC')).toBeInTheDocument();
     expect(screen.queryByText('Eagles vs Rivals FC')).not.toBeInTheDocument();
   });
 });

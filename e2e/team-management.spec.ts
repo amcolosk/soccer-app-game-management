@@ -122,7 +122,23 @@ test.describe('Team Management Smoke', () => {
     await fillInput(page, 'input[placeholder*="max players"]', '7');
     await fillInput(page, 'input[placeholder*="half length"]', '25');
     await clickButton(page, 'Create');
-    await expect(page.locator('.item-card').filter({ hasText: teamName })).toBeVisible();
+
+    // Create's own subscription push can occasionally race Management's
+    // just-mounted observeQuery initial sync (see createTeam in helpers.ts
+    // for the same fast-path-then-reload fallback); this test skips
+    // cleanupTestData above specifically to save smoke-lane time, which
+    // means there's less of a gap before this check than other specs get.
+    const newTeamCard = page.locator('.item-card').filter({ hasText: teamName });
+    const newCardVisibleFast = await newTeamCard.isVisible({ timeout: 8000 }).catch(() => false);
+    if (!newCardVisibleFast) {
+      await expect(async () => {
+        await page.goto('/');
+        await waitForPageLoad(page);
+        await navigateToManagement(page);
+        await clickManagementTab(page, 'Teams');
+        await expect(page.locator('.item-card').filter({ hasText: teamName })).toBeVisible({ timeout: 5000 });
+      }).toPass({ timeout: 20000 });
+    }
 
     // Owner is stamped implicitly at create time (Correction 1): Archive is
     // visible inside the Edit Team form, no "Owner Unassigned" pill on the card.

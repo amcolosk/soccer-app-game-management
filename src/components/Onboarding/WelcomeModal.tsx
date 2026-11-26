@@ -1,8 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { trackEvent, AnalyticsEvents } from '../../utils/analytics';
+import { createDemoTeam } from '../../services/demoDataService';
+import { showError } from '../../utils/toast';
 import './WelcomeModal.css';
 
 interface WelcomeModalProps {
+  userId: string;
   onClose: () => void;
   onGetStarted: () => void;
 }
@@ -17,10 +20,11 @@ interface WelcomeModalProps {
  * 
  * Focus trap pattern copied from HelpModal.tsx.
  */
-export function WelcomeModal({ onClose, onGetStarted }: WelcomeModalProps) {
+export function WelcomeModal({ userId, onClose, onGetStarted }: WelcomeModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
+  const [isCreatingDemo, setIsCreatingDemo] = useState(false);
 
   // Track analytics on mount
   useEffect(() => {
@@ -100,6 +104,22 @@ export function WelcomeModal({ onClose, onGetStarted }: WelcomeModalProps) {
     onGetStarted();
   };
 
+  const handleShowDemoTeam = async () => {
+    if (isCreatingDemo || !userId) return;
+    setIsCreatingDemo(true);
+    try {
+      await createDemoTeam(userId);
+      // Success path also covers the pre-existing no-op case (a demo team ID
+      // is already set, e.g. from another account on this device) — either
+      // way, dismiss the modal the same way "Get Started" does.
+      onGetStarted();
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Failed to create demo team');
+    } finally {
+      setIsCreatingDemo(false);
+    }
+  };
+
   return (
     <div className="welcome-modal-overlay" onClick={onClose}>
       <div
@@ -161,6 +181,15 @@ export function WelcomeModal({ onClose, onGetStarted }: WelcomeModalProps) {
             type="button"
           >
             Maybe later
+          </button>
+          <button
+            className="welcome-demo-button"
+            onClick={handleShowDemoTeam}
+            type="button"
+            disabled={isCreatingDemo || !userId}
+            title={!userId ? 'Still loading your account…' : undefined}
+          >
+            {isCreatingDemo ? 'Setting up demo team…' : 'Show me with a demo team'}
           </button>
           <button
             className="welcome-primary-button"

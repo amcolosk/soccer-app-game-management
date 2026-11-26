@@ -311,6 +311,14 @@ Rendered by `renderFeedStatusBadges` alongside the status badge (§5.7), using t
 
 Imported games also show venue and "Arrive by" time in the card meta line when present (`locationName`, `arriveByTime`).
 
+#### Game Day Banner (Phase 1 §3)
+A single pinned CTA card rendered above the Active/Upcoming/Past sections (both Interface Modes —
+not gated by the toggle) for the single most-imminent/active qualifying game: any live
+(`in-progress`/`halftime`) game wins regardless of date, otherwise the earliest `scheduled` game whose
+`gameDate` falls on today (local time), otherwise the banner doesn't render. Shows "📅 Game Day", the
+team-vs-opponent title, and a primary button — "Resume Game" when the game is live, "Start Game"
+otherwise — that navigates straight into Game Management for that game.
+
 #### Game Sections (when games exist)
 
 Games grouped into three sections, in display order:
@@ -436,14 +444,16 @@ Reuses the standard confirmation modal pattern (§5.6), not a bespoke component.
 1. **GameHeader** — scores, half indicator
 2. **GameTimer** with `hidePrimaryCta=true` — shows elapsed time, Resume / End Half controls without the primary start button
 3. **LineupPanel** — lineup review (available players shown for reassignment)
-4. **RotationWidget** (modal, triggered by coach)
-5. **SubstitutionPanel** (modal, triggered by tapping position)
+4. **HalftimeLineupSummary** (`version === 'new'` only, per the persisted Interface Mode toggle — see §7.10) — a compact, anomaly-only strip rendered between `LineupPanel` and the halftime action buttons. Shows one reassuring line ("All positions filled") when nothing is wrong, or one line per anomaly (an empty position, or fewer starters than `maxPlayersOnField` expects) otherwise. Carries `role="status"`/`aria-live="polite"` since its content changes while the screen stays mounted. Informational only — it can't predict `handleStartSecondHalf`'s async DB-fallback outcome, so an under-count flagged here may still resolve once the second half starts. Not rendered in `'classic'` mode.
+5. **RotationWidget** (modal, triggered by coach)
+6. **SubstitutionPanel** (modal, triggered by tapping position)
 
 #### Notes
 - Halftime is the window for deliberate lineup changes
 - Timer is explicitly paused; coach taps "Start 2nd Half" to resume
 - Halftime direct note entry surface-of-truth is the halftime action-row `Add note` control (not CommandBand).
 - Halftime `Add note` opens the same shared live-note modal/editor/save path used by Notes tab and in-progress direct entry.
+- A removal made at halftime that hasn't yet round-tripped through the lineup subscription (or is still queued offline) is excluded from second-half starter resolution and from the DB-fallback re-query alike — it can never be silently reinstated when the coach taps "Start Second Half".
 
 ---
 
@@ -488,6 +498,10 @@ Primary editing flow is rotations-first: lineup editing is anchored to selected 
 4. **Selected Details Panel** — only selected pill panel is mounted; contains the active lineup editor/summary for that pill
 5. **Auto-Generate button** — runs fair rotation algorithm
 6. **Save Plan button** — persists `GamePlan` + `PlannedRotation` records
+
+**Interface Mode `'new'` (`useUIVersion()`, the persisted per-coach toggle described in §7.10):** sections 5–6 above are reordered and
+section 2's steppers are collapsed, as described in §7.7.1. `'classic'` keeps the layout above
+unchanged.
 
 #### Timeline-first editing model
 
@@ -573,6 +587,33 @@ Three numeric steppers inside the setup card, arranged in two rows:
 - Single source of truth persisted: `GamePlan.rotationIntervalMinutes` (no new schema field)
 - Full coupling rules and clamp logic: `docs/specs/Game-Planner-Rotation-Input.md`
 
+**Interface Mode `'new'` (`useUIVersion()`, the persisted per-coach toggle described in §7.10) — CTA reorder + advanced disclosure (Phase 1, §6):**
+- **Generate Rotations** moves out of the setup card and renders immediately below the Player
+  Availability grid, as a sibling of the grid (not nested inside it — it does not inherit the
+  grid's "no players" guard). It keeps the same `isScheduled && !readOnly` gating as the rest of
+  the setup card, plus its own guard for when no generate handler is wired up. **Copy from
+  game** stays directly next to Generate (not relocated).
+- Row 2's two coupled steppers (**Rotations / half** and **Every (min)**, including Row 1's
+  **Half length**) collapse into a **"Rotation timing (advanced)"** disclosure inside the setup
+  card, **closed by default** — most coaches never touch these, and leaving them open would
+  crowd a 375px-wide screen already stacked with the availability grid, the relocated Generate
+  button, and the post-generate summary below. Same controlled-component collapse pattern as
+  §4/§7-8 (local state + `aria-expanded`), not native `<details>`.
+- **Save Plan** becomes secondary-styled (`btn-secondary`) instead of primary, since Generate is
+  now the primary action a coach reaches for first.
+- After a successful Generate (confirmed write, not a cancelled/early-returned click), a compact
+  **post-generate summary** appears below the Generate/Copy row: one row per rotation with its
+  game minute and substitution count, derived from the live `PlannedRotation` data once it has
+  actually updated (not from the click itself). Tapping a row jumps to that rotation's entry in
+  the existing Rotation Timeline / Selected Details Panel (§7.7), the same navigation used by
+  tapping a timeline pill directly.
+- `'classic'` mode is unchanged: Half length / Rotations-per-half / Every (min) remain always
+  visible with no disclosure, Generate/Copy/Save Plan keep their original order and styling
+  inside the setup card, and no post-generate summary is shown.
+- `readOnly` mode (either Interface Mode): the entire setup card — steppers, disclosure, Save
+  Plan, Generate, Copy — is not rendered, same as before this change; there is nothing to
+  collapse or disclose when the plan can't be edited.
+
 **Design tokens:**
 
 | Element | Token |
@@ -647,11 +688,15 @@ A save is attributed to exactly one player: `calculateSavesByKeeper`'s single te
 **File:** `src/components/Management.tsx`
 
 #### Sections (tabbed or accordion)
-1. **Teams** — create/edit/archive teams (permanent delete only from Archived Teams); set name, formation, field size, max players
-2. **Formations** — select or edit formation templates (4-3-3, 4-4-2, etc.); define positions
-3. **Players** — add players to a team; set name, jersey number, preferred positions; swipe-to-delete
-4. **Sharing** — manage which coaches have access to a team (see "Sharing & Permissions" below)
-5. **App** — app-level settings (not documented in detail here)
+1. **🛡 Teams** — create/edit/archive teams (permanent delete only from Archived Teams); set name, formation, field size, max players
+2. **📐 Formations** — select or edit formation templates (4-3-3, 4-4-2, etc.); define positions
+3. **👤 Players** — add players to a team; set name, jersey number, preferred positions; swipe-to-delete
+4. **🔗 Sharing** — manage which coaches have access to a team (see "Sharing & Permissions" below)
+5. **⚙️ App** — app-level settings (not documented in detail here)
+
+Each team card in the **Teams** tab that has a formation assigned shows an "Uses formation: {name} · Edit →"
+cross-link below its roster count; tapping it jumps straight to that formation in the **Formations** tab
+(`handleFormationCrossLink`), rather than requiring the coach to separately navigate tabs and search for it.
 
 #### Empty States
 | Condition | Message |
@@ -691,11 +736,15 @@ A save is attributed to exactly one player: `calculateSavesByKeeper`'s single te
 **File:** `src/components/InvitationManagement.tsx`
 
 - **Entry:** Sharing tab → per-team list (active teams only) → "Manage Sharing" button → drill-in panel titled "Sharing & Permissions: {team name}".
-- **Four regions** (a fourth added in Milestone B1 — Fan Mode, completed in Milestone B2 — Sideline Stat Tracker):
-  1. Invite-by-email form — email address + role (`Coach (Can edit)` / `Parent (Read-only)`).
+- **Two headed groups** (Phase 1, §4): the page is split into "Coach & Parent Accounts" and "Public Links (no account)", each with an always-visible one-line description under its heading — these headings/descriptions never collapse, in either Interface Mode (the persisted per-coach toggle described in §7.10), so a coach who has never generated a public link still discovers it exists.
+  - **"Coach & Parent Accounts"** contains regions 1–3 below.
+  - **"Public Links (no account)"** contains region 4 below (the Generate buttons and the Stat Tracker hint move as one unit with it, same as before).
+- **Four regions:**
+  1. Invite-by-email form — email address + role (`Coach (Can edit)` / `Parent (Read-only)`). Below the form, a one-line disambiguation note clarifies that a Parent invite gets the same full `coaches[]` team access as a Coach invite once accepted, and points to the Fan link below for actual view-only sharing — this note exists because the pre-existing "(Read-only)" wording on the role `<option>` and on an accepted Parent invitation's role badge is inaccurate (tracked separately) and must not be repeated or reinforced by new copy. The group's own one-line description above the form ("Invite coaches to help manage this team, or add parents to your account.") avoids asserting a Parent gets read-only access, for the same reason.
   2. "Current Coaches" list — every coach on the team except the current signed-in user, each with a "Remove" button.
   3. "Pending Invitations" list — every `PENDING` `TeamInvitation` for the team, each with a "Cancel" button.
-  4. **"Share Links"** — visually separated from regions 1–3 by a divider/distinguishing heading, since it's a materially different trust boundary (public/unauthenticated) than inviting a coach or parent. **Two independent link types**, each with its own generate/copy/revoke controls, stacked in the same region: the `FAN` link (`/watch/:token`, read-only live view — see §7.14) and the `STAT_TRACKER` link (`/track/:token`, write-capable helper stat entry — see §7.15). Each, independently: no active link shows a single "Generate {Fan|Stat Tracker} Link" button; an active link shows the link URL plus "Copy Link", "Replace", and "Revoke" buttons. Both link types can be active simultaneously with no interaction between them.
+  4. **"Share Links"** — visually separated from regions 1–3 by a divider, since it's a materially different trust boundary (public/unauthenticated) than inviting a coach or parent. **Two independent link types**, each with its own generate/copy/revoke controls, stacked in the same region: the `FAN` link (`/watch/:token`, read-only live view — see §7.14) and the `STAT_TRACKER` link (`/track/:token`, write-capable helper stat entry — see §7.15). Each link type shows a label, a status badge once active (green "Read-only" on the Fan link; amber "Write access" alongside the Stat Tracker link's "(write access)" label — that wording is never softened), and an "Active"/"Not generated yet" status line that stays visible even when detail controls are collapsed (see below). When active, the detail controls are the link URL plus "Copy Link", "Replace", and "Revoke" buttons; when inactive, the one detail control is the "Generate {Fan|Stat Tracker} Link" button, which is never collapsible — a never-generated link's call-to-action always stays visible. Both link types can be active simultaneously with no interaction between them.
+  - **Detail-control collapse — gated, `version === 'new'` only (Interface Mode toggle, the persisted per-coach toggle described in §7.10):** each link type has its OWN independent "Show {Fan|Stat Tracker} link details"/"Hide {Fan|Stat Tracker} link details" toggle (`aria-expanded`, controlled-component pattern matching `QuickStartChecklist.tsx` — no native `<details>`), rendered only once that specific link is active (a never-generated link has no toggle at all — see above). Collapsing one link type's detail controls (URL, Copy/Replace/Revoke) never affects the other link type's toggle state, visibility, or call-to-action — the goal is that tidying away a link a coach just finished setting up can never hide the other link type's existence or still-unused Generate CTA. Each toggle defaults to expanded once that link is active, and persists the coach's manual choice independently across `refreshShareLinks()` re-fetches (not recomputed back to the default once manually toggled). In `version === 'classic'`, there is no toggle for either link type — detail controls are always expanded, as before this change.
 - **Confirmation:** "Remove", "Cancel", "Replace" (region 4, for either link type, when an active link of that type exists), and "Revoke" (region 4, for either link type) all route through the standard Confirmation Modal (§5.6) before the underlying call.
   - Remove: title "Revoke Access", message "Are you sure you want to revoke access for this coach?", `variant: 'danger'` — then calls `revokeCoachAccess` (Lambda-backed custom mutation as of issue #162; see `docs/SHARING-PERMISSIONS.md`).
   - Cancel: `variant: 'warning'` — then deletes the invitation directly (`client.models.TeamInvitation.delete`).
@@ -790,6 +839,19 @@ Coach profile for pre-game note attribution. Names visible only to coaches on th
 - Focus management: focus returns to Save button after successful submission
 - Error/success messages announced via `aria-live="polite"`
 
+##### Appearance (Theme toggle)
+A pre-existing three-way `role="group"` toggle (Light / Dark / System), `useTheme()`, each option a
+button with `aria-pressed` reflecting the active mode. Persisted per device; controls `--primary-green`/
+`--card-background`/etc. CSS custom property values app-wide (`src/index.css`).
+
+##### Interface Mode
+A two-way `role="group"` toggle (Classic / New), `useUIVersion()`, same controlled-button/`aria-pressed`
+pattern as the Theme toggle above. Persisted per coach. Switches several screens (Halftime, Sharing,
+Game Planner, Setup/Manage) between the original "classic" layout and the Phase 1 "new" layout —
+reordered/collapsed controls, the `HalftimeLineupSummary` anomaly strip (§7.4/§7.5), the per-link-type
+Share Links detail-control collapse (§7.9), and the Onboarding Nudge banner (§7.12) all gate on this
+toggle's value.
+
 ##### Account & App Info
 - Email address (read-only, gray label + value)
 - Sign Out button (secondary style, `--text-secondary` text)
@@ -855,19 +917,22 @@ Example: Two coaches both named Alex on same team rendered as Alex (Coach 1) and
 
 ### 7.12 Onboarding
 
-**Components:** `src/components/Onboarding/QuickStartChecklist.tsx`, `src/components/Onboarding/WelcomeModal.tsx`
-**Shown on:** Home tab for first-time coaches
+**Components:** `src/components/Onboarding/QuickStartChecklist.tsx`, `src/components/Onboarding/WelcomeModal.tsx`, `src/components/Onboarding/OnboardingNudge.tsx`, `src/utils/onboardingSignals.ts` (shared completion derivation), `src/contexts/OnboardingContext.tsx` (shared `signals` baseline)
+**Shown on:** Home tab for first-time coaches (checklist); Manage and Profile tabs (nudge, Interface Mode `'new'` only)
 
 #### Quick Start Checklist
 
-**Purpose:** Guide new coaches through a seven-step setup model required to run a live game.
+**Purpose:** Guide new coaches through a seven-signal setup model required to run a live game. The 7 raw completion signals are always computed by the shared `computeOnboardingSignals()` function and are the only persisted/canonical shape (see Persistence below) — gated by Interface Mode (`useUIVersion()`), the **display** of those 7 signals differs between `'classic'` and `'new'`:
+
+- **`'classic'`** (unchanged): always shows the full 7-step list, in the table below.
+- **`'new'`**: steps 1 ("Create your team") and 4 ("Set your formation") — both of which route to the same `/manage?section=teams` destination — are merged into a single 6-row *display* item ("Create your team & set formation", complete only once both underlying signals are true). The 6-row list defaults to showing only the next incomplete row, with a "See all steps" control to expand the full merged list. This merge and the default-collapsed-to-next-step behavior are display-only — the 7 raw signals, `completedCount`/progress text (still "X of 7"), and the persisted snapshot are unaffected.
 
 **Display:**
 - Sticky card-style checklist on Home tab, above game list (if not dismissed)
 - Can be collapsed to a small resume banner; expands on tap
 - Auto-dismisses when all steps complete (shows completion state for 4 seconds)
 
-**Steps (in order):**
+**Steps (in order; raw signals, both toggle states):**
 
 | # | Title | Completion Signal | Direction Text | Screen |
 |---|-------|-------------------|-----------------|--------|
@@ -882,14 +947,14 @@ Example: Two coaches both named Alex on same team rendered as Alex (Coach 1) and
 **Layout:**
 - Card background: `--card-background` with `1px solid --border-color`
 - Title: h2, `--primary-green`
-- Progress bar: width = `(completed / 7) * 100%`, `--accent-green` background
+- Progress bar: width = `(completed / 7) * 100%`, `--accent-green` background (unchanged in both toggle states — tracks the 7 raw signals, not the `'new'`-mode 6-row display list)
 - Each step: checkbox (checked/unchecked) + step title + direction text
 - Font: step number in circle (optional), title bold, direction gray caption
-- Actions: Expand/Collapse button (if collapsed) + Dismiss button (X icon)
+- Actions: Expand/Collapse button (if collapsed) + Dismiss button (X icon); `'new'` mode adds a "See all steps" expand control (see above)
 
 **Persistence and visibility:**
 - Checklist dismissal flag uses active key `quickStartChecklistDismissed` with compatibility key `onboarding:dismissed`
-- Snapshot key `onboarding:lastCompletedSteps` stores a boolean[7] completion snapshot captured at dismiss time
+- Snapshot key `onboarding:lastCompletedSteps` stores a boolean[7] completion snapshot captured at dismiss time — always 7-wide, in **both** toggle states; the `'new'`-mode 6-row merge is never persisted
 - Checklist is **auto-hidden (dismissed) when all 7 steps are complete**; shows completion state for 4 seconds then auto-dismisses
 - After auto-dismiss, checklist remains hidden on subsequent visits unless a valid snapshot regression is detected
 - **Reopen conditions (snapshot-only):** Reopen only when dismissed is true, profile state is resolved, checklist source data is synced, snapshot is valid, and at least one previously true step regresses to false
@@ -902,6 +967,34 @@ Example: Two coaches both named Alex on same team rendered as Alex (Coach 1) and
 - **Not started** — all steps unchecked; checklist visible
 - **In progress** — mix of checked and unchecked; checklist visible
 - **Complete** — all 7 steps checked; shows brief "All set!" message, auto-dismisses after 4 seconds, then hides until valid regression reopen conditions are met
+
+#### Onboarding Nudge (Interface Mode `'new'` only)
+
+**Purpose:** Since `Home` (and its checklist) unmounts once the coach navigates away, `OnboardingNudge` surfaces a small "Next: {title} →" banner directly on the Manage and Profile screens, so a step completed there (without a round-trip through Home) is immediately reflected.
+
+**Mechanism:**
+- `Home.tsx` computes the 7 raw signals via `computeOnboardingSignals()` and writes them into `OnboardingContext.signals` as the baseline (equality-guarded setter — no render loop).
+- `Management.tsx` locally computes signals 1/3/4 (team, roster, formation — the data it already fetches) and `UserProfile.tsx` locally computes signal 2 (profile complete), each merging their subset onto whatever baseline is already in context via `patchSignals()`, leaving every other index untouched.
+- `OnboardingNudge` reads `signals` from context and renders "Next: {title} →" for the first incomplete signal, deep-linking to its destination.
+
+**Rendering conditions — all must hold:**
+- Interface Mode is `'new'` (classic never shows this banner, matching the unchanged 7-step classic checklist)
+- A `signals` baseline already exists in context — a cold load directly on `/manage` or `/profile` with no prior `Home` visit this session renders **nothing** (never guesses at unknown signals)
+- Onboarding isn't fully complete
+- Not dismissed
+
+**Dismiss state:** `Management.tsx` lets `OnboardingNudge` manage its own local dismiss state (the
+component is never remounted by anything else on that screen). `UserProfile.tsx` hoists the dismiss
+flag into a `useState` in `UserProfile` itself and passes it down as a controlled `dismissed`/`onDismiss`
+pair, so a profile save (which swaps which alert banner renders below) can't remount a fresh,
+un-dismissed `OnboardingNudge` instance and silently undo the coach's dismissal.
+
+**Mount points (same component/style on every screen):**
+- `Management.tsx`: directly below the tab nav, above whichever section panel is active — visible regardless of which of the 5 tabs the coach is on
+- `UserProfile.tsx`: a single mount, directly below the `👤 User Profile` heading and above the
+  `.profile-section` wrapper — always in the same structural position regardless of whether a
+  `profile-conflict`/`profileMessage` alert banner is also showing (both render inside
+  `.profile-section`, below the nudge), so the nudge never visually jumps between states
 
 #### Welcome Modal
 
@@ -928,6 +1021,11 @@ identify your notes during games.
   You control what others see (first name only, or with last initial).
 
 [Buttons:]
+  Maybe later (ghost/link style — dismisses without navigating)
+  Show me with a demo team (secondary button — calls createDemoTeam(userId), then
+    dismisses the same way Get Started does; disabled while the create is in
+    flight, AND disabled whenever userId hasn't resolved yet from the async
+    getCurrentUser() call, so it can never fire with an empty userId)
   Get Started (primary button)
   [Optional: Learn more link (secondary)]
 ```

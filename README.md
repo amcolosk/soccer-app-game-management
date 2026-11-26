@@ -72,6 +72,9 @@ TeamTrack helps coaches organize their teams and manage games from the sideline.
 - **Saves & Goals Against**: a save is credited to its explicit goalkeeper when logged, or derived from who occupied the goalkeeper position at that moment otherwise; opponent goals are attributed to the goalkeeper on the field the same way, feeding a per-player Save % and a team-wide Total Saves summary card
 - **Real-time Updates**: Reports automatically update as games are played
 
+### Interface Mode (temporary rollout toggle)
+- A "Classic" / "New" switch in the Profile tab's App settings gates a handful of refined flows (halftime review, Sharing page density, Game Planner layout, onboarding checklist/nudge) while both are compared in production. This is a temporary toggle, not a permanent preference — it's expected to be retired (classic branches removed) once the "new" behavior is validated.
+
 ## Technology Stack
 
 - **Frontend**: React 18 + TypeScript

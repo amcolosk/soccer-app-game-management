@@ -904,6 +904,42 @@ export function TeamReport({ team }: TeamReportProps) {
                 <div className="loading-state">Loading player details...</div>
               ) : playerDetails ? (
                 <div className="details-content">
+                  {/* Floor: if every section below would be empty (player never logged any activity),
+                      render an Overview card with zeroed defaults rather than an empty drill-down. */}
+                  {!playerDetails.keeperStats
+                    && playerDetails.playTimeByPosition.size === 0
+                    && playerDetails.goalsAssistsByPosition.length === 0
+                    && playerDetails.saves.length === 0
+                    && playerDetails.shots.length === 0
+                    && playerDetails.goals.length === 0
+                    && playerDetails.assists.length === 0
+                    && playerDetails.goldStars.length === 0
+                    && playerDetails.yellowCards.length === 0
+                    && playerDetails.redCards.length === 0 && (
+                    <div className="details-card">
+                      <h3>Overview</h3>
+                      <div className="position-time-list">
+                        <div className="position-time-item">
+                          <span className="position-name">Games Played</span>
+                          <span className="position-time">0</span>
+                        </div>
+                        <div className="position-time-item">
+                          <span className="position-name">Play Time</span>
+                          <span className="position-time">{formatPlayTime(0, 'long')}</span>
+                        </div>
+                        <div className="position-time-item">
+                          <span className="position-name">Goals</span>
+                          <span className="position-time">0</span>
+                        </div>
+                        <div className="position-time-item">
+                          <span className="position-name">Assists</span>
+                          <span className="position-time">0</span>
+                        </div>
+                      </div>
+                      <p className="empty-state">No recorded activity for this player yet.</p>
+                    </div>
+                  )}
+
                   {/* Goalkeeper breakout card */}
                   {playerDetails.keeperStats && (
                     <div className="details-card keeper-breakout-card">

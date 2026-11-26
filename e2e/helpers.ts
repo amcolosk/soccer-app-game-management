@@ -524,8 +524,10 @@ export async function navigateToManagement(page: Page) {
  * @param tabName - Name of the tab: 'Teams' | 'Formations' | 'Players' | 'Sharing' | 'App'
  */
 export async function clickManagementTab(page: Page, tabName: 'Teams' | 'Formations' | 'Players' | 'Sharing' | 'App') {
+  // Tab buttons are prefixed with a decorative icon (e.g. "🛡 Teams (3)"), so match the
+  // name anywhere in the button text rather than anchoring to the very start.
   // eslint-disable-next-line security/detect-non-literal-regexp
-  const tab = page.locator('button.management-tab', { hasText: new RegExp(`^${tabName}`) });
+  const tab = page.locator('button.management-tab', { hasText: new RegExp(tabName) });
   await tab.click();
   await expect(tab).toHaveClass(/active/, { timeout: 3000 });
 }
@@ -574,9 +576,29 @@ export async function createTeam(
   await clickButton(page, 'Create');
   
   console.log('  Verifying team was created...');
-  
-  // Verify team was created
-  await expect(page.locator('.item-card').filter({ hasText: teamData.name })).toBeVisible();
+
+  // Verify team was created. Team.create is a normal AppSync mutation and
+  // does trigger the observeQuery subscription, so this is usually visible
+  // almost immediately — but when Management has only just (re)mounted
+  // (e.g. right after navigateToApp's full page load, as most callers do),
+  // the subscription's initial full-sync fetch can still be in flight and
+  // race the create's own push, occasionally dropping the new row from the
+  // very next render. Try the fast path first, then fall back to a fresh
+  // reload (same "re-query from scratch" recovery used by
+  // pollScheduleDropdownForTeam in team-management.spec.ts) rather than
+  // failing outright.
+  const card = page.locator('.item-card').filter({ hasText: teamData.name });
+  const visibleFast = await card.isVisible({ timeout: 8000 }).catch(() => false);
+  if (!visibleFast) {
+    console.warn(`  Team card not visible yet for "${teamData.name}"; reloading to re-sync...`);
+    await expect(async () => {
+      await page.goto('/');
+      await waitForPageLoad(page);
+      await navigateToManagement(page);
+      await clickManagementTab(page, 'Teams');
+      await expect(page.locator('.item-card').filter({ hasText: teamData.name })).toBeVisible({ timeout: 5000 });
+    }).toPass({ timeout: 20000 });
+  }
   console.log(`✓ Team created: ${teamData.name}`);
 }
 

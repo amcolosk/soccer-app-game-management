@@ -11,6 +11,7 @@ import {
 } from '../services/invitationService';
 import { useConfirm } from './ConfirmModal';
 import { useAmplifyQuery } from '../hooks/useAmplifyQuery';
+import { useUIVersion } from '../contexts/UIVersionContext';
 
 const client = generateClient<Schema>();
 
@@ -26,6 +27,7 @@ export function InvitationManagement({
   resourceName,
 }: InvitationManagementProps) {
   const confirm = useConfirm();
+  const { version } = useUIVersion();
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<InvitationRole>('COACH');
   const [coaches, setCoaches] = useState<string[]>([]);
@@ -155,6 +157,30 @@ export function InvitationManagement({
   // confirmation requirements (more urgent here, since a leaked link isn't
   // just read access, it's write access).
   const activeStatTrackerLink = shareLinks.find((link) => link.type === 'STAT_TRACKER' && !link.revokedAt);
+
+  // Public Links detail-control collapse (version === 'new' only — §4 of the
+  // Phase 1 plan). Split into one independent toggle per link type so that
+  // collapsing one link's details never hides the OTHER link type's
+  // existence or still-unused "Generate" call-to-action (a never-generated
+  // link's Generate CTA is never collapsible at all — it's only an active
+  // link's already-copyable URL/Replace/Revoke controls that can be
+  // tucked away). Each toggle defaults open while that specific link is
+  // active, and persists the coach's manual choice across a later
+  // refreshShareLinks() re-fetch (manualOverride !== null).
+  const [fanDetailsOverride, setFanDetailsOverride] = useState<boolean | null>(null);
+  const [trackerDetailsOverride, setTrackerDetailsOverride] = useState<boolean | null>(null);
+  // UI-VERSION-CLASSIC: in 'classic' mode there is no collapse at all — the
+  // detail controls are always expanded, same as before this change.
+  const fanDetailsExpanded = version === 'new' ? (fanDetailsOverride ?? true) : true;
+  const trackerDetailsExpanded = version === 'new' ? (trackerDetailsOverride ?? true) : true;
+
+  function toggleFanDetailsExpanded() {
+    setFanDetailsOverride(!fanDetailsExpanded);
+  }
+
+  function toggleTrackerDetailsExpanded() {
+    setTrackerDetailsOverride(!trackerDetailsExpanded);
+  }
 
   function fanLinkUrl(token: string): string {
     return `${window.location.origin}/watch/${token}`;
@@ -294,9 +320,14 @@ export function InvitationManagement({
   return (
     <div className="invitation-management">
       <h3>Sharing & Permissions: {resourceName}</h3>
-      <p className="form-hint">
-        Invite coaches to help manage this team, or add parents for read-only access.
-      </p>
+
+      <section className="sharing-group" aria-labelledby="sharing-group-accounts-heading">
+        <h4 id="sharing-group-accounts-heading" className="sharing-group-heading">
+          Coach & Parent Accounts
+        </h4>
+        <p className="form-hint">
+          Invite coaches to help manage this team, or add parents to your account.
+        </p>
 
       <form className="invite-form" onSubmit={handleSendInvite}>
         <h4>Send Invitation</h4>
@@ -319,6 +350,11 @@ export function InvitationManagement({
         <button type="submit" className="btn-primary" disabled={loading}>
           {loading ? 'Sending...' : 'Send Invitation'}
         </button>
+        <p className="form-hint invite-role-hint">
+          A Parent invite gets the same full team access as a Coach invite, once they accept and
+          create an account. For view-only sharing with no account needed, use the Fan link in
+          Public Links below instead.
+        </p>
       </form>
 
       {message && (
@@ -392,62 +428,95 @@ export function InvitationManagement({
           No coaches or pending invitations. Send an invitation to get started!
         </p>
       )}
+      </section>
 
       {/* Share Links — a materially different trust boundary (public,
           unauthenticated) than inviting a coach or parent above, so it's
           visually separated with its own divider/heading rather than folded
           into the existing regions. */}
       <hr className="share-links-divider" />
-      <div className="share-links-section">
-        <h4>Share Links</h4>
-        <p className="form-hint">
-          Generate a public link so parents/fans can follow the live score and
-          lineup — no account needed.
-        </p>
-
-        {activeFanLink ? (
-          <div className="share-link-item" data-testid="fan-share-link-active">
-            <div className="share-link-info">
-              <span className="share-link-label">Fan link (live view)</span>
-              <span className="share-link-url">{fanLinkUrl(activeFanLink.token)}</span>
-            </div>
-            <div className="share-link-actions">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => handleCopyFanLink(activeFanLink.token)}
-                disabled={loading}
-              >
-                Copy Link
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={handleGenerateFanLink}
-                disabled={loading}
-              >
-                Replace
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => handleRevokeFanLink(activeFanLink.token)}
-                disabled={loading}
-              >
-                Revoke
-              </button>
-            </div>
+      <section className="sharing-group share-links-section" aria-labelledby="sharing-group-public-links-heading">
+        <div className="sharing-group-header">
+          <div>
+            <h4 id="sharing-group-public-links-heading" className="sharing-group-heading">
+              Public Links (no account)
+            </h4>
+            <p className="form-hint">
+              Generate a public link so parents/fans can follow the live score and
+              lineup, or so a helper can log stats — no account needed.
+            </p>
           </div>
-        ) : (
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={handleGenerateFanLink}
-            disabled={loading}
-          >
-            Generate Fan Link
-          </button>
-        )}
+        </div>
+
+        <div className="share-link-row">
+          <div className="share-link-summary">
+            <span className="share-link-label">Fan link (live view)</span>
+            {activeFanLink && (
+              <span className="badge badge-success">Read-only</span>
+            )}
+            <span className="share-link-status-text">
+              {activeFanLink ? 'Active' : 'Not generated yet'}
+            </span>
+            {version === 'new' && activeFanLink && (
+              <button
+                type="button"
+                className="btn-secondary share-links-toggle"
+                aria-expanded={fanDetailsExpanded}
+                onClick={toggleFanDetailsExpanded}
+              >
+                {fanDetailsExpanded ? 'Hide Fan link details' : 'Show Fan link details'}
+              </button>
+            )}
+          </div>
+
+          {activeFanLink ? (
+            fanDetailsExpanded && (
+              <div className="share-link-item" data-testid="fan-share-link-active">
+                <div className="share-link-info">
+                  <span className="share-link-url">{fanLinkUrl(activeFanLink.token)}</span>
+                </div>
+                <div className="share-link-actions">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => handleCopyFanLink(activeFanLink.token)}
+                    disabled={loading}
+                  >
+                    Copy Link
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleGenerateFanLink}
+                    disabled={loading}
+                  >
+                    Replace
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => handleRevokeFanLink(activeFanLink.token)}
+                    disabled={loading}
+                  >
+                    Revoke
+                  </button>
+                </div>
+              </div>
+            )
+          ) : (
+            // Never-generated: the Generate CTA always stays visible, never
+            // gated behind the collapse toggle — collapsing the OTHER link
+            // type's details must never hide this link's call-to-action.
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleGenerateFanLink}
+              disabled={loading}
+            >
+              Generate Fan Link
+            </button>
+          )}
+        </div>
 
         {/* Milestone B2 — Stat Tracker link (write-capable): a non-coach
             helper can log Goals/Shots/Saves from the sideline with no
@@ -457,202 +526,73 @@ export function InvitationManagement({
           goals, shots, and saves from the sideline — no account needed.
         </p>
 
-        {activeStatTrackerLink ? (
-          <div className="share-link-item" data-testid="stat-tracker-share-link-active">
-            <div className="share-link-info">
-              <span className="share-link-label">Stat Tracker link (write access)</span>
-              <span className="share-link-url">{statTrackerLinkUrl(activeStatTrackerLink.token)}</span>
-            </div>
-            <div className="share-link-actions">
+        <div className="share-link-row">
+          <div className="share-link-summary">
+            <span className="share-link-label">Stat Tracker link (write access)</span>
+            {activeStatTrackerLink && (
+              <span className="badge badge-warning">Write access</span>
+            )}
+            <span className="share-link-status-text">
+              {activeStatTrackerLink ? 'Active' : 'Not generated yet'}
+            </span>
+            {version === 'new' && activeStatTrackerLink && (
               <button
                 type="button"
-                className="btn-secondary"
-                onClick={() => handleCopyStatTrackerLink(activeStatTrackerLink.token)}
-                disabled={loading}
+                className="btn-secondary share-links-toggle"
+                aria-expanded={trackerDetailsExpanded}
+                onClick={toggleTrackerDetailsExpanded}
               >
-                Copy Link
+                {trackerDetailsExpanded ? 'Hide Stat Tracker link details' : 'Show Stat Tracker link details'}
               </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={handleGenerateStatTrackerLink}
-                disabled={loading}
-              >
-                Replace
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => handleRevokeStatTrackerLink(activeStatTrackerLink.token)}
-                disabled={loading}
-              >
-                Revoke
-              </button>
-            </div>
+            )}
           </div>
-        ) : (
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={handleGenerateStatTrackerLink}
-            disabled={loading}
-          >
-            Generate Stat Tracker Link
-          </button>
-        )}
-      </div>
 
-      <style>{`
-        .invitation-management {
-          margin-top: 20px;
-        }
-
-        .invite-form {
-          background: #f5f5f5;
-          padding: 20px;
-          border-radius: 8px;
-          margin-bottom: 20px;
-        }
-
-        .invite-form h4 {
-          margin-top: 0;
-        }
-
-        .invite-form input,
-        .invite-form select {
-          margin-right: 10px;
-          margin-bottom: 10px;
-        }
-
-        .permissions-section,
-        .invitations-section {
-          margin-top: 20px;
-        }
-
-        .permissions-list,
-        .invitations-list {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .permission-item,
-        .invitation-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 15px;
-          background: white;
-          border: 1px solid #ddd;
-          border-radius: 8px;
-        }
-
-        .permission-info,
-        .invitation-info {
-          display: flex;
-          flex-direction: column;
-          gap: 5px;
-        }
-
-        .permission-role {
-          font-weight: 600;
-          color: #2196f3;
-        }
-
-        .invitation-role {
-          background: #667eea;
-          color: white;
-          padding: 4px 12px;
-          border-radius: 12px;
-          font-size: 0.85em;
-          font-weight: 600;
-        }
-
-        .permission-date,
-        .invitation-expiry {
-          font-size: 0.85em;
-          color: #666;
-        }
-
-        .permission-user,
-        .invitation-email {
-          font-weight: 500;
-        }
-
-        .message {
-          padding: 10px 15px;
-          border-radius: 4px;
-          margin-top: 10px;
-        }
-
-        .message-success {
-          background: #d4edda;
-          color: #155724;
-          border: 1px solid #c3e6cb;
-        }
-
-        .message-error {
-          background: #f8d7da;
-          color: #721c24;
-          border: 1px solid #f5c6cb;
-        }
-
-        .empty-message {
-          text-align: center;
-          color: #666;
-          padding: 20px;
-          font-style: italic;
-        }
-
-        .share-links-divider {
-          margin: 24px 0;
-          border: none;
-          border-top: 1px solid #ddd;
-        }
-
-        .share-links-section {
-          margin-top: 10px;
-        }
-
-        .share-links-section h4 {
-          margin-top: 0;
-        }
-
-        .share-link-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          flex-wrap: wrap;
-          gap: 10px;
-          padding: 15px;
-          background: white;
-          border: 1px solid #ddd;
-          border-radius: 8px;
-        }
-
-        .share-link-info {
-          display: flex;
-          flex-direction: column;
-          gap: 5px;
-          min-width: 0;
-        }
-
-        .share-link-label {
-          font-weight: 600;
-        }
-
-        .share-link-url {
-          font-size: 0.85em;
-          color: #666;
-          word-break: break-all;
-        }
-
-        .share-link-actions {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-      `}</style>
+          {activeStatTrackerLink ? (
+            trackerDetailsExpanded && (
+              <div className="share-link-item" data-testid="stat-tracker-share-link-active">
+                <div className="share-link-info">
+                  <span className="share-link-url">{statTrackerLinkUrl(activeStatTrackerLink.token)}</span>
+                </div>
+                <div className="share-link-actions">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => handleCopyStatTrackerLink(activeStatTrackerLink.token)}
+                    disabled={loading}
+                  >
+                    Copy Link
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleGenerateStatTrackerLink}
+                    disabled={loading}
+                  >
+                    Replace
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => handleRevokeStatTrackerLink(activeStatTrackerLink.token)}
+                    disabled={loading}
+                  >
+                    Revoke
+                  </button>
+                </div>
+              </div>
+            )
+          ) : (
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleGenerateStatTrackerLink}
+              disabled={loading}
+            >
+              Generate Stat Tracker Link
+            </button>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

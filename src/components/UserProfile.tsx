@@ -15,6 +15,10 @@ import { useConfirm } from './ConfirmModal';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { useHelpFab } from '../contexts/HelpFabContext';
 import { useTheme, type ThemeMode } from '../contexts/ThemeContext';
+import { useUIVersion, type UIVersion } from '../contexts/UIVersionContext';
+import { useOnboardingOptional } from '../contexts/OnboardingContext';
+import { isCoachProfileComplete } from '../utils/onboardingSignals';
+import { OnboardingNudge } from './Onboarding/OnboardingNudge';
 import { buildFlatDebugSnapshot } from '../utils/debugUtils';
 import type { UserProfileDebugContext } from '../types/debug';
 
@@ -33,12 +37,18 @@ const THEME_OPTIONS: { mode: ThemeMode; label: string }[] = [
   { mode: 'system', label: 'System' },
 ];
 
+const UI_VERSION_OPTIONS: { version: UIVersion; label: string }[] = [
+  { version: 'classic', label: 'Classic' },
+  { version: 'new', label: 'New' },
+];
+
 export function UserProfile() {
   const confirm = useConfirm();
   const { user } = useAuthenticator();
   const { signOut } = useOutletContext<{ signOut: () => void }>();
   const { setHelpContext, setDebugContext } = useHelpFab();
   const { mode: themeMode, setMode: setThemeMode } = useTheme();
+  const { version: uiVersion, setVersion: setUiVersion } = useUIVersion();
 
   // Register 'profile' help context while this screen is mounted.
   // @help-content: profile
@@ -57,6 +67,10 @@ export function UserProfile() {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileMessage, setProfileMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [conflictError, setConflictError] = useState<string | null>(null);
+  // Hoisted out of OnboardingNudge itself so a profile save (which swaps which
+  // branch below renders, remounting OnboardingNudge) doesn't lose the dismiss —
+  // see the single OnboardingNudge mount in the JSX below.
+  const [nudgeDismissed, setNudgeDismissed] = useState(false);
 
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -74,6 +88,18 @@ export function UserProfile() {
 
   const normalizedFirstName = useMemo(() => normalizeName(firstName), [firstName]);
   const saveDisabled = isSavingProfile || !normalizedFirstName;
+
+  // Onboarding nudge support: supply signal 2 (profile complete) locally,
+  // from the persisted CoachProfile (not the live, possibly-unsaved
+  // `firstName` input), using the same rule Home.tsx uses. Patched onto
+  // whatever baseline Home already set in context; no-ops if there's no
+  // baseline yet (see OnboardingContext.patchSignals).
+  const onboardingCtx = useOnboardingOptional();
+  const isProfileComplete = isCoachProfileComplete(coachProfile?.firstName);
+  const patchOnboardingSignals = onboardingCtx?.patchSignals;
+  useEffect(() => {
+    patchOnboardingSignals?.([1], [isProfileComplete]);
+  }, [patchOnboardingSignals, isProfileComplete]);
   const isDirty = useMemo(() => {
     if (!coachProfile) {
       return firstName.trim().length > 0 || lastName.trim().length > 0 || shareLastName !== true;
@@ -350,6 +376,14 @@ export function UserProfile() {
         </div>
       )}
 
+      {/* Single mount, always in the same structural position (right under
+          the heading, outside/above the .profile-section wrapper below) so
+          it never visually jumps between the alert-present and
+          alert-absent cases. The dismiss flag is controlled from here so a
+          profile save (which swaps which alert branch below renders) can't
+          remount a fresh, un-dismissed instance. */}
+      <OnboardingNudge dismissed={nudgeDismissed} onDismiss={() => setNudgeDismissed(true)} />
+
       <div className="profile-section">
         <h3>Coach Profile</h3>
         <p className="section-hint">Names are visible only to coaches on your teams.</p>
@@ -373,6 +407,7 @@ export function UserProfile() {
             {profileMessage.text}
           </div>
         )}
+
 
         <form className="password-form profile-form" onSubmit={handleSaveCoachProfile}>
           <div className="profile-name-grid">
@@ -488,6 +523,26 @@ export function UserProfile() {
               className={`theme-toggle__option${themeMode === mode ? ' theme-toggle__option--active' : ''}`}
               aria-pressed={themeMode === mode}
               onClick={() => setThemeMode(mode)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="profile-section">
+        <h3>Interface Mode</h3>
+        <p className="section-hint">
+          Changes layout and flow on several screens (Halftime, Sharing, Game Planner, Setup).
+        </p>
+        <div className="ui-version-toggle" role="group" aria-label="Interface Mode">
+          {UI_VERSION_OPTIONS.map(({ version, label }) => (
+            <button
+              key={version}
+              type="button"
+              className={`ui-version-toggle__option${uiVersion === version ? ' ui-version-toggle__option--active' : ''}`}
+              aria-pressed={uiVersion === version}
+              onClick={() => setUiVersion(version)}
             >
               {label}
             </button>

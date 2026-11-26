@@ -105,6 +105,7 @@ const mockCaptures: {
   planTabProps?: any;
   shotSaveTrackerProps?: any;
   shotOutcomeEntryProps?: any;
+  lineupPanelProps?: any;
 } = {};
 
 vi.mock("./GameTimer", () => ({
@@ -153,7 +154,8 @@ vi.mock("./RotationWidget", () => ({
 }));
 vi.mock("./SubstitutionPanel",() => ({ SubstitutionPanel:() => <div /> }));
 vi.mock("./LineupPanel", () => ({
-  LineupPanel: vi.fn(() => {
+  LineupPanel: vi.fn((props: any) => {
+    mockCaptures.lineupPanelProps = props;
     return <div />;
   }),
 }));
@@ -299,6 +301,15 @@ vi.mock("../../services/rotationPlannerService", () => ({
 vi.mock("../../contexts/AvailabilityContext", () => ({
   AvailabilityProvider: ({ children }: any) => children,
   useAvailability: () => ({ getPlayerAvailability: vi.fn().mockReturnValue("available") }),
+}));
+
+const { mockUseUIVersion } = vi.hoisted(() => ({
+  // Matches useUIVersion()'s own real no-provider fallback, so every existing
+  // test (none of which opt into 'new') keeps exercising classic behavior.
+  mockUseUIVersion: vi.fn().mockReturnValue({ version: "classic", setVersion: vi.fn() }),
+}));
+vi.mock("../../contexts/UIVersionContext", () => ({
+  useUIVersion: mockUseUIVersion,
 }));
 
 vi.mock("../../contexts/HelpFabContext", () => ({
@@ -1881,6 +1892,122 @@ describe("GameManagement – starter fallback uses resolved starters", () => {
     expect(mockGameUpdate).not.toHaveBeenCalled();
     expect(wasGameStateFlippedToInProgress(gameState)).toBe(false);
   });
+
+  // Regression coverage for the residual gap closed in this change: `pendingRemovalIds`
+  // was local to LineupPanel, so a removal still in flight (or queued offline, i.e.
+  // not yet reflected by either the live `lineup` subscription or a DB re-query) could
+  // be silently reinstated by handleStartSecondHalf's DB fallback. It is now lifted
+  // into GameManagement and threaded through both resolveSecondHalfStarters and the
+  // DB-fallback filter.
+  it("regression: a starter removed and still pending (queued) at halftime is excluded from both local resolution and the DB fallback, and never gets a second-half PlayTimeRecord", async () => {
+    const { handleApiError } = await import("../../utils/errorHandler");
+    const user = userEvent.setup();
+    mockUseTeamData.mockReturnValue({
+      players: [],
+      positions: [
+        { id: 'pos1', positionName: 'Goalkeeper', abbreviation: 'GK' },
+        { id: 'pos2', positionName: 'Defender', abbreviation: 'DEF' },
+      ],
+    });
+    const gameState = { ...defaultSubscription.gameState, status: 'halftime' };
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState,
+      lineup: [
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+        { id: 'la-2', gameId: 'game-1', playerId: 'p2', positionId: 'pos2', isStarter: true },
+      ],
+    });
+    // The removal hasn't round-tripped anywhere yet (still in flight / queued
+    // offline) — the DB re-query still returns la-1 too, same as the live
+    // subscription. Without the fix this would silently reinstate p1.
+    mockLineupList.mockResolvedValueOnce({
+      data: [
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+        { id: 'la-2', gameId: 'game-1', playerId: 'p2', positionId: 'pos2', isStarter: true },
+      ],
+    });
+
+    renderWithRouter(
+      <GameManagement
+        game={{ ...mockGame, status: 'halftime' }}
+        team={{ ...mockTeam, maxPlayersOnField: 2 }}
+        onBack={vi.fn()}
+      />
+    );
+
+    // LineupPanel itself is mocked out in this file, so drive the lifted
+    // `pendingRemovalIds` state the same way LineupPanel's real
+    // handleRemoveFromLineup would: by calling the `onPendingRemovalChange`
+    // setter GameManagement passed it, marking la-1 as pending-removal — this
+    // is the exact prop pair now controlled by GameManagement instead of
+    // LineupPanel's old local useState.
+    expect(mockCaptures.lineupPanelProps?.onPendingRemovalChange).toBeInstanceOf(Function);
+    await act(async () => {
+      mockCaptures.lineupPanelProps.onPendingRemovalChange(new Set(['la-1']));
+    });
+
+    await user.click(screen.getByRole('button', { name: /start second half/i }));
+
+    await waitFor(() => {
+      expect(mockLineupList).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(handleApiError).toHaveBeenCalledWith(
+        expect.any(Error),
+        'Assign 2 starters before starting the second half. Currently assigned: 1.'
+      );
+    });
+    const createdPlayerIds = mockPlayTimeCreate.mock.calls.map(
+      (args: unknown[]) => (args[0] as { playerId: string }).playerId,
+    );
+    expect(createdPlayerIds).not.toContain('p1');
+    expect(mockGameUpdate).not.toHaveBeenCalled();
+    expect(wasGameStateFlippedToInProgress(gameState)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §2: HalftimeLineupSummary is gated behind the Interface Mode toggle — only
+// mounted in the halftime layout when version === 'new'.
+// ---------------------------------------------------------------------------
+describe("GameManagement – HalftimeLineupSummary gating", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseTeamData.mockReturnValue({ players: [], positions: [] });
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "halftime" },
+    });
+  });
+
+  it("does not render the halftime summary strip in 'classic' mode", () => {
+    mockUseUIVersion.mockReturnValue({ version: "classic", setVersion: vi.fn() });
+    renderWithRouter(
+      <GameManagement game={{ ...mockGame, status: "halftime" }} team={mockTeam} onBack={vi.fn()} />
+    );
+    expect(document.querySelector(".halftime-lineup-summary")).not.toBeInTheDocument();
+  });
+
+  it("renders the halftime summary strip in 'new' mode", () => {
+    mockUseUIVersion.mockReturnValue({ version: "new", setVersion: vi.fn() });
+    renderWithRouter(
+      <GameManagement game={{ ...mockGame, status: "halftime" }} team={mockTeam} onBack={vi.fn()} />
+    );
+    expect(document.querySelector(".halftime-lineup-summary")).toBeInTheDocument();
+  });
+
+  it("does not render the halftime summary strip outside the halftime layout, even in 'new' mode", () => {
+    mockUseUIVersion.mockReturnValue({ version: "new", setVersion: vi.fn() });
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: "in-progress" },
+    });
+    renderWithRouter(
+      <GameManagement game={{ ...mockGame, status: "in-progress" }} team={mockTeam} onBack={vi.fn()} />
+    );
+    expect(document.querySelector(".halftime-lineup-summary")).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -3227,6 +3354,161 @@ describe("GameManagement – handleRecalculateRotations uses plannerSnapshot lin
         expect.objectContaining({ playerId: 'p1',  positionId: 'pos-f1' }),
       ])
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleRecalculateRotations – Promise<boolean> return value (§6: PlanTab's
+// post-generate summary needs a defined true-on-success / false-on-early-return
+// signal; onGenerateRotations is this function).
+// ---------------------------------------------------------------------------
+describe("GameManagement – handleRecalculateRotations resolves Promise<boolean>", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockConfirm.mockResolvedValue(true);
+    mockUseTeamData.mockReturnValue({
+      players: [
+        { id: 'p1', playerNumber: 1, firstName: 'Alice', lastName: 'A', isActive: true, preferredPositions: 'pos1' },
+      ],
+      positions: [{ id: 'pos1', abbreviation: 'FW', role: 'FORWARD' }],
+    });
+  });
+
+  it("resolves false when there is no gamePlan (no confirm shown)", async () => {
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled', halfLengthMinutes: 30 },
+      gamePlan: null,
+      plannedRotations: [],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+
+    let result: boolean | undefined;
+    await act(async () => {
+      result = await mockCaptures.planTabProps?.onGenerateRotations?.();
+    });
+
+    expect(result).toBe(false);
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
+  it("resolves false when the coach cancels the confirm dialog", async () => {
+    mockConfirm.mockResolvedValue(false);
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled', halfLengthMinutes: 30 },
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10, startingLineup: '[]' } as any,
+      plannedRotations: [],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+
+    let result: boolean | undefined;
+    await act(async () => {
+      result = await mockCaptures.planTabProps?.onGenerateRotations?.();
+    });
+
+    expect(result).toBe(false);
+    expect(mockConfirm).toHaveBeenCalled();
+  });
+
+  it("resolves false when there are no available players in the starting lineup", async () => {
+    mockUseTeamData.mockReturnValue({
+      // No players at all -> lineupArray resolves empty regardless of snapshot/live starters.
+      players: [],
+      positions: [{ id: 'pos1', abbreviation: 'FW', role: 'FORWARD' }],
+    });
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled', halfLengthMinutes: 30 },
+      lineup: [],
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10, startingLineup: '[]' } as any,
+      plannedRotations: [],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+
+    let result: boolean | undefined;
+    await act(async () => {
+      result = await mockCaptures.planTabProps?.onGenerateRotations?.({
+        plannerSnapshot: {
+          startingLineup: new Map(),
+          halfLengthMinutes: 30,
+          rotationIntervalMinutes: 10,
+        },
+      });
+    });
+
+    expect(result).toBe(false);
+  });
+
+  it("resolves true after a confirmed, successful write", async () => {
+    const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
+    const mockedFn = vi.mocked(mockedCalc);
+    mockedFn.mockReturnValue({ rotations: [], warnings: [] });
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled', halfLengthMinutes: 30 },
+      lineup: [
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+      ],
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10, startingLineup: '[]' } as any,
+      plannedRotations: [
+        { id: 'rot-1', rotationNumber: 1, gameMinute: 10, half: 1, plannedSubstitutions: '[]' } as any,
+      ],
+    });
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+
+    let result: boolean | undefined;
+    await act(async () => {
+      result = await mockCaptures.planTabProps?.onGenerateRotations?.({
+        plannerSnapshot: {
+          startingLineup: new Map([['pos1', 'p1']]),
+          halfLengthMinutes: 30,
+          rotationIntervalMinutes: 10,
+        },
+      });
+    });
+
+    expect(result).toBe(true);
+    expect(mockedFn).toHaveBeenCalled();
+  });
+
+  it("resolves false when the write itself throws", async () => {
+    const { calculateFairRotations: mockedCalc } = await import("../../services/rotationPlannerService");
+    const mockedFn = vi.mocked(mockedCalc);
+    mockedFn.mockReturnValue({ rotations: [{ substitutions: [] }], warnings: [] });
+
+    mockUseGameSubscriptions.mockReturnValue({
+      ...defaultSubscription,
+      gameState: { ...defaultSubscription.gameState, status: 'scheduled', halfLengthMinutes: 30 },
+      lineup: [
+        { id: 'la-1', gameId: 'game-1', playerId: 'p1', positionId: 'pos1', isStarter: true },
+      ],
+      gamePlan: { id: 'gp-1', rotationIntervalMinutes: 10, startingLineup: '[]' } as any,
+      plannedRotations: [
+        { id: 'rot-1', rotationNumber: 1, gameMinute: 10, half: 1, plannedSubstitutions: '[]' } as any,
+      ],
+    });
+    mockPlannedRotationUpdate.mockRejectedValueOnce(new Error('network error'));
+
+    renderWithRouter(<GameManagement game={{ ...mockGame, status: 'scheduled' }} team={mockTeam} onBack={vi.fn()} />);
+
+    let result: boolean | undefined;
+    await act(async () => {
+      result = await mockCaptures.planTabProps?.onGenerateRotations?.({
+        plannerSnapshot: {
+          startingLineup: new Map([['pos1', 'p1']]),
+          halfLengthMinutes: 30,
+          rotationIntervalMinutes: 10,
+        },
+      });
+    });
+
+    expect(result).toBe(false);
   });
 });
 

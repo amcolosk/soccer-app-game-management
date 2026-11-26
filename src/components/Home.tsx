@@ -20,6 +20,7 @@ import { useHelpFab } from '../contexts/HelpFabContext';
 import { buildFlatDebugSnapshot } from '../utils/debugUtils';
 import type { HomeDebugContext } from '../types/debug';
 import { useOnboarding } from '../contexts/OnboardingContext';
+import { computeOnboardingSignals, isCoachProfileComplete } from '../utils/onboardingSignals';
 import { removeDemoData } from '../services/demoDataService';
 import { createGame } from '../services/gameService';
 import { WelcomeModal } from './Onboarding/WelcomeModal';
@@ -66,7 +67,7 @@ export function Home() {
   const navigate = useNavigate();
   const { authStatus } = useAuthenticator((context) => [context.authStatus]);
   const { setHelpContext, setDebugContext } = useHelpFab();
-  const { welcomed, dismissed, collapsed, markWelcomed, expand, dismiss, clearDismissed } = useOnboarding();
+  const { welcomed, dismissed, collapsed, markWelcomed, expand, dismiss, clearDismissed, setSignals } = useOnboarding();
 
   // Register 'home' help context while this screen is mounted
   useEffect(() => {
@@ -232,23 +233,24 @@ export function Home() {
     dismissed && isProfileCompletionResolved && isChecklistSourceDataReady;
 
   const checklistStepCompletion = useMemo(
-    () => [
-      activeTeams.length >= 1,
+    () => computeOnboardingSignals({
+      teams: activeTeams as { id: string; formationId?: string | null }[],
+      games: gamesForDisplay as { status?: string }[],
+      teamRosters: teamRosters as { teamId: string }[],
+      gamePlans,
       profileComplete,
-      (teamRosters as { teamId: string }[]).some((r) =>
-        (activeTeams as { id: string }[]).some((t) => t.id === r.teamId)
-      ),
-      (activeTeams as { id: string; formationId?: string | null }[]).some(
-        (t) => t.formationId != null && t.formationId !== ''
-      ),
-      gamesForDisplay.length >= 1,
-      gamePlans.length >= 1,
-      (gamesForDisplay as { status?: string }[]).some(
-        (g) => g.status === 'in-progress' || g.status === 'completed'
-      ),
-    ],
+    }),
     [activeTeams, profileComplete, teamRosters, gamesForDisplay, gamePlans]
   );
+
+  // Home is both a producer and a consumer of OnboardingContext.signals —
+  // setSignals is equality-guarded internally, so this effect doesn't loop.
+  // This is also what gives Management.tsx/UserProfile.tsx a baseline to
+  // merge their own locally-computed signals onto when the coach navigates
+  // there after visiting Home.
+  useEffect(() => {
+    setSignals?.(checklistStepCompletion);
+  }, [checklistStepCompletion, setSignals]);
 
   const readDismissedStepSnapshot = useCallback((): boolean[] | null => {
     if (typeof window === 'undefined') {
@@ -412,8 +414,7 @@ export function Home() {
           return;
         }
 
-        const normalizedFirstName = result.data?.firstName?.trim() ?? '';
-        setProfileComplete(normalizedFirstName.length > 0);
+        setProfileComplete(isCoachProfileComplete(result.data?.firstName));
         setIsProfileCompletionResolved(true);
       })
       .catch(() => {
@@ -875,6 +876,39 @@ export function Home() {
     return status === 'in-progress' || status === 'halftime';
   });
   const scheduledGames = teamFilteredGames.filter(g => (g.status || 'scheduled') === 'scheduled');
+
+  // Game Day banner (Phase 1 §3): a pinned CTA above the Active/Upcoming/Past
+  // list for the single most-imminent/active qualifying game today. Live
+  // games (in-progress/halftime) win regardless of date — a game left
+  // running since yesterday still surfaces. "Today" is evaluated in local
+  // time. Both lists are reused as-is; nothing is re-derived independently.
+  const todaysScheduledGames = useMemo(() => {
+    const now = new Date();
+    return scheduledGames.filter((g) => {
+      if (!g.gameDate) return false;
+      const gameDay = new Date(g.gameDate);
+      return (
+        gameDay.getFullYear() === now.getFullYear() &&
+        gameDay.getMonth() === now.getMonth() &&
+        gameDay.getDate() === now.getDate()
+      );
+    });
+  }, [scheduledGames]);
+
+  const gameDayBannerGame = useMemo(() => {
+    const byDateAsc = (a: Game, b: Game) => {
+      const da = a.gameDate ? new Date(a.gameDate).getTime() : 0;
+      const db = b.gameDate ? new Date(b.gameDate).getTime() : 0;
+      return da - db;
+    };
+    if (inProgressGames.length > 0) {
+      return [...inProgressGames].sort(byDateAsc)[0];
+    }
+    if (todaysScheduledGames.length > 0) {
+      return [...todaysScheduledGames].sort(byDateAsc)[0];
+    }
+    return null;
+  }, [inProgressGames, todaysScheduledGames]);
   const completedGames = teamFilteredGames.filter(g => {
     if (g.status !== 'completed') return false;
     const team = teams.find(t => t.id === g.teamId);
@@ -898,6 +932,7 @@ export function Home() {
           preventing a flash for existing users being auto-welcomed */}
       {!welcomed && isTeamsSynced && (
         <WelcomeModal
+          userId={currentUserId ?? ''}
           onClose={markWelcomed}
           onGetStarted={handleOpenQuickStart}
         />
@@ -1196,6 +1231,28 @@ export function Home() {
           <p>No games for this team yet.</p>
         </div>
       )}
+
+      {gameDayBannerGame && (() => {
+        const bannerTeam = getTeam(gameDayBannerGame.teamId);
+        const isLive = gameDayBannerGame.status === 'in-progress' || gameDayBannerGame.status === 'halftime';
+        return (
+          <div className="game-day-banner">
+            <div className="game-day-banner-info">
+              <span className="game-day-banner-label">📅 Game Day</span>
+              <h4 className="game-day-banner-title">
+                {bannerTeam ? `${bannerTeam.name} vs ${gameDayBannerGame.opponent}` : gameDayBannerGame.opponent}
+              </h4>
+            </div>
+            <button
+              type="button"
+              className="btn-primary game-day-banner-cta"
+              onClick={() => handleGameClick(gameDayBannerGame)}
+            >
+              {isLive ? 'Resume Game' : 'Start Game'}
+            </button>
+          </div>
+        );
+      })()}
 
       {inProgressGames.length > 0 && (
         <div className="games-group">

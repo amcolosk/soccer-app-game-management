@@ -16,6 +16,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { useState, type ComponentProps } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -207,6 +208,32 @@ const defaultProps = {
 };
 
 // ---------------------------------------------------------------------------
+// Test harness
+// ---------------------------------------------------------------------------
+
+// `pendingRemovalIds` is now a controlled prop pair owned by GameManagement.tsx
+// (lifted out of LineupPanel) — this harness stands in for that lift so every
+// existing test below (which renders LineupPanel directly) keeps exercising
+// the same optimistic add/rollback/bulk-clear behavior against real state,
+// instead of a static value that never changes across a re-render.
+type LineupPanelHarnessProps = Omit<ComponentProps<typeof LineupPanel>, 'pendingRemovalIds' | 'onPendingRemovalChange'> & {
+  initialPendingRemovalIds?: Set<string>;
+};
+
+function LineupPanelHarness({ initialPendingRemovalIds, ...props }: LineupPanelHarnessProps) {
+  const [pendingRemovalIds, setPendingRemovalIds] = useState<Set<string>>(
+    initialPendingRemovalIds ?? new Set(),
+  );
+  return (
+    <LineupPanel
+      {...props}
+      pendingRemovalIds={pendingRemovalIds}
+      onPendingRemovalChange={setPendingRemovalIds}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -225,7 +252,7 @@ describe('LineupPanel', () => {
 
   it('shows "Starting Lineup" header for scheduled status', () => {
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('scheduled')}
         game={makeGame('scheduled')}
@@ -235,13 +262,13 @@ describe('LineupPanel', () => {
   });
 
   it('shows "Current Lineup" header for in-progress status', () => {
-    render(<LineupPanel {...defaultProps} />);
+    render(<LineupPanelHarness {...defaultProps} />);
     expect(screen.getByRole('heading', { name: /current lineup/i })).toBeInTheDocument();
   });
 
   it('shows "Second Half Lineup" header for halftime status', () => {
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -254,7 +281,7 @@ describe('LineupPanel', () => {
 
   it('renders LineupBuilder when status is scheduled', () => {
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('scheduled')}
         game={makeGame('scheduled')}
@@ -265,7 +292,7 @@ describe('LineupPanel', () => {
   });
 
   it('does NOT render LineupBuilder when status is in-progress', () => {
-    render(<LineupPanel {...defaultProps} />);
+    render(<LineupPanelHarness {...defaultProps} />);
     expect(screen.queryByTestId('lineup-builder')).not.toBeInTheDocument();
   });
 
@@ -273,7 +300,7 @@ describe('LineupPanel', () => {
 
   it('shows halftime hint text only in halftime status', () => {
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -284,7 +311,7 @@ describe('LineupPanel', () => {
 
   it('shows "Clear All" button in halftime when positions are assigned', () => {
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -296,7 +323,7 @@ describe('LineupPanel', () => {
 
   it('shows disabled "Clear All" button in halftime when no positions are assigned', () => {
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -309,7 +336,7 @@ describe('LineupPanel', () => {
   // ── Slot buttons by status -----------------------------------------------
 
   it('shows substitute button (not remove) in in-progress status for assigned player', () => {
-    render(<LineupPanel {...defaultProps} />);
+    render(<LineupPanelHarness {...defaultProps} />);
     // Substitute button has title="Make substitution" with arrow character as content
     expect(screen.getByTitle('Make substitution')).toBeInTheDocument();
     expect(document.querySelector('.btn-remove-small')).not.toBeInTheDocument();
@@ -317,7 +344,7 @@ describe('LineupPanel', () => {
 
   it('shows remove button (not substitute) in halftime status for assigned player', () => {
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -330,18 +357,18 @@ describe('LineupPanel', () => {
   // ── Available players section ---------------------------------------------
 
   it('shows available players section in in-progress status', () => {
-    render(<LineupPanel {...defaultProps} />);
+    render(<LineupPanelHarness {...defaultProps} />);
     expect(screen.getByText(/available players/i)).toBeInTheDocument();
   });
 
   it('hides available players section when hideAvailablePlayers is true', () => {
-    render(<LineupPanel {...defaultProps} hideAvailablePlayers />);
+    render(<LineupPanelHarness {...defaultProps} hideAvailablePlayers />);
     expect(screen.queryByText(/available players/i)).not.toBeInTheDocument();
   });
 
   it('hides available players section in scheduled status', () => {
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('scheduled')}
         game={makeGame('scheduled')}
@@ -352,7 +379,7 @@ describe('LineupPanel', () => {
 
   it('renders shape view when viewMode is shape', () => {
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         viewMode="shape"
       />,
@@ -365,7 +392,7 @@ describe('LineupPanel', () => {
     const onViewModeChange = vi.fn();
 
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         onViewModeChange={onViewModeChange}
       />,
@@ -381,7 +408,7 @@ describe('LineupPanel', () => {
     const onSubstitute = vi.fn();
 
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         isReadOnly
         onViewModeChange={onViewModeChange}
@@ -408,7 +435,7 @@ describe('LineupPanel', () => {
     const user = userEvent.setup();
 
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         isReadOnly
         viewMode="shape"
@@ -433,7 +460,7 @@ describe('LineupPanel', () => {
     const deleteLineupAssignment = vi.fn().mockResolvedValue({});
 
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         viewMode="shape"
         lineup={[
@@ -477,7 +504,7 @@ describe('LineupPanel', () => {
     const deleteLineupAssignment = vi.fn().mockResolvedValue({});
 
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         viewMode="shape"
         lineup={[
@@ -522,7 +549,7 @@ describe('LineupPanel', () => {
     const deleteLineupAssignment = vi.fn().mockRejectedValue(new Error('not found'));
 
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         viewMode="shape"
         lineup={[
@@ -565,7 +592,7 @@ describe('LineupPanel', () => {
   it('substitute button calls onSubstitute with the matching position', async () => {
     const user = userEvent.setup();
     const onSubstitute = vi.fn();
-    render(<LineupPanel {...defaultProps} onSubstitute={onSubstitute} />);
+    render(<LineupPanelHarness {...defaultProps} onSubstitute={onSubstitute} />);
 
     await user.click(screen.getByTitle('Make substitution'));
     expect(onSubstitute).toHaveBeenCalledWith(pos1);
@@ -576,7 +603,7 @@ describe('LineupPanel', () => {
   it('Clear All: confirm → deletes all lineup assignments', async () => {
     const user = userEvent.setup();
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -595,7 +622,7 @@ describe('LineupPanel', () => {
     mockConfirm.mockResolvedValue(false);
     const user = userEvent.setup();
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -612,7 +639,7 @@ describe('LineupPanel', () => {
     mockDeleteLineupAssignment.mockRejectedValueOnce(new Error('not found'));
     const user = userEvent.setup();
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -636,7 +663,7 @@ describe('LineupPanel', () => {
     );
     const user = userEvent.setup();
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -661,7 +688,7 @@ describe('LineupPanel', () => {
     mockDeleteLineupAssignment.mockRejectedValueOnce(new Error('network error'));
     const user = userEvent.setup();
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -686,7 +713,7 @@ describe('LineupPanel', () => {
       .mockResolvedValueOnce({});
     const user = userEvent.setup();
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -714,7 +741,7 @@ describe('LineupPanel', () => {
       .mockResolvedValueOnce({});
     const user = userEvent.setup();
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -740,7 +767,7 @@ describe('LineupPanel', () => {
     const user = userEvent.setup();
     const onSubstitute = vi.fn();
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -762,7 +789,7 @@ describe('LineupPanel', () => {
   it('position picker: opens from an available-player click and assigns on pick', async () => {
     const user = userEvent.setup();
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -792,7 +819,7 @@ describe('LineupPanel', () => {
   it('position picker: Cancel closes the modal without assigning', async () => {
     const user = userEvent.setup();
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -826,7 +853,7 @@ describe('LineupPanel', () => {
     );
 
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -863,7 +890,7 @@ describe('LineupPanel', () => {
     );
 
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -890,7 +917,7 @@ describe('LineupPanel', () => {
     const user = userEvent.setup();
 
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -919,7 +946,7 @@ describe('LineupPanel', () => {
     mockCreateLineupAssignment.mockRejectedValueOnce(new Error('network error'));
 
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}
@@ -943,7 +970,7 @@ describe('LineupPanel', () => {
   it('halftime: removing a starter then assigning a replacement fills the vacated position without recording a Substitution', async () => {
     const user = userEvent.setup();
     render(
-      <LineupPanel
+      <LineupPanelHarness
         {...defaultProps}
         gameState={makeGame('halftime')}
         game={makeGame('halftime')}

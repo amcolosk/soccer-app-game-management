@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { trackEvent, AnalyticsEvents } from '../../utils/analytics';
+import { useUIVersion } from '../../contexts/UIVersionContext';
+import { computeOnboardingSignals, ONBOARDING_SIGNAL_COUNT } from '../../utils/onboardingSignals';
 import './QuickStartChecklist.css';
 
 interface QuickStartChecklistProps {
@@ -45,24 +47,28 @@ export function QuickStartChecklist({
 }: QuickStartChecklistProps) {
   const [isComplete, setIsComplete] = useState(false);
   const [isRemovingDemo, setIsRemovingDemo] = useState(false);
-  
+  const [showAllSteps, setShowAllSteps] = useState(false);
+  const { version } = useUIVersion();
+
   // Track previous step states to detect transitions (for analytics)
   const prevStepsRef = useRef<boolean[]>([]);
 
-  // Derive step completion
-  const step1Complete = teams.length >= 1;
-  const step2Complete = profileComplete;
-  const step3Complete = (teamRosters as { teamId: string }[]).some(r => 
-    (teams as { id: string }[]).some(t => t.id === r.teamId)
+  // Derive step completion via the shared pure function (also used by
+  // Home.tsx's checklistStepCompletion) rather than an independent copy.
+  const signals = useMemo(
+    () => computeOnboardingSignals({
+      teams: teams as { id: string; formationId?: string | null }[],
+      games: games as { status?: string }[],
+      teamRosters: teamRosters as { teamId: string }[],
+      gamePlans,
+      profileComplete,
+    }),
+    [teams, games, teamRosters, gamePlans, profileComplete]
   );
-  const step4Complete = (teams as { id: string; formationId?: string | null }[]).some(
-    t => t.formationId != null && t.formationId !== ''
-  );
-  const step5Complete = games.length >= 1;
-  const step6Complete = gamePlans.length >= 1;
-  const step7Complete = (games as { status?: string }[]).some(
-    g => g.status === 'in-progress' || g.status === 'completed'
-  );
+  const [
+    step1Complete, step2Complete, step3Complete, step4Complete,
+    step5Complete, step6Complete, step7Complete,
+  ] = signals;
 
   const steps: OnboardingStep[] = [
     {
@@ -111,6 +117,28 @@ export function QuickStartChecklist({
 
   const completedCount = steps.filter(s => s.completed).length;
   const allComplete = completedCount === steps.length;
+
+  // 'new': merge step 1 ("Create your team") and step 4 ("Set your
+  // formation") into one 6-row display item — both already route to the
+  // same /manage?section=teams destination. Display-only: the persisted
+  // 7-item `onboarding:lastCompletedSteps` snapshot (Home.tsx) and the
+  // `steps`/`completedCount`/`allComplete` above are untouched by this.
+  const mergedTeamAndFormationStep: OnboardingStep = {
+    id: 1,
+    title: 'Create your team & set formation',
+    completed: step1Complete && step4Complete,
+    directionText: 'Go to Manage ⚙️ → Teams',
+  };
+  const displaySteps: OnboardingStep[] = version === 'new'
+    ? [mergedTeamAndFormationStep, steps[1], steps[2], steps[4], steps[5], steps[6]]
+    : steps; // UI-VERSION-CLASSIC: unchanged 7-step always-full list, no merge
+
+  const nextIncompleteDisplayStep = displaySteps.find(s => !s.completed) ?? null;
+  // 'new': default render shows only the next incomplete step, with a "See
+  // all steps" expand restoring the full merged list.
+  const visibleDisplaySteps = version === 'new' && !showAllSteps && nextIncompleteDisplayStep
+    ? [nextIncompleteDisplayStep]
+    : displaySteps; // UI-VERSION-CLASSIC: always the full list
 
   // Track step completion transitions (incomplete → complete)
   useEffect(() => {
@@ -176,7 +204,7 @@ export function QuickStartChecklist({
       <div className="quick-start-resume-banner" onClick={onExpand}>
         <span className="quick-start-resume-icon" aria-hidden="true">📋</span>
         <span className="quick-start-resume-text">
-          Setup: {completedCount} of 7 complete — Resume →
+          Setup: {completedCount} of {ONBOARDING_SIGNAL_COUNT} complete — Resume →
         </span>
       </div>
     );
@@ -254,16 +282,16 @@ export function QuickStartChecklist({
             className="quick-start-progress-bar"
             role="progressbar"
             aria-valuenow={completedCount}
-            aria-valuemax={7}
+            aria-valuemax={ONBOARDING_SIGNAL_COUNT}
             aria-label="Onboarding progress"
           >
             <div
               className="quick-start-progress-fill"
-              style={{ '--progress': `${(completedCount / 7) * 100}%` } as React.CSSProperties}
+              style={{ '--progress': `${(completedCount / ONBOARDING_SIGNAL_COUNT) * 100}%` } as React.CSSProperties}
             />
           </div>
           <p className="quick-start-progress-label">
-            {completedCount} of 7 steps complete
+            {completedCount} of {ONBOARDING_SIGNAL_COUNT} steps complete
           </p>
         </div>
         {demoTeamId && (
@@ -274,7 +302,7 @@ export function QuickStartChecklist({
       </div>
 
       <div className="quick-start-body">
-        {steps.map((step) => (
+        {visibleDisplaySteps.map((step) => (
           <button
             key={step.id}
             className="quick-start-step"
@@ -295,6 +323,17 @@ export function QuickStartChecklist({
             )}
           </button>
         ))}
+        {/* UI-VERSION-CLASSIC: classic always shows the full list, so this
+            expand control never renders there. */}
+        {version === 'new' && visibleDisplaySteps.length < displaySteps.length && (
+          <button
+            type="button"
+            className="quick-start-see-all"
+            onClick={() => setShowAllSteps(true)}
+          >
+            See all steps
+          </button>
+        )}
       </div>
     </div>
   );
