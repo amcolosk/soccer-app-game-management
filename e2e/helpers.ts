@@ -524,8 +524,10 @@ export async function navigateToManagement(page: Page) {
  * @param tabName - Name of the tab: 'Teams' | 'Formations' | 'Players' | 'Sharing' | 'App'
  */
 export async function clickManagementTab(page: Page, tabName: 'Teams' | 'Formations' | 'Players' | 'Sharing' | 'App') {
+  // Tab buttons are prefixed with a decorative icon (e.g. "🛡 Teams (3)"), so match the
+  // name anywhere in the button text rather than anchoring to the very start.
   // eslint-disable-next-line security/detect-non-literal-regexp
-  const tab = page.locator('button.management-tab', { hasText: new RegExp(`^${tabName}`) });
+  const tab = page.locator('button.management-tab', { hasText: new RegExp(tabName) });
   await tab.click();
   await expect(tab).toHaveClass(/active/, { timeout: 3000 });
 }
