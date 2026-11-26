@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { InvitationManagement } from './InvitationManagement';
+import { UIVersionProvider } from '../contexts/UIVersionContext';
 
 const {
   mockTeamGet,
@@ -71,6 +72,7 @@ vi.mock('../hooks/useAmplifyQuery', () => ({
 describe('InvitationManagement', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
 
     mockGetCurrentUser.mockResolvedValue({ userId: 'coach-1' });
     mockTeamGet.mockResolvedValue({ data: { coaches: ['coach-1', 'coach-2'] } });
@@ -117,6 +119,19 @@ describe('InvitationManagement', () => {
         resourceId="team-1"
         resourceName="Tigers"
       />
+    );
+  }
+
+  function renderWithVersion(version: 'classic' | 'new') {
+    localStorage.setItem('teamtrack-ui-version', version);
+    return render(
+      <UIVersionProvider>
+        <InvitationManagement
+          type="team"
+          resourceId="team-1"
+          resourceName="Tigers"
+        />
+      </UIVersionProvider>
     );
   }
 
@@ -394,6 +409,199 @@ describe('InvitationManagement', () => {
       expect(await screen.findByTestId('fan-share-link-active')).toBeInTheDocument();
       expect(await screen.findByTestId('stat-tracker-share-link-active')).toBeInTheDocument();
       expect(screen.getAllByRole('button', { name: 'Copy Link' })).toHaveLength(2);
+    });
+  });
+
+  describe('Account/Public Links grouping (always visible)', () => {
+    it('shows both group headings and descriptions regardless of toggle state', async () => {
+      renderComponent();
+
+      expect(await screen.findByText('Coach & Parent Accounts')).toBeInTheDocument();
+      expect(
+        screen.getByText('Invite coaches to help manage this team, or add parents to your account.')
+      ).toBeInTheDocument();
+      expect(screen.getByText('Public Links (no account)')).toBeInTheDocument();
+      expect(
+        screen.getByText(/Generate a public link so parents\/fans can follow the live score/)
+      ).toBeInTheDocument();
+    });
+
+    it('still shows both group headings in the gated "new" interface version', async () => {
+      renderWithVersion('new');
+
+      expect(await screen.findByText('Coach & Parent Accounts')).toBeInTheDocument();
+      expect(screen.getByText('Public Links (no account)')).toBeInTheDocument();
+    });
+  });
+
+  describe('Public link badges', () => {
+    it('shows a green Read-only badge on the active Fan link', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'active-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderComponent();
+
+      await screen.findByTestId('fan-share-link-active');
+      expect(screen.getByText('Read-only')).toBeInTheDocument();
+    });
+
+    it('shows an amber badge next to the Stat Tracker link\'s "(write access)" label, keeping that wording', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'tracker-token', type: 'STAT_TRACKER', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderComponent();
+
+      await screen.findByTestId('stat-tracker-share-link-active');
+      expect(screen.getByText('Stat Tracker link (write access)')).toBeInTheDocument();
+      expect(screen.getByText('Write access')).toBeInTheDocument();
+    });
+
+    it('does not render badges when no link has been generated yet', async () => {
+      renderComponent();
+
+      await screen.findByRole('button', { name: 'Generate Fan Link' });
+      expect(screen.queryByText('Read-only')).not.toBeInTheDocument();
+      expect(screen.queryByText('Write access')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Parent-role copy correction', () => {
+    it('never describes the Parent invite role as read-only in newly added copy', async () => {
+      const { container } = renderComponent();
+
+      await screen.findByText(/A Parent invite gets the same full team access/);
+
+      // The pre-existing (separately tracked) inaccurate "(Read-only)" labels
+      // on the role <option> and the invitation-role badge are untouched and
+      // intentionally excluded from this assertion — only new copy is checked.
+      const newCopy = screen.getByText(/A Parent invite gets the same full team access/);
+      expect(newCopy.textContent?.toLowerCase()).not.toContain('read-only');
+      expect(newCopy.textContent).toContain('Fan link');
+
+      // Sanity: the pre-existing mislabel is still present elsewhere (out of
+      // scope for this change) so this test documents, not silently fixes, it.
+      expect(container.querySelectorAll('option')[1].textContent).toContain('Read-only');
+    });
+  });
+
+  describe('Public Links detail-control collapse (version === "new" only, split per link type)', () => {
+    it('does not render any collapse toggle in classic mode', async () => {
+      renderComponent();
+      await screen.findByRole('button', { name: 'Generate Fan Link' });
+      expect(screen.queryByRole('button', { name: /link details/i })).not.toBeInTheDocument();
+    });
+
+    it('never shows a collapse toggle for a link that has not been generated yet — its Generate CTA always stays visible', async () => {
+      renderWithVersion('new');
+
+      expect(await screen.findByRole('button', { name: 'Generate Fan Link' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Generate Stat Tracker Link' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /link details/i })).not.toBeInTheDocument();
+      // "Whether a link exists" stays visible too.
+      expect(screen.getAllByText('Not generated yet')).toHaveLength(2);
+    });
+
+    it('defaults to expanded for the Fan link once it is active, independent of the Stat Tracker link', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'active-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderWithVersion('new');
+
+      const toggle = await screen.findByRole('button', { name: 'Hide Fan link details' });
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      expect(await screen.findByTestId('fan-share-link-active')).toBeInTheDocument();
+      // The never-generated Stat Tracker link has no toggle of its own — its CTA just stays visible.
+      expect(screen.queryByRole('button', { name: /stat tracker link details/i })).not.toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Generate Stat Tracker Link' })).toBeInTheDocument();
+    });
+
+    it('collapsing the Fan link details never hides the Stat Tracker link Generate CTA', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'active-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderWithVersion('new');
+
+      const fanToggle = await screen.findByRole('button', { name: 'Hide Fan link details' });
+      fireEvent.click(fanToggle);
+
+      expect(screen.getByRole('button', { name: 'Show Fan link details' })).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByTestId('fan-share-link-active')).not.toBeInTheDocument();
+      // Collapsing the Fan link's details must not affect the Stat Tracker link's CTA.
+      expect(screen.getByRole('button', { name: 'Generate Stat Tracker Link' })).toBeInTheDocument();
+    });
+
+    it('collapsing the Stat Tracker link details never hides the Fan link Generate CTA', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'active-token', type: 'STAT_TRACKER', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderWithVersion('new');
+
+      const trackerToggle = await screen.findByRole('button', { name: 'Hide Stat Tracker link details' });
+      fireEvent.click(trackerToggle);
+
+      expect(screen.getByRole('button', { name: 'Show Stat Tracker link details' })).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByTestId('stat-tracker-share-link-active')).not.toBeInTheDocument();
+      // Collapsing the Stat Tracker link's details must not affect the Fan link's CTA.
+      expect(screen.getByRole('button', { name: 'Generate Fan Link' })).toBeInTheDocument();
+    });
+
+    it('lets a coach manually re-expand a collapsed link detail independently of the other link type', async () => {
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [
+          { token: 'fan-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null },
+          { token: 'tracker-token', type: 'STAT_TRACKER', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null },
+        ],
+      });
+
+      renderWithVersion('new');
+
+      const fanToggle = await screen.findByRole('button', { name: 'Hide Fan link details' });
+      fireEvent.click(fanToggle); // collapse Fan only
+
+      expect(screen.queryByTestId('fan-share-link-active')).not.toBeInTheDocument();
+      // Stat Tracker link stays expanded throughout.
+      expect(screen.getByTestId('stat-tracker-share-link-active')).toBeInTheDocument();
+
+      const reExpand = screen.getByRole('button', { name: 'Show Fan link details' });
+      fireEvent.click(reExpand);
+
+      expect(await screen.findByTestId('fan-share-link-active')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Hide Fan link details' })).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('persists a manual collapse choice per link type across a later refreshShareLinks re-fetch', async () => {
+      // Start with an active Fan link (default-expanded), then manually collapse it.
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'active-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      renderWithVersion('new');
+
+      const hideToggle = await screen.findByRole('button', { name: 'Hide Fan link details' });
+      fireEvent.click(hideToggle);
+
+      const showToggle = await screen.findByRole('button', { name: 'Show Fan link details' });
+      expect(showToggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByTestId('fan-share-link-active')).not.toBeInTheDocument();
+
+      // Simulate a refreshShareLinks() re-fetch resolving again with the same
+      // (still active) link data — the manual collapse must not be
+      // recomputed/overridden back to "expanded" just because the link is active.
+      mockListTeamShareLinks.mockResolvedValue({
+        data: [{ token: 'active-token', type: 'FAN', issuedAt: '2026-01-01T00:00:00.000Z', revokedAt: null }],
+      });
+
+      await waitFor(() => {
+        expect(mockListTeamShareLinks).toHaveBeenCalled();
+      });
+
+      expect(screen.getByRole('button', { name: 'Show Fan link details' })).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByTestId('fan-share-link-active')).not.toBeInTheDocument();
     });
   });
 });

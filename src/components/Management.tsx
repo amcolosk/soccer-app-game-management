@@ -1,4 +1,4 @@
-import { useState, useEffect, useReducer, useMemo } from 'react';
+import { useState, useEffect, useReducer, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { generateClient } from 'aws-amplify/data';
 import { getCurrentUser } from 'aws-amplify/auth';
@@ -22,6 +22,9 @@ import { deleteTeamCascade, deletePlayerCascade, deleteFormationCascade, getPlay
 import { removeDemoData } from '../services/demoDataService';
 import { archiveTeam, restoreTeam, assignTeamOwner } from '../services/teamLifecycleService';
 import { isTeamArchived, isTeamActive, isTeamOwner, isTeamOwnershipAssigned, formatArchivedOn } from '../utils/teamUtils';
+import { useOnboardingOptional } from '../contexts/OnboardingContext';
+import { computeOnboardingSignals } from '../utils/onboardingSignals';
+import { OnboardingNudge } from './Onboarding/OnboardingNudge';
 import { DEFAULT_FORM_VALUES } from '../constants/gameConfig';
 import { computeFormationPositionDiff, scrubDeletedPositionPreferences } from '../utils/formationUtils';
 import { useSwipeDelete } from '../hooks/useSwipeDelete';
@@ -192,6 +195,27 @@ export function Management() {
   const [teamsView, setTeamsView] = useState<'active' | 'archived'>('active');
   const [pendingTeamActionId, setPendingTeamActionId] = useState<string | null>(null);
 
+  // Teams -> Formations cross-link: which formation row to scroll to and
+  // briefly highlight after the coach follows the "Edit →" link on a team
+  // card. Cleared automatically after the highlight window elapses.
+  const [highlightedFormationId, setHighlightedFormationId] = useState<string | null>(null);
+  const formationRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const handleFormationCrossLink = (formationId: string) => {
+    setActiveSection('formations');
+    setHighlightedFormationId(formationId);
+  };
+
+  // Scroll to and briefly highlight the formation row targeted by a Teams ->
+  // Formations cross-link, then clear the highlight after ~1.5s.
+  useEffect(() => {
+    if (activeSection !== 'formations' || !highlightedFormationId) return;
+    const el = formationRowRefs.current[highlightedFormationId];
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const timer = setTimeout(() => setHighlightedFormationId(null), 1500);
+    return () => clearTimeout(timer);
+  }, [activeSection, highlightedFormationId]);
+
   type TeamLifecycleFields = Pick<Team, 'status' | 'ownerId' | 'archivedAt' | 'archivedBy'>;
   const [teamLifecycleOverrides, setTeamLifecycleOverrides] =
     useState<Record<string, TeamLifecycleFields>>({});
@@ -281,6 +305,32 @@ export function Management() {
     [teams, teamLifecycleOverrides]
   );
   const activeTeams = teamsForDisplay.filter(isTeamActive);
+
+  // Onboarding nudge support: Management already has Team/TeamRoster data
+  // (not Game/GamePlan, so those indices are left alone) and can supply
+  // signals 1 (team created), 3 (roster has players), 4 (formation
+  // assigned) locally, so the nudge doesn't go stale when the coach
+  // completes a step here without a round-trip through Home. Patched onto
+  // whatever baseline Home already set in context; no-ops if there's no
+  // baseline yet (see OnboardingContext.patchSignals).
+  const onboardingCtx = useOnboardingOptional();
+  const managementOnboardingSignals = useMemo(
+    () => computeOnboardingSignals({
+      teams: activeTeams,
+      games: [],
+      teamRosters,
+      gamePlans: [],
+      profileComplete: false,
+    }),
+    [activeTeams, teamRosters]
+  );
+  const patchOnboardingSignals = onboardingCtx?.patchSignals;
+  useEffect(() => {
+    patchOnboardingSignals?.(
+      [0, 2, 3],
+      [managementOnboardingSignals[0], managementOnboardingSignals[2], managementOnboardingSignals[3]]
+    );
+  }, [patchOnboardingSignals, managementOnboardingSignals]);
   const archivedTeams = teamsForDisplay.filter(isTeamArchived);
 
   // Override-merged lookup for the team currently being edited. `teamForm.editing`
@@ -1026,33 +1076,35 @@ export function Management() {
           className={`management-tab ${activeSection === 'teams' ? 'active' : ''}`}
           onClick={() => setActiveSection('teams')}
         >
-          Teams ({teams.length})
+          🛡 Teams ({teams.length})
         </button>
         <button
           className={`management-tab ${activeSection === 'formations' ? 'active' : ''}`}
           onClick={() => setActiveSection('formations')}
         >
-          Formations ({accessibleFormations.length})
+          📐 Formations ({accessibleFormations.length})
         </button>
         <button
           className={`management-tab ${activeSection === 'players' ? 'active' : ''}`}
           onClick={() => setActiveSection('players')}
         >
-          Players ({accessiblePlayers.length})
+          👤 Players ({accessiblePlayers.length})
         </button>
         <button
           className={`management-tab ${activeSection === 'sharing' ? 'active' : ''}`}
           onClick={() => setActiveSection('sharing')}
         >
-          Sharing
+          🔗 Sharing
         </button>
         <button
           className={`management-tab ${activeSection === 'app' ? 'active' : ''}`}
           onClick={() => setActiveSection('app')}
         >
-          App
+          ⚙️ App
         </button>
       </div>
+
+      <OnboardingNudge />
 
       {activeSection === 'teams' && (
         <div className="management-section">
@@ -1306,6 +1358,17 @@ export function Management() {
                             )}
                           </p>
                           <p className="item-meta">Roster: {teamRosterList.length} player(s)</p>
+                          {team.formationId && getFormationName(team.formationId) && (
+                            <p className="item-meta item-cross-link">
+                              <button
+                                type="button"
+                                className="btn-link"
+                                onClick={() => handleFormationCrossLink(team.formationId as string)}
+                              >
+                                Uses formation: {getFormationName(team.formationId)} · Edit →
+                              </button>
+                            </p>
+                          )}
                         </div>
                         <div className="card-actions">
                           <button
@@ -1883,7 +1946,12 @@ export function Management() {
                 const isSwiped = swipedItemId === formation.id;
 
                 return (
-                  <div key={formation.id} className="swipeable-item-container">
+                  <div
+                    key={formation.id}
+                    id={`formation-row-${formation.id}`}
+                    ref={(node) => { formationRowRefs.current[formation.id] = node; }}
+                    className={`swipeable-item-container${highlightedFormationId === formation.id ? ' formation-row-highlight' : ''}`}
+                  >
                     <div
                       className="item-card"
                       style={getSwipeStyle(formation.id)}

@@ -294,7 +294,8 @@
     gap: 8px;
   }
 
-  .welcome-primary-button {
+  .welcome-primary-button,
+  .welcome-demo-button {
     width: 100%;
   }
 }

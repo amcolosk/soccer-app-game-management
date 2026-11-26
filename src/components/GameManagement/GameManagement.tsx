@@ -44,6 +44,8 @@ import { CreateEditNoteModal } from "./CreateEditNoteModal";
 import { RotationWidget } from "./RotationWidget";
 import { SubstitutionPanel } from "./SubstitutionPanel";
 import { LineupPanel } from "./LineupPanel";
+import { resolveSecondHalfStarters } from "./halftimeStarters";
+import { HalftimeLineupSummary } from "./HalftimeLineupSummary";
 import { PlanTab, type GenerateRotationsOptions } from "./PlanTab";
 import type { PlannedRotationsUpdateInput, PlannerMutationResult } from "./PlanTab";
 import { CompletedPlayTimeSummary } from "./CompletedPlayTimeSummary";
@@ -51,6 +53,7 @@ import { CompletedGameTimeline } from "./CompletedGameTimeline";
 import { CompletedGameStats } from "./CompletedGameStats";
 import { OfflineBanner } from "../OfflineBanner";
 import { ArchivedTeamBanner } from "../shared/ArchivedTeamBanner";
+import { useUIVersion } from "../../contexts/UIVersionContext";
 import type { Game, Team, FormationPosition, LineupAssignment, PlannedRotation, SubQueue } from "./types";
 import { AvailabilityProvider } from "../../contexts/AvailabilityContext";
 import { useHelpFab } from "../../contexts/HelpFabContext";
@@ -324,6 +327,7 @@ const HALFTIME_OVERLAY_ECHO_GRACE_MS = 10_000;
 
 export function GameManagement({ game, team, onBack, initialTab }: GameManagementProps) {
   const confirm = useConfirm();
+  const { version: uiVersion } = useUIVersion();
   // Load team roster and formation positions with real-time updates
   const { players, positions } = useTeamData(team.id, team.formationId);
   const missingRolePositions = useMemo(() => getMissingRolePositions(positions), [positions]);
@@ -468,6 +472,36 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       ...halftimeLineupOverlay.created.filter((assignment) => !subscribedIds.has(assignment.id)),
     ];
   }, [subscribedLineup, halftimeLineupOverlay]);
+
+  // Lifted out of LineupPanel (was local useState there) so `handleStartSecondHalf`
+  // and `HalftimeLineupSummary` can see which removals are in flight (or queued
+  // offline) and agree with what LineupPanel is optimistically hiding — see
+  // resolveSecondHalfStarters. Passed down to LineupPanel as a controlled prop
+  // pair at all three of its mount sites via `lineupRemovalProps`.
+  const [pendingRemovalIds, setPendingRemovalIds] = useState<Set<string>>(new Set());
+
+  // Prune any id no longer present in `lineup` — once lifted, this state no
+  // longer resets automatically when LineupPanel remounts across a layout
+  // switch (pregame/in-progress/halftime), so a stale id could otherwise
+  // linger indefinitely and mask a position that's actually empty again.
+  useEffect(() => {
+    setPendingRemovalIds((prev) => {
+      if (prev.size === 0) return prev;
+      const liveIds = new Set(
+        lineup.map((assignment) => assignment.id).filter((id): id is string => !!id)
+      );
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (liveIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [lineup]);
 
   // Use per-game half length override when set; fall back to team default.
   // gameState is live-updated via observeQuery so this recomputes reactively.
@@ -962,8 +996,8 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     return conflicts;
   };
 
-  const handleRecalculateRotations = async (options?: GenerateRotationsOptions) => {
-    if (!gamePlan) return;
+  const handleRecalculateRotations = async (options?: GenerateRotationsOptions): Promise<boolean> => {
+    if (!gamePlan) return false;
 
     if (!options?.skipConfirm) {
       const confirmed = await confirm({
@@ -972,7 +1006,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         confirmText: 'Recalculate',
         variant: 'warning',
       });
-      if (!confirmed) return;
+      if (!confirmed) return false;
     }
 
     try {
@@ -1034,7 +1068,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       if (lineupArray.length === 0) {
         showWarning('No available players in the starting lineup. Adjust the lineup in the Game Planner first.');
         setIsRecalculating(false);
-        return;
+        return false;
       }
 
       const halfLengthMinutes = options?.plannerSnapshot?.halfLengthMinutes ?? (gameState.halfLengthMinutes ?? team.halfLengthMinutes ?? 30);
@@ -1135,8 +1169,11 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
 
       await Promise.all(updates);
 
-      showSuccess('Rotations recalculated based on current availability! Review each rotation to verify.');      trackEvent(AnalyticsEvents.ROTATION_RECALCULATED.category, AnalyticsEvents.ROTATION_RECALCULATED.action);    } catch (error) {
+      showSuccess('Rotations recalculated based on current availability! Review each rotation to verify.');      trackEvent(AnalyticsEvents.ROTATION_RECALCULATED.category, AnalyticsEvents.ROTATION_RECALCULATED.action);
+      return true;
+    } catch (error) {
       handleApiError(error, 'Failed to recalculate rotations');
+      return false;
     } finally {
       setIsRecalculating(false);
     }
@@ -1841,17 +1878,17 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       // nothing re-syncs local state afterward (no Game write happens), so doing
       // them first would strand the coach on an in-progress-looking screen with
       // no way back except a reload the moment starters are insufficient.
-      const resolvedLocalStarters = lineup.filter(
-        (l): l is typeof l & { playerId: string; positionId: string } =>
-          l.isStarter && !!l.playerId && !!l.positionId
-      );
-      const resolvedLocalStarterCount = resolvedLocalStarters.length;
-      const expectedStarterCount = team.maxPlayersOnField ?? resolvedLocalStarterCount;
+      const {
+        starters: resolvedStarters,
+        expectedCount: expectedStarterCount,
+      } = resolveSecondHalfStarters({
+        lineup,
+        positions,
+        pendingRemovalIds,
+        maxPlayersOnField: team.maxPlayersOnField,
+      });
 
-      let starters: StarterSelection[] = resolvedLocalStarters.map((starter) => ({
-        playerId: starter.playerId,
-        positionId: starter.positionId,
-      }));
+      let starters: StarterSelection[] = resolvedStarters;
 
       // Note: unlike handleStartGame, this deliberately does NOT fall back to the
       // saved GamePlan halftimeLineup/startingLineup snapshot when local starters
@@ -1862,17 +1899,18 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
       // subscription plus a direct DB re-query (below) are the only sources of
       // truth for what's actually starting the second half.
       //
-      // Residual gap (not closed by this fix): a removal is only visible here
-      // once `lineup` (the subscription prop) reflects the delete. LineupPanel's
-      // own `pendingRemovalIds` hides a just-removed slot optimistically in its
-      // own state, so `resolvedLocalStarterCount` can still read as "full" for a
-      // brief window — or indefinitely while offline, since the delete mutation
-      // is queued rather than applied — in which case neither this DB re-query
-      // nor the check above ever fires, and a still-queued removed player could
-      // still get a second-half PlayTimeRecord. Closing that gap needs the
-      // removal state lifted out of LineupPanel — not fixed here; file a
-      // follow-up issue before acting on it further.
-      if (resolvedLocalStarterCount < expectedStarterCount) {
+      // Fixed gap (previously residual, now closed): a removal is only visible
+      // here once `lineup` (the subscription prop) reflects the delete, and
+      // LineupPanel's own `pendingRemovalIds` hides a just-removed slot
+      // optimistically in its own state — a brief window, or indefinitely while
+      // offline, since the delete mutation is queued rather than applied. That
+      // state is now lifted out of LineupPanel into this component (see
+      // `pendingRemovalIds` above) and threaded through `resolveSecondHalfStarters`
+      // AND the DB-fallback filter just below, so a removal still in flight or
+      // queued offline is excluded from both the local resolution and the
+      // fallback query — it can no longer be silently reinstated for the second
+      // half (closes the residual gap in the #182/#190 fix).
+      if (starters.length < expectedStarterCount) {
         const fallbackAssignments = await client.models.LineupAssignment.list({
           filter: {
             gameId: { eq: game.id },
@@ -1881,13 +1919,16 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
         });
 
         const dbStarters = fallbackAssignments.data.filter(
-          (l): l is typeof l & { playerId: string; positionId: string } => !!l.playerId && !!l.positionId
+          (l): l is typeof l & { playerId: string; positionId: string } =>
+            !!l.playerId
+            && !!l.positionId
+            && !(l.id ? pendingRemovalIds.has(l.id) : false)
         ).map((starter) => ({
           playerId: starter.playerId,
           positionId: starter.positionId,
         }));
 
-        if (dbStarters.length > resolvedLocalStarters.length) {
+        if (dbStarters.length > starters.length) {
           starters = dbStarters;
         }
       }
@@ -2338,6 +2379,14 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
     onResetViewPreference: handleResetLineupViewPreference,
   };
 
+  // Separate from sharedLineupPanelProps, which is also spread into the two
+  // PlanTab mounts above — PlanTabProps has nothing to do with lineup removal,
+  // so only the three LineupPanel mount sites below receive this pair.
+  const lineupRemovalProps = {
+    pendingRemovalIds,
+    onPendingRemovalChange: setPendingRemovalIds,
+  };
+
   const sharedGoalTrackerProps = {
     gameState,
     game,
@@ -2557,6 +2606,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
               >
                 <LineupPanel
                   {...sharedLineupPanelProps}
+                  {...lineupRemovalProps}
                   hideAvailablePlayers={true}
                 />
               </div>
@@ -2692,6 +2742,7 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
               >
                 <LineupPanel
                   {...sharedLineupPanelProps}
+                  {...lineupRemovalProps}
                   hideAvailablePlayers={true}
                 />
                 {import.meta.env.DEV && (
@@ -2828,7 +2879,15 @@ export function GameManagement({ game, team, onBack, initialTab }: GameManagemen
               onApplyHalftimeSubs={handleApplyHalftimeSubs}
               getPlanConflicts={getPlanConflicts}
             />
-            <LineupPanel {...sharedLineupPanelProps} />
+            <LineupPanel {...sharedLineupPanelProps} {...lineupRemovalProps} />
+            {uiVersion === 'new' && (
+              <HalftimeLineupSummary
+                lineup={lineup}
+                positions={positions}
+                pendingRemovalIds={pendingRemovalIds}
+                maxPlayersOnField={team.maxPlayersOnField}
+              />
+            )}
             <div className="halftime-actions">
               <button
                 onClick={() => {

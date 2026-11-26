@@ -1,8 +1,9 @@
 ﻿/* eslint-disable @typescript-eslint/no-explicit-any */
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlanTab, RotationSubstitutionsList } from "./PlanTab";
+import { UIVersionProvider } from "../../contexts/UIVersionContext";
 import type {
   FormationPosition,
   Game,
@@ -1544,6 +1545,329 @@ describe("PlanTab", () => {
         />
       );
       expect(screen.getByRole("button", { name: /export plan as csv/i })).toBeInTheDocument();
+    });
+  });
+
+  // ── §6: Game Planner CTA reorder + post-generate summary (Interface Mode toggle) ──
+  describe("Interface Mode ('new'): Planner CTA reorder + advanced disclosure + summary", () => {
+    beforeEach(() => {
+      localStorage.setItem("teamtrack-ui-version", "new");
+    });
+
+    afterEach(() => {
+      localStorage.removeItem("teamtrack-ui-version");
+    });
+
+    it("renders Generate Rotations as a sibling after the availability grid, not inside the Rotation Settings card", () => {
+      const onGenerateRotations = vi.fn().mockResolvedValue(true);
+      const { container } = render(
+        <UIVersionProvider>
+          <PlanTab {...defaultProps} onGenerateRotations={onGenerateRotations} />
+        </UIVersionProvider>
+      );
+
+      const grid = screen.getByTestId("player-availability-grid");
+      const generateBtn = screen.getByRole("button", { name: /generate rotations/i });
+
+      expect(grid.contains(generateBtn)).toBe(false);
+      expect(generateBtn.closest(".rotation-settings-card")).toBeNull();
+
+      const domOrder = Array.from(container.querySelectorAll("[data-testid], button"));
+      const gridIndex = domOrder.findIndex((el) => el.getAttribute("data-testid") === "player-availability-grid");
+      const btnIndex = domOrder.indexOf(generateBtn);
+      expect(btnIndex).toBeGreaterThan(gridIndex);
+    });
+
+    it("still gates Generate Rotations on isScheduled && !readOnly and its own onGenerateRotations guard", () => {
+      const onGenerateRotations = vi.fn().mockResolvedValue(true);
+      render(
+        <UIVersionProvider>
+          <PlanTab
+            {...defaultProps}
+            readOnly={true}
+            game={{ ...mockGame, status: "in-progress" } as Game}
+            onGenerateRotations={onGenerateRotations}
+          />
+        </UIVersionProvider>
+      );
+      expect(screen.queryByRole("button", { name: /generate rotations/i })).not.toBeInTheDocument();
+    });
+
+    it("does not render Generate Rotations when onGenerateRotations is not provided, even though players exist", () => {
+      render(
+        <UIVersionProvider>
+          <PlanTab {...defaultProps} onGenerateRotations={undefined} />
+        </UIVersionProvider>
+      );
+      expect(screen.queryByRole("button", { name: /generate rotations/i })).not.toBeInTheDocument();
+    });
+
+    it("collapses Half length / Every (min) into a 'Rotation timing (advanced)' disclosure, closed by default", () => {
+      render(
+        <UIVersionProvider>
+          <PlanTab {...defaultProps} />
+        </UIVersionProvider>
+      );
+
+      expect(screen.queryByLabelText("Half length (minutes)")).not.toBeInTheDocument();
+      expect(screen.queryByText("Every (min)")).not.toBeInTheDocument();
+
+      const toggle = screen.getByRole("button", { name: /rotation timing \(advanced\)/i });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+      fireEvent.click(toggle);
+
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByLabelText("Half length (minutes)")).toBeInTheDocument();
+      expect(screen.getByText("Every (min)")).toBeInTheDocument();
+    });
+
+    it("renders nothing for Rotation Settings (including the advanced disclosure) in readOnly mode", () => {
+      render(
+        <UIVersionProvider>
+          <PlanTab
+            {...defaultProps}
+            readOnly={true}
+            game={{ ...mockGame, status: "in-progress" } as Game}
+          />
+        </UIVersionProvider>
+      );
+      expect(screen.queryByText("Rotation Settings")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /rotation timing \(advanced\)/i })).not.toBeInTheDocument();
+    });
+
+    it("styles Save Plan as secondary", () => {
+      render(
+        <UIVersionProvider>
+          <PlanTab {...defaultProps} gamePlan={null} plannedRotations={[]} />
+        </UIVersionProvider>
+      );
+      const saveBtn = screen.getByRole("button", { name: /save plan/i });
+      expect(saveBtn.className).toContain("btn-secondary");
+      expect(saveBtn.className).not.toContain("btn-primary");
+    });
+
+    it("does not arm the post-generate summary when onGenerateRotations resolves false (cancel/early-return)", async () => {
+      const onGenerateRotations = vi.fn().mockResolvedValue(false);
+      render(
+        <UIVersionProvider>
+          <PlanTab {...defaultProps} onGenerateRotations={onGenerateRotations} />
+        </UIVersionProvider>
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: /generate rotations/i }));
+      await waitFor(() => expect(onGenerateRotations).toHaveBeenCalled());
+
+      expect(screen.queryByText("Rotations generated")).not.toBeInTheDocument();
+    });
+
+    it("shows the summary only once armed by a true resolution AND plannedRotations' fingerprint has moved on from the click-time snapshot", async () => {
+      const onGenerateRotations = vi.fn().mockResolvedValue(true);
+      const { rerender } = render(
+        <UIVersionProvider>
+          <PlanTab
+            {...defaultProps}
+            onGenerateRotations={onGenerateRotations}
+            plannedRotations={mockPlannedRotations}
+          />
+        </UIVersionProvider>
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: /generate rotations/i }));
+      await waitFor(() => expect(onGenerateRotations).toHaveBeenCalled());
+
+      // Armed (resolved true), but plannedRotations hasn't changed yet -> no summary rendered.
+      expect(screen.queryByText("Rotations generated")).not.toBeInTheDocument();
+
+      const updatedRotations: PlannedRotation[] = [
+        {
+          ...mockPlannedRotations[0],
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: "player-2", playerInId: "player-3", positionId: "pos-2" },
+            { playerOutId: "player-1", playerInId: "player-3", positionId: "pos-1" },
+          ]),
+        } as PlannedRotation,
+      ];
+
+      rerender(
+        <UIVersionProvider>
+          <PlanTab
+            {...defaultProps}
+            onGenerateRotations={onGenerateRotations}
+            plannedRotations={updatedRotations}
+          />
+        </UIVersionProvider>
+      );
+
+      expect(screen.getByText("Rotations generated")).toBeInTheDocument();
+      expect(screen.getByText(/2 subs/)).toBeInTheDocument();
+    });
+
+    it("hides the summary once an unrelated manual edit changes plannedRotations further, instead of staying stuck", async () => {
+      const onGenerateRotations = vi.fn().mockResolvedValue(true);
+      const { rerender } = render(
+        <UIVersionProvider>
+          <PlanTab
+            {...defaultProps}
+            onGenerateRotations={onGenerateRotations}
+            plannedRotations={mockPlannedRotations}
+          />
+        </UIVersionProvider>
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: /generate rotations/i }));
+      await waitFor(() => expect(onGenerateRotations).toHaveBeenCalled());
+
+      const generatedRotations: PlannedRotation[] = [
+        {
+          ...mockPlannedRotations[0],
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: "player-2", playerInId: "player-3", positionId: "pos-2" },
+            { playerOutId: "player-1", playerInId: "player-3", positionId: "pos-1" },
+          ]),
+        } as PlannedRotation,
+      ];
+
+      rerender(
+        <UIVersionProvider>
+          <PlanTab
+            {...defaultProps}
+            onGenerateRotations={onGenerateRotations}
+            plannedRotations={generatedRotations}
+          />
+        </UIVersionProvider>
+      );
+
+      // Summary shows right after the generated data lands.
+      expect(screen.getByText("Rotations generated")).toBeInTheDocument();
+
+      // A later, unrelated manual edit changes the content further.
+      const editedRotations: PlannedRotation[] = [
+        {
+          ...generatedRotations[0],
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: "player-2", playerInId: "player-3", positionId: "pos-2" },
+          ]),
+        } as PlannedRotation,
+      ];
+
+      rerender(
+        <UIVersionProvider>
+          <PlanTab
+            {...defaultProps}
+            onGenerateRotations={onGenerateRotations}
+            plannedRotations={editedRotations}
+          />
+        </UIVersionProvider>
+      );
+
+      // Summary must disappear — it should not misattribute this later edit as "just generated".
+      expect(screen.queryByText("Rotations generated")).not.toBeInTheDocument();
+    });
+
+    it("tapping a summary row jumps to that rotation's existing Details Panel (via the same timeline-selection path as pill taps)", async () => {
+      const onGenerateRotations = vi.fn().mockResolvedValue(true);
+      const { rerender } = render(
+        <UIVersionProvider>
+          <PlanTab
+            {...defaultProps}
+            onGenerateRotations={onGenerateRotations}
+            plannedRotations={mockPlannedRotations}
+          />
+        </UIVersionProvider>
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: /generate rotations/i }));
+      await waitFor(() => expect(onGenerateRotations).toHaveBeenCalled());
+
+      const updatedRotations: PlannedRotation[] = [
+        {
+          ...mockPlannedRotations[0],
+          plannedSubstitutions: JSON.stringify([
+            { playerOutId: "player-2", playerInId: "player-3", positionId: "pos-2" },
+          ]),
+        } as PlannedRotation,
+      ];
+
+      rerender(
+        <UIVersionProvider>
+          <PlanTab
+            {...defaultProps}
+            onGenerateRotations={onGenerateRotations}
+            plannedRotations={updatedRotations}
+          />
+        </UIVersionProvider>
+      );
+
+      const summaryRow = screen.getByRole("button", { name: /minute 10/i });
+      await userEvent.click(summaryRow);
+
+      expect(mockPlannerResult.selectTimelineKey).toHaveBeenCalled();
+    });
+  });
+
+  describe("Interface Mode ('classic'): unchanged layout — UI-VERSION-CLASSIC", () => {
+    beforeEach(() => {
+      localStorage.setItem("teamtrack-ui-version", "classic");
+    });
+
+    afterEach(() => {
+      localStorage.removeItem("teamtrack-ui-version");
+    });
+
+    it("keeps Generate Rotations and Copy from game inside the Rotation Settings card, in the original order", () => {
+      const onGenerateRotations = vi.fn().mockResolvedValue(true);
+      render(
+        <UIVersionProvider>
+          <PlanTab {...defaultProps} onGenerateRotations={onGenerateRotations} />
+        </UIVersionProvider>
+      );
+
+      const generateBtn = screen.getByRole("button", { name: /generate rotations/i });
+      expect(generateBtn.closest(".rotation-settings-card")).not.toBeNull();
+    });
+
+    it("keeps Half length / Every (min) always visible, with no disclosure toggle", () => {
+      render(
+        <UIVersionProvider>
+          <PlanTab {...defaultProps} />
+        </UIVersionProvider>
+      );
+
+      expect(screen.getByLabelText("Half length (minutes)")).toBeInTheDocument();
+      expect(screen.getByText("Every (min)")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /rotation timing \(advanced\)/i })).not.toBeInTheDocument();
+    });
+
+    it("never shows the post-generate summary, even after a successful generate", async () => {
+      const onGenerateRotations = vi.fn().mockResolvedValue(true);
+      const { rerender } = render(
+        <UIVersionProvider>
+          <PlanTab
+            {...defaultProps}
+            onGenerateRotations={onGenerateRotations}
+            plannedRotations={mockPlannedRotations}
+          />
+        </UIVersionProvider>
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: /generate rotations/i }));
+      await waitFor(() => expect(onGenerateRotations).toHaveBeenCalled());
+
+      const updatedRotations: PlannedRotation[] = [
+        { ...mockPlannedRotations[0], plannedSubstitutions: JSON.stringify([]) } as PlannedRotation,
+      ];
+      rerender(
+        <UIVersionProvider>
+          <PlanTab
+            {...defaultProps}
+            onGenerateRotations={onGenerateRotations}
+            plannedRotations={updatedRotations}
+          />
+        </UIVersionProvider>
+      );
+
+      expect(screen.queryByText("Rotations generated")).not.toBeInTheDocument();
     });
   });
 });

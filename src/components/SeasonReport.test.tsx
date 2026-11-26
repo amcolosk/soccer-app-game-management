@@ -286,6 +286,67 @@ describe('TeamReport', () => {
     expect(playerRow).toHaveAttribute('aria-selected', 'false');
   });
 
+  it('shows the Overview card with zeroed defaults for a player with every drill-down section empty', async () => {
+    // Override the default beforeEach data so this player has no goals, shots,
+    // saves, notes, or play time at all — every details card would be hidden.
+    //
+    // NOTE: data arrays below are hoisted to stable per-invocation references
+    // (see the Issue #203 comment further down in this file) so that the
+    // re-render triggered by the row click doesn't make mockUseAmplifyQuery
+    // look like it delivered "new" data on every call — that would make the
+    // gamesSynced/allGames-keyed effect in SeasonReport.tsx loop forever.
+    const rosterData = [{ id: 'roster-1', teamId: 'team-1', playerId: 'player-1', playerNumber: 10 }];
+    const playerData = [{ id: 'player-1', firstName: 'Sam', lastName: 'Lee' }];
+    const gameData = [
+      {
+        id: 'game-1',
+        teamId: 'team-1',
+        status: 'completed',
+        elapsedSeconds: 600,
+        ourScore: 1,
+        opponentScore: 0,
+        gameDate: '2030-06-01',
+        opponent: 'Rivals',
+      },
+    ];
+    const fieldPositionData = [{ id: 'pos-1', positionName: 'Forward', sortOrder: 1 }];
+    const emptyData: unknown[] = [];
+
+    mockUseAmplifyQuery.mockImplementation((modelName: string) => {
+      if (modelName === 'TeamRoster') return { data: rosterData, isSynced: true };
+      if (modelName === 'Player') return { data: playerData, isSynced: true };
+      if (modelName === 'Game') return { data: gameData, isSynced: true };
+      if (modelName === 'FieldPosition') return { data: fieldPositionData, isSynced: true };
+      return { data: emptyData, isSynced: true };
+    });
+
+    mockGoalList.mockResolvedValue({ data: [], nextToken: null });
+    mockShotList.mockResolvedValue({ data: [], nextToken: null });
+    mockSaveList.mockResolvedValue({ data: [], nextToken: null });
+    mockGameNoteList.mockResolvedValue({ data: [], nextToken: null });
+    mockPlayTimeByGame.mockResolvedValue({ data: [], nextToken: null });
+
+    render(
+      <TeamReport
+        team={{ id: 'team-1', name: 'Tigers', coaches: [] } as never}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sam Lee/)).toBeInTheDocument();
+    });
+
+    await userEvent.setup().click(screen.getByText(/Sam Lee/).closest('tr')!);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /^Overview$/i })).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole('heading', { name: /Goalkeeper Stats/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Play Time by Position/i })).not.toBeInTheDocument();
+    expect(screen.getByText('No recorded activity for this player yet.')).toBeInTheDocument();
+  });
+
   it('renders assists-inclusive goals-by-position rows sorted by goals then assists', async () => {
     mockUseAmplifyQuery.mockImplementation((modelName: string) => {
       if (modelName === 'TeamRoster') {

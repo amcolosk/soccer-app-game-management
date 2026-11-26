@@ -381,3 +381,17 @@
     transition: none;
   }
 }
+
+/* "See all steps" expand control (Interface Mode 'new' only — default
+   render shows just the next incomplete merged step). */
+.quick-start-see-all {
+  background: none;
+  border: none;
+  color: var(--primary-green);
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 8px 4px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}

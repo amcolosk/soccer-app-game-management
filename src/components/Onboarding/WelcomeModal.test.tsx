@@ -22,7 +22,11 @@ import React from 'react';
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
-const { mockTrackEvent } = vi.hoisted(() => ({ mockTrackEvent: vi.fn() }));
+const { mockTrackEvent, mockCreateDemoTeam, mockShowError } = vi.hoisted(() => ({
+  mockTrackEvent: vi.fn(),
+  mockCreateDemoTeam: vi.fn(),
+  mockShowError: vi.fn(),
+}));
 
 vi.mock('../../utils/analytics', () => ({
   trackEvent: (...args: unknown[]) => mockTrackEvent(...args),
@@ -32,6 +36,14 @@ vi.mock('../../utils/analytics', () => ({
   },
 }));
 
+vi.mock('../../services/demoDataService', () => ({
+  createDemoTeam: (...args: unknown[]) => mockCreateDemoTeam(...args),
+}));
+
+vi.mock('../../utils/toast', () => ({
+  showError: (...args: unknown[]) => mockShowError(...args),
+}));
+
 import { WelcomeModal } from './WelcomeModal';
 
 // ---------------------------------------------------------------------------
@@ -39,6 +51,7 @@ import { WelcomeModal } from './WelcomeModal';
 // ---------------------------------------------------------------------------
 function renderModal(overrides: Partial<React.ComponentProps<typeof WelcomeModal>> = {}) {
   const props = {
+    userId: 'test-user-id',
     onClose: vi.fn(),
     onGetStarted: vi.fn(),
     ...overrides,
@@ -182,6 +195,90 @@ describe('WelcomeModal — focus management', () => {
     });
 
     document.body.removeChild(trigger);
+  });
+});
+
+describe('WelcomeModal — demo team button', () => {
+  beforeEach(() => {
+    mockTrackEvent.mockClear();
+    mockCreateDemoTeam.mockReset();
+    mockShowError.mockClear();
+  });
+
+  it('renders the "Show me with a demo team" button', () => {
+    renderModal();
+    expect(screen.getByRole('button', { name: /show me with a demo team/i })).toBeInTheDocument();
+  });
+
+  it('calls createDemoTeam with the userId prop when clicked', async () => {
+    mockCreateDemoTeam.mockResolvedValue(undefined);
+    renderModal({ userId: 'coach-42' });
+
+    await userEvent.click(screen.getByRole('button', { name: /show me with a demo team/i }));
+
+    expect(mockCreateDemoTeam).toHaveBeenCalledWith('coach-42');
+  });
+
+  it('dismisses via onGetStarted on success', async () => {
+    mockCreateDemoTeam.mockResolvedValue(undefined);
+    const { onGetStarted, onClose } = renderModal();
+
+    await userEvent.click(screen.getByRole('button', { name: /show me with a demo team/i }));
+
+    await waitFor(() => expect(onGetStarted).toHaveBeenCalledTimes(1));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('dismisses via onGetStarted even when createDemoTeam no-ops (demo already exists on this device)', async () => {
+    // createDemoTeam() resolves void without throwing when it no-ops (its
+    // own idempotency guard) — the button must still proceed to dismiss.
+    mockCreateDemoTeam.mockResolvedValue(undefined);
+    const { onGetStarted } = renderModal();
+
+    await userEvent.click(screen.getByRole('button', { name: /show me with a demo team/i }));
+
+    await waitFor(() => expect(onGetStarted).toHaveBeenCalledTimes(1));
+    expect(mockShowError).not.toHaveBeenCalled();
+  });
+
+  it('shows an error toast and stays on the modal when createDemoTeam fails', async () => {
+    mockCreateDemoTeam.mockRejectedValue(new Error('Demo data requires an internet connection'));
+    const { onGetStarted, onClose } = renderModal();
+
+    await userEvent.click(screen.getByRole('button', { name: /show me with a demo team/i }));
+
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('Demo data requires an internet connection'));
+    expect(onGetStarted).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    // Modal should still be mounted/visible
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('disables the button and does not call createDemoTeam when userId has not resolved yet', async () => {
+    renderModal({ userId: '' });
+
+    const button = screen.getByRole('button', { name: /show me with a demo team/i });
+    expect(button).toBeDisabled();
+
+    await userEvent.click(button);
+
+    expect(mockCreateDemoTeam).not.toHaveBeenCalled();
+  });
+
+  it('disables the button while the demo team creation is in flight', async () => {
+    let resolveCreate: (() => void) | undefined;
+    mockCreateDemoTeam.mockImplementation(
+      () => new Promise<void>((resolve) => { resolveCreate = resolve; })
+    );
+    renderModal();
+
+    const button = screen.getByRole('button', { name: /show me with a demo team/i });
+    await userEvent.click(button);
+
+    expect(screen.getByRole('button', { name: /setting up demo team/i })).toBeDisabled();
+
+    resolveCreate?.();
+    await waitFor(() => expect(screen.queryByText(/setting up demo team/i)).not.toBeInTheDocument());
   });
 });
 

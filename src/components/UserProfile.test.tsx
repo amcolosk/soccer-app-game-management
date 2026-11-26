@@ -34,6 +34,7 @@ vi.mock("@aws-amplify/ui-react", () => ({
 
 vi.mock("react-router-dom", () => ({
   useOutletContext: () => ({ signOut: vi.fn() }),
+  useNavigate: () => vi.fn(),
 }));
 
 vi.mock("aws-amplify/auth", () => ({
@@ -218,5 +219,32 @@ describe('UserProfile – coach profile form', () => {
     });
 
     expect(screen.queryByText('Your profile was updated elsewhere.')).not.toBeInTheDocument();
+  });
+});
+
+describe('UserProfile – Interface Mode control', () => {
+  it('renders the Interface Mode toggle and calls setVersion on click', async () => {
+    const { UIVersionProvider } = await import('../contexts/UIVersionContext');
+
+    await act(async () => {
+      render(
+        <UIVersionProvider>
+          <UserProfile />
+        </UIVersionProvider>
+      );
+    });
+
+    expect(screen.getByText('Interface Mode')).toBeInTheDocument();
+    expect(
+      screen.getByText('Changes layout and flow on several screens (Halftime, Sharing, Game Planner, Setup).')
+    ).toBeInTheDocument();
+
+    const group = screen.getByRole('group', { name: 'Interface Mode' });
+    const classicButton = screen.getByRole('button', { name: 'Classic' });
+    expect(group).toContainElement(classicButton);
+
+    await userEvent.click(classicButton);
+
+    expect(classicButton).toHaveAttribute('aria-pressed', 'true');
   });
 });
